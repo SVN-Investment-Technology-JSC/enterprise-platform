@@ -1183,15 +1183,18 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     expect(screen.queryByLabelText('Làm qua đêm')).toBeNull();
     expect(screen.queryByLabelText('Đến ngày giờ làm thêm (ngày)')).toBeNull();
     // Ô sáng hôm sau luôn hiện (mặc định làm việc bình thường), không phụ thuộc khoảng có qua đêm hay không.
-    expect((screen.getByLabelText('Sáng hôm sau') as HTMLSelectElement).value).toBe('WORK');
+    expect((screen.getByLabelText('Sáng hôm sau') as HTMLInputElement).value).toBe('Làm việc bình thường');
     // Mặc định 17:30 - 20:30; đặt bắt đầu 21:00 (sau giờ kết thúc cũ): tự hiểu là qua đêm.
     fireEvent.change(fromTime, { target: { value: '2100' } });
     fireEvent.blur(fromTime);
     expect(fromTime.value).toBe('21:00');
     expect(toTime.value).toBe('20:30');
-    const morning = screen.getByLabelText('Sáng hôm sau') as HTMLSelectElement;
-    expect(morning.value).toBe('WORK');
-    expect(Array.from(morning.options).map((o) => o.text)).toEqual(['Làm việc bình thường', 'Nghỉ cả ngày', 'Nghỉ nửa ngày']);
+    const morning = screen.getByLabelText('Sáng hôm sau') as HTMLInputElement;
+    expect(morning.value).toBe('Làm việc bình thường');
+    fireEvent.click(morning);
+    for (const text of ['Nghỉ cả ngày', 'Nghỉ nửa ngày']) expect(await screen.findByText(text)).toBeTruthy();
+    // Chọn lại giá trị mặc định để đóng danh sách.
+    fireEvent.click(await screen.findByText('Làm việc bình thường'));
     expect(screen.queryByText(/Giờ kết thúc phải khác giờ bắt đầu/)).toBeNull();
     // Đặt kết thúc 23:00 (sau giờ bắt đầu): khoảng nằm trong một ngày, ô sáng hôm sau vẫn hiện.
     fireEvent.change(toTime, { target: { value: '2300' } });
@@ -1260,11 +1263,11 @@ describe('Loại đơn cấu hình và thời gian từ ngày giờ đến ngày
     const to = within(extra).getByLabelText('Giờ kết thúc') as HTMLInputElement;
     fireEvent.change(to, { target: { value: '0400' } });
     fireEvent.blur(to);
-    const morning = (await within(extra).findByLabelText('Sáng hôm sau')) as HTMLSelectElement;
-    expect(morning.value).toBe('WORK');
-    const option = Array.from(morning.options).find((o) => o.text === optionText)!;
-    fireEvent.change(morning, { target: { value: option.value } });
-    expect(morning.value).toBe(option.value);
+    const morning = (await within(extra).findByLabelText('Sáng hôm sau')) as HTMLInputElement;
+    expect(morning.value).toBe('Làm việc bình thường');
+    fireEvent.click(morning);
+    fireEvent.click(await screen.findByText(optionText));
+    await waitFor(() => expect(morning.value).toBe(optionText));
     // Máy chủ tính lại khoảng vừa đổi (có trễ nhỏ) rồi mới gửi được.
     await new Promise((resolve) => setTimeout(resolve, 700));
     await waitFor(() => expect(submitButton().disabled).toBe(false));

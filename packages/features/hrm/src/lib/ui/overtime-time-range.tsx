@@ -1,6 +1,7 @@
 'use client';
 import { useState, type ReactNode } from 'react';
 import type { HrmRequestTimePreview } from '@enterprise-platform/contracts-hrm';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from './date-picker-input';
 import { splitDateTime } from './date-time-input';
 import { useRequestTimePreview } from './request-time-range';
@@ -12,6 +13,12 @@ export function nextDateOf(date: string): string {
   if (!m) return '';
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + 1)).toISOString().slice(0, 10);
 }
+
+const NEXT_MORNING_OPTIONS = [
+  { value: 'WORK', label: 'Làm việc bình thường' },
+  { value: 'FULL', label: 'Nghỉ cả ngày' },
+  { value: 'HALF', label: 'Nghỉ nửa ngày' },
+] as const;
 
 /** Sáng hôm sau của ca qua đêm: làm việc bình thường, nghỉ cả ngày hoặc nghỉ nửa ngày. */
 export type NextMorning = 'WORK' | 'FULL' | 'HALF';
@@ -129,19 +136,17 @@ export function OvertimeTimeRange({
         </label>
         {onMorningWorkedChange && (
           <label className="block w-48 space-y-1">
-            {caption('Sáng hôm sau')}
-            <select
-              id={`${idPrefix}-next-morning`}
-              aria-label="Sáng hôm sau"
-              className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 disabled:opacity-60"
+            {compact ? <span className="sr-only">Sáng hôm sau</span> : caption('Sáng hôm sau')}
+            <SearchableSelect
+              options={NEXT_MORNING_OPTIONS}
               value={morning}
+              height={36}
+              searchInDropdown
+              hideDropdownSearch
+              clearable={false}
               disabled={disabled}
-              onChange={(e) => chooseMorning(e.target.value as NextMorning)}
-            >
-              <option value="WORK">Làm việc bình thường</option>
-              <option value="FULL">Nghỉ cả ngày</option>
-              <option value="HALF">Nghỉ nửa ngày</option>
-            </select>
+              onChange={(value) => value && chooseMorning(value as NextMorning)}
+            />
           </label>
         )}
         <div className="flex h-9 w-[4.5rem] shrink-0 items-center">{trailing}</div>
