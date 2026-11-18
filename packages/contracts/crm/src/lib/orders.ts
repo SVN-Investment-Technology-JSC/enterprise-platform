@@ -7,7 +7,7 @@
  * giá vốn thực tế.
  */
 import type { CrmHistoryEntry, CrmReservationStatus } from './contracts.js';
-import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
+import type { AppliedDiscountPolicy, PriceSource, PricingStatus } from './pricing.js';
 import type { QuoteShipping } from './quotes.js';
 import type { OrderCreditRequest, OrderReceivableBalance } from './receivables.js';
 
@@ -245,6 +245,11 @@ export interface SalesOrderDetail extends SalesOrderSummary {
   readonly infoNotedBy: string | null;
   readonly infoNotedAt: string | null;
   readonly priceDate: string | null;
+  /** Bảng giá; đơn từ báo giá lấy theo phiên bản báo giá và không đổi được. */
+  readonly priceListId: string | null;
+  readonly priceListCode: string | null;
+  readonly priceListName: string | null;
+  readonly priceListStatus: PricingStatus | null;
   readonly shipping: Omit<QuoteShipping, 'cost'>;
   readonly totals: SalesOrderTotals;
   readonly revision: number;
@@ -297,6 +302,8 @@ export interface CreateSalesOrderRequest {
   readonly deliveryAddress?: string | null;
   readonly note?: string | null;
   readonly priceDate?: string | null;
+  /** Bảng giá, bắt buộc khi đơn có dòng (`PRICE_LIST_REQUIRED`); đơn từ báo giá bỏ qua. */
+  readonly priceListId?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null } | null;
   readonly lines?: readonly SaveSalesOrderLineRequest[];
 }
@@ -308,6 +315,8 @@ export interface UpdateSalesOrderRequest {
   readonly deliveryAddress?: string | null;
   readonly note?: string | null;
   readonly priceDate?: string | null;
+  /** Bảng giá, bắt buộc khi đơn có dòng (`PRICE_LIST_REQUIRED`); đơn từ báo giá bỏ qua. */
+  readonly priceListId?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null } | null;
   /** Thay toàn bộ dòng (chỉ đơn Nháp, không phải đơn từ báo giá); bỏ trống thì giữ dòng. */
   readonly lines?: readonly SaveSalesOrderLineRequest[];
