@@ -126,6 +126,7 @@ export function PriceListsPage() {
                 Sửa
               </button>
               <Popconfirm
+                placement="left"
                 title="Xoá bảng giá?"
                 description={
                   row.usageCount
@@ -453,6 +454,7 @@ function PriceListItems({ priceListId, canManage, onChanged }: { priceListId: st
             </button>
             {row.priceMode === 'MANUAL' ? (
               <Popconfirm
+                placement="left"
                 title="Bỏ giá tay?"
                 description="Dòng quay về giá theo tỷ lệ của bảng mặc định."
                 okText="Bỏ giá tay"
