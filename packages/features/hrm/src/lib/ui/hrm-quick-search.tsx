@@ -859,7 +859,7 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
                   onClick={() => pick(row)}
                 >
                   <span
-                    className={`size-7 rounded-md flex items-center justify-center shrink-0 ${
+                    className={`size-7 rounded-md flex items-center justify-center shrink-0 has-[>svg[data-brand-slot]]:overflow-hidden has-[>svg[data-brand-slot]]:bg-transparent has-[>svg[data-brand-slot]]:group-hover:bg-transparent [&>svg[data-brand-slot]]:size-full ${
                       isSelected
                         ? 'bg-amber-100 text-amber-800'
                         : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'

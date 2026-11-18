@@ -12,6 +12,7 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   UpdateMaterialRequest,
+  InternalMaterialCatalogFingerprint,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
   MaterialKind,
@@ -668,7 +669,7 @@ export class PostgresInventoryStore implements InventoryStore {
       // Tra theo id, mã thì trả cả mã đã ngừng dùng: bên gọi đang giữ tham chiếu tới chúng.
       if (query.ids?.length) where.push(`m.id = ANY(${push([...query.ids])}::uuid[])`);
       if (query.codes?.length) where.push(`m.code = ANY(${push([...query.codes])}::text[])`);
-      if (!query.ids?.length && !query.codes?.length) where.push('m.is_active = true');
+      if (!query.ids?.length && !query.codes?.length && !query.includeInactive) where.push('m.is_active = true');
       if (query.search) {
         const pattern = push(`%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
         where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern} OR m.trade_category ILIKE ${pattern})`);
@@ -705,6 +706,26 @@ export class PostgresInventoryStore implements InventoryStore {
         values,
       );
       return result.rows.map(mapCatalogItem);
+    },
+
+    catalogFingerprint: async (
+      tenantId: string,
+      kinds: readonly MaterialKind[],
+    ): Promise<InternalMaterialCatalogFingerprint> => {
+      const pool = await this.poolFor(tenantId);
+      // Giá rỗng ghi '<null>' để khác giá 0; danh mục rỗng ra md5('') cố định.
+      const result = await pool.query<{ count: string; fingerprint: string }>(
+        `SELECT count(*) AS count,
+                md5(COALESCE(string_agg(
+                  concat_ws('|', id::text, code, name, COALESCE(unit, ''),
+                            COALESCE(sale_price::text, '<null>'), is_active::text),
+                  E'\n' ORDER BY id), '')) AS fingerprint
+           FROM inventory_schema.materials
+          WHERE kind = ANY($1::text[])`,
+        [[...kinds]],
+      );
+      const row = result.rows[0];
+      return { count: Number(row?.count ?? 0), fingerprint: String(row?.fingerprint ?? '') };
     },
 
     tradeCategories: async (tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]> => {

@@ -10,20 +10,18 @@ import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
 import type { ProcedureClient, StartProcedureInstance } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { PostgresBusinessPlanStore } from './infrastructure/postgres-business-plan.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import {
   PostgresDiscountPolicyStore,
-  PostgresPriceListStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
@@ -87,6 +85,7 @@ const LINES: BusinessPlanCostLineInput[] = [
 
 integration('Bán hàng GĐ D: phương án kinh doanh (PostgreSQL)', () => {
   let handle: CrmTestDatabaseHandle;
+  let priceListId: string;
   const tenantId = randomUUID();
   const actor = (userId: string, extra: Partial<CrmActor> = {}): CrmActor => ({
     ...CRM_NO_CAPABILITIES,
@@ -135,9 +134,10 @@ integration('Bán hàng GĐ D: phương án kinh doanh (PostgreSQL)', () => {
       undefined,
       plans,
     );
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
+      validFrom: '2026-01-01',
       items: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     // Chính sách 3%: 10 cáp = 10.000.000 giá gốc, chiết khấu 300.000, doanh thu 9.700.000, giá vốn 8.000.000.
@@ -162,7 +162,7 @@ integration('Bán hàng GĐ D: phương án kinh doanh (PostgreSQL)', () => {
   });
 
   async function draftQuote() {
-    const created = await quotes.create(nv1, { customerId });
+    const created = await quotes.create(nv1, { customerId, priceListId });
     return quotes.addLine(nv1, created.id, created.currentVersion, { revision: created.version.revision, materialId: CAP, quantity: 10 });
   }
   const revisionOf = async (id: string, versionNo = 1) => (await quotes.get(nv1, id, versionNo)).version.revision;

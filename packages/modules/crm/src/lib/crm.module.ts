@@ -14,16 +14,19 @@ import { PostgresTenderStore } from './infrastructure/postgres-tender.store.js';
 import { TenderController } from './presentation/tender.controller.js';
 import { StageAssigneeResolver } from './application/stage-assignee.resolver.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
+import { PriceListSyncService } from './application/price-list-sync.service.js';
 import { PriceListService } from './application/price-list.service.js';
 import { PricingService } from './application/pricing.service.js';
 import {
   CRM_CATALOG_READER,
   CRM_DISCOUNT_POLICY_STORE,
   CRM_PRICE_LIST_STORE,
+  CRM_PRICE_LIST_SYNC_STORE,
   CRM_PRICING_STORE,
   type CatalogReader,
   type DiscountPolicyStore,
   type PriceListStore,
+  type PriceListSyncStore,
   type PricingStore,
 } from './application/pricing-store.port.js';
 import { REPORTING_LINE_READER } from './application/organization-scope.port.js';
@@ -109,6 +112,7 @@ import {
 import {
   PostgresDiscountPolicyStore,
   PostgresPriceListStore,
+  PostgresPriceListSyncStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
 import { CrmController } from './presentation/crm.controller.js';
@@ -412,6 +416,14 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     store(CRM_PRICE_LIST_STORE, (database) => new PostgresPriceListStore(database)),
     store(CRM_DISCOUNT_POLICY_STORE, (database) => new PostgresDiscountPolicyStore(database)),
     store(CRM_PRICING_STORE, (database) => new PostgresPricingStore(database)),
+    store(CRM_PRICE_LIST_SYNC_STORE, (database) => new PostgresPriceListSyncStore(database)),
+    {
+      // Đồng bộ bảng giá mặc định với Kho (dấu vân tay, danh mục qua API nội bộ của Kho).
+      provide: PriceListSyncService,
+      useFactory: (syncStore: PriceListSyncStore, catalog: HttpInventoryCatalogReader) =>
+        new PriceListSyncService(syncStore, catalog, () => new Date(), new Logger('CrmPriceListSync')),
+      inject: [CRM_PRICE_LIST_SYNC_STORE, CRM_CATALOG_READER],
+    },
     {
       provide: PriceListService,
       useFactory: (lists: PriceListStore, catalog: CatalogReader) => new PriceListService(lists, catalog),

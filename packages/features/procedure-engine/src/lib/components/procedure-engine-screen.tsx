@@ -84,11 +84,11 @@ type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
 
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} className="size-4" /> },
-  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <AppIcon slot="sidebar.procedure.workspace" fallback={ClipboardList} className="size-4" /> },
-  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <AppIcon slot="sidebar.procedure.raci" fallback={Table2} className="size-4" /> },
+  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} size={16} /> },
+  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <AppIcon slot="sidebar.procedure.workspace" fallback={ClipboardList} size={16} /> },
+  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <AppIcon slot="sidebar.procedure.raci" fallback={Table2} size={16} /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} className="size-4" /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} size={16} /> },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);

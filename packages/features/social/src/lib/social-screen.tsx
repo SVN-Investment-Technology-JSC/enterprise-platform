@@ -43,7 +43,7 @@ import shell from './social-shell.module.scss';
 type ShellView = 'social';
 
 const NAV: readonly ModuleNavItem<ShellView>[] = [
-  { id: 'social', label: 'Mạng nội bộ', icon: <AppIcon slot="sidebar.social.feed" fallback={Newspaper} className="size-4" /> },
+  { id: 'social', label: 'Mạng nội bộ', icon: <AppIcon slot="sidebar.social.feed" fallback={Newspaper} size={16} /> },
 ];
 
 /** Tuyến tự dựng cột phải trong nội dung (chi tiết nhóm): bỏ "bảng nhanh" và để nội dung rộng ra hết bề ngang. */

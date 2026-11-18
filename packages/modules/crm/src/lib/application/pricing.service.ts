@@ -11,6 +11,7 @@ import { priceQuote, type PricingLineInput } from '../domain/pricing-engine.js';
 import { requireSalesManager } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CustomerService } from './customer.service.js';
+import { priceListRequired, requireSelectablePriceList } from './price-list-selection.js';
 import { boundedNumber } from './price-list.service.js';
 import type { CatalogReader, PricingStore } from './pricing-store.port.js';
 
@@ -26,8 +27,10 @@ export function vietnamToday(now: Date): string {
  * Cấu hình trần chiết khấu và "Thử tính giá": chạy engine giá với bảng giá,
  * chính sách trong DB. Báo giá (T3-08) và đơn bán (T4-08) dùng cùng đường này.
  *
- * Ai có `crm.read` thử được; chọn khách thì khách phải nằm trong phạm vi dữ
- * liệu (đọc qua `CustomerService`, ngoài phạm vi trả 404).
+ * Ai có `crm.read` thử được; bảng giá bắt buộc chọn (không lấy theo khách).
+ * Chọn khách thì khách phải nằm trong phạm vi dữ liệu (đọc qua
+ * `CustomerService`, ngoài phạm vi trả 404); nhóm khách lấy theo hồ sơ khách
+ * để xét chính sách chiết khấu.
  */
 export class PricingService {
   constructor(
@@ -52,13 +55,14 @@ export class PricingService {
     const date = optionalDate(request?.date, 'ngày tính giá') ?? vietnamToday(this.now());
     const customerId = optionalId(request?.customerId, 'khách hàng');
     let customerGroupId = optionalId(request?.customerGroupId, 'nhóm khách hàng');
-    // Chưa chọn khách: thử theo bảng giá chọn ở ô "Bảng giá" (rỗng là bảng chuẩn); có khách thì theo hồ sơ khách (D3-38).
-    let customerPriceListId = optionalId(request?.priceListId, 'bảng giá');
+    const rawPriceListId: unknown = request?.priceListId;
+    if (rawPriceListId === undefined || rawPriceListId === null || rawPriceListId === '') throw priceListRequired();
     if (customerId) {
       const customer = await this.customers.get(actor, customerId);
       customerGroupId = customer.groupId;
-      customerPriceListId = customer.priceListId ?? null;
     }
+    // Chọn khách không đổi bảng giá (`docs/crm_price_list_logic/plan.md` 4.6).
+    const priceListId = (await requireSelectablePriceList(this.store, actor.tenantId, rawPriceListId, date)).id;
     const rawLines: unknown = request?.lines;
     if (!Array.isArray(rawLines) || rawLines.length === 0) {
       throw new CrmValidationError('REQUIRED', 'Vui lòng nhập ít nhất một dòng hàng.');
@@ -70,7 +74,7 @@ export class PricingService {
     const materialIds = [...new Set(lines.map((line) => line.materialId))];
 
     const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
-      this.store.priceListsForPricing(actor.tenantId, date, customerPriceListId, materialIds),
+      this.store.priceListsForPricing(actor.tenantId, date, priceListId, materialIds),
       this.store.policiesForPricing(actor.tenantId, date),
       this.store.discountCapPercent(actor.tenantId),
       this.catalog.materials(actor.tenantId, materialIds),
@@ -97,7 +101,7 @@ export class PricingService {
       date,
       customerId,
       customerGroupId,
-      customerPriceListId,
+      priceListId,
       lines: enriched,
       priceLists,
       policies,

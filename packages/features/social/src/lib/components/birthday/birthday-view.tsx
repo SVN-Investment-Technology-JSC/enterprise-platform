@@ -100,7 +100,8 @@ export function BirthdayView() {
       aria-label="Sinh nhật sắp tới"
     >
       <header className="flex flex-wrap items-center gap-x-4 gap-y-3 border-b border-slate-200 bg-gradient-to-r from-amber-50 via-white to-white px-5 py-3.5">
-        <span className="grid size-9 flex-none place-items-center rounded-xl bg-amber-100 text-amber-700">
+        {/* Có icon thương hiệu thì icon lấp đầy ô, bỏ nền vàng bọc ngoài; icon lucide dự phòng giữ ô vàng như cũ. */}
+        <span className="grid size-9 flex-none place-items-center rounded-xl bg-amber-100 text-amber-700 has-[>svg[data-brand-slot]]:overflow-hidden has-[>svg[data-brand-slot]]:bg-transparent [&>svg[data-brand-slot]]:size-full">
           <AppIcon slot="sidebar.social.birthday" fallback={Cake} size={19} />
         </span>
         <div className="min-w-0 flex-1">

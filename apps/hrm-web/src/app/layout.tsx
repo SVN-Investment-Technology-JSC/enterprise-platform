@@ -1,7 +1,7 @@
 import './global.css';
 import { Be_Vietnam_Pro } from 'next/font/google';
 import { HrmShell, Toaster } from '@enterprise-platform/feature-hrm';
-import { BrandSlotProvider, Toaster as RealtimeToaster } from '@enterprise-platform/shared-ui';
+import { BrandSlotProvider, Toaster as RealtimeToaster, TitleTooltips } from '@enterprise-platform/shared-ui';
 
 /**
  * Font chung của hệ thống: Be Vietnam Pro (thiết kế riêng cho tiếng Việt, dấu thoáng và rõ ở cỡ nhỏ). Tải cùng ứng dụng
@@ -37,6 +37,7 @@ export default function RootLayout({
           </Toaster>
         </BrandSlotProvider>
         <RealtimeToaster duration={5000} />
+        <TitleTooltips />
       </body>
     </html>
   );

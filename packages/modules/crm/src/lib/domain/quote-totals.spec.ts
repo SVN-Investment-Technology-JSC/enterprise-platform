@@ -212,6 +212,7 @@ describe('engine giá theo chế độ của mẫu (P2I-03)', () => {
     date: '2026-12-15',
     customerId: null,
     customerGroupId: null,
+    priceListId: list.id,
     lines: [{ materialId: MATERIAL, quantity: 10, unit: 'Cái' }],
     priceLists: [list],
     policies: [policy],

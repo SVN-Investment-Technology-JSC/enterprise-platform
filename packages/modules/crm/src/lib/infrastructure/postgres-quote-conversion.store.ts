@@ -90,6 +90,7 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
           id: string;
           version_no: number;
           priced_on: string | null;
+          price_list_id: string | null;
           shipping_amount: string;
           shipping_vat_rate: string;
           gross_amount: string;
@@ -102,7 +103,7 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
           order_discount_total: string;
           order_tax_total: string;
         }>(
-          `SELECT id, version_no, priced_on::text AS priced_on, shipping_amount, shipping_vat_rate, gross_amount, discount_amount,
+          `SELECT id, version_no, priced_on::text AS priced_on, price_list_id, shipping_amount, shipping_vat_rate, gross_amount, discount_amount,
                   net_amount, vat_amount, total_amount, discount_mode, tax_mode, order_discount_total, order_tax_total
              FROM crm_schema.quote_versions WHERE quote_id = $1 AND version_no = $2`,
           [quoteId, quote.accepted_version],
@@ -194,6 +195,8 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
           deliveryAddress: quote.customer_address,
           note: `Sinh từ báo giá ${quote.code} phiên bản ${version.version_no}.`,
           priceDate: version.priced_on,
+          // Đơn từ báo giá dùng đúng bảng giá của phiên bản khách chấp nhận (không đổi được).
+          priceListId: version.price_list_id,
           shipping: { amount: num(version.shipping_amount), vatRate: num(version.shipping_vat_rate) },
           totals: {
             grossAmount: num(version.gross_amount),

@@ -112,12 +112,12 @@ const STOCK_SUB_TABS: readonly { id: StockSubTab; label: string }[] = [
 // Chứng từ kho, Duyệt chứng từ, Yêu cầu xuất từ đơn bán đã gộp vào tab con
 // "Xuất/nhập kho" của Kho hàng; hash cũ chuyển hướng qua LEGACY_TAB.
 const NAV: readonly ModuleNavItem<Tab>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} className="size-4" /> },
-  { id: 'stock', label: 'Kho hàng', group: 'Vận hành', icon: <AppIcon slot="sidebar.inventory.stock" fallback={Warehouse} className="size-4" /> },
-  { id: 'assets', label: 'Cây tài sản', group: 'Vận hành', icon: <AppIcon slot="sidebar.inventory.assets-tree" fallback={Network} className="size-4" /> },
-  { id: 'custody', label: 'Tài sản', group: 'Vận hành', icon: <AppIcon slot="sidebar.inventory.custody" fallback={HardDrive} className="size-4" /> },
-  { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo', icon: <AppIcon slot="nav.reports" fallback={BarChart3} className="size-4" /> },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} className="size-4" /> },
+  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} size={16} /> },
+  { id: 'stock', label: 'Kho hàng', group: 'Vận hành', icon: <AppIcon slot="sidebar.inventory.stock" fallback={Warehouse} size={16} /> },
+  { id: 'assets', label: 'Cây tài sản', group: 'Vận hành', icon: <AppIcon slot="sidebar.inventory.assets-tree" fallback={Network} size={16} /> },
+  { id: 'custody', label: 'Tài sản', group: 'Vận hành', icon: <AppIcon slot="sidebar.inventory.custody" fallback={HardDrive} size={16} /> },
+  { id: 'reports', label: 'Báo cáo kho', group: 'Báo cáo', icon: <AppIcon slot="nav.reports" fallback={BarChart3} size={16} /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} size={16} /> },
 ];
 
 const TAB_IDS = NAV.map((item) => item.id);

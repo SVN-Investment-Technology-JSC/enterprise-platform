@@ -3404,6 +3404,25 @@
   color: var(--accent-ink);
 }
 
+// Có icon thương hiệu: icon tự mang nền nên bỏ viền/nền của nút, icon 30px căn giữa; trạng thái bật báo bằng vòng nhấn quanh icon.
+.orgToggle:has(> svg[data-brand-slot]),
+.orgToggleOn:has(> svg[data-brand-slot]) {
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+
+  > svg {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    stroke: none;
+  }
+}
+
+.orgToggleOn:has(> svg[data-brand-slot]) > svg {
+  box-shadow: 0 0 0 2px var(--accent-strong);
+}
+
 /* Ô góc: tên cột và chú giải vai trò (trước đây chú giải chiếm một hàng riêng). */
 .corner {
   padding: 8px 12px;

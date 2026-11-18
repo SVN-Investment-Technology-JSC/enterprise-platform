@@ -34,11 +34,20 @@ function SlotBadge({
   const { hasCustom } = useBrandSlot(slot);
   const renderFallback = useCallback(() => <>{fallbackText}</>, [fallbackText]);
 
+  // Có icon thương hiệu thì icon lấp đầy cả ô, không viền, không nền bọc ngoài.
   if (!hasCustom) {
-    return <>{fallbackText}</>;
+    return (
+      <span className={styles.switcherBadge} aria-hidden>
+        {fallbackText}
+      </span>
+    );
   }
 
-  return <AppIcon slot={slot} fallback={renderFallback} className="size-4" />;
+  return (
+    <span className={`${styles.switcherBadge} ${styles.switcherBadgeFilled}`} aria-hidden>
+      <AppIcon slot={slot} fallback={renderFallback} size={30} />
+    </span>
+  );
 }
 
 /**
@@ -155,9 +164,13 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
                   }
                 }}
               >
-                <span className={styles.switcherBadge} aria-hidden>
-                  {slot ? <SlotBadge slot={slot} fallbackText={fallbackText} /> : fallbackText}
-                </span>
+                {slot ? (
+                  <SlotBadge slot={slot} fallbackText={fallbackText} />
+                ) : (
+                  <span className={styles.switcherBadge} aria-hidden>
+                    {fallbackText}
+                  </span>
+                )}
                 <span className={styles.switcherText}>
                   <span className={styles.switcherName}>{module.name}</span>
                   <span className={styles.switcherDesc}>{module.description}</span>
@@ -166,7 +179,9 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
             );
           })}
           <a role="menuitem" href={homeHref} className={styles.switcherAll}>
-            <AppIcon slot="nav.applications" fallback={EmptyFallback} className="mr-1.5 inline-block size-4 align-text-bottom" />
+            <span style={{ display: 'inline-flex', marginRight: 6, verticalAlign: 'text-bottom' }}>
+              <AppIcon slot="nav.applications" fallback={EmptyFallback} size={16} />
+            </span>
             Tất cả ứng dụng
           </a>
         </div>

@@ -23,6 +23,7 @@ import { WarehouseSelect } from '../components/warehouse-select';
 import { createOrder, errorMessage, listContracts, listCustomers, listOrders } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { ORDER_STATUS_TONE, formatDay } from '../fulfillment.model';
+import { NO_PRICE_LISTS_TEXT, PriceListSelect, priceListOptions, todayInVietnam, usePriceLists } from '../pricing/price-list-select';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 
@@ -142,8 +143,11 @@ export function OrdersPage({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-/** Lập đơn trực tiếp cho khách, hoặc từ hợp đồng đang hiệu lực (giá khung của hợp đồng). Dòng thêm ở màn chi tiết. */
-function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+/**
+ * Lập đơn trực tiếp cho khách, hoặc từ hợp đồng đang hiệu lực (giá khung của hợp đồng ưu tiên). Bảng giá chọn tay, bắt
+ * buộc (mặt hàng ngoài hợp đồng lấy giá theo bảng này). Dòng thêm ở màn chi tiết.
+ */
+export function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   const [contracts, setContracts] = useState<readonly ContractSummary[]>([]);
   const [contractId, setContractId] = useState('');
@@ -152,6 +156,10 @@ function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [note, setNote] = useState('');
+  const [priceListId, setPriceListId] = useState('');
+  const [priceListError, setPriceListError] = useState<string>();
+  const { lists: priceLists, loaded: priceListsLoaded } = usePriceLists();
+  const priceDate = todayInVietnam();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -166,12 +174,15 @@ function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void; onCrea
 
   async function save() {
     if (!contractId && !customerId) return setError('Vui lòng chọn khách hàng hoặc hợp đồng.');
+    if (!priceListId) return setPriceListError('Vui lòng chọn bảng giá.');
+    setPriceListError(undefined);
     setSaving(true);
     setError(undefined);
     try {
       const created = await createOrder({
         contractId: contractId || null,
         customerId: contractId ? null : customerId,
+        priceListId,
         warehouseCode: warehouseCode.trim() || null,
         expectedDeliveryDate: expectedDeliveryDate || null,
         deliveryAddress: deliveryAddress.trim() || null,
@@ -206,6 +217,26 @@ function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void; onCrea
             disabled={Boolean(contractId)}
             clearable
             onChange={setCustomerId}
+          />
+        </Field>
+        <Field
+          label="Bảng giá"
+          required
+          error={priceListError}
+          hint={
+            priceListsLoaded && !priceListOptions(priceLists, priceDate).length
+              ? NO_PRICE_LISTS_TEXT
+              : 'Mặt hàng ngoài giá hợp đồng lấy giá theo bảng này'
+          }
+        >
+          <PriceListSelect
+            lists={priceLists}
+            date={priceDate}
+            value={priceListId}
+            onChange={(value) => {
+              setPriceListId(value);
+              setPriceListError(undefined);
+            }}
           />
         </Field>
         <Field label="Kho giữ hàng mặc định" hint="Bỏ trống với đơn từ hợp đồng: dùng kho của hợp đồng. Chọn kho từng dòng ở bảng dòng hàng">

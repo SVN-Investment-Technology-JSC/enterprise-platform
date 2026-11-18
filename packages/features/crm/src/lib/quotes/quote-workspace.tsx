@@ -10,6 +10,7 @@
  */
 import type {
   CustomFieldValue,
+  PriceListSummary,
   QuoteDetail,
   QuoteTemplate,
   QuoteType,
@@ -296,6 +297,8 @@ export interface BlankQuoteInput {
   readonly customFields: Readonly<Record<string, CustomFieldValue | null>>;
   readonly customer?: { readonly id: string; readonly code: string; readonly name: string } | null;
   readonly opportunity?: { readonly id: string; readonly name: string } | null;
+  /** Bảng giá đang chọn ở màn lập mới (chưa lưu). */
+  readonly priceList?: Pick<PriceListSummary, 'id' | 'code' | 'name' | 'status'> | null;
   readonly ownerUserId: string;
   readonly templates: readonly QuoteTemplate[];
   readonly types: readonly QuoteType[];
@@ -343,6 +346,10 @@ export function blankQuoteDetail(input: BlankQuoteInput): QuoteDetail {
       validUntil: general.validUntil || null,
       priceDate: null,
       pricedOn: null,
+      priceListId: input.priceList?.id ?? null,
+      priceListCode: input.priceList?.code ?? null,
+      priceListName: input.priceList?.name ?? null,
+      priceListStatus: input.priceList?.status ?? null,
       note: input.note.trim() || null,
       shipping: { amount: 0, vatRate: 0, cost: 0 },
       totals: {

@@ -7,21 +7,20 @@ import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import type { InventoryClient, IssueRequestInput, ReserveStockRequest, ReservedStock } from './application/fulfillment.port.js';
-import { PriceListService } from './application/price-list.service.js';
 import { vietnamToday } from './application/pricing.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import type { FinanceClient } from './application/receivable-store.port.js';
 import { SalesOrderService } from './application/sales-order.service.js';
 import { SalesReportService } from './application/sales-report.service.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { addDays } from './domain/receivables.js';
 import { PostgresIntegrationRequests } from './infrastructure/integration-requests.js';
 import { applyStockIssued } from './infrastructure/inventory-events.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
 import { PostgresCreditStore } from './infrastructure/postgres-credit.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
-import { PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
+import { PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
 import { PostgresReceivableStore } from './infrastructure/postgres-receivable.store.js';
 import { PostgresSalesOrderStore } from './infrastructure/postgres-sales-order.store.js';
 import { PostgresSalesReportStore } from './infrastructure/postgres-sales-report.store.js';
@@ -108,6 +107,7 @@ const MARCH = { from: '2025-03-01', to: '2025-03-31' };
 
 integration('Bán hàng GĐ7: báo cáo (PostgreSQL)', () => {
   let handle: CrmTestDatabaseHandle;
+  let priceListId: string;
   const tenantId = randomUUID();
   const today = vietnamToday(new Date());
   const actor = (userId: string, extra: Partial<CrmActor> = {}): CrmActor => ({
@@ -158,9 +158,10 @@ integration('Bán hàng GĐ7: báo cáo (PostgreSQL)', () => {
     customers = new CustomerService(customerStore, scopes);
     reports = new SalesReportService(new PostgresSalesReportStore(handle.database), scopes, settings);
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(ql, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2024-01-01' });
-    await lists.upsertItems(ql, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
+      validFrom: '2024-01-01',
       items: [
         { materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 },
         { materialId: BT, materialCode: 'QA-KHO-BT', materialName: 'Gói bảo trì', unit: 'Gói', price: 500_000, vatRate: 10 },
@@ -298,7 +299,7 @@ integration('Bán hàng GĐ7: báo cáo (PostgreSQL)', () => {
   /** Đơn trực tiếp đã xác nhận, một đợt giao gồm mọi dòng, đã yêu cầu xuất kho. */
   async function requestedOrder(owner: CrmActor, lines: { materialId: string; quantity: number }[]) {
     const customerId = (await customers.create(owner, { name: `Công ty Báo Cáo ${randomUUID().slice(0, 6)}`, ownerUserId: owner.userId })).id;
-    const draft = await orders.create(owner, { customerId, warehouseCode: 'KHO-1', lines });
+    const draft = await orders.create(owner, { priceListId, customerId, warehouseCode: 'KHO-1', lines });
     let order = await orders.confirm(owner, draft.id, { revision: draft.revision });
     order = await orders.saveDelivery(owner, order.id, null, {
       revision: order.revision,

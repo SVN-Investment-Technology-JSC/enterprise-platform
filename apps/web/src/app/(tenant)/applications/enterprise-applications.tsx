@@ -649,13 +649,19 @@ function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; cl
   const info = getModuleInfo(module.key, module.name, module.description);
   const slot = moduleSlotId(module.key);
   const { hasCustom } = useBrandSlot(slot ?? 'brand.logo');
+  const filled = Boolean(slot && hasCustom);
+  // Có icon thương hiệu: icon tự mang nền và bo góc nên lấp đầy cả ô, bỏ nền màu bọc ngoài.
   return (
     <span
       aria-hidden
-      className={cn('grid shrink-0 place-items-center font-extrabold', info.accentColor.iconBg, className)}
+      className={cn(
+        'grid shrink-0 place-items-center font-extrabold',
+        filled ? 'overflow-hidden' : info.accentColor.iconBg,
+        className,
+      )}
     >
       {slot && hasCustom ? (
-        <AppIcon slot={slot} fallback={Package} className="size-6" />
+        <AppIcon slot={slot} fallback={Package} className="size-full" />
       ) : (
         (module.icon || module.key.slice(0, 2)).toUpperCase()
       )}
