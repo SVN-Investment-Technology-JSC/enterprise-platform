@@ -41,7 +41,11 @@ import { StockDocumentDetail } from './stock-document-detail';
 import { StockDocumentForm } from './stock-document-form';
 import { StockDocumentApproval } from './stock-document-list';
 import { DocumentStatusBadge, errorMessage } from './stock-document-parts';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { Card, CardHeader } from '../ui/card';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 const PAGE_SIZE = 20;
 const SEARCH_DELAY_MS = 300;
@@ -62,11 +66,11 @@ function LegacyEntryDrawer({ entry, onClose }: { entry: StockMovementEntry; onCl
   const userName = useUserLabel();
   return (
     <Drawer open onClose={onClose} size="min(560px, 96vw)" destroyOnHidden title={`Bút toán cũ ${entry.code}`}>
-      <p className={styles.docWarn}>
+      <p className="my-[0.6rem] rounded-[0.55rem] border border-amber-200 bg-amber-50 px-[0.8rem] py-[0.6rem] text-[13px] text-amber-800">
         Bút toán này được ghi trước khi Kho dùng chứng từ nên không có chứng từ kèm theo. Dữ liệu chỉ để tra cứu,
         không sửa và không đảo được tại đây.
       </p>
-      <div className={styles.docInfoGrid}>
+      <div className="my-4 grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3 [&>div]:flex [&>div]:flex-col [&>div]:gap-[0.15rem] [&_span]:text-xs [&_span]:font-bold [&_span]:text-slate-500 [&_small]:break-all [&_small]:text-xs [&_small]:text-slate-500">
         <div>
           <span>Loại</span>
           <strong>{movementTypeLabel(entry)}</strong>
@@ -97,7 +101,7 @@ function LegacyEntryDrawer({ entry, onClose }: { entry: StockMovementEntry; onCl
           <strong>{userName(entry.createdBy)}</strong>
         </div>
       </div>
-      {entry.note ? <p className={styles.docHint}>Ghi chú: {entry.note}</p> : null}
+      {entry.note ? <p className="text-[13px] text-slate-500">Ghi chú: {entry.note}</p> : null}
     </Drawer>
   );
 }
@@ -224,8 +228,8 @@ function MovementList({
       width: 170,
       render: (_value, entry) => (
         <>
-          <strong className={styles.code}>{entry.code}</strong>
-          {entry.kind === 'legacy' ? <span className={styles.sub}>Bút toán cũ</span> : null}
+          <strong className="font-bold text-blue-600">{entry.code}</strong>
+          {entry.kind === 'legacy' ? <span className="block text-xs text-slate-500">Bút toán cũ</span> : null}
         </>
       ),
     },
@@ -271,20 +275,19 @@ function MovementList({
   ];
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
+    <Card className="gap-0 rounded-2xl px-[clamp(1rem,2vw,1.5rem)] py-[1.2rem]">
+      <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
         <div>
-          <h2>Xuất/nhập kho</h2>
-          <span className={styles.countHint}>{formatNumber(total)} dòng</span>
+          <h2 className="m-0 text-base font-bold tracking-tight text-slate-900">Xuất/nhập kho</h2>
+          <span className="text-[13px] tabular-nums text-slate-500">{formatNumber(total)} dòng</span>
         </div>
-        <div className={styles.docActions}>
-          <button type="button" className={styles.btnSecondary} onClick={() => void reload()} disabled={loading}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={() => void reload()} disabled={loading}>
             <RotateCw size={15} /> Tải lại
-          </button>
+          </Button>
           {capabilities.canWriteTransactions ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnPrimary}
               onClick={() =>
                 setForm({
                   draft: emptyDraft('RECEIPT_PURCHASE', warehouses.find((item) => item.isActive)?.code ?? ''),
@@ -293,22 +296,23 @@ function MovementList({
               }
             >
               <FilePlus2 size={15} /> Lập chứng từ
-            </button>
+            </Button>
           ) : null}
         </div>
-      </div>
+      </CardHeader>
 
-      <div className={styles.docFilterRow}>
-        <label className={styles.docField}>
+      <div className="mb-[0.85rem] flex flex-wrap items-end gap-[0.7rem]">
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Tìm kiếm</span>
-          <input
+          <Input
+            className="font-normal"
             type="search"
             value={searchText}
             placeholder="Số chứng từ, mã hoặc tên mặt hàng"
             onChange={(event) => setSearchText(event.target.value)}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Nguồn phát sinh</span>
           <SearchableSelect
             options={[...MOVEMENT_SOURCE_OPTIONS]}
@@ -316,8 +320,8 @@ function MovementList({
             height={36}
             onChange={(value) => filtersChanged(() => setSourceType(value))}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Loại</span>
           <SearchableSelect
             options={TYPE_OPTIONS}
@@ -325,8 +329,8 @@ function MovementList({
             height={36}
             onChange={(value) => filtersChanged(() => setDocType(value))}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Trạng thái</span>
           <SearchableSelect
             options={STATUS_OPTIONS}
@@ -334,8 +338,8 @@ function MovementList({
             height={36}
             onChange={(value) => filtersChanged(() => setStatus(value))}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Kho</span>
           <SearchableSelect
             options={warehouseOptions}
@@ -343,27 +347,28 @@ function MovementList({
             height={36}
             onChange={(value) => filtersChanged(() => setWarehouseCode(value))}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Từ ngày</span>
-          <input
+          <Input
+            className="font-normal"
             type="date"
             value={fromDate}
             onChange={(event) => filtersChanged(() => setFromDate(event.target.value))}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Đến ngày</span>
-          <input type="date" value={toDate} onChange={(event) => filtersChanged(() => setToDate(event.target.value))} />
-        </label>
+          <Input className="font-normal" type="date" value={toDate} onChange={(event) => filtersChanged(() => setToDate(event.target.value))} />
+        </Label>
       </div>
 
       {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}{' '}
-          <button type="button" className={styles.btnSecondary} onClick={() => void reload()}>
+        <p role="alert" className="mb-4 flex flex-wrap items-center gap-2 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">
+          {error}
+          <Button type="button" variant="outline" size="sm" onClick={() => void reload()}>
             Thử lại
-          </button>
+          </Button>
         </p>
       ) : null}
 
@@ -418,7 +423,7 @@ function MovementList({
           onClose={() => setForm(undefined)}
         />
       ) : null}
-    </section>
+    </Card>
   );
 }
 
@@ -450,14 +455,19 @@ export function StockMovementHub({
 
   return (
     <>
-      <div className={styles.subTabNav} role="tablist" aria-label="Góc nhìn xuất/nhập kho">
+      <div className="mb-4 flex flex-wrap gap-[0.35rem]" role="tablist" aria-label="Góc nhìn xuất/nhập kho">
         {MOVEMENT_VIEWS.map((item) => (
           <button
             key={item.id}
             type="button"
             role="tab"
             aria-selected={view === item.id}
-            className={`${styles.subTabBtn} ${view === item.id ? styles.subTabBtnActive : ''}`}
+            className={cn(
+              'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+              view === item.id
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+            )}
             onClick={() => setView(item.id)}
           >
             {item.label}
