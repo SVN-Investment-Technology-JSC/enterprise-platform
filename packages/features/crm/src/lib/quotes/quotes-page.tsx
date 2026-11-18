@@ -28,6 +28,14 @@ import { labelOptions, peopleOptions, useCrm } from '../crm-context';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 import { LINES_LOCKED_TEXT, QuoteLinesTable } from './quote-lines-table';
+import {
+  NO_PRICE_LISTS_TEXT,
+  PICK_PRICE_LIST_FIRST,
+  PriceListSelect,
+  priceListOptions,
+  todayInVietnam,
+  usePriceLists,
+} from '../pricing/price-list-select';
 import { QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { QUOTE_STATUS_TONE } from './quote.model';
 import { QuoteActionBar, QuoteWorkspace, blankQuoteDetail } from './quote-workspace';
@@ -171,6 +179,8 @@ interface NewQuoteInput {
    * không gửi, server dùng tổ chức mặc định.
    */
   readonly seller?: SellerState;
+  /** Bảng giá (màn lập mới); rỗng thì chọn sau ở báo giá, chưa chọn thì chưa thêm được dòng. */
+  readonly priceListId?: string;
 }
 
 type NewQuoteCheck =
@@ -208,6 +218,7 @@ function checkNewQuote(input: NewQuoteInput, fields: readonly CustomFieldDefinit
       quoteTypeId: general.typeId || null,
       customFields: builtCustom.values,
       ...(input.seller ? sellerPatch(input.seller) : {}),
+      ...(input.priceListId ? { priceListId: input.priceListId } : {}),
     },
   };
 }
@@ -420,6 +431,9 @@ function NewQuoteForm({
   const [custom, setCustom] = useState<CustomFieldTexts>(handoff?.custom ?? {});
   /** Rỗng cho tới khi chọn sẵn tổ chức mặc định (hoặc người lập chọn); khi đó lập báo giá không gửi tổ chức. */
   const [seller, setSeller] = useState<SellerState | undefined>(handoff?.seller);
+  const [priceListId, setPriceListId] = useState(handoff?.priceListId ?? '');
+  const { lists: priceLists, loaded: priceListsLoaded } = usePriceLists();
+  const priceDate = todayInVietnam();
   const [sellerFieldErrors, setSellerFieldErrors] = useState<Partial<Record<SellerField, string>>>({});
   const { organizations, loaded: organizationsLoaded } = useSalesOrganizations();
   const [touched, setTouched] = useState(Boolean(handoff));
@@ -493,8 +507,8 @@ function NewQuoteForm({
   }, [effectiveCustomerId]);
 
   const input = useMemo<NewQuoteInput>(
-    () => ({ opportunityId, customerId, general, note, custom, seller }),
-    [opportunityId, customerId, general, note, custom, seller],
+    () => ({ opportunityId, customerId, general, note, custom, seller, priceListId }),
+    [opportunityId, customerId, general, note, custom, seller, priceListId],
   );
   const previewInput = useDebounced(input, 300);
   const chosenOrganization = useSalesOrganization(previewInput.seller ? organizationIdOf(previewInput.seller) : null);
@@ -509,6 +523,7 @@ function NewQuoteForm({
       customFields: built.ok ? built.values : {},
       customer: shownCustomer,
       opportunity: opportunity ? { id: opportunity.id, name: opportunity.name } : null,
+      priceList: priceLists.find((item) => item.id === previewInput.priceListId) ?? null,
       ownerUserId: opportunity?.ownerUserId ?? currentUserId ?? '',
       templates,
       types,
@@ -520,7 +535,7 @@ function NewQuoteForm({
       people,
       customFields: fields,
     });
-  }, [previewInput, chosenOrganization, templates, types, fields, customer, summary, opportunity, people, currentUserId]);
+  }, [previewInput, chosenOrganization, templates, types, fields, customer, summary, opportunity, priceLists, people, currentUserId]);
 
   const change = <T,>(setter: (value: T) => void) => (value: T) => {
     setter(value);
@@ -603,6 +618,19 @@ function NewQuoteForm({
               onChange={change(setCustomerId)}
             />
           </Field>
+          <Field
+            label="Bảng giá"
+            required
+            hint={
+              priceListsLoaded && !priceListOptions(priceLists, priceDate).length
+                ? NO_PRICE_LISTS_TEXT
+                : priceListId
+                  ? undefined
+                  : PICK_PRICE_LIST_FIRST
+            }
+          >
+            <PriceListSelect lists={priceLists} date={priceDate} value={priceListId} onChange={change(setPriceListId)} />
+          </Field>
         </div>
         <GeneralFields
           value={general}
@@ -635,6 +663,7 @@ function NewQuoteForm({
         editable={false}
         busy={saving}
         lockedText={LINES_LOCKED_TEXT}
+        addBlockedText={priceListId ? undefined : PICK_PRICE_LIST_FIRST}
         onAdd={(search) => void create(search)}
         onInsert={() => undefined}
         onEdit={() => undefined}

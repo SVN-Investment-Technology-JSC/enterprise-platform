@@ -6,17 +6,16 @@ import { CrmTaskService } from './application/crm-task.service.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
 import type { ProcedureActionableReader, ProcedureClient, StartProcedureInstance } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { CrmConflictError } from './domain/crm.error.js';
 import type { CrmSourceSummary } from './domain/procedure-source-summary.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { procedureUnavailable } from './infrastructure/http-procedure-client.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import {
   applyBusinessPlanProcedureResult,
   applyBusinessPlanProcedureReversed,
@@ -25,7 +24,7 @@ import {
 import { PostgresCrmTaskStore } from './infrastructure/postgres-crm-task.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
-import { PostgresDiscountPolicyStore, PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
+import { PostgresDiscountPolicyStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
 import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
 import { PostgresApprovalLinks } from './infrastructure/quote-procedure-links.js';
@@ -117,6 +116,7 @@ class FakeProcedure implements ProcedureClient, ProcedureActionableReader {
 
 integration('Bán hàng phase 3 C7: thông tin nguồn, PAKD qua Quy trình, việc cần xử lý (PostgreSQL)', () => {
   let handle: CrmTestDatabaseHandle;
+  let priceListId: string;
   const tenantId = randomUUID();
   const actor = (userId: string, extra: Partial<CrmActor> = {}): CrmActor => ({
     ...CRM_NO_CAPABILITIES,
@@ -172,9 +172,10 @@ integration('Bán hàng phase 3 C7: thông tin nguồn, PAKD qua Quy trình, vi�
       undefined,
       tasks,
     );
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
+      validFrom: '2026-01-01',
       items: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     // Chính sách 3%: 10 cáp không ghi đè, biên 17,53%, duyệt thẳng; ghi đè 12% thì vượt hạn mức nhân viên (Chờ duyệt).
@@ -201,7 +202,7 @@ integration('Bán hàng phase 3 C7: thông tin nguồn, PAKD qua Quy trình, vi�
   });
 
   async function draftQuote(discount?: number) {
-    const created = await quotes.create(nv1, { customerId });
+    const created = await quotes.create(nv1, { customerId, priceListId });
     return quotes.addLine(nv1, created.id, created.currentVersion, {
       revision: created.version.revision,
       materialId: CAP,

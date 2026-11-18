@@ -5,7 +5,6 @@ import {
   type CustomerSummary,
   type PricedLine,
   type PriceListItem,
-  type PriceListSummary,
   type PricingResult,
   type QuotePreviewLine,
 } from '@enterprise-platform/contracts-crm';
@@ -15,11 +14,12 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Download, Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { StatusPill } from '../components/crm-ui';
-import { errorMessage, getPriceList, listCustomers, listPriceLists, previewQuote } from '../crm-api';
+import { Field, StatusPill } from '../components/crm-ui';
+import { errorMessage, getPriceList, listCustomers, previewQuote } from '../crm-api';
 import { groupOptions, useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
 import local from './pricing.module.scss';
+import { NO_PRICE_LISTS_TEXT, PICK_PRICE_LIST_FIRST, PriceListSelect, priceListOptions, todayInVietnam, usePriceLists } from './price-list-select';
 import { buildPricingSheet, formatMoney, formatPercent, parseNumber } from './pricing.model';
 
 interface LineDraft {
@@ -42,7 +42,7 @@ function emptyLine(): LineDraft {
 /**
  * "Thử tính giá": gọi `POST /pricing/quote-preview` để quản trị bán hàng kiểm
  * bảng giá và chính sách vừa cấu hình áp đúng (TC-UAT-04) trước khi báo giá dùng.
- * Mặt hàng chọn trong các dòng của bảng giá hiện có.
+ * Bảng giá chọn tay, bắt buộc (chọn khách không đổi bảng giá); mặt hàng chọn trong các dòng của bảng giá đã chọn.
  */
 export function QuotePreviewPanel() {
   const { groups } = useCrm();
@@ -51,7 +51,7 @@ export function QuotePreviewPanel() {
   const [customerId, setCustomerId] = useState('');
   const [groupId, setGroupId] = useState('');
   const [priceListId, setPriceListId] = useState('');
-  const [priceLists, setPriceLists] = useState<readonly PriceListSummary[]>([]);
+  const { lists: priceLists, loaded: priceListsLoaded } = usePriceLists();
   const [date, setDate] = useState('');
   const [lines, setLines] = useState<LineDraft[]>(() => [emptyLine()]);
   const [shipping, setShipping] = useState('');
@@ -64,22 +64,31 @@ export function QuotePreviewPanel() {
     listCustomers({ limit: 100 })
       .then((page) => setCustomers(page.items))
       .catch(() => undefined);
-    // Mặt hàng lấy từ các bảng giá (danh mục Kho chưa có API nội bộ).
-    listPriceLists()
-      .then((lists) => {
-        setPriceLists(lists);
-        return Promise.all(lists.slice(0, 20).map((list) => getPriceList(list.id)));
-      })
-      .then((details) => {
+  }, []);
+
+  // Mặt hàng lấy theo dòng của bảng giá đã chọn (dòng chưa có giá vẫn chọn được, nhập đơn giá ghi đè).
+  useEffect(() => {
+    setMaterials([]);
+    if (!priceListId) return undefined;
+    let alive = true;
+    getPriceList(priceListId)
+      .then((detail) => {
+        if (!alive) return;
         const seen = new Map<string, Material>();
-        for (const item of details.flatMap((detail) => detail.items)) {
+        for (const item of detail.items) {
           const key = `${item.materialId}|${item.unit}`;
           if (!seen.has(key)) seen.set(key, item);
         }
         setMaterials([...seen.values()].sort((left, right) => left.materialCode.localeCompare(right.materialCode)));
       })
-      .catch((cause) => setError(errorMessage(cause, 'Không tải được mặt hàng trong bảng giá.')));
-  }, []);
+      .catch((cause) => alive && setError(errorMessage(cause, 'Không tải được mặt hàng trong bảng giá.')));
+    return () => {
+      alive = false;
+    };
+  }, [priceListId]);
+
+  const priceDate = date || todayInVietnam();
+  const noPriceLists = priceListsLoaded && !priceListOptions(priceLists, priceDate).length;
 
   const materialOptions = useMemo<SearchableSelectOption[]>(
     () =>
@@ -98,7 +107,7 @@ export function QuotePreviewPanel() {
     if (!line.materialId) return undefined;
     const priced = result?.lines.find((entry) => entry.index === index && entry.materialId === line.materialId);
     if (priced) return priced.listPrice;
-    return materials.find((entry) => entry.materialId === line.materialId && entry.unit === line.unit)?.price;
+    return materials.find((entry) => entry.materialId === line.materialId && entry.unit === line.unit)?.price ?? undefined;
   };
 
   const update = (key: number, patch: Partial<LineDraft>) =>
@@ -106,6 +115,7 @@ export function QuotePreviewPanel() {
 
   async function run() {
     setError(undefined);
+    if (!priceListId) return setError('Vui lòng chọn bảng giá.');
     const payload: QuotePreviewLine[] = [];
     for (const [index, line] of lines.entries()) {
       const material = materials.find((entry) => entry.materialId === line.materialId && entry.unit === line.unit);
@@ -129,7 +139,7 @@ export function QuotePreviewPanel() {
         await previewQuote({
           customerId: customerId || null,
           customerGroupId: customerId ? null : groupId || null,
-          priceListId: customerId ? null : priceListId || null,
+          priceListId,
           date: date || null,
           lines: payload,
           shipping: shippingAmount === undefined ? null : { amount: shippingAmount, vatRate: parseNumber(shippingVat) ?? null },
@@ -156,7 +166,7 @@ export function QuotePreviewPanel() {
             <SearchableSelect
               options={customerOptions}
               value={customerId}
-              placeholder="Chọn khách (nhóm, bảng giá lấy theo hồ sơ)"
+              placeholder="Chọn khách (nhóm lấy theo hồ sơ)"
               clearable
               onChange={setCustomerId}
             />
@@ -172,17 +182,9 @@ export function QuotePreviewPanel() {
               onChange={setGroupId}
             />
           </label>
-          <label className={local.inlineField}>
-            Hoặc bảng giá
-            <SearchableSelect
-              options={priceLists.filter((list) => !list.isStandard).map((list) => ({ value: list.id, label: list.name, badge: list.code }))}
-              value={customerId ? '' : priceListId}
-              placeholder="Bảng giá chuẩn"
-              disabled={Boolean(customerId)}
-              clearable
-              onChange={setPriceListId}
-            />
-          </label>
+          <Field label="Bảng giá" required hint={noPriceLists ? NO_PRICE_LISTS_TEXT : priceListId ? undefined : PICK_PRICE_LIST_FIRST}>
+            <PriceListSelect lists={priceLists} date={priceDate} value={priceListId} onChange={setPriceListId} />
+          </Field>
           <label className={local.inlineField}>
             Ngày tính giá
             <DatePickerInput value={date || undefined} onChange={setDate} height={38} placeholder="Hôm nay" aria-label="Ngày tính giá" />
@@ -208,8 +210,9 @@ export function QuotePreviewPanel() {
                 <SearchableSelect
                   options={materialOptions}
                   value={line.materialId ? `${line.materialId}|${line.unit}` : ''}
-                  placeholder="Chọn mặt hàng trong bảng giá"
+                  placeholder={priceListId ? 'Chọn mặt hàng trong bảng giá' : PICK_PRICE_LIST_FIRST}
                   emptyText="Chưa có mặt hàng nào trong bảng giá"
+                  disabled={!priceListId}
                   onChange={(value) => {
                     const [materialId = '', unit = ''] = value.split('|');
                     update(line.key, { materialId, unit });
@@ -258,7 +261,13 @@ export function QuotePreviewPanel() {
           <button type="button" className={styles.buttonGhost} onClick={() => setLines((current) => [...current, emptyLine()])}>
             <Plus size={14} /> Thêm dòng
           </button>
-          <button type="button" className={styles.buttonPrimary} disabled={running} onClick={() => void run()}>
+          <button
+            type="button"
+            className={styles.buttonPrimary}
+            disabled={running || !priceListId}
+            title={priceListId ? undefined : PICK_PRICE_LIST_FIRST}
+            onClick={() => void run()}
+          >
             {running ? 'Đang tính…' : 'Tính giá'}
           </button>
         </span>

@@ -8,10 +8,10 @@ import { X } from 'lucide-react';
 import { useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
 import { CatalogPager, CatalogSearchBar, catalogKindLabel, useCatalogSearch } from '../components/catalog-search';
-import { errorMessage, updatePriceListItem, upsertPriceListItems } from '../crm-api';
+import { errorMessage, setManualPrice, setPriceListVatRate, updatePriceListItem, upsertPriceListItems } from '../crm-api';
 import styles from '../sales.module.scss';
 import { formatMoney } from '../sales.model';
-import { buildPriceListItems, newPriceRow, parseNumber, type PriceRowDraft } from './pricing.model';
+import { buildPriceListItems, newPriceRow, parseNumber, parseUnitPrice, parseVatRate, priceText, type PriceRowDraft } from './pricing.model';
 
 /**
  * Thêm dòng giá: chọn một hoặc nhiều mặt hàng từ danh mục Kho (id, mã, tên, đơn vị lấy theo Kho,
@@ -234,7 +234,7 @@ export function EditPriceItemDialog({
   onClose: () => void;
   onSaved: (detail: PriceListDetail) => void;
 }) {
-  const [price, setPrice] = useState(String(item.price));
+  const [price, setPrice] = useState(item.price === null ? '' : String(item.price));
   const [vat, setVat] = useState(String(item.vatRate));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -279,6 +279,124 @@ export function EditPriceItemDialog({
         </Field>
         <Field label="Thuế suất (%)" required hint="Từ 0 đến 100, cho phép số thập phân">
           <input className={styles.input} inputMode="decimal" value={vat} onChange={(event) => setVat(event.target.value)} />
+        </Field>
+      </div>
+    </CrmDialog>
+  );
+}
+
+/** Bảng theo tỷ lệ: nhập giá tay cho một dòng; dòng thành "Giá tay", đồng bộ và đổi tỷ lệ không ghi đè. */
+export function ManualPriceDialog({
+  priceListId,
+  item,
+  onClose,
+  onSaved,
+}: {
+  priceListId: string;
+  item: PriceListItem;
+  onClose: () => void;
+  onSaved: (detail: PriceListDetail) => void;
+}) {
+  const [price, setPrice] = useState(item.price === null ? '' : String(item.price));
+  const [fieldError, setFieldError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    const parsed = parseUnitPrice(price);
+    if (!parsed.ok) return setFieldError(parsed.error);
+    setFieldError(undefined);
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const detail = await setManualPrice(priceListId, item.id, parsed.value);
+      toast.success('Đã nhập giá tay.');
+      onSaved(detail);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được giá tay.'));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <CrmDialog
+      open
+      title="Nhập giá tay"
+      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Giá hiện tại: ${priceText(item.price)}.`}
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      <div className={styles.fieldGrid}>
+        <Field label="Đơn giá (VND)" required error={fieldError} hint="Giá tay giữ nguyên khi đồng bộ Kho hoặc đổi tỷ lệ">
+          <input
+            className={styles.input}
+            inputMode="decimal"
+            value={price}
+            autoFocus
+            aria-invalid={fieldError ? true : undefined}
+            onChange={(event) => setPrice(event.target.value)}
+          />
+        </Field>
+      </div>
+    </CrmDialog>
+  );
+}
+
+/** Bảng mặc định: sửa thuế suất một dòng (cột duy nhất sửa được); bảng theo tỷ lệ nhận theo. */
+export function VatRateDialog({
+  priceListId,
+  item,
+  onClose,
+  onSaved,
+}: {
+  priceListId: string;
+  item: PriceListItem;
+  onClose: () => void;
+  onSaved: (detail: PriceListDetail) => void;
+}) {
+  const [vat, setVat] = useState(String(item.vatRate).replace('.', ','));
+  const [fieldError, setFieldError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    const parsed = parseVatRate(vat);
+    if (!parsed.ok) return setFieldError(parsed.error);
+    setFieldError(undefined);
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const detail = await setPriceListVatRate(priceListId, item.id, parsed.value);
+      toast.success('Đã lưu thuế suất.');
+      onSaved(detail);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được thuế suất.'));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <CrmDialog
+      open
+      title="Sửa thuế suất"
+      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Mặt hàng, đơn vị, giá lấy từ Kho; chỉ sửa được thuế suất.`}
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      <div className={styles.fieldGrid}>
+        <Field label="Thuế suất (%)" required error={fieldError} hint="Từ 0 đến 100, tối đa 2 chữ số thập phân">
+          <input
+            className={styles.input}
+            inputMode="decimal"
+            value={vat}
+            autoFocus
+            aria-invalid={fieldError ? true : undefined}
+            onChange={(event) => setVat(event.target.value)}
+          />
         </Field>
       </div>
     </CrmDialog>

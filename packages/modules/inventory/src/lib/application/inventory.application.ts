@@ -21,6 +21,7 @@ import type {
   ImportMaterialsRequest,
   ImportMaterialsResult,
   CreateStockReservationRequest,
+  InternalMaterialCatalogFingerprint,
   InternalMaterialCatalogPage,
   InternalMaterialCatalogQuery,
   InternalWarehouseCatalogPage,
@@ -235,6 +236,18 @@ export class InventoryApplication {
     }
     const page = rows.slice(0, normalized.limit);
     return { materials: page, nextCursor: page[page.length - 1].code };
+  }
+
+  /**
+   * Dấu vân tay danh mục cho đồng bộ bảng giá của Bán hàng: tính trên mọi mặt hàng
+   * (kể cả ngừng dùng) của các nhóm `kinds`; không truyền thì cả hàng hoá và dịch vụ.
+   */
+  async materialCatalogFingerprint(
+    actor: InventoryActor,
+    kinds?: readonly string[],
+  ): Promise<InternalMaterialCatalogFingerprint> {
+    const normalized = [...new Set((kinds ?? []).map((kind) => requireMaterialKind(kind) as MaterialKind))];
+    return this.store.material.catalogFingerprint(actor.tenantId, normalized.length ? normalized : ['STOCK', 'SERVICE']);
   }
 
   /** Phân loại đang dùng trên mặt hàng (lọc khi chọn mặt hàng ở phân hệ khác); mặc định cả hàng hoá và dịch vụ. */
@@ -1843,6 +1856,7 @@ function normalizeCatalogQuery(query: InternalMaterialCatalogQuery): InternalMat
     warehouseCode: query.warehouseCode?.trim() || undefined,
     kinds: kinds.length ? kinds : undefined,
     tradeCategory: query.tradeCategory?.trim().slice(0, 100) || undefined,
+    includeInactive: query.includeInactive === true || undefined,
     limit,
     cursor: query.cursor?.trim() || undefined,
   };

@@ -6,6 +6,7 @@ import {
   defaultQuoteLayout,
   type CrmCapabilities,
   type CustomFieldDefinition,
+  type PriceListSummary,
   type QuoteDetail,
   type QuoteLayout,
   type QuoteTemplate,
@@ -173,6 +174,7 @@ const mockApi = {
   getSalesOrganization: jest.fn(),
   getMyTasks: jest.fn(),
   deleteQuote: jest.fn(),
+  listPriceLists: jest.fn(),
 };
 jest.mock('../crm-api', () => ({
   errorMessage: (cause: { message?: string } | undefined, fallback: string) => cause?.message || fallback,
@@ -183,6 +185,7 @@ jest.mock('../crm-api', () => ({
       'updateQuoteLine', 'convertQuote', 'searchCatalog', 'listQuoteTemplates', 'listQuoteTypes', 'listQuoteCustomFields',
       'generateQuoteCode', 'getQuoteTemplateLayout', 'createQuote', 'listCustomers', 'listOpportunities', 'listQuotes',
       'listSalesOrganizations', 'getSalesOrganization', 'getMyTasks', 'deleteQuote', 'loadQuoteLinePickerSettings', 'listCatalogTradeCategories',
+      'listPriceLists',
     ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
   ),
 }));
@@ -218,6 +221,30 @@ const layoutFor = (id: string) => Promise.resolve({ layout: titled(`TIÊU ĐỀ 
 
 const sent = (patch: Partial<QuoteVersion> = {}) => fixtureVersion({ versionNo: 2, status: 'SENT', sentAt: '2026-11-02T00:00:00.000Z', ...patch });
 
+const priceList = (id: string, patch: Partial<PriceListSummary> = {}): PriceListSummary => ({
+  id,
+  code: id.toUpperCase(),
+  name: `Bảng giá ${id}`,
+  listType: 'DERIVED',
+  ratioPercent: 100,
+  isStandard: false,
+  currency: 'VND',
+  validFrom: '2026-01-01',
+  validTo: null,
+  status: 'ACTIVE',
+  note: null,
+  itemCount: 3,
+  usageCount: 0,
+  updatedAt: '2026-01-01T00:00:00Z',
+  ...patch,
+});
+const PRICE_LISTS: PriceListSummary[] = [
+  priceList('pl-md', { code: 'BG-MAC-DINH', name: 'Bảng giá mặc định', listType: 'DEFAULT', ratioPercent: null }),
+  priceList('pl-105', { code: 'BG-105', name: 'Bảng giá 105', ratioPercent: 105 }),
+  priceList('pl-off', { code: 'BG-TAT', name: 'Bảng giá đã tắt', status: 'INACTIVE' }),
+  priceList('pl-old', { code: 'BG-CU', name: 'Bảng giá hết hạn', validTo: '2026-06-30' }),
+];
+
 function stubLookups(fields: CustomFieldDefinition[] = []) {
   mockApi.listQuoteTemplates.mockResolvedValue(TEMPLATES);
   mockApi.listQuoteTypes.mockResolvedValue([{ id: 'qt1', name: 'Thiết bị', description: null, active: true, isDefault: true, sortOrder: 0 }]);
@@ -238,6 +265,7 @@ beforeEach(() => {
   mockApi.listCustomers.mockResolvedValue({ items: [] });
   mockApi.listOpportunities.mockResolvedValue({ items: [] });
   mockApi.listSalesOrganizations.mockResolvedValue([]);
+  mockApi.listPriceLists.mockResolvedValue(PRICE_LISTS);
 });
 
 const title = () => document.querySelector('[data-block-type="title"]')?.textContent ?? '';
@@ -881,8 +909,14 @@ describe('NewQuoteScreen (P3C4-06)', () => {
     const { unmount } = render(<NewQuoteScreen onBack={jest.fn()} onCreated={onCreated} />);
     fireEvent.click(await screen.findByText('chọn Công ty A'));
     fireEvent.change(screen.getByLabelText(/^Tên báo giá/), { target: { value: 'Báo giá trạm bơm' } });
+    // C4.2: chưa chọn bảng giá thì nút + khoá, có dòng nhắc.
+    expect(button('Thêm dòng hàng').disabled).toBe(true);
+    expect(screen.getByText('Chọn bảng giá trước', { selector: 'p' })).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'chọn Bảng giá 105' }));
+    expect(button('Thêm dòng hàng').disabled).toBe(false);
     fireEvent.click(button('Thêm dòng hàng'));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('q1'));
+    expect(mockApi.createQuote).toHaveBeenCalledWith(expect.objectContaining({ priceListId: 'pl-105' }));
     unmount();
     renderEditor(fixtureDetail());
     expect(await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' })).toBeTruthy();
@@ -1009,6 +1043,126 @@ describe('Tổ chức báo giá: hàm thuần (P3C6-06)', () => {
     const cleared = withSellerDraft(detail, EMPTY_SELLER_STATE, null);
     expect(cleared.version.sellerLogo).toBeNull();
     expect(cleared.version.form.seller).toBeNull();
+  });
+});
+
+describe('Bảng giá trên báo giá (C4)', () => {
+  const noList = (patch: Partial<QuoteVersion> = {}) =>
+    fixtureVersion({ priceListId: null, priceListCode: null, priceListName: null, priceListStatus: null, lines: [], ...patch });
+  const priceField = () => screen.getByText('Bảng giá', { selector: 'span' }).closest('label') as HTMLElement;
+
+  it('C4.1: báo giá mới có ô "Bảng giá" bắt buộc, trống; chỉ có bảng đang bật, còn hiệu lực (C4.4)', async () => {
+    render(<NewQuoteScreen onBack={jest.fn()} onCreated={jest.fn()} />);
+    await within(priceField()).findByText('chọn Bảng giá 105');
+    const field = priceField();
+    expect(field.textContent).toContain('*');
+    expect(field.querySelector('[data-select-value]')?.getAttribute('data-select-value')).toBe('');
+    expect(within(field).getByText('chọn Bảng giá mặc định')).toBeTruthy();
+    expect(within(field).queryByText(/Bảng giá đã tắt/)).toBeNull();
+    expect(within(field).queryByText(/Bảng giá hết hạn/)).toBeNull();
+  });
+
+  it('C4.5: không có bảng giá nào thì nhắc liên hệ quản trị CRM', async () => {
+    mockApi.listPriceLists.mockResolvedValue([]);
+    render(<NewQuoteScreen onBack={jest.fn()} onCreated={jest.fn()} />);
+    await waitFor(() => expect(priceField().textContent).toContain('Chưa có bảng giá. Liên hệ quản trị CRM.'));
+  });
+
+  it('C4.2, C4.6: chưa chọn thì nút + khoá kèm dòng nhắc; chọn (chưa có dòng) thì lưu ngay, không hỏi, mở khoá thêm dòng', async () => {
+    const saved = fixtureDetail(fixtureVersion({ lines: [], revision: 4 }));
+    mockApi.updateQuoteVersion.mockResolvedValue(saved);
+    renderEditor(fixtureDetail(noList()));
+    await screen.findByText('Thông tin chung');
+    expect(button('Thêm dòng hàng').disabled).toBe(true);
+    expect(screen.getByText('Chọn bảng giá trước', { selector: 'p' })).toBeTruthy();
+    fireEvent.click(await within(priceField()).findByText('chọn Bảng giá 105'));
+    await waitFor(() => expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, { revision: 3, priceListId: 'pl-105' }));
+    expect(screen.queryByRole('dialog', { name: 'Đổi bảng giá?' })).toBeNull();
+    await waitFor(() => expect(button('Thêm dòng hàng').disabled).toBe(false));
+    expect(screen.queryByText('Chọn bảng giá trước', { selector: 'p' })).toBeNull();
+  });
+
+  it('C4.8: đổi bảng giá khi có dòng rồi Huỷ thì giữ bảng cũ, không gửi', async () => {
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(await within(priceField()).findByText('chọn Bảng giá mặc định'));
+    const dialog = screen.getByRole('dialog', { name: 'Đổi bảng giá?' });
+    expect(dialog.textContent).toContain('tính lại');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Huỷ' }));
+    expect(screen.queryByRole('dialog', { name: 'Đổi bảng giá?' })).toBeNull();
+    expect(mockApi.updateQuoteVersion).not.toHaveBeenCalled();
+    expect(priceField().querySelector('[data-select-value]')?.getAttribute('data-select-value')).toBe('pl-105');
+  });
+
+  it('C4.7: đổi bảng giá khi có dòng rồi Đồng ý thì gửi yêu cầu, giá dòng cập nhật theo kết quả', async () => {
+    const repriced = fixtureVersion({
+      revision: 4,
+      priceListId: 'pl-md',
+      priceListCode: 'BG-MAC-DINH',
+      priceListName: 'Bảng giá mặc định',
+      lines: [fixtureLine({ listPrice: 12345, priceSource: 'GROUP_LIST', priceReferenceCode: 'BG-MAC-DINH' })],
+    });
+    mockApi.updateQuoteVersion.mockResolvedValue(fixtureDetail(repriced));
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(await within(priceField()).findByText('chọn Bảng giá mặc định'));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Đổi bảng giá?' })).getByRole('button', { name: 'Đồng ý' }));
+    await waitFor(() => expect(mockApi.updateQuoteVersion).toHaveBeenCalledWith('q1', 1, { revision: 3, priceListId: 'pl-md' }));
+    await waitFor(() => expect(priceField().querySelector('[data-select-value]')?.getAttribute('data-select-value')).toBe('pl-md'));
+    expect(screen.getByRole('row', { name: /^Dòng 1:/ }).textContent).toContain('Bảng giá BG-MAC-DINH');
+  });
+
+  it('C4.9: đổi bảng giá bị PRICE_NOT_FOUND thì hiện lỗi kèm dòng, ô chọn quay về bảng cũ', async () => {
+    const message = 'Dòng 1: mặt hàng VT-01 chưa có giá trong bảng giá BG-MAC-DINH.';
+    mockApi.updateQuoteVersion.mockRejectedValue({ statusCode: 400, code: 'PRICE_NOT_FOUND', message });
+    renderEditor(fixtureDetail());
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(await within(priceField()).findByText('chọn Bảng giá mặc định'));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Đổi bảng giá?' })).getByRole('button', { name: 'Đồng ý' }));
+    await waitFor(() => expect(priceField().textContent).toContain(message));
+    expect(mockToast.error).toHaveBeenCalledWith(message);
+    expect(priceField().querySelector('[data-select-value]')?.getAttribute('data-select-value')).toBe('pl-105');
+  });
+
+  it('C4.10: thêm mặt hàng chưa có giá báo lỗi tại dòng, gợi ý đơn giá ghi đè; nhập ghi đè thì gửi kèm', async () => {
+    const detail = fixtureDetail(fixtureVersion({ lines: [] }));
+    mockApi.searchCatalog.mockResolvedValue({
+      items: [{ id: 'm4', code: 'VT-04', name: 'Van chưa giá', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: null, salePrice: null }],
+      nextCursor: null,
+    });
+    mockApi.addQuoteLines
+      .mockRejectedValueOnce({
+        statusCode: 400,
+        code: 'LINES_INVALID',
+        message: 'Có dòng không hợp lệ.',
+        errors: [{ line: 1, materialId: 'm4', code: 'PRICE_NOT_FOUND', message: 'Mặt hàng VT-04 chưa nhập giá ở Kho; vui lòng nhập đơn giá ghi đè.' }],
+      })
+      .mockResolvedValueOnce(detail);
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(button('Thêm dòng hàng'));
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' });
+    fireEvent.click(await within(dialog).findByText('VT-04'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
+    await within(dialog).findByText('Dòng 1 (VT-04): Mặt hàng VT-04 chưa nhập giá ở Kho; vui lòng nhập đơn giá ghi đè.');
+    expect(dialog.textContent).toContain('Đơn giá ghi đè');
+    fireEvent.change(within(dialog).getByLabelText('Đơn giá ghi đè VT-04'), { target: { value: '12.500' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
+    await waitFor(() =>
+      expect(mockApi.addQuoteLines).toHaveBeenLastCalledWith('q1', 1, expect.objectContaining({ lines: [{ materialId: 'm4', quantity: 1, overrideUnitPrice: 12500 }] })),
+    );
+  });
+
+  it('C4.11, C4.12: báo giá đã gửi hiện tên bảng giá dạng chữ, không có ô chọn; bảng đã tắt kèm "(Ngừng áp dụng)"', async () => {
+    const { unmount } = renderEditor(fixtureDetail(sent({ versionNo: 1 })));
+    await screen.findByText('Thông tin chung');
+    const left = screen.getByTestId('quote-workspace-left');
+    expect(within(left).getByText('Bảng giá', { selector: 'dt' }).nextElementSibling?.textContent).toContain('Bảng giá 105');
+    expect(within(left).queryByText('chọn Bảng giá 105')).toBeNull();
+    unmount();
+    renderEditor(fixtureDetail(sent({ versionNo: 1, priceListStatus: 'INACTIVE' })));
+    await screen.findByText('Thông tin chung');
+    expect(screen.getByText('Bảng giá', { selector: 'dt' }).nextElementSibling?.textContent).toContain('Bảng giá 105 (Ngừng áp dụng)');
   });
 });
 

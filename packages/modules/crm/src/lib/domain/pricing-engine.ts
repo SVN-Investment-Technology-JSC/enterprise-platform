@@ -16,8 +16,10 @@ import { CrmValidationError } from './crm.error.js';
  * Engine giá: hàm thuần, không DB, không giờ hệ thống. Mọi quy tắc tính tiền
  * của báo giá và đơn bán nằm ở đây (Q3, `docs/crm/plan_crm.md`):
  *
- * 1. Đơn giá gốc theo thứ tự: giá hợp đồng còn hiệu lực, bảng giá của nhóm
- *    khách, bảng giá chuẩn (PRC-01, mục 5).
+ * 1. Đơn giá gốc theo thứ tự: giá hợp đồng còn hiệu lực, rồi dòng của bảng giá
+ *    người dùng chọn ở báo giá, đơn (`priceListId`, đang bật và còn hiệu lực).
+ *    Không tự lấy bảng giá chuẩn (`docs/crm_price_list_logic/plan.md` 4.5). Dòng
+ *    có trong bảng nhưng giá rỗng ("Chưa nhập giá ở Kho") phải ghi đè đơn giá.
  * 2. Chính sách khớp với dòng: chính sách độc quyền có ưu tiên cao nhất (số
  *    `priority` nhỏ nhất) loại mọi chính sách khác; nếu không có thì cộng các
  *    chính sách STACK với mức cao nhất trong các chính sách MAX. Tổng là phần
@@ -33,14 +35,16 @@ import { CrmValidationError } from './crm.error.js';
 export interface PricingPriceListItem {
   readonly materialId: string;
   readonly unit: string;
-  readonly price: number;
+  /** Rỗng: "Chưa nhập giá ở Kho"; dòng chỉ tính được khi ghi đè đơn giá. */
+  readonly price: number | null;
   readonly vatRate: number;
 }
 
 export interface PricingPriceList {
   readonly id: string;
   readonly code: string;
-  readonly isStandard: boolean;
+  /** Bảng chuẩn cũ; engine không còn dùng (giữ cho dữ liệu cũ, bản giả trong test). */
+  readonly isStandard?: boolean;
   readonly validFrom: string;
   readonly validTo: string | null;
   readonly status: PricingStatus;
@@ -95,8 +99,8 @@ export interface PricingInput {
   readonly customerId: string | null;
   /** Nhóm khách: chỉ dùng cho tiêu chí của chính sách chiết khấu, không chọn bảng giá (D3-38). */
   readonly customerGroupId: string | null;
-  /** Bảng giá khách đã chọn ở hồ sơ (D3-38); rỗng, hết hiệu lực hoặc tắt thì dùng bảng giá chuẩn. */
-  readonly customerPriceListId?: string | null;
+  /** Bảng giá người dùng chọn ở báo giá, đơn; rỗng, hết hiệu lực hoặc tắt thì không có giá theo bảng. */
+  readonly priceListId: string | null;
   readonly lines: readonly PricingLineInput[];
   readonly priceLists: readonly PricingPriceList[];
   readonly policies: readonly PricingPolicy[];
@@ -150,6 +154,26 @@ export function roundVnd(value: number): number {
   return Number(divideRounded(scaled(value, 6), 1_000_000n));
 }
 
+/** Đơn giá tối đa của dòng giá (khớp với kiểm tra đơn giá ở bảng giá). */
+export const PRICE_LIST_PRICE_MAX = 1e13;
+
+/**
+ * Giá theo tỷ lệ của bảng phụ thuộc: `basePrice × ratioPercent / 100`, làm tròn đến đồng kiểu xa số 0, tính bằng số
+ * nguyên lớn (đơn giá 2 chữ số, tỷ lệ 2 chữ số) nên không sai số nhị phân. Giá gốc rỗng thì rỗng. Vượt đơn giá tối đa
+ * thì `PRICE_OUT_OF_RANGE`.
+ */
+export function ratioPrice(basePrice: number | null, ratioPercent: number): number | null {
+  if (basePrice === null) return null;
+  const cents = scaled(basePrice, PRICE_SCALE);
+  const ratio = scaled(ratioPercent, 2);
+  // xu × (phần trăm × 100) / (100 xu × 100 × 100%) = đồng
+  const price = divideRounded(cents * ratio, 1_000_000n);
+  if (price > BigInt(PRICE_LIST_PRICE_MAX)) {
+    throw new CrmValidationError('PRICE_OUT_OF_RANGE', 'Giá sau tỷ lệ vượt giới hạn.');
+  }
+  return Number(price);
+}
+
 /**
  * Biên lợi nhuận (%) = (doanh thu − giá vốn) / doanh thu, 2 chữ số thập phân.
  * Doanh thu 0 (dòng tặng) trả `null`: giao diện hiện "không xác định".
@@ -180,33 +204,27 @@ function sameText(left: string | null | undefined, right: string | null | undefi
 }
 
 interface ResolvedPrice {
-  readonly price: number;
+  /** Rỗng: dòng bảng giá chưa nhập giá ở Kho. */
+  readonly price: number | null;
   readonly vatRate: number;
   readonly source: PriceSource;
   readonly referenceId: string | null;
   readonly referenceCode: string | null;
 }
 
-function findItem(lists: readonly PricingPriceList[], line: PricingLineInput) {
-  for (const list of lists) {
-    const item = list.items.find((entry) => entry.materialId === line.materialId && sameUnit(entry.unit, line.unit));
-    if (item) return { list, item };
-  }
-  return undefined;
-}
-
-/** Bảng giá đang hiệu lực, bảng bắt đầu sau cùng đứng trước. */
-function effectiveLists(input: PricingInput, accept: (list: PricingPriceList) => boolean): PricingPriceList[] {
-  return input.priceLists
-    .filter((list) => list.status === 'ACTIVE' && withinValidity(input.date, list.validFrom, list.validTo) && accept(list))
-    .sort((left, right) => right.validFrom.localeCompare(left.validFrom) || left.code.localeCompare(right.code));
+/** Dòng của bảng giá đã chọn, khi bảng đang bật và còn hiệu lực tại ngày tính giá. */
+function chosenItem(input: PricingInput, line: PricingLineInput) {
+  const chosenId = input.priceListId;
+  if (!chosenId) return undefined;
+  const list = input.priceLists.find(
+    (entry) => entry.id === chosenId && entry.status === 'ACTIVE' && withinValidity(input.date, entry.validFrom, entry.validTo),
+  );
+  const item = list?.items.find((entry) => entry.materialId === line.materialId && sameUnit(entry.unit, line.unit));
+  return list && item ? { list, item } : undefined;
 }
 
 function resolvePrice(input: PricingInput, line: PricingLineInput): ResolvedPrice | undefined {
-  const standard = findItem(
-    effectiveLists(input, (list) => list.isStandard),
-    line,
-  );
+  const chosen = chosenItem(input, line);
   const contract = (input.contractPrices ?? []).find(
     (entry) =>
       entry.materialId === line.materialId &&
@@ -216,27 +234,20 @@ function resolvePrice(input: PricingInput, line: PricingLineInput): ResolvedPric
   if (contract) {
     return {
       price: contract.price,
-      vatRate: contract.vatRate ?? standard?.item.vatRate ?? DEFAULT_VAT_RATE,
+      vatRate: contract.vatRate ?? chosen?.item.vatRate ?? DEFAULT_VAT_RATE,
       source: 'CONTRACT',
       referenceId: contract.contractId,
       referenceCode: contract.contractCode,
     };
   }
-  const chosenId = input.customerPriceListId;
-  const group = chosenId
-    ? findItem(
-        effectiveLists(input, (list) => !list.isStandard && list.id === chosenId),
-        line,
-      )
-    : undefined;
-  const found = group ?? standard;
-  if (!found) return undefined;
+  if (!chosen) return undefined;
   return {
-    price: found.item.price,
-    vatRate: found.item.vatRate,
-    source: group ? 'GROUP_LIST' : 'STANDARD_LIST',
-    referenceId: found.list.id,
-    referenceCode: found.list.code,
+    price: chosen.item.price,
+    vatRate: chosen.item.vatRate,
+    // Giữ mã cũ đã lưu trong DB: nay là "bảng giá đã chọn".
+    source: 'GROUP_LIST',
+    referenceId: chosen.list.id,
+    referenceCode: chosen.list.code,
   };
 }
 
@@ -352,15 +363,21 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
     throw lineError(index, 'INVALID_PERCENT', 'Chiết khấu ghi đè phải từ 0 đến 100%.');
   }
 
-  const resolved = resolvePrice(input, line);
-  if (!resolved && overridePrice === null) {
-    const label = line.materialCode || line.materialName || line.materialId;
+  const found = resolvePrice(input, line);
+  const label = line.materialCode || line.materialName || line.materialId;
+  if (!found && overridePrice === null) {
     throw lineError(index, 'PRICE_NOT_FOUND', `Chưa có giá bán cho mặt hàng ${label} (${line.unit}) tại ngày tính giá.`);
   }
-  const price: ResolvedPrice = resolved ?? {
+  // Dòng có trong bảng nhưng chưa nhập giá ở Kho: chỉ ghi đè đơn giá mới tính được (không có giá gốc để chiết khấu).
+  if (found && found.price === null && overridePrice === null) {
+    throw lineError(index, 'PRICE_NOT_FOUND', `Mặt hàng ${label} chưa nhập giá ở Kho; vui lòng nhập đơn giá ghi đè.`);
+  }
+  const resolved = found && found.price !== null ? { ...found, price: found.price } : undefined;
+  const price = resolved ?? {
     price: overridePrice ?? 0,
-    vatRate: DEFAULT_VAT_RATE,
-    source: 'MANUAL',
+    // Dòng giá rỗng vẫn mang thuế suất của bảng giá.
+    vatRate: found?.vatRate ?? DEFAULT_VAT_RATE,
+    source: 'MANUAL' as const,
     referenceId: null,
     referenceCode: null,
   };

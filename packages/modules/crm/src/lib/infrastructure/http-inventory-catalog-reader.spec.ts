@@ -97,4 +97,59 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
     expect(parsed.searchParams.get('search')).toBe('ha');
     expect(parsed.searchParams.get('codes')).toBe('KHO-1,KHO-2');
   });
+
+  it('đồng bộ bảng giá: dấu vân tay và trang danh mục gồm cả mặt hàng ngừng dùng', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ count: 2, fingerprint: 'abc' }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            materials: [
+              { id: CAP, code: 'M1', name: 'Cáp', unit: 'Cái', kind: 'STOCK', salePrice: null, isActive: false },
+              { id: '22222222-2222-4222-8222-222222222222', code: 'M7', name: 'Không ĐVT', unit: null, isActive: true },
+            ],
+            nextCursor: 'M7',
+          }),
+          { status: 200 },
+        ),
+      );
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const reader = new HttpInventoryCatalogReader('http://inv/api/inventory', () => 'token');
+
+    await expect(reader.catalogFingerprint('t1', ['STOCK', 'SERVICE'])).resolves.toEqual({ count: 2, fingerprint: 'abc' });
+    const fingerprintUrl = new URL((fetchMock.mock.calls[0] as [string])[0]);
+    expect(fingerprintUrl.pathname).toBe('/api/inventory/v1/internal/materials/fingerprint');
+    expect(fingerprintUrl.searchParams.get('kind')).toBe('STOCK,SERVICE');
+
+    const page = await reader.catalogPage('t1', { kinds: ['STOCK', 'SERVICE'], cursor: 'M0', limit: 500, includeInactive: true });
+    expect(page.nextCursor).toBe('M7');
+    expect(page.materials).toEqual([
+      expect.objectContaining({ id: CAP, code: 'M1', unit: 'Cái', salePrice: null, isActive: false }),
+      expect.objectContaining({ code: 'M7', unit: null, isActive: true }),
+    ]);
+    const pageUrl = new URL((fetchMock.mock.calls[1] as [string])[0]);
+    expect(Object.fromEntries(pageUrl.searchParams)).toEqual({
+      kind: 'STOCK,SERVICE',
+      limit: '500',
+      cursor: 'M0',
+      includeInactive: 'true',
+    });
+  });
+
+  it('dấu vân tay thiếu trường hoặc Kho lỗi thì 503', async () => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ count: 1 }), { status: 200 })) as unknown as typeof fetch;
+    await expect(new HttpInventoryCatalogReader('http://inv', () => 'token').catalogFingerprint('t1', [])).rejects.toMatchObject({
+      statusCode: 503,
+    });
+    global.fetch = jest.fn().mockResolvedValue(new Response('x', { status: 500 })) as unknown as typeof fetch;
+    await expect(
+      new HttpInventoryCatalogReader('http://inv', () => 'token').catalogPage('t1', {
+        kinds: [],
+        cursor: null,
+        limit: 500,
+        includeInactive: true,
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
+  });
 });

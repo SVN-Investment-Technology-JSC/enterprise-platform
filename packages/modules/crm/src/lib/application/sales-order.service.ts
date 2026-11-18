@@ -61,7 +61,7 @@ import {
   type IssueRequestResult,
   type ReservedStock,
 } from './fulfillment.port.js';
-import { boundedNumber } from './price-list.service.js';
+import { boundedNumber, priceListRequired, requireSelectablePriceList } from './price-list.service.js';
 import { vietnamToday } from './pricing.service.js';
 import type { CatalogMaterial, CatalogReader, PricingStore } from './pricing-store.port.js';
 import type {
@@ -205,11 +205,14 @@ export class SalesOrderService {
 
     const header = this.headerInput(request, contract?.warehouseCode ?? null);
     const drafts = await this.drafts(actor.tenantId, request?.lines ?? [], [], contract?.lines);
+    const date = header.priceDate ?? today;
+    // Đơn trực tiếp và đơn từ hợp đồng: có dòng thì bắt buộc chọn bảng giá (giá hợp đồng vẫn đứng trước bảng giá).
+    const priceListId = await this.orderPriceList(actor.tenantId, request?.priceListId, null, drafts.length > 0, date);
     const priced = await this.price(actor.tenantId, {
-      date: header.priceDate ?? today,
+      date,
       customerId,
       customerGroupId: customer.groupId,
-      customerPriceListId: customer.priceListId ?? null,
+      priceListId,
       contractId: contract?.id ?? null,
       lines: drafts,
       shipping: header.shipping,
@@ -218,6 +221,7 @@ export class SalesOrderService {
       actor.tenantId,
       {
         ...header,
+        priceListId,
         totals: priced.totals,
         source: contract ? 'CONTRACT' : 'DIRECT',
         customerId,
@@ -240,7 +244,13 @@ export class SalesOrderService {
     if (!isOrderEditable(order.status)) {
       throw new CrmConflictError('ORDER_NOT_EDITABLE', 'Chỉ sửa được đơn ở trạng thái Nháp.');
     }
-    const repricing = request?.lines !== undefined || request?.priceDate !== undefined || request?.shipping !== undefined;
+    // Đơn từ báo giá giữ bảng giá của phiên bản báo giá: `priceListId` gửi kèm bị bỏ qua.
+    const priceListRequested = order.source === 'QUOTE' ? undefined : request?.priceListId;
+    const repricing =
+      request?.lines !== undefined ||
+      request?.priceDate !== undefined ||
+      request?.shipping !== undefined ||
+      priceListRequested !== undefined;
     if (order.source === 'QUOTE' && repricing) {
       throw new CrmConflictError(
         'ORDER_LINES_LOCKED',
@@ -260,7 +270,15 @@ export class SalesOrderService {
     );
     if (!repricing) {
       const lineWarehouses = this.lineWarehouses(order, request?.lineWarehouses);
-      await this.orders.updateDraft(actor.tenantId, id, revision, { ...header, totals: order.totals }, undefined, actor.userId, lineWarehouses);
+      await this.orders.updateDraft(
+        actor.tenantId,
+        id,
+        revision,
+        { ...header, priceListId: order.priceListId, totals: order.totals },
+        undefined,
+        actor.userId,
+        lineWarehouses,
+      );
       return this.get(actor, id);
     }
     const drafts =
@@ -273,11 +291,13 @@ export class SalesOrderService {
             order.contractId ? (await this.contracts.getContract(actor.tenantId, ALL, order.contractId))?.lines : undefined,
           );
     const customer = await this.customers.getCustomer(actor.tenantId, ALL, order.customerId);
+    const date = header.priceDate ?? this.today();
+    const priceListId = await this.orderPriceList(actor.tenantId, priceListRequested, order.priceListId, drafts.length > 0, date);
     const priced = await this.price(actor.tenantId, {
-      date: header.priceDate ?? this.today(),
+      date,
       customerId: order.customerId,
       customerGroupId: customer?.groupId ?? null,
-      customerPriceListId: customer?.priceListId ?? null,
+      priceListId,
       contractId: order.contractId,
       lines: drafts,
       shipping: header.shipping,
@@ -286,7 +306,7 @@ export class SalesOrderService {
       actor.tenantId,
       id,
       revision,
-      { ...header, totals: priced.totals },
+      { ...header, priceListId, totals: priced.totals },
       request.lines === undefined ? undefined : priced.lines,
       actor.userId,
     );
@@ -338,7 +358,14 @@ export class SalesOrderService {
         },
         null,
       );
-      await this.orders.updateDraft(actor.tenantId, id, revision, { ...header, totals: order.totals }, undefined, actor.userId);
+      await this.orders.updateDraft(
+        actor.tenantId,
+        id,
+        revision,
+        { ...header, priceListId: order.priceListId, totals: order.totals },
+        undefined,
+        actor.userId,
+      );
       order = await this.get(actor, id);
       revision = order.revision;
     }
@@ -777,7 +804,7 @@ export class SalesOrderService {
   private headerInput(
     request: Pick<CreateSalesOrderRequest, 'expectedDeliveryDate' | 'warehouseCode' | 'deliveryAddress' | 'note' | 'priceDate' | 'shipping'> | undefined,
     defaultWarehouse: string | null,
-  ): Omit<OrderHeaderRecord, 'totals'> {
+  ): Omit<OrderHeaderRecord, 'totals' | 'priceListId'> {
     const warehouse = optionalText(request?.warehouseCode, 50, 'mã kho') ?? defaultWarehouse;
     const shipping = request?.shipping
       ? {
@@ -796,6 +823,33 @@ export class SalesOrderService {
       priceDate: optionalDate(request?.priceDate, 'ngày tính giá'),
       shipping,
     };
+  }
+
+  /**
+   * Bảng giá của đơn trực tiếp, đơn từ hợp đồng: không gửi là giữ `current`; `null` hoặc rỗng là bỏ chọn; chọn bảng khác
+   * thì kiểm đang bật, còn hiệu lực tại ngày tính giá. Đơn có dòng thì bắt buộc có bảng giá (`PRICE_LIST_REQUIRED`) và
+   * bảng đó phải còn áp dụng tại ngày tính giá (`PRICE_LIST_NOT_EFFECTIVE`).
+   */
+  private async orderPriceList(
+    tenantId: string,
+    requested: unknown,
+    current: string | null,
+    hasLines: boolean,
+    date: string,
+  ): Promise<string | null> {
+    let priceListId = current;
+    let checked = false;
+    if (requested === null || requested === '') {
+      priceListId = null;
+    } else if (requested !== undefined && !(typeof requested === 'string' && requested.toLowerCase() === current)) {
+      priceListId = (await requireSelectablePriceList(this.pricing, tenantId, requested, date)).id;
+      checked = true;
+    }
+    if (hasLines) {
+      if (!priceListId) throw priceListRequired();
+      if (!checked) await requireSelectablePriceList(this.pricing, tenantId, priceListId, date);
+    }
+    return priceListId;
   }
 
   /** Đổi kho giữ hàng từng dòng (D3-37): dòng phải thuộc đơn; dòng dịch vụ bỏ qua (không giữ hàng). */
@@ -879,7 +933,7 @@ export class SalesOrderService {
       readonly date: string;
       readonly customerId: string;
       readonly customerGroupId: string | null;
-      readonly customerPriceListId: string | null;
+      readonly priceListId: string | null;
       readonly contractId: string | null;
       readonly lines: readonly LineDraft[];
       readonly shipping: { amount: number; vatRate: number };
@@ -901,7 +955,7 @@ export class SalesOrderService {
     }
     const materialIds = [...new Set(input.lines.map((line) => line.materialId))];
     const [priceLists, policies, cap, contractPrices, known] = await Promise.all([
-      this.pricing.priceListsForPricing(tenantId, input.date, input.customerPriceListId, materialIds),
+      this.pricing.priceListsForPricing(tenantId, input.date, input.priceListId, materialIds),
       this.pricing.policiesForPricing(tenantId, input.date),
       this.pricing.discountCapPercent(tenantId),
       this.pricing.contractPricesForPricing(tenantId, input.date, input.customerId, materialIds, input.contractId),
@@ -920,7 +974,7 @@ export class SalesOrderService {
       date: input.date,
       customerId: input.customerId,
       customerGroupId: input.customerGroupId,
-      customerPriceListId: input.customerPriceListId,
+      priceListId: input.priceListId,
       lines: inputs,
       priceLists,
       policies,

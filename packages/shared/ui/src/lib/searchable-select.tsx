@@ -259,7 +259,9 @@ export function SearchableSelect({
             const labelMatch = removeVietnameseTones(opt.label).includes(q);
             const valueMatch = removeVietnameseTones(opt.value).includes(q);
             const descMatch = opt.description ? removeVietnameseTones(opt.description).includes(q) : false;
-            return labelMatch || valueMatch || descMatch;
+            // Badge thường là mã (hợp đồng, khách hàng): tìm theo mã được.
+            const badgeMatch = opt.badge ? removeVietnameseTones(opt.badge).includes(q) : false;
+            return labelMatch || valueMatch || descMatch || badgeMatch;
           })
         : list;
     const main = matches(options);

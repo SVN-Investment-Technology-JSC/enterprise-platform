@@ -6,6 +6,7 @@ import type {
   InventoryItem,
   CreateAssetRequest,
   CreateMaterialRequest,
+  InternalMaterialCatalogFingerprint,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
   MaterialKind,
@@ -126,6 +127,14 @@ export interface InventoryStore {
       tenantId: string,
       query: InternalMaterialCatalogQuery,
     ): Promise<InternalMaterialCatalogItem[]>;
+    /**
+     * Số mặt hàng và md5 của `id, code, name, unit, sale_price, is_active` mọi mặt
+     * hàng (kể cả ngừng dùng) thuộc `kinds`, xếp theo id, tính trong một câu SQL.
+     */
+    catalogFingerprint(
+      tenantId: string,
+      kinds: readonly MaterialKind[],
+    ): Promise<InternalMaterialCatalogFingerprint>;
     /** Các phân loại đang gắn trên mặt hàng còn dùng của các nhóm `kinds`, xếp theo chữ. */
     tradeCategories(tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]>;
   };

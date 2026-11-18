@@ -60,6 +60,12 @@ describe('LeadService', () => {
     );
   });
 
+  it('A8.6: khách sinh từ lead không mang bảng giá', async () => {
+    const { leads, service } = setup(lead());
+    await service.convert(writer, LEAD_ID, {});
+    expect(leads.convertLead.mock.calls[0][1].customer).not.toHaveProperty('priceListId');
+  });
+
   it('TC-OPP-02: MST sai định dạng trả 400, không gọi chuyển đổi', async () => {
     const { leads, service } = setup(lead({ taxCode: '01012345' }));
     await expect(service.convert(writer, LEAD_ID, {})).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_TAX_CODE' });
