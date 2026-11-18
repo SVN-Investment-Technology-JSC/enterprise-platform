@@ -102,7 +102,7 @@ describe('InventoryApplication hình thức kinh doanh và giá bán', () => {
       expect(material.create).toHaveBeenCalledWith('t1', expect.objectContaining({ code: 'DV-NEW', taxRate: 0 }), undefined, expect.anything());
       material.update.mockClear();
       await app.importMaterials(manager, { rows: [row], onConflict: 'UPDATE' });
-      expect(material.update.mock.calls[0][2]).not.toHaveProperty('taxRate');
+      expect((material.update.mock.calls[0] as unknown[])[2]).not.toHaveProperty('taxRate');
     });
 
     it('bỏ qua: giữ bản cũ, báo rõ dòng nào bị bỏ qua, không tính là lỗi', async () => {
