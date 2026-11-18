@@ -10,6 +10,7 @@ import {
   type DeliveryPlan,
   type DeliveryStatus,
   type PriceSource,
+  type PricingStatus,
   type ReservationSource,
   type SalesOrderDetail,
   type SalesOrderLine,
@@ -77,6 +78,10 @@ interface HeadRow {
   info_noted_by: string | null;
   info_noted_at: Date | null;
   price_date: string | null;
+  price_list_id: string | null;
+  price_list_code: string | null;
+  price_list_name: string | null;
+  price_list_status: PricingStatus | null;
   shipping_amount: string;
   shipping_vat_rate: string;
   gross_amount: string;
@@ -100,7 +105,8 @@ const headColumns = (today: string) => `
   o.expected_delivery_date::text AS expected_delivery_date, o.total_amount, o.owner_user_id,
   EXISTS (SELECT 1 FROM crm_schema.delivery_plans d
            WHERE d.order_id = o.id AND d.status IN ('PLANNED', 'REQUESTED') AND d.planned_date < ${today}::date) AS late,
-  o.warehouse_code, o.delivery_address, o.note, o.info_note, o.info_noted_by, o.info_noted_at, o.price_date::text AS price_date, o.shipping_amount, o.shipping_vat_rate,
+  o.warehouse_code, o.delivery_address, o.note, o.info_note, o.info_noted_by, o.info_noted_at, o.price_date::text AS price_date,
+  o.price_list_id, pl.code AS price_list_code, pl.name AS price_list_name, pl.status AS price_list_status, o.shipping_amount, o.shipping_vat_rate,
   o.gross_amount, o.discount_amount, o.net_amount, o.vat_amount, o.revision, o.reservation_expires_at, o.cancel_reason,
   o.close_reason, o.created_at, o.updated_at, ${cursorAt('o.updated_at')} AS cursor_at,
   (SELECT COALESCE(sum(e.amount), 0) FROM crm_schema.receivable_entries e WHERE e.order_id = o.id) AS outstanding`;
@@ -109,7 +115,8 @@ const HEAD_FROM = `
   FROM crm_schema.sales_orders o
   JOIN crm_schema.customers c ON c.id = o.customer_id
   LEFT JOIN crm_schema.contracts k ON k.id = o.contract_id
-  LEFT JOIN crm_schema.quotes q ON q.id = o.quote_id`;
+  LEFT JOIN crm_schema.quotes q ON q.id = o.quote_id
+  LEFT JOIN crm_schema.price_lists pl ON pl.id = o.price_list_id`;
 
 export class PostgresSalesOrderStore implements SalesOrderStore {
   constructor(
@@ -209,6 +216,10 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
       infoNotedBy: head.info_noted_by,
       infoNotedAt: toIso(head.info_noted_at),
       priceDate: toDateOnly(head.price_date),
+      priceListId: head.price_list_id,
+      priceListCode: head.price_list_code,
+      priceListName: head.price_list_name,
+      priceListStatus: head.price_list_status,
       shipping: { amount: num(head.shipping_amount), vatRate: num(head.shipping_vat_rate) },
       totals: {
         grossAmount: num(head.gross_amount),
@@ -247,14 +258,24 @@ export class PostgresSalesOrderStore implements SalesOrderStore {
     header: OrderHeaderRecord,
     lines: readonly OrderLineRecord[] | undefined,
     actorId: string,
+    lineWarehouses?: readonly { readonly lineId: string; readonly warehouseCode: string | null }[],
   ): Promise<void> {
     return this.database.transaction(tenantId, async (client) => {
       await lockOrder(client, id, revision, ['DRAFT']);
+      if (!lines && lineWarehouses?.length) {
+        for (const entry of lineWarehouses) {
+          await client.query(
+            `UPDATE crm_schema.sales_order_lines SET warehouse_code = $3, updated_at = now() WHERE order_id = $1 AND id = $2`,
+            [id, entry.lineId, entry.warehouseCode],
+          );
+        }
+      }
       await client.query(
         `UPDATE crm_schema.sales_orders
             SET expected_delivery_date = $2, warehouse_code = $3, delivery_address = $4, note = $5, price_date = $6,
                 shipping_amount = $7, shipping_vat_rate = $8, gross_amount = $9, discount_amount = $10, net_amount = $11,
-                vat_amount = $12, total_amount = $13, revision = revision + 1, updated_at = now(), updated_by = $14
+                vat_amount = $12, total_amount = $13, price_list_id = $14, revision = revision + 1, updated_at = now(),
+                updated_by = $15
           WHERE id = $1`,
         [id, ...headerValues(header), actorId],
       );
@@ -592,8 +613,8 @@ export async function insertOrder(client: CrmSqlClient, record: NewOrderRecord, 
     `INSERT INTO crm_schema.sales_orders
        (code, source, customer_id, contract_id, quote_id, opportunity_id, owner_user_id, order_date, expected_delivery_date,
         warehouse_code, delivery_address, note, price_date, shipping_amount, shipping_vat_rate, gross_amount,
-        discount_amount, net_amount, vat_amount, total_amount, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $21)
+        discount_amount, net_amount, vat_amount, total_amount, price_list_id, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $22)
      RETURNING id`,
     [
       code,
@@ -662,9 +683,9 @@ export async function insertOrderLines(client: CrmSqlClient, orderId: string, li
          (id, order_id, line_no, material_id, material_code, material_name, unit, material_kind, category, quantity,
           list_price, price_source, price_reference_id, price_reference_code, applied_policies, discount_percent,
           overridden, override_unit_price, override_discount_percent, unit_price, gross_amount, discount_amount, vat_rate,
-          line_amount, vat_amount, line_total, est_unit_cost)
+          line_amount, vat_amount, line_total, est_unit_cost, warehouse_code)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18, $19, $20, $21, $22,
-               $23, $24, $25, $26, $27)`,
+               $23, $24, $25, $26, $27, $28)`,
       [
         line.id,
         orderId,
@@ -693,6 +714,7 @@ export async function insertOrderLines(client: CrmSqlClient, orderId: string, li
         line.vatAmount,
         line.lineTotal,
         line.estUnitCost,
+        line.warehouseCode ?? null,
       ],
     );
   }
@@ -847,6 +869,7 @@ function headerValues(header: OrderHeaderRecord): unknown[] {
     header.totals.netAmount,
     header.totals.vatAmount,
     header.totals.totalAmount,
+    header.priceListId,
   ];
 }
 
@@ -880,6 +903,7 @@ interface LineRow {
   vat_amount: string;
   line_total: string;
   est_unit_cost: string | null;
+  warehouse_code: string | null;
   reserved_quantity: string;
   delivered_quantity: string;
   actual_cost: string;
@@ -971,6 +995,7 @@ function toLine(row: LineRow, plannedQuantity: number): SalesOrderLine {
     vatAmount: num(row.vat_amount),
     lineTotal: num(row.line_total),
     estUnitCost: toNumber(row.est_unit_cost),
+    warehouseCode: row.warehouse_code ?? null,
     reservedQuantity: num(row.reserved_quantity),
     plannedQuantity,
     deliveredQuantity: num(row.delivered_quantity),

@@ -373,17 +373,21 @@ describe('computeTripTime (đơn công tác)', () => {
     expect(afternoon.totalDays).toBe(0.5);
   });
 
-  it('khoảng nhiều ngày: cộng từng ngày; ngày nghỉ và ngày lễ không tính', () => {
+  it('khoảng nhiều ngày: cộng từng ngày; ngày nghỉ và ngày lễ vẫn là ngày công tác (không có phút ca)', () => {
     const r = trip(
       [workDay('2026-10-09'), off('2026-10-10'), off('2026-10-11'), workDay('2026-10-12')],
       ['2026-10-09', '08:00'],
       ['2026-10-12', '12:00'],
     );
     expect(r.errors).toEqual([]);
-    // 09/10 cả ngày + 12/10 buổi sáng; thứ Bảy, Chủ nhật bỏ qua.
-    expect(r.totalDays).toBe(1.5);
+    // 09/10 cả ngày + thứ Bảy 1 + Chủ nhật 1 + 12/10 buổi sáng 0,5; phút chỉ tính theo giờ ca của hai ngày làm việc.
+    expect(r.totalDays).toBe(3.5);
     expect(r.totalMinutes).toBe(720);
-    expect(r.warnings).toHaveLength(2);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.days.filter((d) => d.kind === 'OFF').map((d) => [d.date, d.minutes, d.quantity])).toEqual([
+      ['2026-10-10', 0, 1],
+      ['2026-10-11', 0, 1],
+    ]);
   });
 
   it('chặn khoảng sai khung ca: 3 giờ, 5 giờ, thiếu 1 giờ so với cả ca, hoặc nằm ngoài ca', () => {
@@ -404,9 +408,17 @@ describe('computeTripTime (đơn công tác)', () => {
     expect(computeRequestTime(d, at('2026-10-12', '14:00'), at('2026-10-13', '17:00'), TZ).errors).toEqual([]);
   });
 
-  it('ngày chưa phân ca bị chặn như đơn nghỉ', () => {
-    const r = trip([noShift('2026-10-18')], ['2026-10-18', '08:00'], ['2026-10-18', '17:00']);
-    expect(r.errors.join(' ')).toContain('Chưa phân ca ngày 2026-10-18');
+  it('công tác chỉ vào Chủ nhật, ngày lễ hoặc ngày chưa phân ca: hợp lệ, 1 ngày công tác, 0 phút ca', () => {
+    for (const day of [off('2026-10-11'), { ...off('2026-10-21'), kind: 'HOLIDAY' as const }, noShift('2026-10-18')]) {
+      const r = trip([day], [day.date, '08:00'], [day.date, '17:00']);
+      expect(r.errors).toEqual([]);
+      expect([r.totalDays, r.totalMinutes]).toEqual([1, 0]);
+    }
+  });
+
+  it('đơn nghỉ vẫn bị chặn khi chỉ có ngày nghỉ hoặc chưa phân ca (không đổi)', () => {
+    expect(computeRequestTime([off('2026-10-11')], at('2026-10-11', '08:00'), at('2026-10-11', '17:00'), TZ).errors.join(' ')).toContain('không có giờ làm việc');
+    expect(computeRequestTime([noShift('2026-10-18')], at('2026-10-18', '08:00'), at('2026-10-18', '17:00'), TZ).errors.join(' ')).toContain('Chưa phân ca ngày 2026-10-18');
   });
 });
 
@@ -479,7 +491,8 @@ describe('computeRequestTime: đơn vắt qua 2 tháng', () => {
     expect(bad.errors[0]).toContain('công tác theo ngày chỉ nhận cả ngày hoặc đúng nửa ca');
     const ok = computeTripTime(days, at('2026-10-30', '08:00'), at('2026-11-02', '12:00'), TZ);
     expect(ok.errors).toEqual([]);
-    expect(ok.totalDays).toBe(1.5);
+    // 30/10 cả ngày + thứ Bảy 31/10 + Chủ nhật 01/11 (ngày không có ca vẫn là ngày công tác) + 02/11 buổi sáng.
+    expect(ok.totalDays).toBe(3.5);
   });
 
   it('đơn làm thêm giờ qua nửa đêm cuối tháng được tách theo ngày lịch của hai tháng', () => {

@@ -52,8 +52,13 @@ export class TenantCoreAccess implements OnModuleDestroy {
     }
   }
 
-  /** Request ghi phải mang `x-csrf-token` đúng bằng cookie `ep_csrf` (double-submit, như các API core khác). */
+  /**
+   * Request ghi từ trình duyệt (dùng cookie) phải mang `x-csrf-token` đúng bằng cookie `ep_csrf`.
+   * Client di động xác thực bằng header `Authorization: Bearer <token>` không dùng cookie tự đính kèm nên miễn CSRF.
+   */
   requireCsrf(request: Request): void {
+    const authorization = request.headers.authorization;
+    if (authorization?.startsWith('Bearer ') && authorization.slice(7).trim().length > 0) return;
     const header = request.headers['x-csrf-token'];
     const value = Array.isArray(header) ? header[0] : header;
     const cookie = request.cookies?.ep_csrf as string | undefined;

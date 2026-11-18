@@ -190,12 +190,11 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
     expect(list.items.find((v) => v.id === created.id)?.allocation?.projectCode).toBe('DA001');
   });
 
-  it('hạch toán cho công việc: công việc phải tồn tại, còn hiệu lực và thuộc đúng dự án', async () => {
-    const ok = await app.createVoucher(accountant, payment(500_000, { allocation: { type: 'WORK_ITEM', projectId: P1.id, workItemId: W1.id } }));
-    expect(ok.allocation).toMatchObject({ type: 'WORK_ITEM', projectCode: 'DA001', workItemId: W1.id, workItemCode: 'CV-1', workItemTitle: 'Lắp đặt tủ điện' });
-    await rejects(app.createVoucher(accountant, payment(1, { allocation: { type: 'WORK_ITEM', projectId: P1.id, workItemId: W2.id } })), 'FINANCE_INVALID', /không thuộc dự án/);
-    await rejects(app.createVoucher(accountant, payment(1, { allocation: { type: 'WORK_ITEM', projectId: P1.id, workItemId: WX.id } })), 'FINANCE_INVALID', /đã huỷ/);
-    await rejects(app.createVoucher(accountant, payment(1, { allocation: { type: 'WORK_ITEM', projectId: P1.id, workItemId: randomUUID() } })), 'FINANCE_INVALID', /Công việc không tồn tại/);
+  it('hạch toán nội bộ chỉ ở cấp dự án: hạch toán cho công việc bị từ chối, dự án phải tồn tại và còn hiệu lực', async () => {
+    const asWorkItem = { type: 'WORK_ITEM', projectId: P1.id, workItemId: W1.id } as never;
+    await rejects(app.createVoucher(accountant, payment(1, { allocation: asWorkItem })), 'FINANCE_INVALID', /chỉ ở cấp dự án/);
+    const withItem = { type: 'PROJECT', projectId: P1.id, workItemId: W1.id } as never;
+    await rejects(app.createVoucher(accountant, payment(1, { allocation: withItem })), 'FINANCE_INVALID', /không kèm công việc/);
     await rejects(app.createVoucher(accountant, payment(1, { allocation: { type: 'PROJECT', projectId: PX.id } })), 'FINANCE_INVALID', /đã huỷ/);
     await rejects(app.createVoucher(accountant, payment(1, { allocation: { type: 'PROJECT', projectId: randomUUID() } })), 'FINANCE_INVALID', /Dự án không tồn tại/);
   });
@@ -214,16 +213,16 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
   });
 
   it('sửa phiếu không đổi hạch toán thì không hỏi Workspace; Workspace sập vẫn lưu được, đổi hạch toán thì báo rõ', async () => {
-    const created = await app.createVoucher(accountant, receipt(3_000_000, { allocation: { type: 'WORK_ITEM', projectId: P1.id, workItemId: W1.id }, relatedProjectIds: [P2.id] }));
+    const created = await app.createVoucher(accountant, receipt(3_000_000, { allocation: { type: 'PROJECT', projectId: P1.id }, relatedProjectIds: [P2.id] }));
     ws.calls.length = 0;
     ws.available = false;
     const same = await app.updateVoucher(
       accountant,
       created.id,
-      receipt(3_500_000, { content: 'Sửa nội dung', allocation: { type: 'WORK_ITEM', projectId: P1.id, workItemId: W1.id }, relatedProjectIds: [P2.id], revision: created.revision }),
+      receipt(3_500_000, { content: 'Sửa nội dung', allocation: { type: 'PROJECT', projectId: P1.id }, relatedProjectIds: [P2.id], revision: created.revision }),
     );
     expect(same.totalAmount).toBe(3_500_000);
-    expect(same.allocation?.workItemCode).toBe('CV-1');
+    expect(same.allocation?.projectCode).toBe('DA001');
     expect(same.relatedProjects.map((p) => p.projectCode)).toEqual(['DA002']);
     expect(ws.calls).toEqual([]);
 
@@ -250,7 +249,7 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
 
     await post(receipt(10_000_000, { allocation: { type: 'PROJECT', projectId } })); // thu đã ghi sổ
     await post(payment(2_500_000, { allocation: { type: 'PROJECT', projectId } })); // chi đã ghi sổ
-    await post(payment(1_000_000, { allocation: { type: 'WORK_ITEM', projectId, workItemId: W2.id } })); // chi cho công việc của dự án
+    await post(payment(1_000_000, { allocation: { type: 'PROJECT', projectId } })); // chi thứ hai của dự án
     await post(payment(7_000_000, { relatedProjectIds: [projectId] })); // chỉ liên quan: không cộng
     const pending = await app.createVoucher(accountant, payment(400_000, { allocation: { type: 'PROJECT', projectId } }));
     await app.submit(accountant, pending.id); // chờ duyệt
@@ -264,19 +263,16 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
     const result = await app.projectVouchers(manager, session, projectId);
     expect(result.totals).toEqual({ received: 10_000_000, paid: 3_500_000, pendingReceived: 0, pendingPaid: 400_000, receiptCount: 1, paymentCount: 3 });
     expect(result.truncated).toBe(false);
-    // Tách phần chung của dự án và phần của từng công việc; tổng = phần chung + các công việc.
-    expect(result.projectLevel).toEqual({ received: 10_000_000, paid: 2_500_000, pendingReceived: 0, pendingPaid: 400_000, receiptCount: 1, paymentCount: 2 });
-    expect(result.workItems).toEqual([
-      { workItemId: W2.id, code: 'CV-2', title: 'Việc của dự án 2', received: 0, paid: 1_000_000, pendingReceived: 0, pendingPaid: 0, receiptCount: 0, paymentCount: 1 },
-    ]);
+    // Hạch toán chỉ ở cấp dự án: toàn bộ nằm ở phần chung, không còn phần theo công việc.
+    expect(result.projectLevel).toEqual(result.totals);
+    expect(result.workItems).toEqual([]);
     const byLink = (link: string) => result.items.filter((i) => i.link === link);
     expect(byLink('ALLOCATION')).toHaveLength(4);
     expect(byLink('RELATED').map((i) => i.totalAmount)).toEqual([7_000_000]);
-    const work = result.items.find((i) => i.workItem);
-    expect(work?.workItem).toMatchObject({ code: 'CV-2', title: 'Việc của dự án 2' });
+    expect(result.items.every((i) => i.workItem === null)).toBe(true);
     expect(result.items.every((i) => ['PENDING', 'APPROVED'].includes(i.status))).toBe(true);
     // Chỉ dữ kiện cần thiết: không lộ tài khoản ngân hàng hay người nộp/nhận.
-    expect(Object.keys(result.items[0]).sort()).toEqual(['code', 'content', 'createdByName', 'id', 'kind', 'link', 'reasonName', 'status', 'totalAmount', 'voucherDate', 'workItem']);
+    expect(Object.keys(result.items[0]).sort()).toEqual(['balance', 'code', 'content', 'createdAt', 'createdByName', 'id', 'kind', 'link', 'postingDate', 'reasonName', 'status', 'totalAmount', 'voucherDate', 'workItem']);
 
     // Dự án khác không lẫn số của dự án này.
     ws.financeAllowed.add(P1.id);

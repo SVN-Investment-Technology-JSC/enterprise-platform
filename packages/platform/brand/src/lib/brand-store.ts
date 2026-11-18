@@ -1,5 +1,6 @@
 import type {
   BrandIconStatus,
+  BrandSvgMode,
   IconCategory,
 } from '@enterprise-platform/shared-brand-icon';
 
@@ -41,6 +42,32 @@ export interface StandardsRow {
   readonly sizeBytes: number;
   readonly updatedBy: string | null;
   readonly updatedAt: string | null;
+}
+
+/** Một dòng `brand_schema.icon_slots` kết hợp thông tin từ `brand_schema.icons`. */
+export interface SlotRow {
+  readonly slot: string;
+  readonly iconId: string;
+  readonly iconName: string;
+  readonly iconSlug: string;
+  readonly iconStatus: BrandIconStatus;
+  readonly publishedVersion: number | null;
+  readonly currentVersion: number;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
+}
+
+/** Vị trí đang gán icon đã phát hành (`status = 'published'`), kèm thông tin phiên bản đang công khai. */
+export interface PublishedSlotEntry {
+  readonly slot: string;
+  readonly iconId: string;
+  readonly iconSlug: string;
+  readonly publishedVersion: number;
+  readonly specKey: string;
+  readonly svgKey: string;
+  readonly monoSvgKey: string;
+  readonly specSha256: string;
+  readonly standardsVersion: number;
 }
 
 export interface NewIconInput {
@@ -103,14 +130,76 @@ export interface BrandTransaction {
   insertVersion(input: NewVersionInput): Promise<VersionRow>;
   saveHead(id: string, input: SavedHeadInput): Promise<IconRow>;
   setState(id: string, input: IconStateInput): Promise<IconRow>;
+  deleteIcon(id: string): Promise<void>;
   /** Khoá dòng quy chuẩn (tạo nếu chưa có) tới hết giao dịch. */
   lockStandards(): Promise<StandardsRow>;
   updateStandards(input: StandardsUpdateInput): Promise<StandardsRow>;
+  upsertSlot(
+    slot: string,
+    iconId: string,
+    actorId: string,
+    now: string,
+  ): Promise<SlotRow>;
+  /** Trả true nếu có dòng bị xoá, false nếu vị trí vốn chưa được gán. */
+  deleteSlot(slot: string): Promise<boolean>;
   audit(
     action: string,
     actorId: string,
     metadata: Readonly<Record<string, unknown>>,
   ): Promise<void>;
+}
+
+export interface CustomSlotRow {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly groupKey: string;
+  readonly colorMode: BrandSvgMode;
+  readonly recommendedSize: number;
+  readonly createdBy: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface CustomSlotInput {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly groupKey: string;
+  readonly colorMode: BrandSvgMode;
+  readonly recommendedSize: number;
+  readonly createdBy?: string | null;
+}
+
+/** Một dòng `brand_schema.slot_groups` (chỉ nhóm tùy chỉnh; nhóm có sẵn nằm trong code). */
+export interface SlotGroupRow {
+  readonly key: string;
+  readonly label: string;
+  readonly createdBy: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface SlotGroupInput {
+  readonly key: string;
+  readonly label: string;
+  readonly createdBy?: string | null;
+}
+
+/** Giá trị ghi đè của một vị trí có sẵn; null là không ghi đè trường đó (dùng mặc định trong code). */
+export interface SlotOverrideValues {
+  readonly label: string | null;
+  readonly description: string | null;
+  readonly groupKey: string | null;
+  readonly colorMode: BrandSvgMode | null;
+  readonly recommendedSize: number | null;
+}
+
+/** Một dòng `brand_schema.slot_overrides`. */
+export interface SlotOverrideRow extends SlotOverrideValues {
+  readonly slotId: string;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
 }
 
 /** Cổng dữ liệu của Brand Studio; hiện thực thật là `PgBrandStore`. */
@@ -121,6 +210,34 @@ export interface BrandStore {
   listVersions(iconId: string): Promise<readonly VersionRow[]>;
   findVersion(iconId: string, version: number): Promise<VersionRow | null>;
   getStandards(): Promise<StandardsRow>;
+  listSlots(): Promise<readonly SlotRow[]>;
+  findSlot(slot: string): Promise<SlotRow | null>;
+  listPublishedSlotEntries(): Promise<readonly PublishedSlotEntry[]>;
+  listCustomSlots(): Promise<readonly CustomSlotRow[]>;
+  findCustomSlot(id: string): Promise<CustomSlotRow | null>;
+  createCustomSlot(input: CustomSlotInput): Promise<CustomSlotRow>;
+  updateCustomSlot(
+    id: string,
+    patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
+  ): Promise<CustomSlotRow | null>;
+  deleteCustomSlot(id: string): Promise<boolean>;
+  listSlotOverrides(): Promise<readonly SlotOverrideRow[]>;
+  findSlotOverride(slotId: string): Promise<SlotOverrideRow | null>;
+  /** Lưu ghi đè của vị trí có sẵn. Mọi giá trị null thì xoá hàng và trả null. */
+  saveSlotOverride(
+    slotId: string,
+    values: SlotOverrideValues,
+    updatedBy: string | null,
+  ): Promise<SlotOverrideRow | null>;
+  /** Trả true nếu có hàng bị xoá. */
+  deleteSlotOverride(slotId: string): Promise<boolean>;
+  /** Nhóm tùy chỉnh, sắp theo tên hiển thị. */
+  listSlotGroups(): Promise<readonly SlotGroupRow[]>;
+  findSlotGroup(key: string): Promise<SlotGroupRow | null>;
+  /** Ném `BrandStoreConflictError('key')` khi trùng mã nhóm. */
+  createSlotGroup(input: SlotGroupInput): Promise<SlotGroupRow>;
+  updateSlotGroup(key: string, label: string): Promise<SlotGroupRow | null>;
+  deleteSlotGroup(key: string): Promise<boolean>;
   /**
    * Chạy `work` trong một giao dịch: hoàn tất thì chốt, ném lỗi thì huỷ. Có thể ném `BrandStoreBusyError`
    * khi không lấy được khoá hàng trong thời hạn.

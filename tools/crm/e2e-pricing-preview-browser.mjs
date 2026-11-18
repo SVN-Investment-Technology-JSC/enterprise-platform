@@ -1,4 +1,4 @@
-// Kiểm màn Thử tính giá: giá trước chiết khấu và xuất bảng tính giá (xlsx) trên trình duyệt thật (Playwright + Chrome hệ thống) vào gateway 8080.
+// Kiểm màn Thử tính giá: chọn bảng giá bắt buộc, giá trước chiết khấu và xuất bảng tính giá (xlsx) trên trình duyệt thật (Playwright + Chrome hệ thống) vào gateway 8080.
 // Chạy: SVN_SEED_PASSWORD=<mật khẩu> node tools/crm/e2e-pricing-preview-browser.mjs [--shots=<thư mục>]
 import { createRequire } from 'node:module';
 import { mkdirSync, readdirSync } from 'node:fs';
@@ -53,6 +53,14 @@ try {
   check('Thử tính giá: không còn ô "Nhóm hàng", có "Giá trước chiết khấu"', !t0.includes('Nhóm hàng') && t0.includes('Giá trước chiết khấu'), '');
   const priceInput = sec.getByLabel('Giá trước chiết khấu (giá gốc)').first();
   check('Giá trước chiết khấu chỉ đọc, chưa chọn hàng thì rỗng', (await priceInput.inputValue()) === '' && (await priceInput.getAttribute('readonly')) !== null, '');
+  // Bảng giá bắt buộc (không còn tự lấy bảng chuẩn): chưa chọn thì "Tính giá" khoá; chọn bảng có "Máy tính xách tay".
+  check('Chưa chọn bảng giá: nút "Tính giá" khoá', await sec.getByRole('button', { name: 'Tính giá' }).isDisabled(), '');
+  const priceListInput = sec.getByPlaceholder('Chọn bảng giá (tìm theo mã, tên)').first();
+  await priceListInput.click();
+  await priceListInput.fill('QA-CRM-BG-CHUAN');
+  await page.getByRole('option').filter({ hasText: 'QA-CRM-BG-CHUAN' }).first().click();
+  await page.waitForTimeout(800);
+  check('Chọn bảng giá: nút "Tính giá" bấm được', !(await sec.getByRole('button', { name: 'Tính giá' }).isDisabled()), '');
   await sec.locator('input[placeholder*="Chọn mặt hàng"]').first().click();
   await page.getByText('Máy tính xách tay', { exact: false }).first().click();
   await page.waitForTimeout(500);

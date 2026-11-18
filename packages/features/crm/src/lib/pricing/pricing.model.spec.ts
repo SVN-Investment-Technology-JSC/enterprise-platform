@@ -6,9 +6,17 @@ import {
   parsePastedItems,
   policyConditionLabel,
   policyPercentLabel,
-  priceListScopeLabel,
+  priceListTypeLabel,
   validityLabel,
   buildPricingSheet,
+  isPriceListEffective,
+  parseRatioPercent,
+  parseUnitPrice,
+  parseVatRate,
+  priceListDisplayName,
+  priceText,
+  sortPriceLists,
+  syncResultMessage,
 } from './pricing.model';
 
 const ID = '11111111-1111-4111-8111-111111111111';
@@ -57,14 +65,80 @@ describe('parsePastedItems', () => {
 });
 
 describe('nhãn', () => {
-  it('hiệu lực, phạm vi bảng giá, phần trăm', () => {
+  it('hiệu lực, loại bảng giá, phần trăm', () => {
     expect(validityLabel('2026-12-01', '2026-12-31')).toBe('01/12/2026 – 31/12/2026');
     expect(validityLabel('2026-12-01', null)).toBe('Từ 01/12/2026');
-    expect(priceListScopeLabel({ isStandard: true, customerGroups: [] })).toBe('Bảng giá chuẩn (mọi khách)');
-    expect(priceListScopeLabel({ isStandard: false, customerGroups: [{ id: ID, code: 'VIP', name: 'Khách VIP' }] })).toBe(
-      'Khách VIP',
-    );
+    expect(priceListTypeLabel({ listType: 'DEFAULT', ratioPercent: null })).toBe('Mặc định');
+    expect(priceListTypeLabel({ listType: 'DERIVED', ratioPercent: 105.5 })).toBe('Theo tỷ lệ (105,5%)');
+    expect(priceListTypeLabel({ listType: 'MANUAL', ratioPercent: null })).toBe('Tự nhập');
     expect(formatPercent(2.5)).toBe('2,5%');
+  });
+
+  it('giá rỗng là "Chưa nhập giá ở Kho", giá 0 là "0 đ"', () => {
+    expect(priceText(null)).toBe('Chưa nhập giá ở Kho');
+    expect(priceText(0)).toBe('0 đ');
+    expect(priceText(12962)).toBe('12.962 đ');
+  });
+
+  it('bảng mặc định đứng đầu, các bảng khác giữ thứ tự', () => {
+    const lists = [{ id: 'a', listType: 'MANUAL' }, { id: 'b', listType: 'DERIVED' }, { id: 'c', listType: 'DEFAULT' }] as const;
+    expect(sortPriceLists(lists).map((list) => list.id)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('bảng còn hiệu lực tại ngày tính giá; tên bảng đã tắt kèm "(Ngừng áp dụng)"', () => {
+    const list = { status: 'ACTIVE' as const, validFrom: '2026-01-01', validTo: '2026-12-31' };
+    expect(isPriceListEffective(list, '2026-01-01')).toBe(true);
+    expect(isPriceListEffective(list, '2026-12-31')).toBe(true);
+    expect(isPriceListEffective(list, '2027-01-01')).toBe(false);
+    expect(isPriceListEffective(list, '2025-12-31')).toBe(false);
+    expect(isPriceListEffective({ ...list, validTo: null }, '2030-01-01')).toBe(true);
+    expect(isPriceListEffective({ ...list, status: 'INACTIVE' }, '2026-06-01')).toBe(false);
+    expect(priceListDisplayName('BG 105', 'INACTIVE')).toBe('BG 105 (Ngừng áp dụng)');
+    expect(priceListDisplayName('BG 105', 'ACTIVE')).toBe('BG 105');
+    expect(priceListDisplayName(null, null)).toBe('');
+  });
+
+  it('kết quả đồng bộ báo số dòng thêm, sửa, xoá và mặt hàng bị bỏ qua', () => {
+    const message = syncResultMessage({
+      defaultPriceListId: 'd',
+      added: 7,
+      updated: 2,
+      removed: 1,
+      skippedWithoutUnit: 1,
+      derivedListsUpdated: 0,
+      manualPricesRemoved: 0,
+      syncedAt: '2026-11-18T00:00:00Z',
+    });
+    expect(message).toBe('Đã đồng bộ bảng giá mặc định: thêm 7, cập nhật 2, bỏ 1 dòng. Bỏ qua 1 mặt hàng chưa có đơn vị tính ở Kho.');
+  });
+});
+
+describe('kiểm số nhập', () => {
+  it.each([
+    ['100', 100],
+    ['105,5', 105.5],
+    ['0,01', 0.01],
+    ['1000', 1000],
+  ])('tỷ lệ %p hợp lệ', (text, value) => {
+    expect(parseRatioPercent(text)).toEqual({ ok: true, value });
+  });
+
+  it.each(['0', '-5', '1001', '105,555', 'abc', ''])('tỷ lệ %p bị từ chối', (text) => {
+    expect(parseRatioPercent(text).ok).toBe(false);
+  });
+
+  it('thuế suất 0 đến 100, tối đa 2 chữ số thập phân', () => {
+    expect(parseVatRate('8,5')).toEqual({ ok: true, value: 8.5 });
+    expect(parseVatRate('0')).toEqual({ ok: true, value: 0 });
+    expect(parseVatRate('101').ok).toBe(false);
+    expect(parseVatRate('abc').ok).toBe(false);
+    expect(parseVatRate('8,555').ok).toBe(false);
+  });
+
+  it('đơn giá nhập tay không âm', () => {
+    expect(parseUnitPrice('12.500')).toEqual({ ok: true, value: 12500 });
+    expect(parseUnitPrice('0')).toEqual({ ok: true, value: 0 });
+    expect(parseUnitPrice('-1').ok).toBe(false);
   });
 
   it('chính sách bậc và điều kiện', () => {

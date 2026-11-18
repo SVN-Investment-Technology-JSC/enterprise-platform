@@ -4,8 +4,11 @@ import {
   CRM_QUOTE_APPROVAL_DECIDED,
   CRM_QUOTE_APPROVAL_REQUESTED,
   CRM_QUOTE_EXPIRED,
+  defaultQuoteLayout,
   type ProcedureDefinitionOption,
+  type QuoteLayout,
 } from '@enterprise-platform/contracts-crm';
+import { Logger } from '@nestjs/common';
 import { CustomerTimelineService } from './application/activity.service.js';
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
@@ -14,23 +17,23 @@ import { OpportunityService } from './application/opportunity.service.js';
 import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
 import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
+import { QuoteFormService } from './application/quote-form.service.js';
 import type { ProcedureClient, StartProcedureInstance } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { procedureUnavailable } from './infrastructure/http-procedure-client.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import {
   PostgresDiscountPolicyStore,
-  PostgresPriceListStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
+import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
 import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
 import {
@@ -123,6 +126,7 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
   let timeline: CustomerTimelineService;
   let links: PostgresApprovalLinks;
   let customerId: string;
+  let priceListId: string;
 
   beforeAll(async () => {
     handle = await createCrmTestDatabase();
@@ -152,9 +156,9 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
       { snapshot: async () => ORGANIZATION },
     );
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [
         { materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 },
         { materialId: BT, materialCode: 'QA-KHO-BT', materialName: 'Gói bảo trì', unit: 'Gói', price: 500_000, vatRate: 10 },
@@ -178,7 +182,7 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
 
   /** Báo giá Nháp có một dòng `QA-KHO-CAP` × 10, tuỳ chọn chiết khấu ghi đè. */
   async function draftQuote(discount?: number) {
-    const created = await quotes.create(nv1, { customerId });
+    const created = await quotes.create(nv1, { customerId, priceListId });
     return quotes.addLine(nv1, created.id, created.currentVersion, {
       revision: created.version.revision,
       materialId: CAP,
@@ -463,7 +467,15 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     });
 
     const quoteId = page.items[0].id;
-    let detail = await quotes.addLine(nv1, quoteId, 1, { revision: (await quotes.get(nv1, quoteId)).version.revision, materialId: CAP, quantity: 1 });
+    // Báo giá tự tạo khi sang giai đoạn Báo giá chưa có bảng giá: chọn trước khi thêm dòng.
+    const auto = await quotes.get(nv1, quoteId);
+    expect(auto.version.priceListId).toBeNull();
+    await expect(
+      quotes.addLine(nv1, quoteId, 1, { revision: auto.version.revision, materialId: CAP, quantity: 1 }),
+    ).rejects.toMatchObject({ code: 'PRICE_LIST_REQUIRED' });
+    const chosen = await quotes.updateVersion(nv1, quoteId, 1, { revision: auto.version.revision, priceListId });
+    expect(chosen.version).toMatchObject({ priceListId, priceListCode: 'BG-CHUAN', priceListName: 'Bảng giá chuẩn', priceListStatus: 'ACTIVE' });
+    let detail = await quotes.addLine(nv1, quoteId, 1, { revision: chosen.version.revision, materialId: CAP, quantity: 1 });
     detail = await quotes.submit(nv1, quoteId, 1, { revision: detail.version.revision });
     detail = await quotes.send(nv1, quoteId, 1, { revision: detail.version.revision });
     detail = await quotes.accept(nv1, quoteId, 1, { revision: detail.version.revision });
@@ -559,10 +571,10 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     for (const stage of ['CONTACTED', 'DISCOVERY', 'QUOTING'] as const) await opportunities.changeStage(nv1, opportunity.id, { stage });
     const [draftId] = (await quotes.list(nv1, { opportunityId: opportunity.id })).items.map((item) => item.id);
     // Báo giá thứ hai của cơ hội đang Chờ duyệt qua Quy trình; thứ ba đã Khách chấp nhận thì giữ nguyên.
-    const pendingQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id });
+    const pendingQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id, priceListId });
     const withLine = await quotes.addLine(nv1, pendingQuote.id, 1, { revision: pendingQuote.version.revision, materialId: CAP, quantity: 10, overrideDiscountPercent: 12 });
     await quotes.submit(nv1, pendingQuote.id, 1, { revision: withLine.version.revision });
-    const acceptedQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id });
+    const acceptedQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id, priceListId });
     let accepted = await quotes.addLine(nv1, acceptedQuote.id, 1, { revision: acceptedQuote.version.revision, materialId: CAP, quantity: 1 });
     accepted = await quotes.submit(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });
     accepted = await quotes.send(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });
@@ -582,5 +594,208 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
       applyQuoteProcedureResult(handle.database, tenantId, { sourceType: 'crm_quote', sourceId: link.id, status: 'completed' }),
     ).resolves.toBe('ignored');
     expect((await quotes.get(nv1, pendingQuote.id)).status).toBe('DECLINED');
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 3: bản chụp bố cục khi gửi (P3C1-07), chèn dòng tại vị trí (P3C1-08)
+  // -------------------------------------------------------------------------
+
+  describe('bản chụp bố cục khi gửi khách', () => {
+    const form = () => new QuoteFormService(new PostgresQuoteFormStore(handle.database));
+    const titled = (title: string): QuoteLayout => {
+      const layout = defaultQuoteLayout();
+      return { ...layout, blocks: layout.blocks.map((block) => (block.type === 'title' ? { ...block, text: title } : block)) };
+    };
+    let withLayout: string;
+    let withoutLayout: string;
+
+    beforeAll(async () => {
+      withLayout = (await form().createTemplate(admin, { name: 'P3 mẫu có bố cục', discountMode: 'LINE', taxMode: 'LINE' })).id;
+      withoutLayout = (await form().createTemplate(admin, { name: 'P3 mẫu chưa bố cục', discountMode: 'LINE', taxMode: 'LINE' })).id;
+      await form().saveLayout(admin, withLayout, { layout: titled('BÁO GIÁ V1') });
+    });
+
+    /** Báo giá Nháp một dòng dùng mẫu cho trước (dịch vụ của suite này không có kho mẫu nên gán thẳng trong DB). */
+    async function draftWith(templateId: string) {
+      const draft = await draftQuote();
+      await handle.pool.query(`UPDATE crm_schema.quote_versions SET template_id = $2 WHERE quote_id = $1`, [draft.id, templateId]);
+      return quotes.get(nv1, draft.id);
+    }
+    async function sentWith(templateId: string) {
+      const draft = await draftWith(templateId);
+      const approved = await quotes.submit(nv1, draft.id, 1, { revision: draft.version.revision });
+      return quotes.send(nv1, draft.id, 1, { revision: approved.version.revision });
+    }
+    const titleOf = (layout: QuoteLayout | null) => layout?.blocks.find((block) => block.type === 'title');
+
+    it('TC-TL-20/21: gửi khách chụp bố cục của mẫu cùng lúc với sent_at; mẫu chưa có bố cục thì rỗng, gửi vẫn thành công', async () => {
+      const draft = await draftWith(withLayout);
+      expect(draft.version.layoutSnapshot).toBeNull();
+      const approved = await quotes.submit(nv1, draft.id, 1, { revision: draft.version.revision });
+      // Trình duyệt, duyệt: chưa chụp.
+      expect(approved.version.layoutSnapshot).toBeNull();
+      const sent = await quotes.send(nv1, draft.id, 1, { revision: approved.version.revision });
+      expect(sent.version.sentAt).not.toBeNull();
+      expect(sent.version.layoutSnapshot).toEqual(titled('BÁO GIÁ V1'));
+
+      const none = await sentWith(withoutLayout);
+      expect(none).toMatchObject({ status: 'SENT', version: { layoutSnapshot: null } });
+      expect(none.version.sentAt).not.toBeNull();
+    });
+
+    it('TC-TL-22/23/25: sửa mẫu sau khi gửi không đổi bản đã gửi; phiên bản mới bắt đầu rỗng, gửi lại thì chụp lại; chuyển khác không chụp', async () => {
+      const sent = await sentWith(withLayout);
+      const draft = await draftWith(withLayout);
+      await form().saveLayout(admin, withLayout, { layout: titled('BÁO GIÁ V2') });
+      expect(titleOf((await quotes.get(nv1, sent.id)).version.layoutSnapshot)).toMatchObject({ text: 'BÁO GIÁ V1' });
+      // Báo giá Nháp chưa có bản chụp: giao diện dùng bố cục hiện tại của mẫu (V2).
+      expect((await quotes.get(nv1, draft.id)).version.layoutSnapshot).toBeNull();
+
+      const v2 = await quotes.revise(nv1, sent.id, 1, { revision: sent.version.revision });
+      expect(v2.version).toMatchObject({ versionNo: 2, status: 'DRAFT', layoutSnapshot: null });
+      // Phiên bản 1 Đã thay thế: giữ bản chụp cũ.
+      const v1 = await quotes.get(nv1, sent.id, '1');
+      expect(v1.version.status).toBe('SUPERSEDED');
+      expect(titleOf(v1.version.layoutSnapshot)).toMatchObject({ text: 'BÁO GIÁ V1' });
+      const approved = await quotes.submit(nv1, sent.id, 2, { revision: v2.version.revision });
+      const resent = await quotes.send(nv1, sent.id, 2, { revision: approved.version.revision });
+      expect(titleOf(resent.version.layoutSnapshot)).toMatchObject({ text: 'BÁO GIÁ V2' });
+
+      // Sửa mẫu lần nữa rồi khách chấp nhận / từ chối / hết hạn: bản chụp không đổi.
+      await form().saveLayout(admin, withLayout, { layout: titled('BÁO GIÁ V3') });
+      const accepted = await quotes.accept(nv1, sent.id, 2, { revision: resent.version.revision });
+      expect(accepted.version.status).toBe('ACCEPTED');
+      expect(titleOf(accepted.version.layoutSnapshot)).toMatchObject({ text: 'BÁO GIÁ V2' });
+
+      const declinedSource = await sentWith(withLayout);
+      const declined = await quotes.decline(nv1, declinedSource.id, 1, { revision: declinedSource.version.revision, reason: 'Giá cao' });
+      expect(declined.version.status).toBe('DECLINED');
+      expect(titleOf(declined.version.layoutSnapshot)).toMatchObject({ text: 'BÁO GIÁ V3' });
+
+      const expiring = await sentWith(withLayout);
+      await form().saveLayout(admin, withLayout, { layout: titled('BÁO GIÁ V4') });
+      await handle.pool.query(`UPDATE crm_schema.quote_versions SET valid_until = current_date - 1 WHERE quote_id = $1`, [expiring.id]);
+      const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+      await new PostgresQuoteStore(handle.database).expireDue(tenantId, today, 100);
+      const expired = await quotes.get(nv1, expiring.id);
+      expect(expired.version.status).toBe('EXPIRED');
+      expect(titleOf(expired.version.layoutSnapshot)).toMatchObject({ text: 'BÁO GIÁ V3' });
+    });
+
+    it('TC-TL-24: bản chụp sai cấu trúc trả rỗng kèm cảnh báo; lỗi trong transaction gửi thì trạng thái và bản chụp cùng giữ nguyên', async () => {
+      const sent = await sentWith(withLayout);
+      await handle.pool.query(`UPDATE crm_schema.quote_versions SET layout_snapshot = $2::jsonb WHERE quote_id = $1`, [
+        sent.id,
+        JSON.stringify({ version: 1, blocks: 'không phải danh sách' }),
+      ]);
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        const loaded = await quotes.get(nv1, sent.id);
+        expect(loaded.status).toBe('SENT');
+        expect(loaded.version.layoutSnapshot).toBeNull();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(`quote_versions ${loaded.version.id}`));
+      } finally {
+        warn.mockRestore();
+      }
+
+      // Lỗi giả lập ngay sau khi đổi trạng thái (lúc ghi nhật ký gửi khách): cả transaction rollback.
+      const draft = await draftWith(withLayout);
+      const approved = await quotes.submit(nv1, draft.id, 1, { revision: draft.version.revision });
+      await handle.pool.query(`
+        CREATE OR REPLACE FUNCTION crm_schema.p3_fail_send() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.to_status = 'SENT' AND NEW.entity_id = '${draft.id}'::uuid THEN
+            RAISE EXCEPTION 'p3 giả lập lỗi khi gửi';
+          END IF;
+          RETURN NEW;
+        END $$;
+        CREATE TRIGGER p3_fail_send BEFORE INSERT ON crm_schema.audit_log FOR EACH ROW EXECUTE FUNCTION crm_schema.p3_fail_send();`);
+      try {
+        await expect(quotes.send(nv1, draft.id, 1, { revision: approved.version.revision })).rejects.toThrow('p3 giả lập lỗi khi gửi');
+      } finally {
+        await handle.pool.query(`DROP TRIGGER IF EXISTS p3_fail_send ON crm_schema.audit_log; DROP FUNCTION IF EXISTS crm_schema.p3_fail_send();`);
+      }
+      const after = await handle.pool.query<{ status: string; sent_at: Date | null; layout_snapshot: unknown }>(
+        `SELECT status, sent_at, layout_snapshot FROM crm_schema.quote_versions WHERE quote_id = $1`,
+        [draft.id],
+      );
+      expect(after.rows).toEqual([{ status: 'APPROVED', sent_at: null, layout_snapshot: null }]);
+    });
+  });
+
+  describe('chèn dòng tại vị trí (beforeLineNo)', () => {
+    /** Báo giá Nháp 3 dòng: cáp × 10, bảo trì × 1, cáp × 3. */
+    async function threeLines() {
+      const draft = await draftQuote();
+      return quotes.addLines(nv1, draft.id, 1, {
+        revision: draft.version.revision,
+        lines: [{ materialId: BT, quantity: 1 }, { materialId: CAP, quantity: 3 }],
+      });
+    }
+    const order = (lines: readonly { lineNo: number; quantity: number }[]) => lines.map((line) => [line.lineNo, line.quantity]);
+
+    it('TC-QW-14: chèn 2 mặt hàng trước dòng 2: thành dòng 2, 3; dòng cũ dời xuống 4, 5; số TT liên tục', async () => {
+      const draft = await threeLines();
+      expect(order(draft.version.lines)).toEqual([[1, 10], [2, 1], [3, 3]]);
+      const inserted = await quotes.addLines(nv1, draft.id, 1, {
+        revision: draft.version.revision,
+        beforeLineNo: 2,
+        lines: [{ materialId: BT, quantity: 7 }, { materialId: CAP, quantity: 8 }],
+      });
+      expect(order(inserted.version.lines)).toEqual([[1, 10], [2, 7], [3, 8], [4, 1], [5, 3]]);
+      expect(inserted.version.revision).toBe(draft.version.revision + 1);
+      // Dòng cũ giữ id (chỉ đổi số thứ tự).
+      expect(inserted.version.lines[3].id).toBe(draft.version.lines[1].id);
+      // Lịch sử như thêm dòng hiện có: không thêm mục nào.
+      expect(inserted.history).toHaveLength(draft.history.length);
+    });
+
+    it('TC-QW-15: chèn trước dòng 1; vị trí 0 và 99 là 400 LINE_POSITION_INVALID; hai người cùng revision: người sau 409, không trùng line_no', async () => {
+      const draft = await threeLines();
+      const first = await quotes.addLines(nv1, draft.id, 1, {
+        revision: draft.version.revision,
+        beforeLineNo: 1,
+        lines: [{ materialId: BT, quantity: 9 }],
+      });
+      expect(order(first.version.lines)).toEqual([[1, 9], [2, 10], [3, 1], [4, 3]]);
+      for (const beforeLineNo of [0, 99]) {
+        await expect(
+          quotes.addLines(nv1, draft.id, 1, { revision: first.version.revision, beforeLineNo, lines: [{ materialId: BT, quantity: 1 }] }),
+        ).rejects.toMatchObject({ statusCode: 400, code: 'LINE_POSITION_INVALID', message: expect.stringContaining(`dòng số ${beforeLineNo}`) });
+      }
+      const results = await Promise.allSettled(
+        [5, 6].map((quantity) =>
+          quotes.addLines(nv1, draft.id, 1, { revision: first.version.revision, beforeLineNo: 2, lines: [{ materialId: BT, quantity }] }),
+        ),
+      );
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult;
+      expect(rejected.reason).toMatchObject({ statusCode: 409, code: 'STALE_VERSION' });
+      const rows = await handle.pool.query<{ line_no: number }>(
+        `SELECT l.line_no FROM crm_schema.quote_lines l JOIN crm_schema.quote_versions v ON v.id = l.version_id
+          WHERE v.quote_id = $1 ORDER BY l.line_no`,
+        [draft.id],
+      );
+      expect(rows.rows.map((row) => row.line_no)).toEqual([1, 2, 3, 4, 5]);
+    });
+
+    it('không truyền beforeLineNo: thêm cuối như cũ; lỗi tính giá của dòng chèn quy về số dòng của lô', async () => {
+      const draft = await threeLines();
+      const appended = await quotes.addLines(nv1, draft.id, 1, { revision: draft.version.revision, lines: [{ materialId: BT, quantity: 4 }] });
+      expect(order(appended.version.lines)).toEqual([[1, 10], [2, 1], [3, 3], [4, 4]]);
+      const noPrice = await quotes
+        .addLines(nv1, draft.id, 1, {
+          revision: appended.version.revision,
+          beforeLineNo: 2,
+          lines: [{ materialId: BT, quantity: 1 }, { materialId: NOPRICE, quantity: 1 }],
+        })
+        .catch((error: unknown) => error);
+      expect(noPrice).toMatchObject({
+        statusCode: 400,
+        code: 'LINES_INVALID',
+        details: { errors: [expect.objectContaining({ line: 2, code: 'PRICE_NOT_FOUND' })] },
+      });
+      expect((await quotes.get(nv1, draft.id)).version.lines).toHaveLength(4);
+    });
   });
 });

@@ -1,6 +1,7 @@
 'use client';
 
 import type { SocialUserRef } from '@enterprise-platform/contracts-social';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { BarChart3, Image as ImageIcon, Megaphone, Pencil } from 'lucide-react';
 import type { SocialComposerMode } from '../../social-context';
 import shell from '../../social-shell.module.scss';
@@ -40,7 +41,7 @@ export function ComposerBox({
         </button>
         {canAnnounce ? (
           <button type="button" onClick={() => onCompose('announcement')}>
-            <Megaphone size={15} aria-hidden="true" />
+            <AppIcon slot="sidebar.social.announcements" fallback={Megaphone} size={15} />
             Thông báo
           </button>
         ) : null}

@@ -1,6 +1,7 @@
 'use client';
 
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { AppIcon, authFetch, useBrandSlot } from '@enterprise-platform/shared-ui';
+import { moduleSlotId } from '@enterprise-platform/shared-brand-icon';
 import type {
   ModuleActivationRequestResponse,
   TenantEntitlementStatus,
@@ -97,6 +98,26 @@ const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
     targetRoles: ['Toàn thể nhân sự', 'Truyền thông nội bộ', 'Ban Tổng giám đốc'],
     businessValue:
       'Tin tức và thông báo của công ty đến đúng người ngay trên ERP, thay cho tin nhắn rời rạc qua nhiều kênh.',
+  },
+  correspondence: {
+    category: 'Vận hành & Quy trình',
+    tagline: 'Sổ công văn đến, đi: tiếp nhận, trình lãnh đạo, giao phòng ban xử lý, phát hành và lưu trữ hồ sơ.',
+    accentColor: {
+      bg: 'bg-indigo-50/70',
+      border: 'border-indigo-200/80',
+      text: 'text-indigo-700',
+      iconBg: 'bg-indigo-100 text-indigo-700',
+    },
+    features: [
+      'Vào sổ công văn đến, cấp số tự động theo năm',
+      'Trình lãnh đạo chỉ đạo, giao nhiều phòng ban xử lý song song',
+      'Phòng ban gửi văn bản phản hồi, lãnh đạo duyệt hoặc yêu cầu sửa',
+      'Cấp số đi, phát hành và lưu trữ hồ sơ có số lưu trữ',
+      'Tệp lưu trong kho tài liệu của Hệ dùng chung, thông báo và nhắc hạn theo từng bước',
+    ],
+    targetRoles: ['Văn thư, Hành chính', 'Ban Tổng giám đốc', 'Trưởng phòng ban'],
+    businessValue:
+      'Biết ngay công văn đang nằm ở bước nào, ai đang giữ, còn bao lâu tới hạn; hồ sơ đóng xong tra được theo số lưu trữ.',
   },
   crm: {
     category: 'Kinh doanh & Bán hàng',
@@ -626,12 +647,24 @@ const STATUS_STYLES: Record<
 
 function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; className: string }) {
   const info = getModuleInfo(module.key, module.name, module.description);
+  const slot = moduleSlotId(module.key);
+  const { hasCustom } = useBrandSlot(slot ?? 'brand.logo');
+  const filled = Boolean(slot && hasCustom);
+  // Có icon thương hiệu: icon tự mang nền và bo góc nên lấp đầy cả ô, bỏ nền màu bọc ngoài.
   return (
     <span
       aria-hidden
-      className={cn('grid shrink-0 place-items-center font-extrabold', info.accentColor.iconBg, className)}
+      className={cn(
+        'grid shrink-0 place-items-center font-extrabold',
+        filled ? 'overflow-hidden' : info.accentColor.iconBg,
+        className,
+      )}
     >
-      {(module.icon || module.key.slice(0, 2)).toUpperCase()}
+      {slot && hasCustom ? (
+        <AppIcon slot={slot} fallback={Package} className="size-full" />
+      ) : (
+        (module.icon || module.key.slice(0, 2)).toUpperCase()
+      )}
     </span>
   );
 }

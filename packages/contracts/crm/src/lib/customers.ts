@@ -16,7 +16,7 @@ export interface CrmPage<TItem> {
 export const CRM_PAGE_LIMIT_MAX = 100;
 export const CRM_PAGE_LIMIT_DEFAULT = 30;
 /** Số dòng một trang của mọi danh sách trên giao diện CRM. */
-export const CRM_LIST_PAGE_SIZE = 20;
+export const CRM_LIST_PAGE_SIZE = 15;
 /** Độ dài tối đa chuỗi tìm kiếm; dài hơn trả 400. */
 export const CRM_SEARCH_MAX_LENGTH = 100;
 

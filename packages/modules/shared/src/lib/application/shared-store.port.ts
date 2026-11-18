@@ -134,6 +134,17 @@ export interface SharedStore {
     skeleton(tenantId: string): Promise<AccessFolder[]>;
     find(tenantId: string, folderId: string): Promise<SharedFolder | undefined>;
     create(tenantId: string, userId: string, input: FolderInsert): Promise<SharedFolder>;
+    /** Thư mục gốc đang dùng do phân hệ `module` quản lý. */
+    systemRoot(tenantId: string, module: string): Promise<SharedFolder | undefined>;
+    /** Tạo thư mục gốc của phân hệ; tên trùng thư mục gốc khác thì ném `SharedNameTakenError`. */
+    createSystemRoot(tenantId: string, userId: string, module: string, name: string): Promise<SharedFolder>;
+    /** Thư mục con đang dùng có tên `name` (không phân biệt hoa thường). */
+    activeChild(tenantId: string, parentId: string, name: string): Promise<SharedFolder | undefined>;
+    /** Thư mục gốc của nhánh chứa `folderId`, và cả đường lên gốc có đang dùng hết không. */
+    rootOf(
+      tenantId: string,
+      folderId: string,
+    ): Promise<{ rootId: string; systemModule?: string; active: boolean } | undefined>;
     update(tenantId: string, folderId: string, input: FolderUpdate): Promise<SharedFolder>;
     /**
      * Chuyển thư mục cùng cả nhánh và mọi tài liệu bên trong vào Thùng rác, một

@@ -1,15 +1,26 @@
 import {
   BRAND_API_BASE,
   BRAND_ERROR_CODES,
+  type AssignBrandSlotRequest,
   type BrandErrorCode,
   type BrandIconDetail,
   type BrandIconListResponse,
   type BrandIconSpecResponse,
   type BrandIconStatus,
   type BrandIconSummary,
+  type BrandSlotAssignment,
+  type BrandSlotGroup,
+  type BrandSlotGroupListResponse,
+  type BrandSlotListResponse,
   type BrandStandardsResponse,
   type BrandSvgMode,
   type CreateBrandIconRequest,
+  type CreateBrandSlotGroupRequest,
+  type CustomSlotPayload,
+  type DeleteBrandSlotGroupResponse,
+  type UpdateBrandSlotGroupRequest,
+  type UpdateBrandSlotRequest,
+  type IconSlotMeta,
   type SaveBrandIconRequest,
   type SaveBrandIconResponse,
   type SaveBrandStandardsRequest,
@@ -146,8 +157,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     clearTimeout(timer);
   }
 
-  const payload = parseJson(text);
+  const payload = response.status === 204 ? undefined : parseJson(text);
   if (!response.ok) throw toApiError(response.status, payload);
+  if (response.status === 204) return undefined as T;
   if (payload === undefined) {
     throw new BrandApiError({ statusCode: response.status, code: 'BAD_RESPONSE', message: 'Máy chủ trả dữ liệu không đúng định dạng.' });
   }
@@ -198,12 +210,87 @@ export function restoreIcon(id: string): Promise<BrandIconSummary> {
   return request<BrandIconSummary>(`${iconPath(id)}/restore`, { method: 'POST' });
 }
 
+/** Xoá vĩnh viễn icon đã lưu trữ và mọi phiên bản của nó khỏi máy chủ. */
+export function purgeIcon(id: string): Promise<void> {
+  return request<void>(`${iconPath(id)}/permanent`, { method: 'DELETE' });
+}
+
 export function getStandards(options: { readonly timeoutMs?: number } = {}): Promise<BrandStandardsResponse> {
   return request<BrandStandardsResponse>('/standards', { timeoutMs: options.timeoutMs });
 }
 
 export function saveStandards(input: SaveBrandStandardsRequest): Promise<SaveBrandStandardsResponse> {
   return request<SaveBrandStandardsResponse>('/standards', { method: 'PUT', body: input });
+}
+
+const slotPath = (slot: string) => `/slots/${encodeURIComponent(slot)}`;
+
+/** Danh sách các vị trí sử dụng icon đang được gán trên máy chủ. */
+export function listSlots(options: { readonly timeoutMs?: number } = {}): Promise<BrandSlotListResponse> {
+  return request<BrandSlotListResponse>('/slots', { timeoutMs: options.timeoutMs });
+}
+
+/** Gán một icon đã phát hành vào vị trí sử dụng. */
+export function assignSlot(slot: string, iconId: string): Promise<BrandSlotAssignment> {
+  const body: AssignBrandSlotRequest = { iconId };
+  return request<BrandSlotAssignment>(slotPath(slot), { method: 'PUT', body });
+}
+
+/** Bỏ gán icon ở vị trí sử dụng, đưa về icon mặc định của hệ thống. */
+export function clearSlot(slot: string): Promise<void> {
+  return request<void>(slotPath(slot), { method: 'DELETE' });
+}
+
+/** Danh sách định nghĩa vị trí icon (gồm cả vị trí hệ thống và vị trí tùy chỉnh). */
+export function listSlotDefinitions(): Promise<readonly IconSlotMeta[]> {
+  return request<readonly IconSlotMeta[]>('/slots/definitions');
+}
+
+/** Tạo vị trí icon tùy chỉnh mới. */
+export function createCustomSlot(input: CustomSlotPayload): Promise<IconSlotMeta> {
+  return request<IconSlotMeta>('/slots/definitions', { method: 'POST', body: input });
+}
+
+/**
+ * Chỉnh sửa vị trí icon (tùy chỉnh hoặc có sẵn). Với vị trí có sẵn, trường có giá trị là ghi đè, trường null là khôi phục
+ * mặc định của trường đó, trường vắng là giữ nguyên.
+ */
+export function updateCustomSlot(id: string, patch: UpdateBrandSlotRequest): Promise<IconSlotMeta> {
+  return request<IconSlotMeta>(`/slots/definitions/${encodeURIComponent(id)}`, { method: 'PUT', body: patch });
+}
+
+/** Khôi phục mọi giá trị đã chỉnh sửa của vị trí có sẵn về mặc định trong code. */
+export function resetSlotOverride(id: string): Promise<IconSlotMeta> {
+  return request<IconSlotMeta>(`/slots/definitions/${encodeURIComponent(id)}/override`, { method: 'DELETE' });
+}
+
+/** Xoá vị trí icon tùy chỉnh. */
+export function deleteCustomSlot(id: string): Promise<{ readonly id: string; readonly deleted: boolean }> {
+  return request<{ readonly id: string; readonly deleted: boolean }>(`/slots/definitions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+const slotGroupPath = (key: string) => `/slots/groups/${encodeURIComponent(key)}`;
+
+/** Danh sách mọi nhóm vị trí (có sẵn và tùy chỉnh) kèm số vị trí đang dùng. */
+export function listSlotGroups(): Promise<BrandSlotGroupListResponse> {
+  return request<BrandSlotGroupListResponse>('/slots/groups');
+}
+
+/** Tạo nhóm vị trí tùy chỉnh; bỏ `key` thì máy chủ sinh từ tên. */
+export function createSlotGroup(label: string, key?: string): Promise<BrandSlotGroup> {
+  const body: CreateBrandSlotGroupRequest = key ? { label, key } : { label };
+  return request<BrandSlotGroup>('/slots/groups', { method: 'POST', body });
+}
+
+/** Đổi tên hiển thị của nhóm tùy chỉnh (mã giữ nguyên). */
+export function updateSlotGroup(key: string, label: string): Promise<BrandSlotGroup> {
+  const body: UpdateBrandSlotGroupRequest = { label };
+  return request<BrandSlotGroup>(slotGroupPath(key), { method: 'PUT', body });
+}
+
+/** Xoá nhóm tùy chỉnh đang không có vị trí nào. */
+export function deleteSlotGroup(key: string): Promise<DeleteBrandSlotGroupResponse> {
+  return request<DeleteBrandSlotGroupResponse>(slotGroupPath(key), { method: 'DELETE' });
 }
 
 /** Đường dẫn ảnh SVG dựng sẵn của một phiên bản; bản đã phát hành đọc công khai, bản khác cần đăng nhập quản trị. */

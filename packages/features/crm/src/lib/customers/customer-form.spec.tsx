@@ -18,6 +18,7 @@ jest.mock('../crm-api', () => ({
   createKind: jest.fn(),
   errorMessage: (cause: { message?: string }, fallback: string) => cause?.message || fallback,
   findTaxCodeMatches: jest.fn().mockResolvedValue([]),
+  listPriceLists: jest.fn().mockResolvedValue([]),
   updateCustomer: jest.fn(),
   listGroups: jest.fn(),
   listKinds: jest.fn(),
@@ -148,5 +149,21 @@ describe('Phân loại khách hàng do tenant cấu hình trong form khách', ()
     fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
     expect((await screen.findAllByRole('alert')).some((el) => /đã tồn tại/.test(el.textContent ?? ''))).toBe(true);
     expect(mocked.createKind).not.toHaveBeenCalled();
+  });
+});
+
+describe('Hồ sơ khách không còn bảng giá (C5.5)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('không có ô "Bảng giá", không tải bảng giá; lưu không gửi priceListId', async () => {
+    mocked.createCustomer.mockResolvedValue({ id: 'c-new' } as never);
+    renderForm(admin);
+    fireEvent.change(screen.getByLabelText(/Tên khách hàng/), { target: { value: 'Khách A' } });
+    expect(screen.queryByText('Bảng giá')).toBeNull();
+    expect(screen.queryByPlaceholderText('Bảng giá chuẩn')).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Lưu' }).at(-1) as HTMLElement);
+    await waitFor(() => expect(mocked.createCustomer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Khách A' })));
+    expect(mocked.createCustomer.mock.calls[0][0]).not.toHaveProperty('priceListId');
+    expect(mocked.listPriceLists).not.toHaveBeenCalled();
   });
 });

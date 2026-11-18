@@ -8,6 +8,7 @@ import {
   CheckCheck,
   ChevronRight,
   Handshake,
+  Stamp,
   Landmark,
   LoaderCircle,
   Package,
@@ -33,8 +34,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from 'react';
+import { AppIcon, useBrandSlot, type AppIconProps } from './brand-slots';
 import {
   BrowserNotificationClient,
   normalizeNotificationPreference,
@@ -433,7 +436,12 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
     async (notification: NotificationRecord) => {
       if (!notification.readAt) await markRead(notification.id, true);
       const target = safeDeepLink(notification.deepLink);
-      if (target && typeof window !== 'undefined') window.location.assign(target);
+      if (target && typeof window !== 'undefined') {
+        // Liên kết chỉ đổi phần # của trang đang mở (vd. mở một công văn) không tải lại trang:
+        // đóng ngăn thông báo để thấy ngay nội dung vừa mở.
+        setDrawerOpen(false);
+        window.location.assign(target);
+      }
     },
     [markRead],
   );
@@ -501,7 +509,7 @@ export function NotificationBell({ className = '' }: { readonly className?: stri
       title="Thông báo"
       onClick={() => realtime.setDrawerOpen(true)}
     >
-      <Bell aria-hidden="true" size={17} />
+      <AppIcon slot="header.notifications" fallback={Bell} size={17} />
       {realtime.unreadCount > 0 ? (
         <span className={styles.badge}>{realtime.unreadCount > 99 ? '99+' : realtime.unreadCount}</span>
       ) : null}
@@ -745,9 +753,7 @@ function NotificationList() {
             className={`${styles.item} ${notification.readAt ? '' : styles.unreadItem}`.trim()}
             onClick={() => void realtime.openNotification(notification)}
           >
-            <span className={`${styles.avatar} ${styles[`module_${notification.module}`] ?? ''}`.trim()} aria-hidden="true">
-              <ModuleIcon size={17} />
-            </span>
+            <NotificationAvatar module={notification.module} fallback={ModuleIcon} />
             <span className={styles.itemContent}>
               <span className={styles.itemTop}>
                 <strong>{notification.title}</strong>
@@ -1060,8 +1066,43 @@ const MODULE_ICONS: Readonly<Record<NotificationRecord['module'], LucideIcon>> =
   maintenance: Wrench,
   social: Newspaper,
   crm: Handshake,
+  correspondence: Stamp,
   chat: MessagesSquare,
 };
+
+/** Nhóm thông báo đã có vị trí icon thương hiệu; nhóm khác giữ icon lucide cũ. */
+const MODULE_SLOTS: Readonly<Partial<Record<NotificationRecord['module'], AppIconProps['slot']>>> = {
+  identity: 'nav.account',
+  correspondence: 'module.correspondence',
+  chat: 'module.chat',
+};
+
+/** Nhóm có icon phân hệ (tự mang nền và bo góc) thì icon lấp đầy ô; còn lại là icon nhỏ trên nền màu theo nhóm. */
+const FILLED_MODULE_SLOTS: ReadonlySet<NotificationRecord['module']> = new Set(['correspondence', 'chat']);
+
+function NotificationAvatar({
+  module,
+  fallback: Fallback,
+}: {
+  module: NotificationRecord['module'];
+  fallback: ComponentType<{ size?: number | string }>;
+}) {
+  const slot = MODULE_SLOTS[module];
+  const { hasCustom } = useBrandSlot(slot ?? 'brand.logo');
+  const filled = Boolean(slot && hasCustom && FILLED_MODULE_SLOTS.has(module));
+  const className = filled
+    ? `${styles.avatar} ${styles.avatarFilled}`
+    : `${styles.avatar} ${styles[`module_${module}`] ?? ''}`.trim();
+  return (
+    <span className={className} aria-hidden="true">
+      {slot ? (
+        <AppIcon slot={slot as AppIconProps['slot']} fallback={Fallback} size={filled ? 36 : 17} />
+      ) : (
+        <Fallback size={17} />
+      )}
+    </span>
+  );
+}
 
 function moduleLabel(module: NotificationRecord['module']): string {
   return ({
@@ -1074,6 +1115,7 @@ function moduleLabel(module: NotificationRecord['module']): string {
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
     crm: 'CRM',
+    correspondence: 'Văn thư',
     chat: 'Chat nội bộ',
   } as const)[module];
 }
@@ -1134,6 +1176,7 @@ const CATEGORY_LABELS: Readonly<Record<string, string>> = {
   assignment: 'Giao việc',
   calendar: 'Lịch',
   'calendar-reminder': 'Nhắc lịch',
+  comment: 'Trao đổi',
   deadline: 'Hạn xử lý',
   dispatch: 'Điều phối',
   document: 'Tài liệu',

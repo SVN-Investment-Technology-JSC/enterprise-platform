@@ -25,7 +25,7 @@ import {
 } from './hrm-profile-documents.js';
 import { isPunchList } from '../domain/correction-punches.js';
 import { transitionLeave } from './hrm-leave-operations.js';
-import { approveOvertime } from './hrm-overtime.js';
+import { approveOvertimeGroup, cascadeOvertimeGroupStatus } from './hrm-overtime.js';
 import { approveShiftChange } from './hrm-shift-change.js';
 import {
   HRM_REQUEST_TABLES,
@@ -331,7 +331,7 @@ export async function applyHrmRequestResult(
   if (target === 'APPROVED') {
     switch (kind) {
       case 'ot':
-        await approveOvertime(db, ref.tenantId, actorId, ref.requestId);
+        await approveOvertimeGroup(db, ref.tenantId, actorId, ref.requestId);
         return;
       case 'shift_change':
         await approveShiftChange(db, ref.tenantId, actorId, ref.requestId);
@@ -371,4 +371,6 @@ export async function applyHrmRequestResult(
     `UPDATE hrm_schema.${table} SET status=$3,approved_by=$4,approved_at=now()${updatedAt} WHERE tenant_id=$1 AND id=$2`,
     [ref.tenantId, ref.requestId, target, actorId],
   );
+  if (kind === 'ot' && (target === 'REJECTED' || target === 'CANCELLED'))
+    await cascadeOvertimeGroupStatus(db, ref.tenantId, actorId, ref.requestId, target);
 }

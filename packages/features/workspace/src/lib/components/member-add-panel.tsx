@@ -2,7 +2,7 @@
 
 import type { DirectoryOrgNode, DirectoryPerson } from '@enterprise-platform/contracts-workspace';
 import { Briefcase, Building2, ChevronDown, ChevronRight, Search } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   buildOrgTree,
   checkStateOf,
@@ -21,6 +21,10 @@ export interface MemberAddPanelProps {
   readonly degraded: boolean;
   readonly loaded: boolean;
   readonly onAdd: (userIds: readonly string[]) => void;
+  /** Khoá nút Thêm khi đang gửi thao tác trước. */
+  readonly busy?: boolean;
+  /** Chỗ đặt ô chọn vai trò cho người sắp thêm, cạnh nút Thêm. */
+  readonly roleControl?: ReactNode;
 }
 
 type Mode = 'name' | 'org';
@@ -78,6 +82,8 @@ export function MemberAddPanel({
   degraded,
   loaded,
   onAdd,
+  busy = false,
+  roleControl,
 }: MemberAddPanelProps) {
   const [mode, setMode] = useState<Mode>('name');
   const [term, setTerm] = useState('');
@@ -296,17 +302,20 @@ export function MemberAddPanel({
             <span className={styles.muted}>
               {count === 0 ? 'Tích để chọn nhân sự.' : `Đã chọn ${count} người`}
             </span>
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              disabled={count === 0}
-              onClick={() => {
-                onAdd([...picked]);
-                setPicked(new Set());
-              }}
-            >
-              Thêm {count > 0 ? `${count} người` : ''}
-            </button>
+            <span className={styles.addFootActions}>
+              {roleControl}
+              <button
+                type="button"
+                className={styles.buttonPrimary}
+                disabled={count === 0 || busy}
+                onClick={() => {
+                  onAdd([...picked]);
+                  setPicked(new Set());
+                }}
+              >
+                Thêm {count > 0 ? `${count} người` : ''}
+              </button>
+            </span>
           </div>
         </>
       )}

@@ -2,7 +2,7 @@
 
 import type { SocialInboxCounts, SocialMe, SocialPost, SocialTopic } from '@enterprise-platform/contracts-social';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
-import { toast } from '@enterprise-platform/shared-ui';
+import { AppIcon, toast } from '@enterprise-platform/shared-ui';
 import { Newspaper } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BirthdayView } from './components/birthday/birthday-view';
@@ -43,7 +43,7 @@ import shell from './social-shell.module.scss';
 type ShellView = 'social';
 
 const NAV: readonly ModuleNavItem<ShellView>[] = [
-  { id: 'social', label: 'Mạng nội bộ', icon: <Newspaper size={16} /> },
+  { id: 'social', label: 'Mạng nội bộ', icon: <AppIcon slot="sidebar.social.feed" fallback={Newspaper} size={16} /> },
 ];
 
 /** Tuyến tự dựng cột phải trong nội dung (chi tiết nhóm): bỏ "bảng nhanh" và để nội dung rộng ra hết bề ngang. */

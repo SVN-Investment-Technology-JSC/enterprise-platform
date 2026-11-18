@@ -18,6 +18,9 @@ interface MaintenanceRequest extends Request { maintenanceActor?: MaintenanceAct
 function requiredMaintenancePermission(request: Request): string | undefined {
   if (request.method === 'GET') return undefined;
 
+  // Tuỳ chọn cá nhân (`/me/...`): mỗi người chỉ đổi cách xem của riêng mình, ai có quyền đọc đều làm được.
+  if (request.path.includes('/me/')) return undefined;
+
   // Xử lý phiếu: tạo sự cố, đánh dấu hoàn thành.
   if (request.path.includes('/occurrences')) return 'maintenance.occurrence.manage';
 

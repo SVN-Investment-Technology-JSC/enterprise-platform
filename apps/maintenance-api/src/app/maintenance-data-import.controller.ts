@@ -126,7 +126,7 @@ export class MaintenanceDataImportController {
         startDate,
         timezone: schedule.timezone,
         activate: schedule.activate ?? true,
-      });
+      }, { verifyProcedure: false });
     }
     return { status: 'completed' };
   }

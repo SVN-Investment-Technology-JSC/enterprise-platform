@@ -4,6 +4,7 @@ import {
   HRM_NOT_MIGRATED,
   HrmMissingSchemaInterceptor,
   isMissingSchemaError,
+  missingSchemaObject,
 } from './hrm-missing-schema.interceptor';
 
 const run = (handler: ReturnType<typeof of>) =>
@@ -34,5 +35,13 @@ describe('tenant chưa chạy migration mới', () => {
     const business = new BadRequestException('Lý do không hợp lệ');
     await expect(run(throwError(() => business))).rejects.toBe(business);
     await expect(run(of({ data: [] }))).resolves.toEqual({ data: [] });
+  });
+
+  it('trích xuất đúng tên bảng hoặc cột thiếu dù có hay không có dấu ngoặc kép', () => {
+    expect(missingSchemaObject({ message: 'column lr.group_id does not exist' })).toBe('lr.group_id');
+    expect(missingSchemaObject({ message: 'column "group_id" does not exist' })).toBe('group_id');
+    expect(missingSchemaObject({ message: 'column "group_id" of relation "leave_requests" does not exist' })).toBe('leave_requests.group_id');
+    expect(missingSchemaObject({ message: 'relation "hrm_schema.foo" does not exist' })).toBe('hrm_schema.foo');
+    expect(missingSchemaObject({ message: 'some unrelated error' })).toBeNull();
   });
 });

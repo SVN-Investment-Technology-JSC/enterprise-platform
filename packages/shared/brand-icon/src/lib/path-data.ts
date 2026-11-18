@@ -334,7 +334,7 @@ export function pathToData(geometry: PathGeometry): string {
 }
 
 /** Chuỗi `d` hợp lệ: bắt đầu bằng M, chỉ gồm lệnh, số, dấu cách và dấu phẩy; có giới hạn độ dài. */
-export const MAX_PATH_DATA_LENGTH = 20000;
+export const MAX_PATH_DATA_LENGTH = 400000;
 const PATH_DATA_PATTERN = /^[MmLlHhVvCcSsQqTtAaZz0-9eE+\-.,\s]*$/;
 
 export function isValidPathData(data: string | undefined): boolean {

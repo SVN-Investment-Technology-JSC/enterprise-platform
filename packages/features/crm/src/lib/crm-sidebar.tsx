@@ -1,5 +1,6 @@
 'use client';
 
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { ShoppingCart, Users, Warehouse } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
@@ -61,7 +62,7 @@ export function CrmInventoryButton({ state, collapsed }: { state: CrmInventoryBu
   if (state === 'hidden') return null;
   const content = (
     <>
-      <Warehouse size={16} aria-hidden />
+      <AppIcon slot="module.inventory" fallback={Warehouse} size={16} />
       {collapsed ? null : <span>{CRM_INVENTORY_LABEL}</span>}
     </>
   );

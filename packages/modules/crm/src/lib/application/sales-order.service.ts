@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   DEFAULT_CONTRACT_EXPIRING_DAYS,
   DEFAULT_RESERVATION_HOLD_DAYS,
+  lineWarehouseCode,
   SALES_ORDER_LINES_MAX,
   SALES_ORDER_STATUSES,
   type ContractDetail,
@@ -60,7 +61,7 @@ import {
   type IssueRequestResult,
   type ReservedStock,
 } from './fulfillment.port.js';
-import { boundedNumber } from './price-list.service.js';
+import { boundedNumber, priceListRequired, requireSelectablePriceList } from './price-list.service.js';
 import { vietnamToday } from './pricing.service.js';
 import type { CatalogMaterial, CatalogReader, PricingStore } from './pricing-store.port.js';
 import type {
@@ -95,6 +96,8 @@ interface LineDraft {
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
   readonly previousUnitCost: number | null;
+  /** Kho riêng của dòng (D3-37); rỗng là theo kho mặc định của đơn. */
+  readonly warehouseCode: string | null;
 }
 
 function revisionOf(value: unknown): number {
@@ -201,11 +204,15 @@ export class SalesOrderService {
     assertOwnerInScope(scope, ownerUserId);
 
     const header = this.headerInput(request, contract?.warehouseCode ?? null);
-    const drafts = await this.drafts(actor.tenantId, request?.lines ?? []);
+    const drafts = await this.drafts(actor.tenantId, request?.lines ?? [], [], contract?.lines);
+    const date = header.priceDate ?? today;
+    // Đơn trực tiếp và đơn từ hợp đồng: có dòng thì bắt buộc chọn bảng giá (giá hợp đồng vẫn đứng trước bảng giá).
+    const priceListId = await this.orderPriceList(actor.tenantId, request?.priceListId, null, drafts.length > 0, date);
     const priced = await this.price(actor.tenantId, {
-      date: header.priceDate ?? today,
+      date,
       customerId,
       customerGroupId: customer.groupId,
+      priceListId,
       contractId: contract?.id ?? null,
       lines: drafts,
       shipping: header.shipping,
@@ -214,6 +221,7 @@ export class SalesOrderService {
       actor.tenantId,
       {
         ...header,
+        priceListId,
         totals: priced.totals,
         source: contract ? 'CONTRACT' : 'DIRECT',
         customerId,
@@ -236,7 +244,13 @@ export class SalesOrderService {
     if (!isOrderEditable(order.status)) {
       throw new CrmConflictError('ORDER_NOT_EDITABLE', 'Chỉ sửa được đơn ở trạng thái Nháp.');
     }
-    const repricing = request?.lines !== undefined || request?.priceDate !== undefined || request?.shipping !== undefined;
+    // Đơn từ báo giá giữ bảng giá của phiên bản báo giá: `priceListId` gửi kèm bị bỏ qua.
+    const priceListRequested = order.source === 'QUOTE' ? undefined : request?.priceListId;
+    const repricing =
+      request?.lines !== undefined ||
+      request?.priceDate !== undefined ||
+      request?.shipping !== undefined ||
+      priceListRequested !== undefined;
     if (order.source === 'QUOTE' && repricing) {
       throw new CrmConflictError(
         'ORDER_LINES_LOCKED',
@@ -255,16 +269,35 @@ export class SalesOrderService {
       null,
     );
     if (!repricing) {
-      await this.orders.updateDraft(actor.tenantId, id, revision, { ...header, totals: order.totals }, undefined, actor.userId);
+      const lineWarehouses = this.lineWarehouses(order, request?.lineWarehouses);
+      await this.orders.updateDraft(
+        actor.tenantId,
+        id,
+        revision,
+        { ...header, priceListId: order.priceListId, totals: order.totals },
+        undefined,
+        actor.userId,
+        lineWarehouses,
+      );
       return this.get(actor, id);
     }
     const drafts =
-      request.lines === undefined ? order.lines.map(lineDraftOf) : await this.drafts(actor.tenantId, request.lines, order.lines);
+      request.lines === undefined
+        ? order.lines.map(lineDraftOf)
+        : await this.drafts(
+            actor.tenantId,
+            request.lines,
+            order.lines,
+            order.contractId ? (await this.contracts.getContract(actor.tenantId, ALL, order.contractId))?.lines : undefined,
+          );
     const customer = await this.customers.getCustomer(actor.tenantId, ALL, order.customerId);
+    const date = header.priceDate ?? this.today();
+    const priceListId = await this.orderPriceList(actor.tenantId, priceListRequested, order.priceListId, drafts.length > 0, date);
     const priced = await this.price(actor.tenantId, {
-      date: header.priceDate ?? this.today(),
+      date,
       customerId: order.customerId,
       customerGroupId: customer?.groupId ?? null,
+      priceListId,
       contractId: order.contractId,
       lines: drafts,
       shipping: header.shipping,
@@ -273,7 +306,7 @@ export class SalesOrderService {
       actor.tenantId,
       id,
       revision,
-      { ...header, totals: priced.totals },
+      { ...header, priceListId, totals: priced.totals },
       request.lines === undefined ? undefined : priced.lines,
       actor.userId,
     );
@@ -325,7 +358,14 @@ export class SalesOrderService {
         },
         null,
       );
-      await this.orders.updateDraft(actor.tenantId, id, revision, { ...header, totals: order.totals }, undefined, actor.userId);
+      await this.orders.updateDraft(
+        actor.tenantId,
+        id,
+        revision,
+        { ...header, priceListId: order.priceListId, totals: order.totals },
+        undefined,
+        actor.userId,
+      );
       order = await this.get(actor, id);
       revision = order.revision;
     }
@@ -396,8 +436,12 @@ export class SalesOrderService {
     let expiresAt: string | null = null;
     let own: ReservedStock | null = null;
     if (stock.length) {
-      if (!order.warehouseCode) {
-        throw new CrmValidationError('WAREHOUSE_REQUIRED', 'Vui lòng chọn kho giữ hàng cho đơn trước khi xác nhận.');
+      const missing = stock.filter((line) => !lineWarehouseCode(line, order.warehouseCode));
+      if (missing.length) {
+        throw new CrmValidationError(
+          'WAREHOUSE_REQUIRED',
+          `Chưa có kho giữ hàng cho ${missing.map((line) => `dòng ${line.lineNo} (${line.materialCode})`).join(', ')}; chọn kho cho dòng hoặc kho mặc định của đơn trước khi xác nhận.`,
+        );
       }
       const inherited = contract ? await this.inheritContractReservation(tenantId, order, stock, contract) : null;
       if (inherited) {
@@ -496,6 +540,18 @@ export class SalesOrderService {
       deliveryCount: order.deliveries.length,
     });
     const warehouse = optionalText(request?.warehouseCode, 50, 'mã kho');
+    // Không chọn kho xuất: các dòng hàng tồn kho của đợt cùng một kho thì lấy kho đó (D3-37), không thì kho mặc định.
+    const byId = new Map(order.lines.map((line) => [line.id, line]));
+    const lineWarehouses = [
+      ...new Set(
+        lines
+          .map((line) => byId.get(line.orderLineId))
+          .filter((line): line is SalesOrderLine => !!line && line.materialKind !== 'SERVICE')
+          .map((line) => lineWarehouseCode(line, order.warehouseCode))
+          .filter((code): code is string => !!code),
+      ),
+    ];
+    const defaultWarehouse = lineWarehouses.length === 1 ? lineWarehouses[0] : order.warehouseCode;
     await this.orders.saveDelivery(
       actor.tenantId,
       orderId,
@@ -503,7 +559,7 @@ export class SalesOrderService {
       deliveryId,
       {
         plannedDate,
-        warehouseCode: warehouse ? warehouse.toUpperCase() : order.warehouseCode,
+        warehouseCode: warehouse ? warehouse.toUpperCase() : defaultWarehouse,
         address: optionalText(request?.address, 500, 'địa chỉ giao') ?? order.deliveryAddress,
         note: optionalText(request?.note, 2000, 'ghi chú'),
         lines,
@@ -543,8 +599,19 @@ export class SalesOrderService {
     const stock = delivery.lines.filter((line) => line.materialKind !== 'SERVICE');
     let document: IssueRequestResult | null = null;
     if (stock.length) {
-      const warehouseCode = delivery.warehouseCode ?? order.warehouseCode;
-      if (!warehouseCode) throw new CrmValidationError('WAREHOUSE_REQUIRED', 'Vui lòng chọn kho xuất cho đợt giao.');
+      // Kho xuất: kho của đợt giao; chưa chọn thì kho chung của các dòng trong đợt (dòng ở nhiều kho thì phải chọn).
+      const lineWarehouses = [
+        ...new Set(stock.map((line) => lineWarehouseCode(byId.get(line.orderLineId) ?? {}, order.warehouseCode)).filter((code): code is string => !!code)),
+      ];
+      const warehouseCode = delivery.warehouseCode ?? (lineWarehouses.length === 1 ? lineWarehouses[0] : null) ?? (lineWarehouses.length ? null : order.warehouseCode);
+      if (!warehouseCode) {
+        throw new CrmValidationError(
+          'WAREHOUSE_REQUIRED',
+          lineWarehouses.length > 1
+            ? `Đợt giao có hàng ở nhiều kho (${lineWarehouses.join(', ')}); chọn kho xuất cho đợt giao hoặc tách đợt theo kho.`
+            : 'Vui lòng chọn kho xuất cho đợt giao.',
+        );
+      }
       document = await this.inventory.createIssueRequest(actor.tenantId, {
         idempotencyKey: issueRequestIdempotencyKey(delivery.id),
         warehouseCode,
@@ -558,7 +625,7 @@ export class SalesOrderService {
           const useReservation =
             orderLine?.reservationStatus === 'HELD' &&
             !!orderLine.reservationCode &&
-            warehouseCode === order.warehouseCode &&
+            warehouseCode === lineWarehouseCode(orderLine, order.warehouseCode) &&
             orderLine.reservedQuantity >= line.plannedQuantity;
           const reservationId = useReservation ? (orderLine?.reservationId ?? undefined) : undefined;
           return { materialCode: line.materialCode, quantity: line.plannedQuantity, ...(reservationId ? { reservationId } : {}) };
@@ -651,17 +718,31 @@ export class SalesOrderService {
     contract: ContractDetail,
   ): Promise<OrderLineReservation[] | null> {
     const reservation = contract.reservation;
-    if (!reservation || reservation.status !== 'HELD' || contract.warehouseCode !== order.warehouseCode) return null;
-    const used = new Map(await this.orders.contractReservationUsage(tenantId, contract.id, order.id));
+    if (!reservation || reservation.status !== 'HELD') return null;
+    // Phần hợp đồng giữ theo mặt hàng và kho (D3-37): dòng đơn chỉ dùng được phần giữ ở đúng kho của dòng.
+    const contractWarehouse = new Map<string, Set<string>>();
     const covered = new Map<string, number>();
     for (const line of contract.lines) {
       if (line.materialKind === 'SERVICE' || line.quantity === null) continue;
-      covered.set(line.materialId, round3((covered.get(line.materialId) ?? 0) + line.quantity));
+      const key = `${line.materialId}|${lineWarehouseCode(line, contract.warehouseCode) ?? ''}`;
+      covered.set(key, round3((covered.get(key) ?? 0) + line.quantity));
+      contractWarehouse.set(line.materialId, (contractWarehouse.get(line.materialId) ?? new Set()).add(key));
+    }
+    // Phần đơn khác đã dùng tính theo mặt hàng; mặt hàng giữ ở một kho thì quy hết vào kho đó, giữ ở nhiều kho thì
+    // không chia được nên đơn tự giữ riêng (an toàn: không dùng quá phần hợp đồng đã giữ).
+    const usedByMaterial = new Map(await this.orders.contractReservationUsage(tenantId, contract.id, order.id));
+    const used = new Map<string, number>();
+    for (const [materialId, quantity] of usedByMaterial) {
+      const keys = contractWarehouse.get(materialId);
+      if (!keys) continue;
+      if (keys.size > 1) return null;
+      used.set([...keys][0], quantity);
     }
     for (const line of stock) {
-      const remaining = round3((covered.get(line.materialId) ?? 0) - (used.get(line.materialId) ?? 0));
+      const key = `${line.materialId}|${lineWarehouseCode(line, order.warehouseCode) ?? ''}`;
+      const remaining = round3((covered.get(key) ?? 0) - (used.get(key) ?? 0));
       if (remaining < line.quantity) return null;
-      used.set(line.materialId, round3((used.get(line.materialId) ?? 0) + line.quantity));
+      used.set(key, round3((used.get(key) ?? 0) + line.quantity));
     }
     return stock.map((line) => ({
       lineId: line.id,
@@ -692,7 +773,7 @@ export class SalesOrderService {
           notes: `Đơn bán ${order.code}`,
           lines: stock.map((line) => ({
             materialCode: line.materialCode,
-            warehouseCode: order.warehouseCode as string,
+            warehouseCode: lineWarehouseCode(line, order.warehouseCode) as string,
             quantity: line.quantity,
           })),
         });
@@ -723,7 +804,7 @@ export class SalesOrderService {
   private headerInput(
     request: Pick<CreateSalesOrderRequest, 'expectedDeliveryDate' | 'warehouseCode' | 'deliveryAddress' | 'note' | 'priceDate' | 'shipping'> | undefined,
     defaultWarehouse: string | null,
-  ): Omit<OrderHeaderRecord, 'totals'> {
+  ): Omit<OrderHeaderRecord, 'totals' | 'priceListId'> {
     const warehouse = optionalText(request?.warehouseCode, 50, 'mã kho') ?? defaultWarehouse;
     const shipping = request?.shipping
       ? {
@@ -744,11 +825,55 @@ export class SalesOrderService {
     };
   }
 
+  /**
+   * Bảng giá của đơn trực tiếp, đơn từ hợp đồng: không gửi là giữ `current`; `null` hoặc rỗng là bỏ chọn; chọn bảng khác
+   * thì kiểm đang bật, còn hiệu lực tại ngày tính giá. Đơn có dòng thì bắt buộc có bảng giá (`PRICE_LIST_REQUIRED`) và
+   * bảng đó phải còn áp dụng tại ngày tính giá (`PRICE_LIST_NOT_EFFECTIVE`).
+   */
+  private async orderPriceList(
+    tenantId: string,
+    requested: unknown,
+    current: string | null,
+    hasLines: boolean,
+    date: string,
+  ): Promise<string | null> {
+    let priceListId = current;
+    let checked = false;
+    if (requested === null || requested === '') {
+      priceListId = null;
+    } else if (requested !== undefined && !(typeof requested === 'string' && requested.toLowerCase() === current)) {
+      priceListId = (await requireSelectablePriceList(this.pricing, tenantId, requested, date)).id;
+      checked = true;
+    }
+    if (hasLines) {
+      if (!priceListId) throw priceListRequired();
+      if (!checked) await requireSelectablePriceList(this.pricing, tenantId, priceListId, date);
+    }
+    return priceListId;
+  }
+
+  /** Đổi kho giữ hàng từng dòng (D3-37): dòng phải thuộc đơn; dòng dịch vụ bỏ qua (không giữ hàng). */
+  private lineWarehouses(order: SalesOrderDetail, raw: unknown): { lineId: string; warehouseCode: string | null }[] | undefined {
+    if (raw === undefined || raw === null) return undefined;
+    if (!Array.isArray(raw) || raw.length > SALES_ORDER_LINES_MAX) {
+      throw new CrmValidationError('INVALID_LINE_WAREHOUSES', 'Danh sách kho theo dòng không hợp lệ.');
+    }
+    const byId = new Map(order.lines.map((line) => [line.id, line]));
+    return raw.flatMap((entry: { lineId?: unknown; warehouseCode?: unknown }) => {
+      const line = typeof entry?.lineId === 'string' ? byId.get(entry.lineId) : undefined;
+      if (!line) throw new CrmValidationError('INVALID_LINE_WAREHOUSES', 'Dòng đơn không còn; vui lòng tải lại đơn.');
+      if (line.materialKind === 'SERVICE') return [];
+      return [{ lineId: line.id, warehouseCode: optionalText(entry.warehouseCode, 50, 'mã kho')?.toUpperCase() ?? null }];
+    });
+  }
+
   /** Dòng từ request (thay toàn bộ): mặt hàng phải có trong danh mục Kho. */
   private async drafts(
     tenantId: string,
     raw: readonly SaveSalesOrderLineRequest[] | unknown,
     previous: readonly SalesOrderLine[] = [],
+    /** Dòng của hợp đồng gốc: dòng đơn chưa chọn kho lấy kho riêng của dòng hợp đồng cùng mặt hàng (D3-37). */
+    contractLines: readonly { readonly materialId: string; readonly warehouseCode?: string | null }[] = [],
   ): Promise<LineDraft[]> {
     if (!Array.isArray(raw)) throw new CrmValidationError('INVALID_LINES', 'Danh sách dòng đơn không hợp lệ.');
     if (raw.length > SALES_ORDER_LINES_MAX) {
@@ -772,13 +897,22 @@ export class SalesOrderService {
         const overrideUnitPrice = read(line.overrideUnitPrice, AMOUNT_MAX, 'đơn giá ghi đè', 2);
         const overrideDiscountPercent = read(line.overrideDiscountPercent, 100, 'chiết khấu ghi đè', 4);
         const before = previous.find((entry) => entry.materialId === material.id);
+        const kind = material.kind ?? 'STOCK';
         return {
           id: randomUUID(),
           materialId: material.id,
           materialCode: material.code,
           materialName: material.name,
           unit,
-          materialKind: material.kind ?? 'STOCK',
+          materialKind: kind,
+          // Dịch vụ không giữ hàng, không xuất kho nên không có kho. Không gửi kho: giữ kho cũ của dòng, rồi kho của dòng
+          // hợp đồng cùng mặt hàng (một kho duy nhất), không thì theo kho mặc định của đơn.
+          warehouseCode:
+            kind === 'SERVICE'
+              ? null
+              : line.warehouseCode !== undefined
+                ? (optionalText(line.warehouseCode, 50, 'mã kho')?.toUpperCase() ?? null)
+                : (before?.warehouseCode ?? singleWarehouse(contractLines.filter((entry) => entry.materialId === material.id))),
           category: material.category,
           quantity,
           overrideUnitPrice,
@@ -799,6 +933,7 @@ export class SalesOrderService {
       readonly date: string;
       readonly customerId: string;
       readonly customerGroupId: string | null;
+      readonly priceListId: string | null;
       readonly contractId: string | null;
       readonly lines: readonly LineDraft[];
       readonly shipping: { amount: number; vatRate: number };
@@ -820,7 +955,7 @@ export class SalesOrderService {
     }
     const materialIds = [...new Set(input.lines.map((line) => line.materialId))];
     const [priceLists, policies, cap, contractPrices, known] = await Promise.all([
-      this.pricing.priceListsForPricing(tenantId, input.date, input.customerGroupId, materialIds),
+      this.pricing.priceListsForPricing(tenantId, input.date, input.priceListId, materialIds),
       this.pricing.policiesForPricing(tenantId, input.date),
       this.pricing.discountCapPercent(tenantId),
       this.pricing.contractPricesForPricing(tenantId, input.date, input.customerId, materialIds, input.contractId),
@@ -839,6 +974,7 @@ export class SalesOrderService {
       date: input.date,
       customerId: input.customerId,
       customerGroupId: input.customerGroupId,
+      priceListId: input.priceListId,
       lines: inputs,
       priceLists,
       policies,
@@ -876,10 +1012,17 @@ export class SalesOrderService {
         vatAmount: pricedLine.vatAmount,
         lineTotal: pricedLine.lineTotal,
         estUnitCost: material ? (material.avgCost ?? null) : line.previousUnitCost,
+        warehouseCode: line.warehouseCode,
       };
     });
     return { lines, totals: priced.totals };
   }
+}
+
+/** Kho riêng chung của các dòng (đúng một kho); khác nhau hoặc không có thì rỗng. */
+function singleWarehouse(lines: readonly { readonly warehouseCode?: string | null }[]): string | null {
+  const codes = [...new Set(lines.map((line) => line.warehouseCode).filter((code): code is string => !!code))];
+  return codes.length === 1 ? codes[0] : null;
 }
 
 function lineDraftOf(line: SalesOrderLine): LineDraft {
@@ -895,6 +1038,7 @@ function lineDraftOf(line: SalesOrderLine): LineDraft {
     overrideUnitPrice: line.overrideUnitPrice,
     overrideDiscountPercent: line.overrideDiscountPercent,
     previousUnitCost: line.estUnitCost,
+    warehouseCode: line.warehouseCode ?? null,
   };
 }
 

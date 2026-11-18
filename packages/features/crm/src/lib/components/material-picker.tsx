@@ -3,20 +3,19 @@
 import type { CrmCatalogMaterial } from '@enterprise-platform/contracts-crm';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useEffect, useState } from 'react';
-import { errorMessage, searchCatalog } from '../crm-api';
+import { useState } from 'react';
 import { formatQuantity } from '../fulfillment.model';
 import { parseNumber } from '../pricing/pricing.model';
 import { formatMoney } from '../sales.model';
 import styles from '../sales.module.scss';
+import { CatalogPager, CatalogSearchBar, useCatalogSearch } from './catalog-search';
 import { CrmDialog, Field } from './crm-ui';
-import { useDebounced } from './use-debounced';
 
 export interface PickedMaterial {
   readonly material: CrmCatalogMaterial;
   /** Rỗng khi cho phép bỏ trống (giá khung không số lượng). */
   readonly quantity: number | null;
-  /** Có khi hộp thoại hỏi giá (dòng hợp đồng). */
+  /** Có khi hộp thoại hỏi giá: giá khung (dòng hợp đồng) hoặc đơn giá ghi đè (dòng đơn bán). */
   readonly unitPrice: number | null;
   readonly vatRate: number | null;
 }
@@ -28,42 +27,27 @@ export interface PickedMaterial {
 export function MaterialPickerDialog({
   title,
   withPrice = false,
+  withOverridePrice = false,
   quantityOptional = false,
   onClose,
   onPick,
 }: {
   title: string;
   withPrice?: boolean;
+  /** Ô "Đơn giá ghi đè" tuỳ chọn (dòng đơn bán): bỏ trống là theo giá hợp đồng hoặc bảng giá. */
+  withOverridePrice?: boolean;
   quantityOptional?: boolean;
   onClose: () => void;
   onPick: (picked: PickedMaterial) => Promise<void>;
 }) {
-  const [search, setSearch] = useState('');
-  const [items, setItems] = useState<readonly CrmCatalogMaterial[]>([]);
+  const catalog = useCatalogSearch();
   const [selected, setSelected] = useState<CrmCatalogMaterial>();
   const [quantity, setQuantity] = useState(quantityOptional ? '' : '1');
   const [price, setPrice] = useState('');
+  const [overridePrice, setOverridePrice] = useState('');
   const [vat, setVat] = useState('10');
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const q = useDebounced(search.trim(), 300);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    searchCatalog(q)
-      .then((result) => {
-        if (!active) return;
-        setItems(result);
-        setError(undefined);
-      })
-      .catch((cause) => active && setError(errorMessage(cause, 'Không tải được danh mục Kho.')))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [q]);
 
   const columns: ColumnsType<CrmCatalogMaterial> = [
     { title: 'Mã', dataIndex: 'code', width: 130, render: (value: string) => <span className={styles.mono}>{value}</span> },
@@ -88,12 +72,16 @@ export function MaterialPickerDialog({
     }
     const unitPrice = withPrice ? parseNumber(price) : undefined;
     if (withPrice && (unitPrice === undefined || unitPrice < 0)) return setError('Vui lòng nhập giá khung không âm.');
+    const override = withOverridePrice && overridePrice.trim() ? parseNumber(overridePrice) : undefined;
+    if (withOverridePrice && overridePrice.trim() && (override === undefined || override < 0)) {
+      return setError('Đơn giá ghi đè phải là số không âm.');
+    }
     setSaving(true);
     try {
       await onPick({
         material: selected,
         quantity: amount ?? null,
-        unitPrice: unitPrice ?? null,
+        unitPrice: unitPrice ?? override ?? null,
         vatRate: withPrice ? (parseNumber(vat) ?? null) : null,
       });
     } finally {
@@ -102,27 +90,21 @@ export function MaterialPickerDialog({
   }
 
   return (
-    <CrmDialog open wide title={title} subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
-      <input
-        className={styles.input}
-        type="search"
-        placeholder="Tìm theo mã hoặc tên mặt hàng…"
-        maxLength={100}
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
+    <CrmDialog open wide title={title} subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error ?? catalog.error} onClose={onClose} onSubmit={() => void save()}>
+      <CatalogSearchBar catalog={catalog} />
       <Table<CrmCatalogMaterial>
         size="small"
         rowKey="id"
-        loading={loading}
+        loading={catalog.loading}
         columns={columns}
-        dataSource={[...items]}
+        dataSource={[...catalog.items]}
         pagination={false}
         scroll={{ y: 260 }}
         rowSelection={{ type: 'radio', selectedRowKeys: selected ? [selected.id] : [], onChange: (_keys, rows) => setSelected(rows[0]) }}
         onRow={(row) => ({ onClick: () => setSelected(row) })}
-        locale={{ emptyText: loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
+        locale={{ emptyText: catalog.loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
       />
+      <CatalogPager catalog={catalog} />
       <div className={styles.fieldGrid}>
         <Field
           label="Số lượng"
@@ -140,6 +122,17 @@ export function MaterialPickerDialog({
               <input className={styles.input} inputMode="decimal" value={vat} onChange={(event) => setVat(event.target.value)} />
             </Field>
           </>
+        ) : null}
+        {withOverridePrice ? (
+          <Field label="Đơn giá ghi đè (VND)" hint="Bỏ trống: theo giá hợp đồng hoặc bảng giá. Mặt hàng chưa nhập giá ở Kho cần nhập ô này.">
+            <input
+              className={styles.input}
+              inputMode="decimal"
+              aria-label="Đơn giá ghi đè"
+              value={overridePrice}
+              onChange={(event) => setOverridePrice(event.target.value)}
+            />
+          </Field>
         ) : null}
       </div>
     </CrmDialog>

@@ -4,6 +4,10 @@ import type {
   CalendarEvent,
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
+  ReportWorkItemProgressRequest,
+  StandaloneTaskProgressReport,
+  WorkItemChecklistItem,
+  WorkItemProgressReport,
   ChangeStandaloneTaskStatusRequest,
   CreateStandaloneTaskRequest,
   ReverseStandaloneTaskRequest,
@@ -319,6 +323,44 @@ export const getWorkItem = (id: string) =>
 
 export const updateWorkItem = (id: string, body: UpdateWorkItemRequest) =>
   request<WorkItem>(`/work-items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+
+/** Báo cáo tiến độ: server ghi lịch sử và đưa tiến độ, trạng thái của việc về khớp con số báo. */
+export const reportWorkItemProgress = (id: string, body: ReportWorkItemProgressRequest) =>
+  request<WorkItem>(`/work-items/${id}/progress-reports`, { method: 'POST', body: JSON.stringify(body) });
+
+/** Đầu việc của công việc tính tiến độ theo đầu việc; mọi thao tác trả danh sách mới nhất. */
+export const listWorkItemChecklist = (id: string) =>
+  request<{ items: WorkItemChecklistItem[] }>(`/work-items/${id}/checklist`, { cache: 'no-store' });
+
+export const addWorkItemChecklist = (id: string, titles: readonly string[]) =>
+  request<{ items: WorkItemChecklistItem[] }>(`/work-items/${id}/checklist`, {
+    method: 'POST',
+    body: JSON.stringify({ titles }),
+  });
+
+export const updateWorkItemChecklistItem = (id: string, itemId: string, body: { title?: string; done?: boolean }) =>
+  request<{ items: WorkItemChecklistItem[] }>(`/work-items/${id}/checklist/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const removeWorkItemChecklistItem = (id: string, itemId: string) =>
+  request<{ items: WorkItemChecklistItem[] }>(`/work-items/${id}/checklist/${itemId}`, { method: 'DELETE' });
+
+/** Báo cáo tiến độ Công việc khác: cùng chuẩn với việc trong dự án; trả chi tiết việc sau khi báo. */
+export const reportStandaloneTaskProgress = (id: string, body: ReportWorkItemProgressRequest) =>
+  request<StandaloneTaskDetail>(`/standalone-tasks/${id}/progress-reports`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const listStandaloneTaskProgressReports = (id: string) =>
+  request<{ items: StandaloneTaskProgressReport[] }>(`/standalone-tasks/${id}/progress-reports`, {
+    cache: 'no-store',
+  });
+
+export const listWorkItemProgressReports = (id: string) =>
+  request<{ items: WorkItemProgressReport[] }>(`/work-items/${id}/progress-reports`, { cache: 'no-store' });
 
 export const changeWorkItemStatus = (id: string, body: ChangeWorkItemStatusRequest) =>
   request<WorkItem>(`/work-items/${id}/status`, { method: 'PATCH', body: JSON.stringify(body) });

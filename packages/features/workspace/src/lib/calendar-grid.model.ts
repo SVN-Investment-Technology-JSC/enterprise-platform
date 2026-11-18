@@ -78,6 +78,12 @@ const EVENT_TONES: Record<string, string> = {
   other: '#6d28d9',
 };
 
+/** Màu một lần xuất hiện: lịch công tác (dựng từ đơn) có màu riêng, đơn chờ duyệt thì nhạt hơn đơn đã duyệt. */
+export function toneOf(occurrence: CalendarOccurrence): string {
+  if (occurrence.businessTrip) return occurrence.businessTrip.status === 'PENDING' ? '#fb923c' : '#ea580c';
+  return EVENT_TONES[occurrence.eventType] ?? (EVENT_TONES.other as string);
+}
+
 /**
  * Dựng lưới từ sự kiện đã khai triển cộng hạn công việc.
  *
@@ -120,7 +126,7 @@ export function buildCalendarGrid(
           occurrence.allDay || !isFirstDay
             ? undefined
             : formatTime(occurrence.startAt),
-        tone: EVENT_TONES[occurrence.eventType] ?? EVENT_TONES.other,
+        tone: toneOf(occurrence),
         occurrence,
       });
     }
@@ -234,7 +240,7 @@ export function buildWeekTimeline(
       key: `${occurrence.eventId}:${occurrence.occurrenceDate}`,
       kind: 'event',
       title: occurrence.title,
-      tone: EVENT_TONES[occurrence.eventType] ?? EVENT_TONES.other,
+      tone: toneOf(occurrence),
       occurrence,
     };
     if (occurrence.allDay || !sameDay) {

@@ -8,6 +8,7 @@ import type {
 import { Briefcase, FileText, LayoutList, ListChecks, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 
@@ -147,7 +148,7 @@ export function QuickSearch({ open, onClose, onPick }: QuickSearchProps) {
       (project): ResultRow => ({
         key: `project:${project.id}`,
         group: 'Dự án',
-        icon: <Briefcase size={15} />,
+        icon: <AppIcon slot="sidebar.workspace.projects" fallback={Briefcase} size={15} />,
         label: `${project.code} · ${project.name}`,
         hint: `${project.progressPercent}%`,
         target: { kind: 'project', projectId: project.id },

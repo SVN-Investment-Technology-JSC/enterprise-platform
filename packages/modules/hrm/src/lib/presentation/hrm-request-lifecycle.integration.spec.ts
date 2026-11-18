@@ -98,6 +98,12 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0036-hrm-project-request-reversed.sql');
     await migrate('hrm/0054-hrm-direct-fallback-position.sql');
     await migrate('hrm/0073-hrm-direct-approver-source.sql');
+    // Hủy hiệu lực đơn công tác xóa ca làm thêm sinh từ giờ thực tế (bảng của quỹ nghỉ bù và công tác theo ngày).
+    await migrate('hrm/0077-hrm-comp-off-foundation.sql');
+    await migrate('hrm/0078-hrm-comp-off-integration.sql');
+    await migrate('hrm/0080-hrm-trip-day-lines.sql');
+    await migrate('hrm/0082-hrm-leave-request-groups.sql');
+    await migrate('hrm/0083-hrm-request-replacements.sql');
   }, 30_000);
   afterAll(async () => {
     await pool?.end();
@@ -1026,5 +1032,85 @@ integration('HRM request draft lifecycle PostgreSQL integration', () => {
         trip.id,
       ),
     ).rejects.toMatchObject({ status: 409 });
+  });
+  it('edits a pending direct-approval leave in place of re-creating it: old request cancelled, thread moved, approved requests refuse', async () => {
+    const c = new HrmLeaveController(ctx(), bridge as any);
+    const type = (
+      await c.createLeaveType(req, { code: 'EDITME', name: 'Editable', deductBalance: false } as any)
+    ).data;
+    const shift = (
+      await pool.query(
+        "INSERT INTO hrm_schema.shift_definitions(tenant_id,code,name,start_time,end_time) VALUES($1,'EDITME','Edit shift','08:00','17:00') RETURNING id",
+        [tenantId],
+      )
+    ).rows[0];
+    await pool.query(
+      "INSERT INTO hrm_schema.employee_work_days(tenant_id,employee_id,work_date,day_type,shift_id,source) SELECT $1,$2,d::date,'SHIFT',$3,'MANUAL' FROM generate_series('2026-09-02'::date,'2026-09-03'::date,'1 day') d",
+      [tenantId, userId, shift.id],
+    );
+    const original = (
+      await c.createLeaveRequest(req, {
+        employeeId: userId,
+        leaveTypeId: type.id,
+        fromDate: '2026-09-02',
+        toDate: '2026-09-02',
+        duration: 1,
+        description: 'Mô tả sai',
+      } as any)
+    ).data;
+    await pool.query(
+      `INSERT INTO hrm_schema.request_comments(tenant_id,request_kind,request_id,author_user_id,author_name,body) VALUES($1,'leave',$2,$3,'Quản lý','Bổ sung tệp đính kèm')`,
+      [tenantId, original.id, approverId],
+    );
+    const edited = (
+      await c.createLeaveRequest(req, {
+        employeeId: userId,
+        leaveTypeId: type.id,
+        fromDate: '2026-09-03',
+        toDate: '2026-09-03',
+        duration: 1,
+        description: 'Mô tả đúng',
+        replaces: { id: original.id, expectedUpdatedAt: original.updatedAt },
+      } as any)
+    ).data;
+    expect(edited.id).not.toBe(original.id);
+    expect(edited.status).toBe('PENDING');
+    expect(edited.fromDate).toBe('2026-09-03');
+    const status = (id: string) =>
+      pool.query('SELECT status FROM hrm_schema.leave_requests WHERE id=$1', [id]).then((r) => r.rows[0].status);
+    expect(await status(original.id)).toBe('CANCELLED');
+    const link = await pool.query(
+      'SELECT new_request_id FROM hrm_schema.request_replacements WHERE old_request_id=$1',
+      [original.id],
+    );
+    expect(link.rows[0].new_request_id).toBe(edited.id);
+    const thread = await pool.query(
+      `SELECT body FROM hrm_schema.request_comments WHERE request_id=$1 ORDER BY created_at`,
+      [edited.id],
+    );
+    expect(thread.rows.map((r) => r.body)).toContain('Bổ sung tệp đính kèm');
+    // Đơn cũ đã hủy: không sửa lại được; đơn đã duyệt cũng không sửa được.
+    await expect(
+      c.createLeaveRequest(req, {
+        employeeId: userId,
+        leaveTypeId: type.id,
+        fromDate: '2026-09-02',
+        toDate: '2026-09-02',
+        duration: 1,
+        replaces: { id: original.id },
+      } as any),
+    ).rejects.toMatchObject({ status: 409 });
+    await new HrmLeaveController(ctx(approver), bridge as any, approvals).approveLeaveRequest(req, edited.id);
+    await expect(
+      c.createLeaveRequest(req, {
+        employeeId: userId,
+        leaveTypeId: type.id,
+        fromDate: '2026-09-02',
+        toDate: '2026-09-02',
+        duration: 1,
+        replaces: { id: edited.id },
+      } as any),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await status(edited.id)).toBe('APPROVED');
   });
 });

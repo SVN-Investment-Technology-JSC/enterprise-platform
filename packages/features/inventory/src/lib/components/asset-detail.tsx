@@ -20,12 +20,34 @@ import {
   ASSET_STATUS_LABEL,
   ASSET_TYPE_LABEL,
 } from '../inventory-labels';
-import styles from '../inventory.module.scss';
 import { AssetDocumentPanel } from './asset-document-panel';
 import { SparePartPanel } from './spare-part-panel';
 import { IncidentRecordDialog, type IncidentLogRecord } from './incident-record-dialog';
-import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
+import { Popconfirm, SearchableSelect, formatDate, toast } from '@enterprise-platform/shared-ui';
 import { Folder, Link2, Printer, X } from 'lucide-react';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+
+const EYEBROW =
+  'inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-[0.65rem] py-[0.2rem] text-[0.8125rem] font-bold text-blue-600';
+const PILL = 'inline-flex items-center rounded-full border px-[0.55rem] py-[0.15rem] text-xs font-bold tracking-[0.02em]';
+const PILL_TONE = {
+  success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  info: 'border-blue-200 bg-blue-50 text-blue-700',
+  warn: 'border-amber-200 bg-amber-50 text-amber-700',
+  danger: 'border-red-200 bg-red-50 text-red-700',
+} as const;
+const CARD = 'rounded-2xl border border-slate-200 bg-white p-[1.2rem] shadow-sm';
+const CARD_HEAD = 'mb-4 flex flex-wrap items-center justify-between gap-3 [&_h3]:m-0 [&_h3]:text-base [&_h3]:font-bold [&_h3]:text-slate-900';
+const EDIT_BOX = 'flex flex-col gap-[0.85rem] rounded-lg border-[1.5px] border-blue-300 bg-slate-50 p-4 shadow-sm';
+const EDIT_HEAD = 'flex flex-col gap-1 border-b border-dashed border-slate-300 pb-2';
+const EDIT_BADGE = 'inline-flex items-center gap-[0.35rem] text-sm font-bold text-blue-700';
+const EDIT_HINT = 'm-0 text-[13px] leading-snug text-slate-500';
+const EDIT_ACTIONS = 'flex flex-wrap items-center justify-between gap-3 pt-1';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
 
@@ -382,122 +404,73 @@ export function AssetDetail({
     },
   ];
 
+  const statusOptions = Object.entries(ASSET_STATUS_LABEL).map(([value, label]) => ({ value, label: String(label) }));
+  const criticalityOptions = Object.entries(ASSET_CRITICALITY_LABEL).map(([value, label]) => ({
+    value,
+    label: String(label),
+  }));
+
   return (
-    <div className={styles.assetWorkspaceCard}>
+    <div className="flex flex-col gap-[1.1rem] rounded-2xl border border-slate-200 bg-white p-[1.35rem] shadow-sm">
       {/* Top Banner / Asset 360 Head */}
-      <div className={styles.assetWorkspaceHead}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
+        <div className="flex-1 min-w-0">
           {editingBasic ? (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                padding: '12px 14px',
-                borderRadius: '8px',
-                background: '#f8fafc',
-                border: '1.5px solid #93c5fd',
-                maxWidth: '680px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className={styles.eyebrow}>{ASSET_TYPE_LABEL[asset.type]}</span>
-                <span style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
-                  Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
+            <div className="flex max-w-[680px] flex-col gap-2.5 rounded-lg border-[1.5px] border-blue-300 bg-slate-50 px-3.5 py-3">
+              <div className="flex items-center gap-2">
+                <span className={EYEBROW}>{ASSET_TYPE_LABEL[asset.type]}</span>
+                <span className="text-sm font-semibold text-slate-700">
+                  Mã thiết bị: <strong className="text-blue-600">{asset.code}</strong>
                 </span>
               </div>
 
               {/* Tên thiết bị */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                  Tên thiết bị <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
+              <div className="flex flex-col gap-1">
+                <Label required className="text-slate-600">
+                  Tên thiết bị
+                </Label>
+                <Input
                   autoFocus
                   type="text"
                   value={editName}
-                  style={{
-                    fontSize: '16px',
-                    fontWeight: 700,
-                    color: '#0f172a',
-                    padding: '6px 10px',
-                    borderRadius: '5px',
-                    border: '1px solid #cbd5e1',
-                    outline: 'none',
-                    background: '#ffffff',
-                  }}
+                  className="text-base font-bold text-slate-900"
                   onChange={(e) => setEditName(e.target.value)}
                 />
               </div>
 
               {/* 3 cột: Trạng thái, Mức độ quan trọng, Serial */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '10px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                    Trạng thái vận hành
-                  </label>
-                  <select
-                    style={{
-                      fontSize: '14px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
+              <div className="grid grid-cols-[1.1fr_1fr_1fr] gap-2.5">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-slate-600">Trạng thái vận hành</Label>
+                  <SearchableSelect
+                    options={statusOptions}
                     value={editStatus}
-                    onChange={(e) => setEditStatus(e.target.value as typeof asset.status)}
-                  >
-                    {Object.entries(ASSET_STATUS_LABEL).map(([val, lbl]) => (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => setEditStatus((value || editStatus) as typeof asset.status)}
+                    clearable={false}
+                    searchInDropdown
+                    hideDropdownSearch
+                    className="w-full"
+                  />
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                    Độ quan trọng
-                  </label>
-                  <select
-                    style={{
-                      fontSize: '14px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
+                <div className="flex flex-col gap-1">
+                  <Label className="text-slate-600">Độ quan trọng</Label>
+                  <SearchableSelect
+                    options={criticalityOptions}
                     value={editCriticality}
-                    onChange={(e) => setEditCriticality(e.target.value as typeof asset.criticality)}
-                  >
-                    {Object.entries(ASSET_CRITICALITY_LABEL).map(([val, lbl]) => (
-                      <option key={val} value={val}>
-                        {lbl}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => setEditCriticality((value || editCriticality) as typeof asset.criticality)}
+                    clearable={false}
+                    searchInDropdown
+                    hideDropdownSearch
+                    className="w-full"
+                  />
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#475569' }}>
-                    Số Serial / Khung
-                  </label>
-                  <input
+                <div className="flex flex-col gap-1">
+                  <Label className="text-slate-600">Số Serial / Khung</Label>
+                  <Input
                     type="text"
                     placeholder="Tùy chọn"
-                    style={{
-                      fontSize: '14px',
-                      padding: '5px 8px',
-                      borderRadius: '5px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      outline: 'none',
-                    }}
                     value={editSerialNumber}
                     onChange={(e) => setEditSerialNumber(e.target.value)}
                   />
@@ -505,11 +478,9 @@ export function AssetDetail({
               </div>
 
               {/* Nút thao tác lưu / hủy */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                <button
+              <div className="mt-1 flex items-center gap-2">
+                <Button
                   type="button"
-                  className={styles.btnPrimary}
-                  style={{ padding: '6px 14px', fontSize: '14px' }}
                   disabled={saving || busy || !editName.trim()}
                   onClick={async () => {
                     await save({
@@ -522,11 +493,10 @@ export function AssetDetail({
                   }}
                 >
                   {saving ? 'Đang lưu…' : 'Lưu thay đổi'}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.btnSecondary}
-                  style={{ padding: '6px 12px', fontSize: '14px' }}
+                  variant="outline"
                   disabled={saving || busy}
                   onClick={() => {
                     setEditName(asset.name);
@@ -537,44 +507,45 @@ export function AssetDetail({
                   }}
                 >
                   Hủy
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
             <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                <span className={styles.eyebrow}>{ASSET_TYPE_LABEL[asset.type]}</span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={EYEBROW}>{ASSET_TYPE_LABEL[asset.type]}</span>
                 <span
-                  className={`${styles.statusPill} ${
+                  className={cn(
+                    PILL,
                     asset.status === 'OPERATING'
-                      ? styles.statusPillSuccess
+                      ? PILL_TONE.success
                       : asset.status === 'MAINTENANCE'
-                      ? styles.statusPillWarning
-                      : styles.statusPillDanger
-                  }`}
+                        ? PILL_TONE.warn
+                        : PILL_TONE.danger,
+                  )}
                 >
                   {ASSET_STATUS_LABEL[asset.status]}
                 </span>
-                <span className={`${styles.statusPill} ${styles.statusPillInfo}`}>
+                <span className={cn(PILL, PILL_TONE.info)}>
                   Cấp {ASSET_CRITICALITY_LABEL[asset.criticality]}
                 </span>
               </div>
-              <h2 style={{ margin: '4px 0', fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>
+              <h2 className="my-1 mx-0 text-xl font-extrabold text-slate-900">
                 {asset.name}
               </h2>
-              <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>
-                Mã thiết bị: <strong style={{ color: '#2563eb' }}>{asset.code}</strong>
+              <p className="m-0 text-sm text-slate-500">
+                Mã thiết bị: <strong className="text-blue-600">{asset.code}</strong>
                 {asset.serialNumber ? ` · Serial: ${asset.serialNumber}` : ''}
               </p>
             </>
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+        <div className="flex items-center gap-2 shrink-0">
           {!editingBasic && canManage ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnSecondary}
+              variant="outline"
               disabled={busy}
               title="Chỉnh sửa thông tin cơ bản thiết bị (Tên, Trạng thái, Mức độ, Serial)"
               onClick={() => {
@@ -586,27 +557,27 @@ export function AssetDetail({
               }}
             >
               Chỉnh sửa
-            </button>
+            </Button>
           ) : null}
           {onAddChild ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnPrimary}
+             
               disabled={busy}
               onClick={() => onAddChild(asset)}
               title={`Thêm thiết bị/chi tiết con trực thuộc ${asset.name}`}
             >
               <span>+</span> Thêm thiết bị con
-            </button>
+            </Button>
           ) : null}
-          <button
+          <Button
             type="button"
-            className={styles.btnSecondary}
+            variant="outline"
             onClick={() => setShowQrModal(true)}
             title={`In tem nhãn mã QR cho thiết bị ${asset.code}`}
           >
             In mã QR
-          </button>
+          </Button>
           {onRetire ? (
             <Popconfirm
               title={childMaterials.length > 0 ? `Thanh lý cụm ${asset.name}?` : `Thanh lý ${asset.name}?`}
@@ -621,37 +592,41 @@ export function AssetDetail({
               disabled={busy}
               onConfirm={() => onRetire(asset)}
             >
-              <button
+              <Button
                 type="button"
-                className={styles.btnSecondary}
-                style={{ color: '#dc2626', borderColor: '#fca5a5' }}
+                variant="outline"
+                className="border-red-300 text-red-600 hover:text-red-600"
                 disabled={busy}
                 title={`Tháo dỡ / Thanh lý ${asset.name} (${asset.code})`}
                 aria-label={`Tháo dỡ / Thanh lý ${asset.name}`}
               >
                 Thanh lý
-              </button>
+              </Button>
             </Popconfirm>
           ) : null}
         </div>
       </div>
 
       {/* 5 SUB-TABS NAVIGATION IN WORKSPACE */}
-      <div className={styles.subTabNav} role="tablist">
+      <div className="flex items-center gap-[0.35rem] overflow-x-auto rounded-[0.65rem] border border-slate-200 bg-slate-100 p-[0.35rem]" role="tablist">
         {SUB_TABS.map((tab) => {
           const isActive = activeSubTab === tab.id;
           return (
-            <button
+            <Button
               key={tab.id}
               type="button"
               role="tab"
+              variant="ghost"
               aria-selected={isActive}
-              className={`${styles.subTabBtn} ${isActive ? styles.subTabBtnActive : ''}`}
+              className={cn(
+                'h-auto gap-[0.45rem] rounded-lg px-[0.85rem] py-[0.45rem] text-sm font-semibold text-slate-600 hover:bg-white/70 hover:text-slate-900',
+                isActive && 'border-slate-300 bg-white text-blue-700 shadow-sm hover:bg-white hover:text-blue-700',
+              )}
               onClick={() => setActiveSubTab(tab.id)}
             >
               <span>{tab.icon}</span>
               <span>{tab.label}</span>
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -660,47 +635,47 @@ export function AssetDetail({
       {/* TAB 1: TỔNG QUAN THAM SỐ                                                  */}
       {/* ========================================================================= */}
       {activeSubTab === 'overview' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
           {/* Technical Specs Card */}
-          <section className={styles.card}>
-            <div className={styles.cardHead}>
+          <section className={CARD}>
+            <div className={CARD_HEAD}>
               <h3>Thông số kỹ thuật &amp; Đặc tính danh định</h3>
               {editing !== 'specs' && canManage ? (
-                <button
+                <Button
                   type="button"
-                  className={styles.btnSecondary}
-                  style={{ padding: '4px 10px', fontSize: '13px' }}
+                  variant="outline"
+                  className="py-1 px-2.5 text-[13px]"
                   onClick={openSpecs}
                 >
                   {specs.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
-                </button>
+                </Button>
               ) : null}
             </div>
 
             {editing === 'specs' ? (
-              <div className={styles.inlineEditContainer}>
-                <div className={styles.inlineEditHeader}>
-                  <span className={styles.inlineEditBadge}>Chế độ chỉnh sửa thông số</span>
-                  <p className={styles.inlineEditHint}>
+              <div className={EDIT_BOX}>
+                <div className={EDIT_HEAD}>
+                  <span className={EDIT_BADGE}>Chế độ chỉnh sửa thông số</span>
+                  <p className={EDIT_HINT}>
                     Nhập tên thuộc tính và giá trị tương ứng. Nhấn <strong>Lưu thông số</strong> để áp dụng thay đổi.
                   </p>
                 </div>
 
-                <div className={styles.inlineEditTableWrap}>
-                  <table className={styles.inlineEditTable} style={{ tableLayout: 'fixed' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '46%', padding: '8px 10px' }}>Tên thông số / Thuộc tính</th>
-                        <th style={{ width: '46%', padding: '8px 10px' }}>Giá trị danh định</th>
-                        <th style={{ width: '8%', textAlign: 'center', padding: '8px 6px' }}>Xoá</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                <TableWrap className="rounded-md border border-slate-200 bg-white">
+                  <Table className="table-fixed">
+                    <TableHead>
+                      <TableRow>
+                        <TableHeaderCell className="w-[46%] py-2 px-2.5">Tên thông số / Thuộc tính</TableHeaderCell>
+                        <TableHeaderCell className="w-[46%] py-2 px-2.5">Giá trị danh định</TableHeaderCell>
+                        <TableHeaderCell className="w-[8%] text-center py-2 px-1.5">Xoá</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {specRows.map((row, index) => (
-                        <tr key={index}>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input
-                              className={styles.inlineEditInput}
+                        <TableRow key={index}>
+                          <TableCell className="py-1.5 px-2">
+                            <Input
+                              className="h-8 text-[13px]"
                               placeholder="VD: Điện áp định mức, Công suất…"
                               value={row.key}
                               onChange={(event) =>
@@ -711,10 +686,10 @@ export function AssetDetail({
                                 )
                               }
                             />
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input
-                              className={styles.inlineEditInput}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2">
+                            <Input
+                              className="h-8 text-[13px]"
                               placeholder="VD: 110kV, 40MVA, 50Hz…"
                               value={row.value}
                               onChange={(event) =>
@@ -725,52 +700,55 @@ export function AssetDetail({
                                 )
                               }
                             />
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                            <button
+                          </TableCell>
+                          <TableCell className="text-center py-1.5 px-1">
+                            <Button
                               type="button"
-                              className={styles.inlineDeleteBtn}
+                              variant="outline"
+                              size="icon-sm"
+                              className="border-red-100 text-red-600 hover:border-red-300 hover:bg-red-100 hover:text-red-600"
                               onClick={() => setSpecRows((rows) => rows.filter((_, p) => p !== index))}
                               title="Xoá dòng thông số này"
                               aria-label="Xoá dòng"
                             >
                               <X size={14} />
-                            </button>
-                          </td>
-                        </tr>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       ))}
                       {specRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={3} className={styles.inlineEmptyCell}>
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={3} className="p-5 text-center text-[13px] text-slate-500">
                             Chưa có thông số nào. Nhấn <strong>+ Thêm thông số mới</strong> để bắt đầu khai báo.
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ) : null}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </TableWrap>
 
-                <div className={styles.inlineActionRow}>
-                  <button
+                <div className={EDIT_ACTIONS}>
+                  <Button
                     type="button"
-                    className={styles.inlineAddRowBtn}
+                    variant="outline"
+                    size="sm"
+                    className="border-dashed border-blue-500 text-blue-600 hover:border-solid hover:bg-blue-50 hover:text-blue-600"
                     onClick={() => setSpecRows((rows) => [...rows, { key: '', value: '' }])}
                   >
                     + Thêm thông số mới
-                  </button>
+                  </Button>
 
-                  <div className={styles.inlineSaveGroup}>
-                    <button
+                  <div className="flex items-center gap-[0.6rem]">
+                    <Button
                       type="button"
-                      className={styles.modalCancelBtn}
+                      variant="outline"
                       onClick={() => setEditing(undefined)}
                       disabled={saving}
                     >
                       Hủy bỏ
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={styles.modalSaveBtn}
                       disabled={saving}
                       onClick={() =>
                         save({
@@ -783,26 +761,19 @@ export function AssetDetail({
                       }
                     >
                       {saving ? 'Đang lưu…' : 'Lưu thông số'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: '8px' }}>
+              <div className="grid gap-2">
                 {specs.map(([key, value]) => (
                   <div
                     key={key}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      background: '#f8fafc',
-                      fontSize: '14px',
-                    }}
+                    className="flex justify-between py-2 px-3 rounded-md bg-slate-50 text-sm"
                   >
-                    <span style={{ color: 'var(--pe-text-secondary)', fontWeight: 500 }}>{key}</span>
-                    <strong style={{ color: 'var(--pe-text-primary)' }}>{String(value)}</strong>
+                    <span className="text-slate-600 font-medium">{key}</span>
+                    <strong className="text-slate-900">{String(value)}</strong>
                   </div>
                 ))}
               </div>
@@ -810,32 +781,32 @@ export function AssetDetail({
           </section>
 
           {/* Operational Status & QR Card */}
-          <section className={styles.card}>
-            <div className={styles.cardHead}>
+          <section className={CARD}>
+            <div className={CARD_HEAD}>
               <h3>Định danh số &amp; Vị trí hiện trường</h3>
             </div>
-            <div style={{ display: 'grid', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '12px', background: '#f8fafc', borderRadius: '8px' }}>
-                <div style={{ width: '60px', height: '60px', background: '#ffffff', border: '1px solid var(--pe-border-subtle)', borderRadius: '8px', display: 'grid', placeItems: 'center', fontSize: '28px' }}>
+            <div className="grid gap-3">
+              <div className="flex items-center gap-3.5 p-3 bg-slate-50 rounded-lg">
+                <div className="w-[60px] h-[60px] bg-white border border-slate-200 rounded-lg grid place-items-center text-[28px]">
                   
                 </div>
                 <div>
-                  <div style={{ fontSize: '14px', fontWeight: 700 }}>Mã phản hồi nhanh (QR Code)</div>
-                  <div style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>Mã quét: {asset.qrCode ?? `QR-AMM-${asset.code}`}</div>
-                  <span className={`${styles.statusPill} ${styles.statusPillSuccess}`} style={{ marginTop: '4px' }}>
+                  <div className="text-sm font-bold">Mã phản hồi nhanh (QR Code)</div>
+                  <div className="text-[13px] text-slate-500">Mã quét: {asset.qrCode ?? `QR-AMM-${asset.code}`}</div>
+                  <span className={cn(PILL, PILL_TONE.success, 'mt-1')}>
                     Sẵn sàng quét hiện trường
                   </span>
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Nhà máy trực thuộc</span>
-                  <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px' }}>Factory (Plant 1)</div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="p-2.5 bg-slate-50 rounded-md">
+                  <span className="text-xs text-slate-500 uppercase font-semibold">Nhà máy trực thuộc</span>
+                  <div className="text-sm font-bold mt-0.5">Factory (Plant 1)</div>
                 </div>
-                <div style={{ padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Phân khu lắp đặt</span>
-                  <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '2px' }}>Khu vực Turbine T1</div>
+                <div className="p-2.5 bg-slate-50 rounded-md">
+                  <span className="text-xs text-slate-500 uppercase font-semibold">Phân khu lắp đặt</span>
+                  <div className="text-sm font-bold mt-0.5">Khu vực Turbine T1</div>
                 </div>
               </div>
             </div>
@@ -854,37 +825,32 @@ export function AssetDetail({
       {/* TAB 3: LỊCH SỬ VẬN HÀNH - SỰ CỐ                                           */}
       {/* ========================================================================= */}
       {activeSubTab === 'history' ? (
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div className="grid gap-4">
           {/* Chế độ vận hành: Độc lập hay Tích hợp Bảo trì */}
           <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '10px 16px',
-              borderRadius: '8px',
-              background: hasMaintenanceModule ? '#f0fdf4' : '#f8fafc',
-              border: `1px solid ${hasMaintenanceModule ? '#bbf7d0' : '#e2e8f0'}`,
-            }}
+            className={cn(
+              'flex items-center justify-between rounded-lg border px-4 py-2.5',
+              hasMaintenanceModule ? 'border-green-200 bg-green-50' : 'border-slate-200 bg-slate-50',
+            )}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center">
                 {hasMaintenanceModule ? <Link2 size={16} color="#166534" /> : <Folder size={16} color="#475569" />}
               </span>
-              <span style={{ fontSize: '13px', color: hasMaintenanceModule ? '#166534' : '#475569', fontWeight: 600 }}>
+              <span className={cn('text-[13px] font-semibold', hasMaintenanceModule ? 'text-green-800' : 'text-slate-600')}>
                 {hasMaintenanceModule
                   ? 'Chế độ Tích hợp CMMS: Tự động đồng bộ với module Bảo trì thiết bị'
                   : 'Chế độ Độc lập (Standalone AMM): Quản lý nhật ký vận hành & sự cố nội bộ tài sản'}
               </span>
               {isSyncingHistory ? (
-                <span style={{ fontSize: '12px', color: '#64748b', fontStyle: 'italic' }}>(Đang đồng bộ…)</span>
+                <span className="text-xs text-slate-500 italic">(Đang đồng bộ…)</span>
               ) : null}
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '12px', color: '#64748b' }}>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">
                 Tổng cộng: <strong>{computedStats.totalCount}</strong> bản ghi (
-                <strong style={{ color: computedStats.incidentCount > 0 ? '#dc2626' : '#16a34a' }}>
+                <strong className={computedStats.incidentCount > 0 ? 'text-red-600' : 'text-green-600'}>
                   {computedStats.incidentCount}
                 </strong>{' '}
                 sự cố)
@@ -893,106 +859,107 @@ export function AssetDetail({
           </div>
 
           {/* Quick Stats Grid - KPIs tính toán tự động */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
-            <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Giờ chạy tích luỹ</span>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Mã số máy</span>
+          <div className="grid grid-cols-[repeat(4,minmax(0,1fr))] gap-3">
+            <div className="p-3.5 bg-white rounded-[10px] border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-600 uppercase font-semibold">Giờ chạy tích luỹ</span>
+                <span className="text-xs text-slate-500">Mã số máy</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--pe-primary-600)', marginTop: '4px' }}>
+              <div className="text-xl font-extrabold text-blue-600 mt-1">
                 {computedStats.meterHours} giờ
               </div>
             </div>
-            <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Tỷ lệ sẵn sàng</span>
-                <span style={{ fontSize: '12px', color: '#15803d', fontWeight: 600 }}>Availability</span>
+            <div className="p-3.5 bg-white rounded-[10px] border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-600 uppercase font-semibold">Tỷ lệ sẵn sàng</span>
+                <span className="text-xs text-green-700 font-semibold">Availability</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: '#15803d', marginTop: '4px' }}>
+              <div className="text-xl font-extrabold text-green-700 mt-1">
                 {computedStats.availabilityRate}
               </div>
             </div>
-            <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Chỉ số MTBF</span>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Giữa 2 sự cố</span>
+            <div className="p-3.5 bg-white rounded-[10px] border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-600 uppercase font-semibold">Chỉ số MTBF</span>
+                <span className="text-xs text-slate-500">Giữa 2 sự cố</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--pe-text-primary)', marginTop: '4px' }}>
+              <div className="text-xl font-extrabold text-slate-900 mt-1">
                 {computedStats.mtbf}
               </div>
             </div>
-            <div style={{ padding: '14px', background: '#ffffff', borderRadius: '10px', border: '1px solid var(--pe-border-subtle)', boxShadow: 'var(--pe-shadow-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Chỉ số MTTR</span>
-                <span style={{ fontSize: '12px', color: 'var(--pe-text-muted)' }}>Thời gian sửa</span>
+            <div className="p-3.5 bg-white rounded-[10px] border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-slate-600 uppercase font-semibold">Chỉ số MTTR</span>
+                <span className="text-xs text-slate-500">Thời gian sửa</span>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--pe-text-primary)', marginTop: '4px' }}>
+              <div className="text-xl font-extrabold text-slate-900 mt-1">
                 {computedStats.mttr}
               </div>
             </div>
           </div>
 
           {/* Timeline Card */}
-          <section className={styles.card}>
-            <div className={styles.cardHead}>
+          <section className={CARD}>
+            <div className={CARD_HEAD}>
               <div>
                 <h3>Nhật ký vận hành, bảo dưỡng &amp; Lịch sử sự cố</h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
+                <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
                   Theo dõi toàn bộ vòng đời vận hành, các lần đại tu, sửa chữa và thay thế vật tư phụ tùng.
                 </p>
               </div>
-              <button
+              <Button
                 type="button"
-                className={styles.btnSecondary}
+                variant="outline"
                 onClick={() => setIsIncidentOpen(true)}
                 disabled={!canManage}
               >
                 <span>+</span> Ghi nhận sự cố
-              </button>
+              </Button>
             </div>
 
-            <div style={{ marginTop: '16px', paddingLeft: '8px' }}>
+            <div className="mt-4 pl-2">
               {mergedTimeline.length === 0 ? (
-                <div style={{ padding: '32px 0', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+                <div className="py-8 px-0 text-center text-slate-500 text-sm">
                   Chưa có sự kiện hoặc nhật ký vận hành nào được ghi nhận cho thiết bị này.
                 </div>
               ) : (
                 mergedTimeline.map((item) => (
-                  <div key={item.id} className={styles.timelineItem}>
-                    <span className={styles.timelineDot} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--pe-primary-600)' }}>
+                  <div
+                    key={item.id}
+                    className="relative border-l-2 border-slate-200 pb-5 pl-6 last:border-l-transparent last:pb-0"
+                  >
+                    <span className="absolute top-1 -left-[0.41rem] size-3 rounded-full border-2 border-white bg-blue-600 shadow-[0_0_0_2px_#bfdbfe]" />
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-[13px] font-bold text-blue-600">
                         {item.date}
                       </span>
-                      <strong style={{ fontSize: '14px' }}>{item.title}</strong>
+                      <strong className="text-sm">{item.title}</strong>
 
                       {/* Tag phân loại sự kiện */}
                       <span
-                        className={
+                        className={cn(
+                          PILL,
                           item.badgeType === 'success'
-                            ? `${styles.statusPill} ${styles.statusPillSuccess}`
+                            ? PILL_TONE.success
                             : item.badgeType === 'warn'
-                            ? `${styles.statusPill} ${styles.statusPillWarn}`
-                            : item.badgeType === 'danger'
-                            ? `${styles.statusPill} ${styles.statusPillDanger || styles.statusPillWarn}`
-                            : `${styles.statusPill} ${styles.statusPillInfo}`
-                        }
-                        style={{ fontSize: '12px', padding: '2px 8px' }}
+                              ? PILL_TONE.warn
+                              : item.badgeType === 'danger'
+                                ? PILL_TONE.danger
+                                : PILL_TONE.info,
+                          'px-2 py-0.5',
+                        )}
                       >
                         {item.badge}
                       </span>
 
                       {/* Tag nguồn gốc dữ liệu */}
                       <span
-                        style={{
-                          fontSize: '12px',
-                          padding: '1px 6px',
-                          borderRadius: '4px',
-                          background: item.source === 'maintenance_module' ? '#eff6ff' : '#f1f5f9',
-                          color: item.source === 'maintenance_module' ? '#1d4ed8' : '#64748b',
-                          border: `1px solid ${item.source === 'maintenance_module' ? '#bfdbfe' : '#cbd5e1'}`,
-                          fontWeight: 600,
-                        }}
+                        className={cn(
+                          'rounded border px-1.5 py-px text-xs font-semibold',
+                          item.source === 'maintenance_module'
+                            ? 'border-blue-200 bg-blue-50 text-blue-700'
+                            : 'border-slate-300 bg-slate-100 text-slate-500',
+                        )}
                       >
                         {item.source === 'maintenance_module' ? 'Lệnh Bảo trì CMMS' : 'Nhật ký nội bộ'}
                       </span>
@@ -1000,23 +967,16 @@ export function AssetDetail({
                       {/* Mã phiếu liên kết (nếu có) */}
                       {item.code ? (
                         <span
-                          style={{
-                            fontSize: '12px',
-                            fontWeight: 700,
-                            color: '#0284c7',
-                            background: '#e0f2fe',
-                            padding: '1px 6px',
-                            borderRadius: '4px',
-                          }}
+                          className="text-xs font-bold text-sky-600 bg-sky-100 py-px px-1.5 rounded"
                         >
                           {item.code}
                         </span>
                       ) : null}
                     </div>
-                    <p style={{ margin: '0 0 6px', fontSize: '13px', color: 'var(--pe-text-secondary)' }}>
+                    <p className="mt-0 mx-0 mb-1.5 text-[13px] text-slate-600">
                       {item.desc}
                     </p>
-                    <small style={{ color: 'var(--pe-text-muted)', fontSize: '12px' }}>
+                    <small className="text-slate-500 text-xs">
                       Người phụ trách / Thực hiện: <strong>{item.actor}</strong>
                     </small>
                   </div>
@@ -1045,36 +1005,36 @@ export function AssetDetail({
       {/* TAB 5: KẾ HOẠCH BẢO TRÌ                                                   */}
       {/* ========================================================================= */}
       {activeSubTab === 'maintenance-plan' ? (
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div className="grid gap-4">
           {/* Preventive Maintenance Plans */}
-          <section className={styles.card}>
-            <div className={styles.cardHead}>
+          <section className={CARD}>
+            <div className={CARD_HEAD}>
               <div>
                 <h3>Kế hoạch Bảo dưỡng Phòng ngừa Định kỳ (PM Schedules)</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
+                <p className="mt-1 mx-0 mb-0 text-[13px] text-slate-500">
                   Chu kỳ bảo dưỡng định kỳ và các hạng mục kiểm tra tiêu chuẩn cho thiết bị này.
                 </p>
               </div>
             </div>
 
-            <div style={{ display: 'grid', gap: '12px', marginTop: '12px' }}>
+            <div className="grid gap-3 mt-3">
               {maintenancePlans.map((plan, index) => (
-                <div key={index} style={{ padding: '16px', borderRadius: '10px', background: '#f8fafc', border: '1px solid var(--pe-border-subtle)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div key={index} className="p-4 rounded-[10px] bg-slate-50 border border-slate-200">
+                  <div className="flex justify-between items-center mb-2">
                     <div>
-                      <strong style={{ fontSize: '14px', color: 'var(--pe-text-primary)' }}>{plan.level}</strong>
-                      <span style={{ marginLeft: '8px', fontSize: '13px', color: 'var(--pe-primary-600)', fontWeight: 600 }}>({plan.cycle})</span>
+                      <strong className="text-sm text-slate-900">{plan.level}</strong>
+                      <span className="ml-2 text-[13px] text-blue-600 font-semibold">({plan.cycle})</span>
                     </div>
-                    <span className={`${styles.statusPill} ${styles.statusPillInfo}`} style={{ fontSize: '12px' }}>
+                    <span className={cn(PILL, PILL_TONE.info)}>
                       {plan.status}
                     </span>
                   </div>
-                  <ul style={{ margin: '6px 0 10px', paddingLeft: '20px', fontSize: '13px', color: 'var(--pe-text-secondary)' }}>
+                  <ul className="mt-1.5 mx-0 mb-2.5 pl-5 text-[13px] text-slate-600">
                     {plan.tasks.map((t, idx) => (
-                      <li key={idx} style={{ marginBottom: '3px' }}>{t}</li>
+                      <li key={idx} className="mb-0.75">{t}</li>
                     ))}
                   </ul>
-                  <div style={{ fontSize: '13px', color: 'var(--pe-text-muted)' }}>
+                  <div className="text-[13px] text-slate-500">
                     Thời gian dự kiến: <strong>{plan.duration}</strong> · Yêu cầu: <strong>2 Kỹ thuật viên</strong>
                   </div>
                 </div>
@@ -1083,51 +1043,51 @@ export function AssetDetail({
           </section>
 
           {/* Default Task Template */}
-          <section className={styles.card}>
-            <div className={styles.cardHead}>
+          <section className={CARD}>
+            <div className={CARD_HEAD}>
               <div>
                 <h3>Đầu việc bảo trì mặc định (Procedure Task Template)</h3>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--pe-text-muted)' }}>
+                <p className="mt-1 mx-0 mb-0 text-[13px] text-slate-500">
                   Nguồn đầu việc mặc định cho vai trò E (Thực thi) trong phân hệ Quy trình.
                 </p>
               </div>
               {editing !== 'tasks' && canManage ? (
-                <button
+                <Button
                   type="button"
-                  className={styles.btnSecondary}
-                  style={{ padding: '4px 10px', fontSize: '13px' }}
+                  variant="outline"
+                  className="py-1 px-2.5 text-[13px]"
                   onClick={openTasks}
                 >
                   {taskTemplate.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
-                </button>
+                </Button>
               ) : null}
             </div>
 
             {editing === 'tasks' ? (
-              <div className={styles.inlineEditContainer}>
-                <div className={styles.inlineEditHeader}>
-                  <span className={styles.inlineEditBadge}>Chế độ chỉnh sửa đầu việc quy trình</span>
-                  <p className={styles.inlineEditHint}>
+              <div className={EDIT_BOX}>
+                <div className={EDIT_HEAD}>
+                  <span className={EDIT_BADGE}>Chế độ chỉnh sửa đầu việc quy trình</span>
+                  <p className={EDIT_HINT}>
                     Khai báo danh sách các bước kiểm tra, công việc bảo trì chuẩn và thời lượng ước tính (phút).
                   </p>
                 </div>
 
-                <div className={styles.inlineEditTableWrap}>
-                  <table className={styles.inlineEditTable} style={{ tableLayout: 'fixed' }}>
-                    <thead>
-                      <tr>
-                        <th style={{ width: '18%', padding: '8px 10px' }}>Mã bước</th>
-                        <th style={{ width: '54%', padding: '8px 10px' }}>Tên đầu việc bảo trì</th>
-                        <th style={{ width: '20%', padding: '8px 10px' }}>Thời lượng (phút)</th>
-                        <th style={{ width: '8%', textAlign: 'center', padding: '8px 6px' }}>Xoá</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                <TableWrap className="rounded-md border border-slate-200 bg-white">
+                  <Table className="table-fixed">
+                    <TableHead>
+                      <TableRow>
+                        <TableHeaderCell className="w-[18%] py-2 px-2.5">Mã bước</TableHeaderCell>
+                        <TableHeaderCell className="w-[54%] py-2 px-2.5">Tên đầu việc bảo trì</TableHeaderCell>
+                        <TableHeaderCell className="w-[20%] py-2 px-2.5">Thời lượng (phút)</TableHeaderCell>
+                        <TableHeaderCell className="w-[8%] text-center py-2 px-1.5">Xoá</TableHeaderCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {taskRows.map((task, index) => (
-                        <tr key={index}>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input
-                              className={styles.inlineEditInput}
+                        <TableRow key={index}>
+                          <TableCell className="py-1.5 px-2">
+                            <Input
+                              className="h-8 text-[13px]"
                               placeholder="Mã (T1, T2…)"
                               value={task.key}
                               onChange={(event) =>
@@ -1138,10 +1098,10 @@ export function AssetDetail({
                                 )
                               }
                             />
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input
-                              className={styles.inlineEditInput}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2">
+                            <Input
+                              className="h-8 text-[13px]"
                               placeholder="Mô tả công việc bảo trì chi tiết…"
                               value={task.name}
                               onChange={(event) =>
@@ -1152,10 +1112,10 @@ export function AssetDetail({
                                 )
                               }
                             />
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <input
-                              className={styles.inlineEditInput}
+                          </TableCell>
+                          <TableCell className="py-1.5 px-2">
+                            <Input
+                              className="h-8 text-[13px]"
                               placeholder="Phút"
                               type="number"
                               min="1"
@@ -1173,35 +1133,39 @@ export function AssetDetail({
                                 )
                               }
                             />
-                          </td>
-                          <td style={{ textAlign: 'center', padding: '6px 4px' }}>
-                            <button
+                          </TableCell>
+                          <TableCell className="text-center py-1.5 px-1">
+                            <Button
                               type="button"
-                              className={styles.inlineDeleteBtn}
+                              variant="outline"
+                              size="icon-sm"
+                              className="border-red-100 text-red-600 hover:border-red-300 hover:bg-red-100 hover:text-red-600"
                               onClick={() => setTaskRows((rows) => rows.filter((_, p) => p !== index))}
                               title="Xoá đầu việc này"
                               aria-label="Xoá dòng"
                             >
                               <X size={14} />
-                            </button>
-                          </td>
-                        </tr>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       ))}
                       {taskRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={4} className={styles.inlineEmptyCell}>
+                        <TableRow className="hover:bg-transparent">
+                          <TableCell colSpan={4} className="p-5 text-center text-[13px] text-slate-500">
                             Chưa có đầu việc nào. Nhấn <strong>+ Thêm đầu việc</strong> để bắt đầu thiết lập quy trình.
-                          </td>
-                        </tr>
+                          </TableCell>
+                        </TableRow>
                       ) : null}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </TableWrap>
 
-                <div className={styles.inlineActionRow}>
-                  <button
+                <div className={EDIT_ACTIONS}>
+                  <Button
                     type="button"
-                    className={styles.inlineAddRowBtn}
+                    variant="outline"
+                    size="sm"
+                    className="border-dashed border-blue-500 text-blue-600 hover:border-solid hover:bg-blue-50 hover:text-blue-600"
                     onClick={() =>
                       setTaskRows((rows) => [
                         ...rows,
@@ -1210,20 +1174,19 @@ export function AssetDetail({
                     }
                   >
                     + Thêm đầu việc
-                  </button>
+                  </Button>
 
-                  <div className={styles.inlineSaveGroup}>
-                    <button
+                  <div className="flex items-center gap-[0.6rem]">
+                    <Button
                       type="button"
-                      className={styles.modalCancelBtn}
+                      variant="outline"
                       onClick={() => setEditing(undefined)}
                       disabled={saving}
                     >
                       Hủy bỏ
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
-                      className={styles.modalSaveBtn}
                       disabled={saving}
                       onClick={() =>
                         save({
@@ -1238,36 +1201,28 @@ export function AssetDetail({
                       }
                     >
                       {saving ? 'Đang lưu…' : 'Lưu đầu việc'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
             ) : taskTemplate.length === 0 ? (
-              <p style={{ color: 'var(--pe-text-muted)', fontSize: '14px', margin: 0 }}>
+              <p className="text-slate-500 text-sm m-0">
                 Chưa có đầu việc bảo trì mặc định nào được cấu hình.
               </p>
             ) : (
-              <div style={{ display: 'grid', gap: '8px' }}>
+              <div className="grid gap-2">
                 {taskTemplate.map((task) => (
                   <div
                     key={task.key}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      background: '#f8fafc',
-                      fontSize: '14px',
-                    }}
+                    className="flex items-center justify-between py-2 px-3 rounded-md bg-slate-50 text-sm"
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--pe-primary-600)', fontSize: '13px' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-blue-600 text-[13px]">
                         {task.key}
                       </span>
                       <span>{task.name}</span>
                     </div>
-                    <span style={{ color: 'var(--pe-text-muted)', fontSize: '13px' }}>
+                    <span className="text-slate-500 text-[13px]">
                       {task.durationMinutes ? `${task.durationMinutes} phút` : '—'}
                     </span>
                   </div>
@@ -1289,70 +1244,25 @@ export function AssetDetail({
 
       {/* Modal Xem trước & In Tem QR Code thiết bị chuẩn 50x30mm */}
       {showQrModal ? (
-        <div className={styles.modalOverlay} onClick={() => setShowQrModal(false)}>
-          <div
-            className={styles.modalDialog}
-            style={{
-              maxWidth: '480px',
-              background: '#ffffff',
-              borderRadius: '12px',
-              boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
-              padding: '24px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '16px',
-              }}
-            >
+        <Dialog onEscape={() => setShowQrModal(false)}>
+          <DialogContent className="max-w-[480px]" aria-label="Tem nhãn thiết bị">
+            <DialogHeader>
               <div>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                  Tem nhãn thiết bị (Khổ 50×30mm)
-                </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+                <DialogTitle>Tem nhãn thiết bị (Khổ 50×30mm)</DialogTitle>
+                <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
                   In tem nhãn dán thân vỏ tài sản, hỗ trợ máy quét mã vạch / di động.
                 </p>
               </div>
-              <button
-                type="button"
-                className={styles.closeButton}
-                onClick={() => setShowQrModal(false)}
-                title="Đóng (ESC)"
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
+              <DialogCloseButton title="Đóng (ESC)" onClick={() => setShowQrModal(false)} />
+            </DialogHeader>
 
+            <DialogBody>
             {/* Khung Tem mẫu chuẩn công nghiệp */}
             <div
-              style={{
-                border: '2px dashed #94a3b8',
-                borderRadius: '8px',
-                padding: '16px',
-                background: '#fafafa',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '16px',
-                marginBottom: '20px',
-              }}
+              className="border-2 border-dashed border-slate-400 rounded-lg p-4 bg-neutral-50 flex items-center gap-4 mb-5"
             >
               <div
-                style={{
-                  width: '85px',
-                  height: '85px',
-                  background: '#ffffff',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '4px',
-                  padding: '5px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
+                className="w-[85px] h-[85px] bg-white border border-slate-300 rounded p-1.25 flex items-center justify-center shrink-0"
               >
                 <svg viewBox="0 0 100 100" width="75" height="75">
                   <rect width="100" height="100" fill="#ffffff" />
@@ -1374,60 +1284,40 @@ export function AssetDetail({
                 </svg>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', flex: 1, minWidth: 0 }}>
+              <div className="flex flex-col gap-0.75 flex-1 min-w-0">
                 <span
-                  style={{
-                    fontSize: '12px',
-                    textTransform: 'uppercase',
-                    color: '#64748b',
-                    fontWeight: 700,
-                    letterSpacing: '0.5px',
-                  }}
+                  className="text-xs uppercase text-slate-500 font-bold tracking-[0.5px]"
                 >
                   TÀI SẢN KỸ THUẬT · EVN
                 </span>
-                <strong style={{ fontSize: '16px', color: '#0f172a', letterSpacing: '-0.2px' }}>
+                <strong className="text-base text-slate-900 tracking-[-0.2px]">
                   {asset.code}
                 </strong>
                 <span
-                  style={{
-                    fontSize: '13px',
-                    color: '#334155',
-                    fontWeight: 600,
-                    lineHeight: 1.3,
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                  }}
+                  className="line-clamp-2 overflow-hidden text-[13px] leading-[1.3] font-semibold text-slate-700"
                   title={asset.name}
                 >
                   {asset.name}
                 </span>
                 {asset.serialNumber ? (
-                  <span style={{ fontSize: '12px', color: '#475569' }}>
+                  <span className="text-xs text-slate-600">
                     S/N: <code>{asset.serialNumber}</code>
                   </span>
                 ) : null}
-                <span style={{ fontSize: '12px', color: '#2563eb', fontWeight: 600 }}>
+                <span className="text-xs text-blue-600 font-semibold">
                   Loại: {asset.type ?? 'Thiết bị'} · {asset.status ?? 'Sẵn sàng'}
                 </span>
               </div>
             </div>
 
-            {/* Nút thao tác */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px' }}>
-              <button
-                type="button"
-                className={styles.modalCancelBtn}
-                onClick={() => setShowQrModal(false)}
-              >
+            </DialogBody>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowQrModal(false)}>
                 Đóng
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => {
                   window.print();
                   setShowQrModal(false);
@@ -1435,10 +1325,10 @@ export function AssetDetail({
               >
                 <Printer size={15} />
                 <span>In ra máy in tem</span>
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

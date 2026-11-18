@@ -82,9 +82,12 @@ import {
   CRM_INTEGRATION_QUEUE,
 } from '@enterprise-platform/module-crm';
 import { createInventoryJobs } from '@enterprise-platform/module-inventory';
+import { createMaintenanceJobs } from '@enterprise-platform/module-maintenance';
 import {
   ChatPushDispatcher,
   CORE_CHAT_MESSAGE_EVENT,
+  FcmPushDispatcher,
+  firebaseAdminSender,
   webPushSender,
 } from '@enterprise-platform/platform-chat/push';
 import type { Pool } from 'pg';
@@ -175,13 +178,18 @@ const crmConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
   { queue: CRM_INTEGRATION_QUEUE, bindings: [...CRM_INTEGRATION_BINDINGS] },
 );
-// Thông báo đẩy (Web Push) của chat nội bộ core: báo tin mới cả khi người nhận đã đóng hết tab ERP. Khoá VAPID lấy theo
-// từng công ty (biến môi trường WEB_PUSH_VAPID_* nếu có, không thì cặp khoá tự sinh trong DB công ty).
+// Thông báo đẩy (Web Push trình duyệt + FCM di động) của chat nội bộ core và các thông báo nghiệp vụ ERP.
 const CHAT_PUSH_QUEUE = 'core.chat.push.v1';
+const FCM_PUSH_QUEUE = 'core.fcm.push.v1';
 const chatPush = new ChatPushDispatcher(webPushSender());
+const fcmPush = new FcmPushDispatcher(firebaseAdminSender());
 const chatPushConsumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
   queue: CHAT_PUSH_QUEUE,
   bindings: [CORE_CHAT_MESSAGE_EVENT],
+});
+const fcmPushConsumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672', {
+  queue: FCM_PUSH_QUEUE,
+  bindings: ['notification.delivery.v1', 'identity.session.revoked'],
 });
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
@@ -197,6 +205,7 @@ const socialJobs = createSocialJobs(moduleDatabases, tenantPools);
 const crmIntegrationEvents = createCrmIntegrationEvents(moduleDatabases, tenantPools);
 const crmJobs = createCrmJobs(moduleDatabases, tenantPools);
 const inventoryJobs = createInventoryJobs(moduleDatabases, tenantPools);
+const maintenanceJobs = createMaintenanceJobs(moduleDatabases, tenantPools);
 
 async function moduleEnabled(tenantId: string, moduleKey: string) {
   return Boolean(
@@ -288,8 +297,10 @@ void chatPushConsumer
       async () => {
         const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
         // Chat là của core nên không kiểm phân hệ; nhận trùng (giao lại) thì bỏ qua để không báo hai lần.
+        // Chạy tuần tự trên cùng pool (mặc định 4 kết nối/tenant) để không tranh chấp kết nối với IdempotentInbox.
         await new IdempotentInbox(pool, CHAT_PUSH_QUEUE).process(event, async () => {
           await chatPush.handle(pool, event.payload);
+          await fcmPush.handleChatMessage(pool, event.payload);
         });
       },
       { mode: 'shared' },
@@ -300,6 +311,34 @@ void chatPushConsumer
   .catch((error) =>
     console.error(
       'Chat push consumer requires restart:',
+      error instanceof Error ? error.message : 'Connection failed',
+    ),
+  );
+void fcmPushConsumer
+  .start(async (event) => {
+    const database = await activeTenantDatabase(event.tenantId);
+    if (!database) return;
+    const outcome = await withActiveTenant(
+      platformPool,
+      event.tenantId,
+      async () => {
+        const pool = (await tenantPools.forTenant(database)) as unknown as Pool;
+        await new IdempotentInbox(pool, FCM_PUSH_QUEUE).process(event, async () => {
+          if (event.type === 'identity.session.revoked') {
+            await fcmPush.handleSessionRevoked(pool, event.payload);
+            return;
+          }
+          await fcmPush.handleNotificationDelivery(pool, event.payload);
+        });
+      },
+      { mode: 'shared' },
+    );
+    if (!outcome.executed && outcome.reason === 'busy')
+      throw new TransientConsumerError(`Tenant ${event.tenantId} đang bận (khóa exclusive)`);
+  })
+  .catch((error) =>
+    console.error(
+      'FCM push consumer requires restart:',
       error instanceof Error ? error.message : 'Connection failed',
     ),
   );
@@ -658,6 +697,30 @@ async function processInventoryJobs(database: TenantDatabaseReference) {
   if (expired.length) console.info(`[inventory] Tenant ${tenantId}: nhả ${expired.length} giữ hàng hết hạn.`);
 }
 
+const MAINTENANCE_SCHEDULER_INTERVAL_MS = 60_000;
+const maintenanceLastRun = new Map<string, number>();
+
+/**
+ * Việc định kỳ của Bảo trì: sinh phiếu đến hạn và gửi lại phiếu kẹt sang Quy trình, mỗi 60 giây cho từng tenant đã bật
+ * phân hệ. Trước đây chỉ bộ hẹn giờ trong maintenance-api làm việc này và chỉ cho tenant đã có người gọi API từ lúc
+ * khởi động, nên tenant vắng người dùng không bao giờ sinh phiếu. Chạy song song với bộ hẹn giờ cũ vẫn an toàn:
+ * sinh phiếu có khoá advisory, gửi Quy trình có idempotencyKey.
+ */
+async function processMaintenanceJobs(database: TenantDatabaseReference) {
+  const tenantId = database.tenantId;
+  const now = Date.now();
+  if (now - (maintenanceLastRun.get(tenantId) ?? 0) < MAINTENANCE_SCHEDULER_INTERVAL_MS) return;
+  if (!(await moduleEnabled(tenantId, 'maintenance'))) return;
+  moduleDatabases.register(database);
+  if (!(await maintenanceJobs.ready(tenantId))) return;
+  // Đặt mốc trước khi chạy để một lần lỗi không làm tick 1 giây gọi lại liên tục.
+  maintenanceLastRun.set(tenantId, now);
+  const { generated, recovered } = await maintenanceJobs.run(tenantId);
+  if (generated || recovered) {
+    console.info(`[maintenance] Tenant ${tenantId}: sinh ${generated} phiếu, gửi lại ${recovered} phiếu kẹt.`);
+  }
+}
+
 /** Một lần withActiveTenant (khóa SHARED) cho mỗi tenant mỗi tick: outbox rồi HRM, Finance, Social, CRM và Inventory jobs, tuần tự. */
 async function processTenantTick(
   database: TenantDatabaseReference,
@@ -667,7 +730,7 @@ async function processTenantTick(
     database.tenantId,
     async () => {
       const errors: unknown[] = [];
-      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs, processInventoryJobs]) {
+      for (const step of [flushTenantOutbox, processHrmJobs, processFinanceJobs, processSocialJobs, processCrmJobs, processInventoryJobs, processMaintenanceJobs]) {
         try {
           await step(database);
         } catch (error) {
@@ -726,7 +789,7 @@ async function handleMaintenanceEvent(event: IntegrationEventEnvelope) {
           );
         } else if (event.type === 'procedure.instance.started') {
           await pool.query(
-            `UPDATE maintenance_schema.occurrences SET status='generated',procedure_instance_id=$2,procedure_instance_code=$3 WHERE id=$1`,
+            `UPDATE maintenance_schema.occurrences SET status='generated',procedure_instance_id=$2,procedure_instance_code=$3,failure_reason=NULL WHERE id=$1 AND status IN ('dispatch_pending','failed')`,
             [payload.occurrenceId, payload.instanceId, payload.instanceCode],
           );
         } else if (
@@ -836,6 +899,7 @@ async function shutdown() {
     socialConsumer.close(),
     crmConsumer.close(),
     chatPushConsumer.close(),
+    fcmPushConsumer.close(),
     procedureConsumer.close(),
     tenantPools.closeAll(),
     platformPool.end(),

@@ -5,16 +5,13 @@ import { toast } from '@enterprise-platform/shared-ui';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { CrmDialog, Field } from '../components/crm-ui';
-import { useDebounced } from '../components/use-debounced';
-import { errorMessage, searchCatalog, updatePriceListItem, upsertPriceListItems } from '../crm-api';
+import { CatalogPager, CatalogSearchBar, catalogKindLabel, useCatalogSearch } from '../components/catalog-search';
+import { errorMessage, setManualPrice, setPriceListVatRate, updatePriceListItem, upsertPriceListItems } from '../crm-api';
 import styles from '../sales.module.scss';
 import { formatMoney } from '../sales.model';
-import { buildPriceListItems, newPriceRow, parseNumber, type PriceRowDraft } from './pricing.model';
-
-/** Nhóm ở màn Hàng hóa của Kho: hàng hoá hay dịch vụ (mã `kind` của Kho). */
-const kindLabel = (kind: string | null) => (kind === 'SERVICE' ? 'Dịch vụ' : 'Hàng hóa');
+import { buildPriceListItems, newPriceRow, parseNumber, parseUnitPrice, parseVatRate, priceText, type PriceRowDraft } from './pricing.model';
 
 /**
  * Thêm dòng giá: chọn một hoặc nhiều mặt hàng từ danh mục Kho (id, mã, tên, đơn vị lấy theo Kho,
@@ -30,30 +27,11 @@ export function AddPriceItemsDialog({
   onClose: () => void;
   onSaved: (detail: PriceListDetail) => void;
 }) {
-  const [search, setSearch] = useState('');
-  const [catalog, setCatalog] = useState<readonly CrmCatalogMaterial[]>([]);
+  const catalog = useCatalogSearch();
   const [rows, setRows] = useState<readonly PriceRowDraft[]>([]);
   const [invalidIds, setInvalidIds] = useState<readonly string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  const q = useDebounced(search.trim(), 300);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    searchCatalog(q)
-      .then((result) => {
-        if (!active) return;
-        setCatalog(result);
-        setError(undefined);
-      })
-      .catch((cause) => active && setError(errorMessage(cause, 'Không tải được danh mục Kho.')))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [q]);
 
   const touch = (next: readonly PriceRowDraft[]) => {
     setRows(next);
@@ -72,7 +50,7 @@ export function AddPriceItemsDialog({
   const catalogColumns: ColumnsType<CrmCatalogMaterial> = [
     { title: 'Mã', dataIndex: 'code', width: 150, render: (value: string) => <span className={styles.mono}>{value}</span> },
     { title: 'Tên', dataIndex: 'name', ellipsis: true },
-    { title: 'Nhóm', dataIndex: 'kind', width: 100, render: (value: string | null) => kindLabel(value) },
+    { title: 'Nhóm', dataIndex: 'kind', width: 100, render: (value: string | null) => catalogKindLabel(value) },
     { title: 'Phân loại', dataIndex: 'tradeCategory', width: 140, ellipsis: true, render: (value: string | null | undefined) => value ?? '—' },
     { title: 'ĐVT', dataIndex: 'unit', width: 90 },
     {
@@ -94,6 +72,14 @@ export function AddPriceItemsDialog({
   const rowColumns: ColumnsType<PriceRowDraft> = [
     { title: 'Mã', key: 'code', width: 130, render: (_: unknown, row) => <span className={styles.mono}>{row.material.code}</span> },
     { title: 'Tên mặt hàng', key: 'name', ellipsis: true, render: (_: unknown, row) => row.material.name },
+    { title: 'Nhóm', key: 'kind', width: 100, render: (_: unknown, row) => catalogKindLabel(row.material.kind) },
+    {
+      title: 'Phân loại',
+      key: 'tradeCategory',
+      width: 140,
+      ellipsis: true,
+      render: (_: unknown, row) => row.material.tradeCategory ?? '—',
+    },
     {
       title: 'Giá vốn bình quân',
       key: 'avgCost',
@@ -194,25 +180,17 @@ export function AddPriceItemsDialog({
       subtitle="Chọn một hoặc nhiều mặt hàng từ danh mục Kho, rồi nhập đơn giá và thuế suất cho từng mặt hàng."
       submitLabel={rows.length ? `Lưu ${rows.length} dòng giá` : 'Lưu'}
       submitting={saving}
-      error={error}
+      error={error ?? catalog.error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <input
-        className={styles.input}
-        type="search"
-        placeholder="Tìm theo mã hoặc tên mặt hàng…"
-        maxLength={100}
-        autoFocus
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-      />
+      <CatalogSearchBar catalog={catalog} />
       <Table<CrmCatalogMaterial>
         size="small"
         rowKey="id"
-        loading={loading}
+        loading={catalog.loading}
         columns={catalogColumns}
-        dataSource={[...catalog]}
+        dataSource={[...catalog.items]}
         pagination={false}
         scroll={{ y: 240 }}
         rowSelection={{
@@ -224,8 +202,9 @@ export function AddPriceItemsDialog({
         onRow={(row) => ({
           onClick: () => (rows.some((entry) => entry.material.id === row.id) ? remove([row.id]) : add([row])),
         })}
-        locale={{ emptyText: loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
+        locale={{ emptyText: catalog.loading ? 'Đang tải…' : 'Không có mặt hàng nào.' }}
       />
+      <CatalogPager catalog={catalog} />
       {rows.length ? (
         <>
           <h4 className={styles.muted}>Mặt hàng đã chọn ({rows.length})</h4>
@@ -255,7 +234,7 @@ export function EditPriceItemDialog({
   onClose: () => void;
   onSaved: (detail: PriceListDetail) => void;
 }) {
-  const [price, setPrice] = useState(String(item.price));
+  const [price, setPrice] = useState(item.price === null ? '' : String(item.price));
   const [vat, setVat] = useState(String(item.vatRate));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
@@ -300,6 +279,124 @@ export function EditPriceItemDialog({
         </Field>
         <Field label="Thuế suất (%)" required hint="Từ 0 đến 100, cho phép số thập phân">
           <input className={styles.input} inputMode="decimal" value={vat} onChange={(event) => setVat(event.target.value)} />
+        </Field>
+      </div>
+    </CrmDialog>
+  );
+}
+
+/** Bảng theo tỷ lệ: nhập giá tay cho một dòng; dòng thành "Giá tay", đồng bộ và đổi tỷ lệ không ghi đè. */
+export function ManualPriceDialog({
+  priceListId,
+  item,
+  onClose,
+  onSaved,
+}: {
+  priceListId: string;
+  item: PriceListItem;
+  onClose: () => void;
+  onSaved: (detail: PriceListDetail) => void;
+}) {
+  const [price, setPrice] = useState(item.price === null ? '' : String(item.price));
+  const [fieldError, setFieldError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    const parsed = parseUnitPrice(price);
+    if (!parsed.ok) return setFieldError(parsed.error);
+    setFieldError(undefined);
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const detail = await setManualPrice(priceListId, item.id, parsed.value);
+      toast.success('Đã nhập giá tay.');
+      onSaved(detail);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được giá tay.'));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <CrmDialog
+      open
+      title="Nhập giá tay"
+      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Giá hiện tại: ${priceText(item.price)}.`}
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      <div className={styles.fieldGrid}>
+        <Field label="Đơn giá (VND)" required error={fieldError} hint="Giá tay giữ nguyên khi đồng bộ Kho hoặc đổi tỷ lệ">
+          <input
+            className={styles.input}
+            inputMode="decimal"
+            value={price}
+            autoFocus
+            aria-invalid={fieldError ? true : undefined}
+            onChange={(event) => setPrice(event.target.value)}
+          />
+        </Field>
+      </div>
+    </CrmDialog>
+  );
+}
+
+/** Bảng mặc định: sửa thuế suất một dòng (cột duy nhất sửa được); bảng theo tỷ lệ nhận theo. */
+export function VatRateDialog({
+  priceListId,
+  item,
+  onClose,
+  onSaved,
+}: {
+  priceListId: string;
+  item: PriceListItem;
+  onClose: () => void;
+  onSaved: (detail: PriceListDetail) => void;
+}) {
+  const [vat, setVat] = useState(String(item.vatRate).replace('.', ','));
+  const [fieldError, setFieldError] = useState<string>();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string>();
+
+  async function submit() {
+    const parsed = parseVatRate(vat);
+    if (!parsed.ok) return setFieldError(parsed.error);
+    setFieldError(undefined);
+    setSubmitting(true);
+    setError(undefined);
+    try {
+      const detail = await setPriceListVatRate(priceListId, item.id, parsed.value);
+      toast.success('Đã lưu thuế suất.');
+      onSaved(detail);
+    } catch (cause) {
+      setError(errorMessage(cause, 'Không lưu được thuế suất.'));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <CrmDialog
+      open
+      title="Sửa thuế suất"
+      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Mặt hàng, đơn vị, giá lấy từ Kho; chỉ sửa được thuế suất.`}
+      submitting={submitting}
+      error={error}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+    >
+      <div className={styles.fieldGrid}>
+        <Field label="Thuế suất (%)" required error={fieldError} hint="Từ 0 đến 100, tối đa 2 chữ số thập phân">
+          <input
+            className={styles.input}
+            inputMode="decimal"
+            value={vat}
+            autoFocus
+            aria-invalid={fieldError ? true : undefined}
+            onChange={(event) => setVat(event.target.value)}
+          />
         </Field>
       </div>
     </CrmDialog>

@@ -23,6 +23,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import {
+  AppIcon,
   formatDate,
   initialReturnTarget,
   returnPathFor,
@@ -76,16 +77,18 @@ import { RcsiBoard } from './rcsi-board';
 import type { StartHandoff } from './start-instance-form';
 import { WorkspaceBoard } from './workspace-board';
 import styles from './procedure-engine.module.scss';
+import { returnSourceLabel } from './return-source-label';
+
 
 type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
 
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard size={16} aria-hidden /> },
-  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <ClipboardList size={16} aria-hidden /> },
-  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <Table2 size={16} aria-hidden /> },
+  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} size={16} /> },
+  { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <AppIcon slot="sidebar.procedure.workspace" fallback={ClipboardList} size={16} /> },
+  { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <AppIcon slot="sidebar.procedure.raci" fallback={Table2} size={16} /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings size={16} aria-hidden /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} size={16} /> },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
@@ -511,8 +514,8 @@ export function ProcedureEngineScreen() {
         <>
         {returnTarget ? (
           <div className={styles.notice} role="status">
-            <span>Mở từ Trang chủ · xử lý xong hồ sơ này sẽ tự quay về.</span>
-            <a href={returnTarget.path}>Về Trang chủ</a>
+            <span>Mở từ {returnSourceLabel(returnTarget.path)} · xử lý xong hồ sơ này sẽ tự quay về.</span>
+            <a href={returnTarget.path}>Về {returnSourceLabel(returnTarget.path)}</a>
           </div>
         ) : null}
         {error ? (

@@ -780,3 +780,79 @@ describe('hợp đồng, đơn bán Bán hàng', () => {
     expect(resolved?.template.sourceId).toBe(sourceId);
   });
 });
+
+describe('Văn thư', () => {
+  const base = {
+    letterId: 'letter-1',
+    incomingNo: '41/CVĐ',
+    actorUserId: 'user-clerk',
+    summary: 'Lê Thu Hà trình công văn 41/CVĐ · Yêu cầu giải trình.',
+    deepLink: '/modules/correspondence#letters/letter-1',
+  };
+
+  it.each([
+    ['correspondence.letter.assigned', 'Phòng bạn được giao xử lý công văn', 'actionable'],
+    ['correspondence.letter.handler-assigned', 'Bạn được phân công xử lý công văn', 'actionable'],
+    ['correspondence.letter.step-assigned', 'Công văn chờ bạn duyệt', 'actionable'],
+    ['correspondence.letter.returned', 'Công văn bị trả lại', 'actionable'],
+    ['correspondence.letter.completed', 'Công văn đã hoàn tất, lưu trữ', 'informational'],
+    ['correspondence.letter.published', 'Công văn đi đã ban hành', 'informational'],
+    ['correspondence.letter.cancelled', 'Công văn đã bị huỷ', 'informational'],
+    ['correspondence.letter.revoke-requested', 'Đề nghị huỷ công văn chờ bạn xác nhận', 'actionable'],
+    ['correspondence.letter.revoke-rejected', 'Đề nghị huỷ công văn không được đồng ý', 'informational'],
+    ['correspondence.letter.revoke-withdrawn', 'Đề nghị huỷ công văn đã được rút', 'informational'],
+    ['correspondence.letter.reminded', 'Đôn đốc xử lý công văn', 'actionable'],
+    ['correspondence.letter.addressed', 'Công văn gửi đích danh bạn', 'informational'],
+    ['correspondence.letter.mentioned', 'Bạn được nhắc tên trong công văn', 'actionable'],
+    ['correspondence.letter.commented', 'Trao đổi mới trong công văn', 'informational'],
+    ['correspondence.letter.archive-requested', 'Công văn chờ lưu trữ', 'actionable'],
+    ['correspondence.letter.archived', 'Hồ sơ công văn đã lưu trữ', 'informational'],
+  ])('%s báo người trong payload, không báo người thao tác, mở đúng công văn', async (type, title, priority) => {
+    const resolved = await registry.resolve(
+      event(type, { ...base, recipientUserIds: ['user-leader', 'user-clerk'], notifyPermissions: [] }),
+      directory(),
+    );
+    expect(resolved?.policy.module).toBe('correspondence');
+    expect(resolved?.policy.priority).toBe(priority);
+    expect(resolved?.recipients).toEqual(['user-leader']);
+    expect(resolved?.template).toMatchObject({
+      title,
+      body: base.summary,
+      deepLink: '/modules/correspondence#letters/letter-1',
+      sourceType: 'correspondence_letter',
+    });
+  });
+
+  it.each([
+    ['correspondence.letter.sent-to-clerk', 'correspondence.letter.register'],
+    ['correspondence.letter.approved', 'correspondence.letter.publish'],
+  ])('%s báo thêm người giữ quyền văn thư đi cùng sự kiện', async (type, permission) => {
+    const usersWithPermission = jest.fn(async () => ['user-clerk-2', 'user-clerk']);
+    const resolved = await registry.resolve(
+      event(type, { ...base, recipientUserIds: ['user-author'], notifyPermissions: [permission] }),
+      directory({ usersWithPermission }),
+    );
+    expect(usersWithPermission).toHaveBeenCalledWith(permission);
+    expect(resolved?.recipients).toEqual(['user-author', 'user-clerk-2']);
+  });
+
+  it.each([
+    ['correspondence.letter.due-soon', 'Công văn sắp đến hạn xử lý'],
+    ['correspondence.letter.overdue', 'Công văn đã quá hạn xử lý'],
+  ])('%s nhắc người đang phải làm, nêu số đến và hạn', async (type, title) => {
+    const resolved = await registry.resolve(
+      event(type, {
+        letterId: 'letter-1',
+        title: 'Yêu cầu giải trình',
+        code: '41/CVĐ',
+        dueAt: '2026-11-18T17:00:00.000Z',
+        assigneeUserId: 'user-leader',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-leader']);
+    expect(resolved?.template.title).toBe(title);
+    expect(resolved?.template.body).toBe('41/CVĐ · Yêu cầu giải trình (hạn 19/11/2026 00:00)');
+    expect(resolved?.template.deepLink).toBe('/modules/correspondence#letters/letter-1');
+  });
+});

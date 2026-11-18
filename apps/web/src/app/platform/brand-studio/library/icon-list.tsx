@@ -15,6 +15,7 @@ export function IconList({
   palette,
   selected,
   isPreset,
+  archived = false,
   onSelect,
   onSelectAll,
   ...handlers
@@ -23,16 +24,17 @@ export function IconList({
   palette: BrandPalette;
   selected: ReadonlySet<string>;
   isPreset: (id: string) => boolean;
+  archived?: boolean;
   onSelect: (id: string, checked: boolean) => void;
   onSelectAll: (checked: boolean) => void;
 }) {
   const selectedCount = docs.filter((doc) => selected.has(doc.id)).length;
   const headCell = 'px-3 py-2 text-left text-xs font-semibold text-slate-500';
   return (
-    <div className="overflow-x-auto">
+    <div>
       <table className="w-full min-w-[640px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50/60">
+        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_#e2e8f0]">
+          <tr>
             <th className="w-10 py-2 pl-3 pr-0 text-left">
               <SelectBox
                 checked={docs.length > 0 && selectedCount === docs.length}
@@ -79,12 +81,12 @@ export function IconList({
                 </td>
                 <td className="hidden px-3 py-2 text-slate-600 sm:table-cell">{categoryLabel(doc.category)}</td>
                 <td className="px-3 py-2">
-                  <StatusChip status={doc.status} />
+                  <StatusChip archived={archived} status={doc.status} />
                 </td>
                 <td className="hidden px-3 py-2 text-right tabular-nums text-slate-600 md:table-cell">{doc.shapes.length}</td>
                 <td className="hidden px-3 py-2 tabular-nums text-slate-500 md:table-cell">{formatShortDate(doc.updatedAt)}</td>
                 <td className="px-3 py-2">
-                  <IconActions {...handlers} className="justify-end" doc={doc} placement="left" preset={isPreset(doc.id)} />
+                  <IconActions {...handlers} archived={archived} className="justify-end" doc={doc} placement="left" preset={isPreset(doc.id)} />
                 </td>
               </tr>
             );

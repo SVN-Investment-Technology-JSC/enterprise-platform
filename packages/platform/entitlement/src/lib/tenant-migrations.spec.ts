@@ -23,6 +23,7 @@ const DELIBERATELY_UNREGISTERED: Readonly<Record<string, string>> = {
 
 const MODULE_DIRECTORIES: Readonly<Record<string, string>> = {
   assistant: 'tenant/assistant',
+  correspondence: 'tenant/correspondence',
   crm: 'tenant/crm',
   finance: 'tenant/finance',
   hrm: 'tenant/hrm',
@@ -45,6 +46,37 @@ describe('danh sách migration của tenant', () => {
     expect(TENANT_CORE_MIGRATIONS).toContainEqual({
       version: '0008-notifications',
       path: 'tenant/core/0008-notifications.sql',
+    });
+  });
+
+  it('CRM chạy bố cục mẫu báo giá (0034) sau phân loại khách hàng (0033)', () => {
+    const versions = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
+    expect(versions.indexOf('0034-quote-template-layouts')).toBe(versions.indexOf('0033-customer-kinds') + 1);
+    expect(TENANT_MODULE_MIGRATIONS['crm']).toContainEqual({
+      version: '0034-quote-template-layouts',
+      path: 'tenant/crm/0034-quote-template-layouts.sql',
+    });
+  });
+
+  it('CRM chạy tổ chức báo giá (0035) sau bố cục mẫu báo giá (0034)', () => {
+    const versions = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
+    expect(versions.indexOf('0035-sales-organizations')).toBe(versions.indexOf('0034-quote-template-layouts') + 1);
+    expect(TENANT_MODULE_MIGRATIONS['crm']).toContainEqual({
+      version: '0035-sales-organizations',
+      path: 'tenant/crm/0035-sales-organizations.sql',
+    });
+  });
+
+  it('CRM chạy PAKD qua Quy trình (0036) sau tổ chức báo giá (0035); Quy trình chạy thông tin nguồn (0015) sau 0014', () => {
+    const crm = TENANT_MODULE_MIGRATIONS['crm'].map((item) => item.version);
+    expect(crm.indexOf('0036-business-plan-procedure')).toBe(crm.indexOf('0035-sales-organizations') + 1);
+    expect(crm.indexOf('0037-line-warehouses')).toBe(crm.indexOf('0036-business-plan-procedure') + 1);
+    expect(crm.indexOf('0038-customer-price-list')).toBe(crm.indexOf('0037-line-warehouses') + 1);
+    const procedure = TENANT_MODULE_MIGRATIONS['procedure-engine'].map((item) => item.version);
+    expect(procedure.indexOf('0015-instance-source-summary')).toBe(procedure.indexOf('0014-everyone-subject') + 1);
+    expect(TENANT_MODULE_MIGRATIONS['procedure-engine']).toContainEqual({
+      version: '0015-instance-source-summary',
+      path: 'tenant/procedure/0015-instance-source-summary.sql',
     });
   });
 

@@ -1,22 +1,22 @@
 import { randomUUID } from 'node:crypto';
-import { CRM_NO_CAPABILITIES } from '@enterprise-platform/contracts-crm';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { CRM_NO_CAPABILITIES, defaultQuoteLayout, QUOTE_LAYOUT_LIMITS, QUOTE_LINE_PICKER_COLUMNS, type QuoteLayout } from '@enterprise-platform/contracts-crm';
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteFormService } from './application/quote-form.service.js';
 import type { ApprovalLinks } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import {
   PostgresDiscountPolicyStore,
-  PostgresPriceListStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
@@ -80,6 +80,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
   let phase1Quotes: QuoteService;
   let form: QuoteFormService;
   let customerId: string;
+  let priceListId: string;
   let lineTemplateId: string;
   let orderTemplateId: string;
   let defaultTypeId: string;
@@ -111,9 +112,9 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     phase1Quotes = build(false);
     form = new QuoteFormService(formStore);
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     await new DiscountPolicyService(new PostgresDiscountPolicyStore(handle.database)).create(admin, {
@@ -136,7 +137,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
   }, 60_000);
 
   async function draft(service: QuoteService, extra: Record<string, unknown> = {}, quantity = 10) {
-    const created = await service.create(nv1, { customerId, ...extra });
+    const created = await service.create(nv1, { customerId, priceListId, ...extra });
     return service.addLine(nv1, created.id, created.currentVersion, {
       revision: created.version.revision,
       materialId: CAP,
@@ -158,7 +159,11 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
       `INSERT INTO crm_schema.quotes (code, customer_id, owner_user_id) VALUES ('BG2600001', $1, $2) RETURNING id`,
       [customerId, NV1],
     );
-    await handle.pool.query(`INSERT INTO crm_schema.quote_versions (quote_id, version_no) VALUES ($1, 1)`, [old.rows[0].id]);
+    // Bảng giá của báo giá cũ do migration 0039 gán sẵn.
+    await handle.pool.query(`INSERT INTO crm_schema.quote_versions (quote_id, version_no, price_list_id) VALUES ($1, 1, $2)`, [
+      old.rows[0].id,
+      priceListId,
+    ]);
     const loaded = await quotes.get(nv1, old.rows[0].id);
     expect(loaded.version.form).toMatchObject({
       templateId: null,
@@ -181,6 +186,17 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
       `SELECT column_name FROM information_schema.columns WHERE table_schema = 'crm_schema' AND table_name = 'quote_versions' AND column_name = 'custom_fields'`,
     );
     expect(columns.rows).toHaveLength(1);
+  });
+
+  it('cột hộp thoại "Thêm dòng báo giá": mặc định mọi cột; quản trị chọn, lưu theo thứ tự cố định; nhân viên không sửa được', async () => {
+    await expect(form.linePickerSettings(nv1)).resolves.toEqual({ columns: [...QUOTE_LINE_PICKER_COLUMNS] });
+    await expect(form.saveLinePickerSettings(admin, { columns: ['salePrice', 'kind', 'khong-co', 'kind'] as never })).resolves.toEqual({
+      columns: ['kind', 'salePrice'],
+    });
+    await expect(form.linePickerSettings(nv1)).resolves.toEqual({ columns: ['kind', 'salePrice'] });
+    await expect(form.saveLinePickerSettings(nv1, { columns: [] })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(form.saveLinePickerSettings(admin, {} as never)).rejects.toMatchObject({ code: 'INVALID_COLUMNS' });
+    await form.saveLinePickerSettings(admin, { columns: [...QUOTE_LINE_PICKER_COLUMNS] });
   });
 
   it('TC-QF-16: báo giá lập từ mẫu mặc định cho đúng kết quả giá của phase 1', async () => {
@@ -327,10 +343,12 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
 
   it('TC-QF-02/03: mã báo giá mặc định giữ dạng BG<yy>; mẫu mã cấu hình, sinh lại lấy số kế tiếp, trùng mã bị 409', async () => {
     // Chưa cấu hình mẫu: mã mới vẫn là BG<yy><5 chữ số> từ quote_code_seq; mã cũ vẫn hợp lệ.
-    expect(await form.codeSettings(nv1)).toMatchObject({ pattern: null });
-    const legacy = await quotes.create(nv1, { customerId });
+    const legacySettings = await form.codeSettings(nv1);
+    expect(legacySettings).toMatchObject({ pattern: null });
+    const legacy = await quotes.create(nv1, { customerId, priceListId });
     expect(legacy.code).toMatch(/^BG\d{7}$/);
-    const typed = await quotes.create(nv1, { customerId, code: 'BG2699999' });
+    expect(legacy.code).toBe(legacySettings.next);
+    const typed = await quotes.create(nv1, { customerId, priceListId, code: 'BG2699999' });
     expect(typed.code).toBe('BG2699999');
 
     await expect(form.saveCodeSettings(nv1, { pattern: '{yyyymmdd}/BG//{seq}' })).rejects.toMatchObject({ statusCode: 403 });
@@ -345,24 +363,28 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     const number = (code: string) => Number(code.split('//')[1]);
     expect(number(second)).toBe(number(first) + 1);
     expect(first.split('/BG//')[0]).toBe(second.split('/BG//')[0]);
-
-    const created = await quotes.create(nv1, { customerId });
+    // "Mã sinh ra nếu tạo ngay" (TC-P3REG-03): số kế tiếp thật của sequence, xem nhiều lần không chiếm số.
+    const peeked = (await form.codeSettings(nv1)).next;
+    expect(number(peeked)).toBe(number(second) + 1);
+    expect((await form.codeSettings(nv1)).next).toBe(peeked);
+    const created = await quotes.create(nv1, { customerId, priceListId });
     expect(created.code).toMatch(/^\d{8}\/BG\/\/\d+$/);
     expect(number(created.code)).toBe(number(second) + 1);
+    expect(created.code).toBe(peeked);
     // Dùng mã đã sinh cho báo giá mới; dùng lại lần hai bị từ chối.
-    const usingGenerated = await quotes.create(nv1, { customerId, code: first });
+    const usingGenerated = await quotes.create(nv1, { customerId, priceListId, code: first });
     expect(usingGenerated.code).toBe(first);
-    await expect(quotes.create(nv1, { customerId, code: first })).rejects.toMatchObject({
+    await expect(quotes.create(nv1, { customerId, priceListId, code: first })).rejects.toMatchObject({
       statusCode: 409,
       code: 'QUOTE_CODE_EXISTS',
       message: 'Mã báo giá đã tồn tại. Vui lòng nhập mã khác hoặc bấm sinh lại.',
     });
-    await expect(quotes.create(nv1, { customerId, code: 'BG2699999' })).rejects.toMatchObject({ statusCode: 409 });
-    await expect(quotes.create(nv1, { customerId, code: 'mã có dấu' })).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_QUOTE_CODE' });
+    await expect(quotes.create(nv1, { customerId, priceListId, code: 'BG2699999' })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(quotes.create(nv1, { customerId, priceListId, code: 'mã có dấu' })).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_QUOTE_CODE' });
     // Sinh lại trong lúc có mã trùng nhập tay: số kế tiếp trùng một mã đã có thì bỏ qua.
     const next = number((await form.generateCode(nv1)).code);
     const day = first.split('/BG//')[0];
-    await quotes.create(nv1, { customerId, code: `${day}/BG//${next + 1}` });
+    await quotes.create(nv1, { customerId, priceListId, code: `${day}/BG//${next + 1}` });
     expect(number((await form.generateCode(nv1)).code)).toBe(next + 2);
 
     // Đổi mã khi Nháp: trùng 409, không trùng được; ghi nhật ký.
@@ -380,7 +402,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
 
     // Bỏ mẫu: trở về mã cũ, quote_code_seq không bị phá (số kế tiếp liền sau số đã dùng).
     await form.saveCodeSettings(admin, { pattern: null });
-    const back = await quotes.create(nv1, { customerId });
+    const back = await quotes.create(nv1, { customerId, priceListId });
     expect(Number(back.code.slice(4))).toBe(Number(legacy.code.slice(4)) + 1);
   });
 
@@ -417,12 +439,12 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     expect(off.active).toBe(false);
     expect((await form.listTemplates(nv1, false)).map((template) => template.id)).not.toContain(created.id);
     expect((await form.listTemplates(nv1, true)).map((template) => template.id)).toContain(created.id);
-    await expect(quotes.create(nv1, { customerId, templateId: created.id })).rejects.toMatchObject({
+    await expect(quotes.create(nv1, { customerId, priceListId, templateId: created.id })).rejects.toMatchObject({
       statusCode: 400,
       code: 'TEMPLATE_INACTIVE',
       message: 'Mẫu báo giá này đã tắt, vui lòng chọn mẫu khác.',
     });
-    await expect(quotes.create(nv1, { customerId, templateId: randomUUID() })).rejects.toMatchObject({ statusCode: 400, code: 'TEMPLATE_NOT_FOUND' });
+    await expect(quotes.create(nv1, { customerId, priceListId, templateId: randomUUID() })).rejects.toMatchObject({ statusCode: 400, code: 'TEMPLATE_NOT_FOUND' });
     await expect(quotes.addLine(nv1, mixed.id, 1, { revision: discounted.version.revision, materialId: CAP, quantity: 1 })).resolves.toBeDefined();
 
     // Mẫu mặc định: luôn có một, luôn đang bật; chọn mẫu khác làm mặc định thì mẫu cũ bỏ cờ.
@@ -434,18 +456,18 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     ).rejects.toMatchObject({ statusCode: 409, code: 'DEFAULT_TEMPLATE_INACTIVE' });
     await form.updateTemplate(admin, orderTemplateId, { name: 'Chiết khấu trên tổng giá trị đơn hàng', discountMode: 'ORDER', taxMode: 'ORDER', isDefault: true });
     expect((await form.listTemplates(nv1, true)).filter((template) => template.isDefault).map((template) => template.id)).toEqual([orderTemplateId]);
-    const withNewDefault = await quotes.create(nv1, { customerId });
+    const withNewDefault = await quotes.create(nv1, { customerId, priceListId });
     expect(withNewDefault.version.form).toMatchObject({ templateId: orderTemplateId, discountMode: 'ORDER' });
     await form.updateTemplate(admin, lineTemplateId, { name: 'Báo giá theo dòng (mặc định)', discountMode: 'LINE', taxMode: 'LINE', isDefault: true });
 
     // Loại báo giá.
     const type = await form.createType(admin, { name: 'Báo giá dự án', description: 'Dự án lớn' });
     await expect(form.createType(admin, { name: 'BÁO GIÁ DỰ ÁN' })).rejects.toMatchObject({ statusCode: 409, code: 'QUOTE_TYPE_NAME_EXISTS' });
-    const withType = await quotes.create(nv1, { customerId, quoteTypeId: type.id, quoteName: 'Cung cấp cáp đồng', quoteDate: '2026-11-02' });
+    const withType = await quotes.create(nv1, { customerId, priceListId, quoteTypeId: type.id, quoteName: 'Cung cấp cáp đồng', quoteDate: '2026-11-02' });
     expect(withType.version.form).toMatchObject({ quoteTypeId: type.id, quoteTypeName: 'Báo giá dự án', quoteName: 'Cung cấp cáp đồng', quoteDate: '2026-11-02' });
     expect(withType).toMatchObject({ quoteName: 'Cung cấp cáp đồng' });
     await form.updateType(admin, type.id, { name: 'Báo giá dự án', active: false });
-    await expect(quotes.create(nv1, { customerId, quoteTypeId: type.id })).rejects.toMatchObject({ statusCode: 400, code: 'QUOTE_TYPE_INACTIVE' });
+    await expect(quotes.create(nv1, { customerId, priceListId, quoteTypeId: type.id })).rejects.toMatchObject({ statusCode: 400, code: 'QUOTE_TYPE_INACTIVE' });
     await expect(form.updateType(admin, defaultTypeId, { name: 'Báo đơn giá và số lượng', isDefault: false })).rejects.toMatchObject({
       statusCode: 409,
       code: 'DEFAULT_TYPE_REQUIRED',
@@ -479,11 +501,220 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     await expect(
       quotes.updateVersion(viewer, mine.id, 1, { revision: mine.version.revision, quoteName: 'Sửa trộm' }),
     ).rejects.toMatchObject({ statusCode: 403 });
-    await expect(quotes.create(viewer, { customerId })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(quotes.create(viewer, { customerId, priceListId })).rejects.toMatchObject({ statusCode: 403 });
     // Chọn mẫu hay loại giả: 400, không ghi.
     await expect(quotes.updateVersion(nv1, mine.id, 1, { revision: mine.version.revision, templateId: 'khong-phai-uuid' })).rejects.toMatchObject({ statusCode: 400 });
     expect((await quotes.get(nv1, mine.id)).version.revision).toBe(mine.version.revision);
     // Quản trị thấy mọi báo giá.
     expect((await quotes.get(admin, mine.id)).id).toBe(mine.id);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 3: bố cục in của mẫu (P3C1-04, P3C1-05)
+  // -------------------------------------------------------------------------
+
+  describe('bố cục in của mẫu báo giá', () => {
+    const admin2 = actor(randomUUID(), { canManage: true, canReadAll: true });
+    const titled = (title: string): QuoteLayout => {
+      const layout = defaultQuoteLayout();
+      return { ...layout, blocks: layout.blocks.map((block) => (block.type === 'title' ? { ...block, text: title } : block)) };
+    };
+    const pngDataUrl = (size: number) => {
+      const bytes = Buffer.alloc(size, 0x41);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes);
+      return `data:image/png;base64,${bytes.toString('base64')}`;
+    };
+    const stored = async (id: string) =>
+      (
+        await handle.pool.query<{ layout: unknown; layout_updated_at: Date | null; layout_updated_by: string | null }>(
+          `SELECT layout, layout_updated_at, layout_updated_by FROM crm_schema.quote_templates WHERE id = $1`,
+          [id],
+        )
+      ).rows[0];
+    const audits = async (id: string) =>
+      (
+        await handle.pool.query<{ actor_id: string; at: Date; metadata: Record<string, unknown> }>(
+          `SELECT actor_id, at, metadata FROM crm_schema.audit_log
+            WHERE entity_type = 'quote_template' AND action = 'layout_updated' AND entity_id = $1 ORDER BY at, id`,
+          [id],
+        )
+      ).rows;
+    const newTemplate = async (name: string, active = true) =>
+      (await form.createTemplate(admin, { name, discountMode: 'LINE', taxMode: 'LINE', active })).id;
+
+    it('TC-P3MIG-01/02: 0034 thêm 4 cột cho phép rỗng đúng kiểu; chạy lại (trong transaction như migrator) không lỗi', async () => {
+      const columns = await handle.pool.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string }>(
+        `SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
+          WHERE table_schema = 'crm_schema'
+            AND (table_name, column_name) IN (('quote_templates', 'layout'), ('quote_templates', 'layout_updated_at'),
+                                              ('quote_templates', 'layout_updated_by'), ('quote_versions', 'layout_snapshot'))
+          ORDER BY table_name, column_name`,
+      );
+      expect(columns.rows).toEqual([
+        { table_name: 'quote_templates', column_name: 'layout', data_type: 'jsonb', is_nullable: 'YES' },
+        { table_name: 'quote_templates', column_name: 'layout_updated_at', data_type: 'timestamp with time zone', is_nullable: 'YES' },
+        { table_name: 'quote_templates', column_name: 'layout_updated_by', data_type: 'uuid', is_nullable: 'YES' },
+        { table_name: 'quote_versions', column_name: 'layout_snapshot', data_type: 'jsonb', is_nullable: 'YES' },
+      ]);
+      const sql = await readFile(resolve(process.cwd(), '../../../migrations/tenant/crm/0034-quote-template-layouts.sql'), 'utf8');
+      const client = await handle.pool.connect();
+      try {
+        for (let run = 0; run < 2; run += 1) {
+          await client.query('BEGIN');
+          await client.query(sql);
+          await client.query('COMMIT');
+        }
+      } finally {
+        client.release();
+      }
+      // Mẫu có sẵn (nạp từ 0029) không bị ghi lại: bố cục rỗng, dùng bố cục mặc định.
+      expect((await form.listTemplates(nv1, true)).find((template) => template.isDefault)).toMatchObject({ hasLayout: false });
+    });
+
+    it('TC-TL-13/14: đọc mẫu chưa có bố cục; lưu bố cục hợp lệ; đọc lại bản đã chuẩn hoá; danh sách có hasLayout', async () => {
+      const id = await newTemplate('P3 Mẫu đọc lưu');
+      expect(await form.getLayout(nv1, id)).toEqual({ layout: null, updatedAt: null, updatedBy: null });
+      for (const missing of ['khong-phai-uuid', randomUUID()]) {
+        await expect(form.getLayout(nv1, missing)).rejects.toMatchObject({ statusCode: 404, message: 'Không tìm thấy mẫu báo giá.' });
+      }
+      const layout = titled('BÁO GIÁ THIẾT BỊ');
+      const dirty = { ...layout, html: '<b>x</b>', blocks: layout.blocks.map((block) => ({ ...block, onclick: 'alert(1)' })) };
+      const saved = await form.saveLayout(admin, id, { layout: dirty as never });
+      expect(saved).toEqual({ layout, updatedAt: expect.any(String), updatedBy: admin.userId });
+      // Người chỉ đọc (crm.read) đọc được; trường lạ không còn trong DB.
+      expect(await form.getLayout(viewer, id)).toEqual(saved);
+      expect(JSON.stringify((await stored(id)).layout)).not.toMatch(/onclick|html/);
+      expect((await stored(id)).layout_updated_by).toBe(admin.userId);
+      expect((await form.listTemplates(nv1, false)).find((template) => template.id === id)).toMatchObject({ hasLayout: true });
+    });
+
+    it('TC-TL-15: layout null là xoá, hasLayout về false; mốc cập nhật vẫn ghi', async () => {
+      const id = await newTemplate('P3 Mẫu xoá bố cục');
+      await form.saveLayout(admin, id, { layout: titled('A') });
+      const removed = await form.saveLayout(admin, id, { layout: null });
+      expect(removed).toEqual({ layout: null, updatedAt: expect.any(String), updatedBy: admin.userId });
+      expect((await stored(id)).layout).toBeNull();
+      expect((await form.listTemplates(nv1, false)).find((template) => template.id === id)).toMatchObject({ hasLayout: false });
+    });
+
+    it('TC-TL-16: hai quản trị cùng sửa: người sau 409 LAYOUT_CONFLICT, DB giữ bản người trước; không gửi mốc thì ghi đè', async () => {
+      const id = await newTemplate('P3 Mẫu sửa đồng thời');
+      const opened = await form.getLayout(admin, id);
+      expect(opened.updatedAt).toBeNull();
+      const first = await form.saveLayout(admin, id, { layout: titled('BẢN QTV'), expectedUpdatedAt: opened.updatedAt });
+      await expect(form.saveLayout(admin2, id, { layout: titled('BẢN QTBH'), expectedUpdatedAt: opened.updatedAt })).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'LAYOUT_CONFLICT',
+        message: 'Mẫu vừa được người khác sửa. Tải lại để xem bản mới.',
+      });
+      expect(await form.getLayout(nv1, id)).toEqual(first);
+      // Đọc lại rồi lưu với mốc mới: được; mốc luôn tăng.
+      const second = await form.saveLayout(admin2, id, { layout: titled('BẢN QTBH'), expectedUpdatedAt: first.updatedAt });
+      expect(Date.parse(second.updatedAt as string)).toBeGreaterThan(Date.parse(first.updatedAt as string));
+      await expect(form.saveLayout(admin, id, { layout: titled('X'), expectedUpdatedAt: first.updatedAt })).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      const overwritten = await form.saveLayout(admin, id, { layout: titled('GHI ĐÈ') });
+      expect(overwritten.layout?.blocks.find((block) => block.type === 'title')).toMatchObject({ text: 'GHI ĐÈ' });
+    });
+
+    it('TC-TL-17: nhật ký quote_template.layout_updated có người, thời điểm, số khối, kích thước; không có JSON hay ảnh; lưu lỗi không ghi', async () => {
+      const id = await newTemplate('P3 Mẫu nhật ký');
+      const layout = defaultQuoteLayout();
+      const withLogo = {
+        ...layout,
+        blocks: layout.blocks.map((block) => (block.type === 'companyHeader' ? { ...block, logo: pngDataUrl(2_000) } : block)),
+      };
+      await form.saveLayout(admin, id, { layout: withLogo });
+      await form.saveLayout(admin2, id, { layout: null });
+      await expect(form.saveLayout(admin, id, { layout: { ...layout, version: 2 } as never })).rejects.toMatchObject({ statusCode: 400 });
+      await expect(form.saveLayout(admin, id, { layout, expectedUpdatedAt: '2000-01-01T00:00:00.000Z' })).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      const rows = await audits(id);
+      expect(rows).toEqual([
+        {
+          actor_id: admin.userId,
+          at: expect.any(Date),
+          metadata: { removed: false, blockCount: layout.blocks.length, sizeBytes: Buffer.byteLength(JSON.stringify(withLogo)) },
+        },
+        { actor_id: admin2.userId, at: expect.any(Date), metadata: { removed: true, blockCount: 0, sizeBytes: 0 } },
+      ]);
+      expect(JSON.stringify(rows)).not.toMatch(/data:image|BÁO GIÁ/);
+    });
+
+    it('TC-TL-18: mẫu đang tắt vẫn đọc, sửa bố cục được; không nằm trong danh sách chọn của nhân viên', async () => {
+      const id = await newTemplate('P3 Mẫu đang tắt', false);
+      await form.saveLayout(admin, id, { layout: titled('MẪU TẮT') });
+      expect((await form.getLayout(nv1, id)).layout).toEqual(titled('MẪU TẮT'));
+      expect((await form.listTemplates(nv1, false)).some((template) => template.id === id)).toBe(false);
+      expect((await form.listTemplates(admin, true)).find((template) => template.id === id)).toMatchObject({ active: false, hasLayout: true });
+    });
+
+    it('TC-TL-04/05/07/12 (lưu): bố cục sai trả 400 đúng mã, DB không đổi', async () => {
+      const id = await newTemplate('P3 Mẫu kiểm hợp lệ');
+      const good = await form.saveLayout(admin, id, { layout: titled('GỐC') });
+      const base = defaultQuoteLayout();
+      const spacer = (index: number) => ({ id: `s-${index}`, type: 'spacer', heightMm: 5 });
+      const cases: Array<[string, unknown]> = [
+        ['LAYOUT_VERSION_UNSUPPORTED', { ...base, version: 2 }],
+        ['LAYOUT_EMPTY', { ...base, blocks: [] }],
+        ['LAYOUT_TOO_MANY_BLOCKS', { ...base, blocks: Array.from({ length: 101 }, (_, index) => spacer(index)) }],
+        ['LAYOUT_IMAGE_INVALID', { ...base, blocks: [{ id: 'img', type: 'image', src: 'https://example.com/a.png', heightMm: 20, align: 'left' }] }],
+        ['LAYOUT_IMAGE_INVALID', { ...base, blocks: [{ id: 'img', type: 'image', src: pngDataUrl(301 * 1024), heightMm: 20, align: 'left' }] }],
+        ['LAYOUT_VARIABLE_UNKNOWN', { ...base, blocks: [{ id: 't', type: 'text', align: 'left', runs: [{ text: '{{totals.cost}}' }] }] }],
+      ];
+      for (const [code, layout] of cases) {
+        await expect(form.saveLayout(admin, id, { layout: layout as never })).rejects.toMatchObject({ statusCode: 400, code });
+      }
+      // 1 và 100 khối lưu được.
+      for (const count of [1, 100]) {
+        await expect(
+          form.saveLayout(admin, id, { layout: { ...base, blocks: Array.from({ length: count }, (_, index) => spacer(index)) } as never }),
+        ).resolves.toMatchObject({ layout: { blocks: expect.any(Array) } });
+      }
+      await form.saveLayout(admin, id, { layout: good.layout });
+      expect((await form.getLayout(nv1, id)).layout).toEqual(good.layout);
+    });
+
+    it('TC-TL-06 (lưu): bố cục đúng 1 MB lưu và đọc lại được; trên 1 MB là 400 LAYOUT_TOO_LARGE, không phải lỗi khác', async () => {
+      const id = await newTemplate('P3 Mẫu 1 MB');
+      const base = defaultQuoteLayout();
+      const text = (blockId: string, runs: string[]) => ({ id: blockId, type: 'text', align: 'left', runs: runs.map((value) => ({ text: value })) });
+      const sizeOf = (blocks: unknown[]) => Buffer.byteLength(JSON.stringify({ ...base, blocks }));
+      const blocks: unknown[] = [];
+      while (sizeOf(blocks) + 90_000 < QUOTE_LAYOUT_LIMITS.maxBytes) {
+        blocks.push(text(`b-${blocks.length}`, Array.from({ length: 20 }, () => 'x'.repeat(4_000))));
+      }
+      while (sizeOf(blocks) + 8_000 < QUOTE_LAYOUT_LIMITS.maxBytes) blocks.push(text(`t-${blocks.length}`, ['x'.repeat(4_000)]));
+      for (let pad = 0; pad < 2; pad += 1) {
+        const blockId = `t-${blocks.length}`;
+        blocks.push(text(blockId, ['']));
+        blocks[blocks.length - 1] = text(blockId, ['x'.repeat(Math.min(4_000, QUOTE_LAYOUT_LIMITS.maxBytes - sizeOf(blocks)))]);
+      }
+      expect(sizeOf(blocks)).toBe(QUOTE_LAYOUT_LIMITS.maxBytes);
+      const saved = await form.saveLayout(admin, id, { layout: { ...base, blocks } as never });
+      expect(Buffer.byteLength(JSON.stringify(saved.layout))).toBe(QUOTE_LAYOUT_LIMITS.maxBytes);
+      expect(await form.getLayout(nv1, id)).toEqual(saved);
+      const over = [...blocks.slice(0, -1), text('t-over', ['x'.repeat(4_000)])];
+      await expect(form.saveLayout(admin, id, { layout: { ...base, blocks: over } as never })).rejects.toMatchObject({
+        statusCode: 400,
+        code: 'LAYOUT_TOO_LARGE',
+      });
+      expect(await form.getLayout(nv1, id)).toEqual(saved);
+    });
+
+    it('TC-P3PERM-01/02: người không có crm.manage lưu thì 403 tiếng Việt, DB không đổi; người chỉ đọc đọc được', async () => {
+      const id = await newTemplate('P3 Mẫu quyền');
+      const saved = await form.saveLayout(admin, id, { layout: titled('QUYỀN') });
+      for (const who of [nv1, viewer, tn]) {
+        await expect(form.saveLayout(who, id, { layout: null })).rejects.toMatchObject({
+          statusCode: 403,
+          message: 'Chỉ quản trị bán hàng mới được thay đổi cấu hình này.',
+        });
+        expect(await form.getLayout(who, id)).toEqual(saved);
+      }
+      expect(await audits(id)).toHaveLength(1);
+    });
   });
 });

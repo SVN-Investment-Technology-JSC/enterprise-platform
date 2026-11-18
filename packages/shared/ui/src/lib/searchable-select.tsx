@@ -43,6 +43,13 @@ export interface SearchableSelectProps {
    * lựa chọn) — chỉ bấm chọn, không có chỗ nào để gõ; phím mũi tên, Enter, Esc vẫn hoạt động trên ô bên ngoài.
    */
   readonly hideDropdownSearch?: boolean;
+  /**
+   * Độ rộng tối thiểu của danh sách (px, mặc định 280 để nhãn dài vẫn đọc được). Danh sách ngắn, nhãn ngắn (cỡ trang, vài
+   * con số) đặt nhỏ để danh sách bằng ô, không rộng hơn ô nhiều.
+   */
+  readonly dropdownMinWidth?: number;
+  /** Tắt gợi ý `title` gốc của trình duyệt trên ô nhập (mặc định bật, hiện giá trị đang chọn khi bị cắt). */
+  readonly nativeTitle?: boolean;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
@@ -103,9 +110,10 @@ const VIEWPORT_GAP = 8;
 function dropdownPlacement(
   anchor: DOMRect,
   origin: { x: number; y: number },
+  minWidth: number = DROPDOWN_MIN_WIDTH,
 ): { box: CSSProperties; listMaxHeight: number; origin: { x: number; y: number }; upward: boolean } {
   const width = Math.min(
-    Math.max(anchor.width, DROPDOWN_MIN_WIDTH),
+    Math.max(anchor.width, minWidth),
     window.innerWidth - VIEWPORT_GAP * 2,
   );
   const left = Math.min(
@@ -193,6 +201,8 @@ export function SearchableSelect({
   height,
   searchInDropdown = false,
   hideDropdownSearch = false,
+  dropdownMinWidth = DROPDOWN_MIN_WIDTH,
+  nativeTitle = true,
   clearable = true,
   onChange,
   renderOption,
@@ -249,7 +259,9 @@ export function SearchableSelect({
             const labelMatch = removeVietnameseTones(opt.label).includes(q);
             const valueMatch = removeVietnameseTones(opt.value).includes(q);
             const descMatch = opt.description ? removeVietnameseTones(opt.description).includes(q) : false;
-            return labelMatch || valueMatch || descMatch;
+            // Badge thường là mã (hợp đồng, khách hàng): tìm theo mã được.
+            const badgeMatch = opt.badge ? removeVietnameseTones(opt.badge).includes(q) : false;
+            return labelMatch || valueMatch || descMatch || badgeMatch;
           })
         : list;
     const main = matches(options);
@@ -357,7 +369,7 @@ export function SearchableSelect({
       const container = containerRef.current;
       if (container) {
         correctionsRef.current = 0;
-        setPlacement(dropdownPlacement(container.getBoundingClientRect(), fixedOrigin(container)));
+        setPlacement(dropdownPlacement(container.getBoundingClientRect(), fixedOrigin(container), dropdownMinWidth));
       }
     };
     place();
@@ -367,7 +379,7 @@ export function SearchableSelect({
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
     };
-  }, [isOpen]);
+  }, [isOpen, dropdownMinWidth]);
 
   // Hiệu chỉnh gốc toạ độ: đo vị trí thật của danh sách và so với chỗ cần đặt (mép dưới ô). Nếu khung bao nào đó
   // làm `fixed` tính theo gốc khác với suy luận ở `fixedOrigin`, độ lệch được cộng vào gốc rồi đặt lại.
@@ -376,7 +388,7 @@ export function SearchableSelect({
     const box = dropdownRef.current;
     const container = containerRef.current;
     if (!box || !container) return;
-    const wanted = dropdownPlacement(container.getBoundingClientRect(), { x: 0, y: 0 }).box;
+    const wanted = dropdownPlacement(container.getBoundingClientRect(), { x: 0, y: 0 }, dropdownMinWidth).box;
     const actual = box.getBoundingClientRect();
     // Chưa có kích thước thật (chưa bố cục, hoặc môi trường không đo được): không hiệu chỉnh.
     if (actual.width === 0 && actual.height === 0) return;
@@ -389,10 +401,10 @@ export function SearchableSelect({
         dropdownPlacement(container.getBoundingClientRect(), {
           x: placement.origin.x + dx,
           y: placement.origin.y + dy,
-        }),
+        }, dropdownMinWidth),
       );
     }
-  }, [isOpen, placement]);
+  }, [isOpen, placement, dropdownMinWidth]);
 
   // Mở nhóm phụ: cuộn danh sách để nút của nhóm lên đầu, ô lọc và các mục của nhóm hiện ngay bên dưới.
   useEffect(() => {
@@ -561,7 +573,11 @@ export function SearchableSelect({
     </li>
   ) : null;
 
-  const hasClear = Boolean(clearable && (query || value) && !disabled);
+  // Nút xoá chỉ khi có gì để xoá: đã chọn một giá trị, hoặc đang gõ dở chữ khác với nhãn đang chọn. Mục rỗng
+  // ("Chưa giao", "Tất cả"…) cũng hiện nhãn trong ô nhập nhưng không phải giá trị, nên không có nút xoá.
+  const hasClear = Boolean(
+    clearable && !disabled && (value || (query && query !== (selectedOption ? selectedOption.label : ''))),
+  );
 
   return (
     <div
@@ -608,7 +624,7 @@ export function SearchableSelect({
           style={height ? { height } : undefined}
           readOnly={searchInDropdown}
           placeholder={isOpen && !searchInDropdown ? (searchPlaceholder ?? placeholder) : placeholder}
-          title={!isOpen ? (query || placeholder || undefined) : undefined}
+          title={nativeTitle && !isOpen ? (query || placeholder || undefined) : undefined}
           value={query}
           disabled={disabled}
           onClick={() => {

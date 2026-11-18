@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
+import { AppIcon, type AppIconProps } from '@enterprise-platform/shared-ui';
 import {
   filterHrmNavigation,
   getActiveHrmNavId,
@@ -19,6 +20,21 @@ import {
 import { HrmCrumbsProvider } from './hrm-crumbs';
 
 import { HrmQuickSearch, type HrmQuickSearchTarget } from './ui/hrm-quick-search';
+
+const HRM_NAV_SLOT: Partial<Record<string, AppIconProps['slot']>> = {
+  dashboard: 'nav.dashboard',
+  people: 'nav.users',
+  settings: 'nav.settings',
+  attendance_monitor: 'sidebar.hrm.attendance-monitor',
+  request_processing: 'sidebar.hrm.approvals',
+  my_work: 'sidebar.hrm.my-work',
+  requests: 'sidebar.hrm.requests',
+  profile: 'sidebar.hrm.profile',
+  timekeeping: 'sidebar.hrm.timekeeping',
+  leave: 'sidebar.hrm.leave',
+  payroll: 'sidebar.hrm.payroll',
+  fleet: 'sidebar.hrm.fleet',
+};
 
 const COLLAPSED_KEY = 'hrm_sidebar_collapsed';
 
@@ -110,11 +126,16 @@ function HrmShellContent({ children }: { children: ReactNode }) {
     return sections.flatMap((section) =>
       section.items.flatMap((item) => item.children ?? [item]).map((item) => {
         const Icon = item.icon;
+        const slot = HRM_NAV_SLOT[item.id];
         return {
           id: item.id,
           label: item.label,
           group: section.title,
-          icon: <Icon className="size-4" aria-hidden />,
+          icon: slot ? (
+            <AppIcon slot={slot} fallback={Icon} size={16} />
+          ) : (
+            <Icon className="size-4" aria-hidden />
+          ),
         };
       }),
     );

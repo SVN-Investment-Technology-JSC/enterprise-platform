@@ -5,6 +5,8 @@
 import type { BrandRules } from './compliance';
 import type { IconCategory, IconDocument } from './model';
 import type { BrandPalette } from './palette';
+import type { IconSvgModel } from './render';
+import type { IconSlotId, IconSlotMeta } from './slots';
 
 /** Đường dẫn gốc của API; đã gồm tiền tố `api` của Platform API. */
 export const BRAND_API_BASE = '/api/platform/v1/brand';
@@ -127,6 +129,14 @@ export const BRAND_ERROR_CODES = {
   iconBusy: 'BRAND_ICON_BUSY',
   iconLimitReached: 'BRAND_ICON_LIMIT_REACHED',
   iconNotPublishable: 'BRAND_ICON_NOT_PUBLISHABLE',
+  slotNotFound: 'BRAND_SLOT_NOT_FOUND',
+  slotConflict: 'BRAND_SLOT_CONFLICT',
+  slotBuiltInCannotModify: 'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
+  slotGroupNotFound: 'BRAND_SLOT_GROUP_NOT_FOUND',
+  slotGroupConflict: 'BRAND_SLOT_GROUP_CONFLICT',
+  slotGroupBuiltInCannotModify: 'BRAND_SLOT_GROUP_BUILTIN_CANNOT_MODIFY',
+  slotGroupInUse: 'BRAND_SLOT_GROUP_IN_USE',
+  slotIconNotPublished: 'BRAND_SLOT_ICON_NOT_PUBLISHED',
   versionNotFound: 'BRAND_ICON_VERSION_NOT_FOUND',
   versionConflict: 'BRAND_ICON_VERSION_CONFLICT',
   standardsInvalid: 'BRAND_STANDARDS_INVALID',
@@ -148,4 +158,81 @@ export interface BrandApiError {
   readonly message: string;
   /** Có khi lỗi là xung đột phiên bản: phiên bản hiện hành của máy chủ. */
   readonly currentVersion?: number;
+}
+
+export interface BrandSlotAssignment {
+  readonly slot: IconSlotId;
+  readonly iconId: string;
+  readonly iconName: string;
+  readonly iconSlug: string;
+  readonly iconStatus: BrandIconStatus;
+  readonly publishedVersion: number | null;
+  readonly currentVersion: number;
+  readonly updatedBy: string | null;
+  readonly updatedAt: string;
+}
+
+export interface BrandSlotListResponse {
+  readonly slots: readonly BrandSlotAssignment[];
+  readonly definitions?: readonly IconSlotMeta[];
+  /** Mọi nhóm vị trí (có sẵn và tùy chỉnh) kèm số vị trí đang dùng. */
+  readonly groups?: readonly BrandSlotGroup[];
+}
+
+/** Một nhóm vị trí. Nhóm có sẵn (`isBuiltIn`) cố định; nhóm tùy chỉnh do quản trị viên tạo, sửa tên, xoá. */
+export interface BrandSlotGroup {
+  readonly key: string;
+  readonly label: string;
+  readonly isBuiltIn: boolean;
+  /** Số vị trí (có sẵn và tùy chỉnh) đang thuộc nhóm này; nhóm đang có vị trí không xoá được. */
+  readonly slotCount: number;
+}
+
+export interface BrandSlotGroupListResponse {
+  readonly groups: readonly BrandSlotGroup[];
+}
+
+/** Tạo nhóm: `key` có thể bỏ trống, máy chủ sinh từ `label` (bỏ dấu, chữ thường, gạch ngang). */
+export interface CreateBrandSlotGroupRequest {
+  readonly label: string;
+  readonly key?: string;
+}
+
+export interface UpdateBrandSlotGroupRequest {
+  readonly label: string;
+}
+
+export interface DeleteBrandSlotGroupResponse {
+  readonly key: string;
+  readonly deleted: true;
+}
+
+/**
+ * Sửa vị trí (PUT slots/definitions/:id). Vị trí tùy chỉnh: mọi trường tùy chọn, không nhận null.
+ * Vị trí có sẵn: chỉ 5 trường này (mã không đổi được); giá trị null là khôi phục mặc định trong code của trường đó;
+ * giá trị bằng mặc định trong code cũng được coi là khôi phục.
+ */
+export interface UpdateBrandSlotRequest {
+  readonly label?: string | null;
+  readonly description?: string | null;
+  readonly group?: string | null;
+  readonly colorMode?: BrandSvgMode | null;
+  readonly recommendedSize?: number | null;
+}
+
+export interface AssignBrandSlotRequest {
+  readonly iconId: string;
+}
+
+export interface BrandSlotManifestItem {
+  readonly slot: IconSlotId;
+  readonly iconId: string;
+  readonly version: number;
+  readonly colorMode: BrandSvgMode;
+  readonly model: IconSvgModel;
+}
+
+export interface BrandSlotManifestResponse {
+  readonly hash: string;
+  readonly slots: Readonly<Record<string, BrandSlotManifestItem>>;
 }

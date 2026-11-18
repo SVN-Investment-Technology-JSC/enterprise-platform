@@ -2,6 +2,7 @@
 
 import type { MouseEventHandler, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { Hint } from './hint';
 
 /** Viền nhấn khi dùng bàn phím; dùng chung cho nút và ô nhập của các bảng bên phải. */
 export const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40';
@@ -26,25 +27,26 @@ export function IconButton({
   className?: string;
 }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'inline-flex size-7 shrink-0 items-center justify-center rounded text-slate-600 transition-colors',
-        'hover:bg-slate-100 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-35',
-        '[&_svg]:size-4 [&_svg]:shrink-0',
-        pressed && 'bg-blue-50 text-blue-700 hover:bg-blue-50 hover:text-blue-700',
-        danger && 'hover:bg-red-50 hover:text-red-600',
-        FOCUS_RING,
-        className,
-      )}
-    >
-      {children}
-    </button>
+    <Hint label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={pressed}
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          'inline-flex size-7 shrink-0 items-center justify-center rounded text-slate-600 transition-colors',
+          'hover:bg-slate-100 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-35',
+          '[&_svg]:size-4 [&_svg]:shrink-0',
+          pressed && 'bg-blue-50 text-blue-700 hover:bg-blue-50 hover:text-blue-700',
+          danger && 'hover:bg-red-50 hover:text-red-600',
+          FOCUS_RING,
+          className,
+        )}
+      >
+        {children}
+      </button>
+    </Hint>
   );
 }
 
@@ -86,25 +88,25 @@ export function ToggleGroup<T extends string | number>({
       {options.map((option) => {
         const selected = option.value === value;
         return (
-          <button
-            key={String(option.value)}
-            type="button"
-            title={option.label}
-            aria-label={option.label}
-            aria-pressed={selected}
-            disabled={disabled || option.disabled}
-            onClick={() => onChange(option.value)}
-            className={cn(
-              'inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-sm px-1.5 text-[11px] text-slate-600 transition-colors',
-              'hover:bg-slate-100 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-35',
-              '[&_svg]:size-3.5 [&_svg]:shrink-0',
-              selected && 'bg-blue-50 text-blue-700 hover:bg-blue-50 hover:text-blue-700',
-              FOCUS_RING,
-            )}
-          >
-            {option.icon}
-            {option.text ? <span>{option.text}</span> : null}
-          </button>
+          <Hint key={String(option.value)} label={option.label}>
+            <button
+              type="button"
+              aria-label={option.label}
+              aria-pressed={selected}
+              disabled={disabled || option.disabled}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                'inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-sm px-1.5 text-[11px] text-slate-600 transition-colors',
+                'hover:bg-slate-100 hover:text-slate-900 disabled:pointer-events-none disabled:opacity-35',
+                '[&_svg]:size-3.5 [&_svg]:shrink-0',
+                selected && 'bg-blue-50 text-blue-700 hover:bg-blue-50 hover:text-blue-700',
+                FOCUS_RING,
+              )}
+            >
+              {option.icon}
+              {option.text ? <span>{option.text}</span> : null}
+            </button>
+          </Hint>
         );
       })}
     </div>
@@ -143,9 +145,9 @@ export function Section({
 export function FieldRow({ label, title, children }: { label: string; title?: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="w-10 shrink-0 text-[11px] text-slate-500" title={title ?? label}>
-        {label}
-      </span>
+      <Hint label={title ?? label}>
+        <span className="w-10 shrink-0 text-[11px] text-slate-500">{label}</span>
+      </Hint>
       <div className="flex min-w-0 flex-1 items-center gap-1.5">{children}</div>
     </div>
   );
@@ -166,21 +168,22 @@ export function Chip({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={pressed}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'inline-flex h-6 items-center rounded border border-slate-200 bg-white px-2 text-[11px] tabular-nums text-slate-600 transition-colors',
-        'hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-35',
-        pressed && 'border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-50',
-        FOCUS_RING,
-      )}
-    >
-      {children}
-    </button>
+    <Hint label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={pressed}
+        disabled={disabled}
+        onClick={onClick}
+        className={cn(
+          'inline-flex h-6 items-center rounded border border-slate-200 bg-white px-2 text-[11px] tabular-nums text-slate-600 transition-colors',
+          'hover:border-slate-300 hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-35',
+          pressed && 'border-blue-300 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-50',
+          FOCUS_RING,
+        )}
+      >
+        {children}
+      </button>
+    </Hint>
   );
 }

@@ -12,8 +12,10 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   UpdateMaterialRequest,
+  InternalMaterialCatalogFingerprint,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
+  MaterialKind,
   InventoryTransaction,
   Material,
   MaterialInventory,
@@ -667,11 +669,12 @@ export class PostgresInventoryStore implements InventoryStore {
       // Tra theo id, mã thì trả cả mã đã ngừng dùng: bên gọi đang giữ tham chiếu tới chúng.
       if (query.ids?.length) where.push(`m.id = ANY(${push([...query.ids])}::uuid[])`);
       if (query.codes?.length) where.push(`m.code = ANY(${push([...query.codes])}::text[])`);
-      if (!query.ids?.length && !query.codes?.length) where.push('m.is_active = true');
+      if (!query.ids?.length && !query.codes?.length && !query.includeInactive) where.push('m.is_active = true');
       if (query.search) {
         const pattern = push(`%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
-        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern})`);
+        where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern} OR m.trade_category ILIKE ${pattern})`);
       }
+      if (query.tradeCategory) where.push(`lower(btrim(m.trade_category)) = lower(${push(query.tradeCategory)})`);
       if (query.cursor) where.push(`m.code > ${push(query.cursor)}`);
       const warehouseFilter = query.warehouseCode ? `AND w.code = ${push(query.warehouseCode)}` : '';
       const limit = query.limit ? `LIMIT ${push(query.limit + 1)}` : '';
@@ -703,6 +706,39 @@ export class PostgresInventoryStore implements InventoryStore {
         values,
       );
       return result.rows.map(mapCatalogItem);
+    },
+
+    catalogFingerprint: async (
+      tenantId: string,
+      kinds: readonly MaterialKind[],
+    ): Promise<InternalMaterialCatalogFingerprint> => {
+      const pool = await this.poolFor(tenantId);
+      // Giá rỗng ghi '<null>' để khác giá 0; danh mục rỗng ra md5('') cố định.
+      const result = await pool.query<{ count: string; fingerprint: string }>(
+        `SELECT count(*) AS count,
+                md5(COALESCE(string_agg(
+                  concat_ws('|', id::text, code, name, COALESCE(unit, ''),
+                            COALESCE(sale_price::text, '<null>'), is_active::text),
+                  E'\n' ORDER BY id), '')) AS fingerprint
+           FROM inventory_schema.materials
+          WHERE kind = ANY($1::text[])`,
+        [[...kinds]],
+      );
+      const row = result.rows[0];
+      return { count: Number(row?.count ?? 0), fingerprint: String(row?.fingerprint ?? '') };
+    },
+
+    tradeCategories: async (tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<{ name: string }>(
+        `SELECT min(btrim(trade_category)) AS name
+           FROM inventory_schema.materials
+          WHERE is_active = true AND kind = ANY($1::text[]) AND btrim(COALESCE(trade_category, '')) <> ''
+          GROUP BY lower(btrim(trade_category))
+          ORDER BY 1`,
+        [[...kinds]],
+      );
+      return result.rows.map((row) => row.name);
     },
   };
 

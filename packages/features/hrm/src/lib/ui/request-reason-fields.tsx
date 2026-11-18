@@ -1,28 +1,23 @@
 'use client';
 import { useEffect, useId, useMemo, useState } from 'react';
-import { AlertCircle, UserCheck, Workflow } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import {
   SearchableSelect,
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import type {
-  ApprovalRoutePreview,
   HrmRequestReason,
   HrmRequestReasonKind,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import {
-  approvalRoutePath,
-  approverLine,
   choiceFromCatalogReason,
   descriptionRequired,
   emptyReasonCatalogMessage,
-  isApprovalRoutePreview,
   reasonCatalogKindOf,
   type ReasonedRequestKind,
   type RequestReasonChoice,
 } from '../request-reason-form';
-import { Badge } from './badge';
 import { Button } from './button';
 
 export interface ReasonCatalogState {
@@ -96,73 +91,6 @@ export function useRequestReasonCatalog(
   return { ...state, reload: () => setVersion((value) => value + 1) };
 }
 
-/**
- * Người duyệt dự kiến của đơn (GET /approval-route). Chỉ gọi khi đã biết nhân viên và `enabled`;
- * lỗi tải hoặc phản hồi sai hình dạng thì trả null (khối ẩn, không chặn gửi đơn).
- */
-export function useApprovalRoutePreview(input: {
-  kind: string;
-  employeeId: string;
-  reasonId?: string;
-  enabled?: boolean;
-}): ApprovalRoutePreview | null {
-  const { kind, employeeId, reasonId, enabled = true } = input;
-  const [preview, setPreview] = useState<ApprovalRoutePreview | null>(null);
-
-  useEffect(() => {
-    setPreview(null);
-    if (!enabled || !employeeId) return;
-    let active = true;
-    hrmFetch<{ data: unknown }>(
-      approvalRoutePath({ kind, employeeId, reasonId }),
-    )
-      .then((res) => {
-        if (active && isApprovalRoutePreview(res?.data)) setPreview(res.data);
-      })
-      .catch(() => {
-        if (active) setPreview(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [kind, employeeId, reasonId, enabled]);
-
-  return preview;
-}
-
-/** Khối "Người duyệt: ..." cho người làm đơn biết trước đơn đi theo cách duyệt nào. */
-export function ApproverPreview({
-  preview,
-}: {
-  preview: ApprovalRoutePreview | null;
-}) {
-  if (!preview) return null;
-  const line = approverLine(preview);
-  const Icon = preview.mode === 'PROCEDURE' ? Workflow : UserCheck;
-  const note =
-    line.note ||
-    (preview.mode === 'DIRECT' && !preview.directManager
-      ? 'Chưa xác định được quản lý trực tiếp của nhân viên.'
-      : '');
-  return (
-    <div
-      role="status"
-      data-testid="approver-preview"
-      className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs"
-    >
-      <Icon className="mt-0.5 size-4 shrink-0 text-blue-600" aria-hidden />
-      <div className="space-y-0.5">
-        <p className="text-slate-700">
-          <span className="text-slate-500">Người duyệt: </span>
-          <strong className="font-semibold text-slate-900">{line.method}</strong>
-          {line.detail ? ` (${line.detail})` : ''}
-        </p>
-        {note ? <p className="text-[12px] text-amber-700">{note}</p> : null}
-      </div>
-    </div>
-  );
-}
-
 export interface RequestReasonSectionProps {
   kind: ReasonedRequestKind;
   choices: readonly RequestReasonChoice[];
@@ -181,21 +109,6 @@ export interface RequestReasonSectionProps {
   descriptionMandatory?: boolean;
   descriptionLabel?: string;
   descriptionPlaceholder?: string;
-}
-
-function PaidTag({ paid }: { paid: boolean }) {
-  return (
-    <Badge
-      variant="outline"
-      className={
-        paid
-          ? 'border-emerald-200 bg-emerald-50 text-[12px] font-semibold text-emerald-700'
-          : 'border-amber-200 bg-amber-50 text-[12px] font-semibold text-amber-800'
-      }
-    >
-      {paid ? 'Có lương' : 'Không lương'}
-    </Badge>
-  );
 }
 
 /**
@@ -224,7 +137,9 @@ export function RequestReasonSection({
   const reasonNeedsDescription = descriptionRequired(selected);
   const required = descriptionMandatory || reasonNeedsDescription;
   const empty = !loading && !error && choices.length === 0;
-  const showPaid = kind === 'leave' || kind === 'ot';
+  // Đơn nghỉ và đơn làm thêm giờ không hiện thẻ có lương / không lương, nhãn trừ quỹ hay diễn giải của lý do; làm thêm giờ
+  // chỉ còn hệ số tăng ca.
+  const showDescription = kind !== 'ot';
   const showRate = kind === 'ot' && selected?.rateMultiplier != null;
 
   const options = useMemo<SearchableSelectOption[]>(
@@ -236,13 +151,6 @@ export function RequestReasonSection({
       })),
     [choices],
   );
-
-  const preview = useApprovalRoutePreview({
-    kind,
-    employeeId,
-    reasonId,
-    enabled: Boolean(employeeId && selected),
-  });
 
   return (
     <div className="space-y-3" data-testid="request-reason-section">
@@ -258,19 +166,12 @@ export function RequestReasonSection({
             options={options}
             value={selected ? selected.id : ''}
             renderOption={(option) => {
-              const choice = choices.find((c) => c.id === option.value);
               return (
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <span className="font-medium">{option.label}</span>
-                    {showPaid && choice ? <PaidTag paid={choice.paid} /> : null}
-                    {kind === 'leave' && choice?.deductBalance ? (
-                      <span className="text-[12px] font-semibold text-blue-700">
-                        Trừ quỹ phép năm
-                      </span>
-                    ) : null}
                   </span>
-                  {option.description ? (
+                  {showDescription && option.description ? (
                     <span className="whitespace-normal text-[12px] font-normal leading-snug text-slate-500">
                       {option.description}
                     </span>
@@ -323,27 +224,16 @@ export function RequestReasonSection({
 
         {selected ? (
           <div className="space-y-1" data-testid="reason-guide">
-            {selected.description ? (
+            {showDescription && selected.description ? (
               <p className="text-[12px] leading-relaxed text-slate-500">
                 {selected.description}
               </p>
             ) : null}
-            {showPaid || selected.deductBalance || showRate ? (
+            {showRate ? (
               <div className="flex flex-wrap items-center gap-1.5">
-                {showPaid ? <PaidTag paid={selected.paid} /> : null}
-                {kind === 'leave' && selected.deductBalance ? (
-                  <span className="text-[12px] font-medium text-slate-600">
-                    Trừ quỹ phép năm
-                  </span>
-                ) : null}
                 {showRate ? (
                   <span data-testid="reason-rate" className="text-[12px] font-medium text-slate-600">
                     Hệ số tăng ca x{String(selected.rateMultiplier).replace('.', ',')}
-                  </span>
-                ) : null}
-                {kind === 'ot' && !selected.paid ? (
-                  <span className="text-[12px] text-slate-500">
-                    Làm thêm giờ không lương, không tính tiền OT.
                   </span>
                 ) : null}
               </div>
@@ -352,7 +242,6 @@ export function RequestReasonSection({
         ) : null}
       </div>
 
-      <ApproverPreview preview={preview} />
 
       <div className="space-y-1">
         <label

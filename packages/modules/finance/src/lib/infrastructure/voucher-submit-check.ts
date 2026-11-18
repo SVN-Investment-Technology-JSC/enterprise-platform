@@ -1,5 +1,6 @@
 import { invalidMany } from '../domain/finance.error.js';
 import { validateForSubmit, type NormalizedVoucher, type SubmitReferences } from '../domain/voucher.rules.js';
+import { loadSettings } from './catalogs.store.js';
 import { dateOnly, type Db } from './finance.database.js';
 import type { QueryResultRow } from 'pg';
 
@@ -20,7 +21,7 @@ async function accountRef(db: Db, tenantId: string, id: string | null) {
 
 export async function buildSubmitReferences(db: Db, tenantId: string, voucher: NormalizedVoucher): Promise<SubmitReferences> {
   const reason = voucher.reasonId
-    ? ((await db.query(`SELECT kind, is_active FROM finance_schema.reasons WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.reasonId])).rows[0] as Row | undefined)
+    ? ((await db.query(`SELECT kind, is_active, require_project FROM finance_schema.reasons WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.reasonId])).rows[0] as Row | undefined)
     : undefined;
   const group = voucher.counterpartyGroupId
     ? ((await db.query(`SELECT is_active FROM finance_schema.counterparty_groups WHERE tenant_id=$1 AND id=$2`, [tenantId, voucher.counterpartyGroupId])).rows[0] as Row | undefined)
@@ -28,8 +29,9 @@ export async function buildSubmitReferences(db: Db, tenantId: string, voucher: N
   return {
     account: await accountRef(db, tenantId, voucher.accountId),
     dest: await accountRef(db, tenantId, voucher.destAccountId),
-    reason: reason ? { kind: String(reason.kind), isActive: Boolean(reason.is_active) } : null,
+    reason: reason ? { kind: String(reason.kind), isActive: Boolean(reason.is_active), requireProject: Boolean(reason.require_project) } : null,
     counterpartyGroup: group ? { isActive: Boolean(group.is_active) } : null,
+    requireAllocation: (await loadSettings(db, tenantId)).requireAllocation,
   };
 }
 

@@ -8,6 +8,8 @@ import {
   isChatReaction,
   isAllowedPushEndpoint,
   isCoreChatChange,
+  isFcmPlatform,
+  isValidFcmToken,
   userAvatarUrl,
 } from './contracts-chat.js';
 
@@ -54,5 +56,17 @@ describe('contracts-chat', () => {
     expect(isAllowedPushEndpoint('https://user:pass@fcm.googleapis.com/x')).toBe(false);
     expect(isAllowedPushEndpoint('https://fcm.googleapis.com:8443/x')).toBe(false);
     expect(isAllowedPushEndpoint(42)).toBe(false);
+  });
+
+  it('chỉ nhận nền tảng ios/android và FCM token hợp lệ', () => {
+    expect(isFcmPlatform('ios')).toBe(true);
+    expect(isFcmPlatform('android')).toBe(true);
+    expect(isFcmPlatform('web')).toBe(false);
+    expect(isFcmPlatform(null)).toBe(false);
+
+    expect(isValidFcmToken('fK7d91bHun2x0_abc-DEF:APA91bHun2x0')).toBe(true);
+    expect(isValidFcmToken('ngan')).toBe(false);
+    expect(isValidFcmToken('co khoang trang o giua token 1234567890')).toBe(false);
+    expect(isValidFcmToken(12345)).toBe(false);
   });
 });

@@ -70,10 +70,10 @@ describe('normalizeShape', () => {
   });
 
   it('kẹp số về giới hạn và thay số lỗi bằng mặc định', () => {
-    const clamped = normalizeShape(rectShape({ strokeWidth: 99, opacity: 5, fillOpacity: -2 })) as IconShape;
-    expect(clamped).toMatchObject({ strokeWidth: 6, opacity: 1, fillOpacity: 0 });
+    const clamped = normalizeShape(rectShape({ strokeWidth: 999, opacity: 5, fillOpacity: -2 })) as IconShape;
+    expect(clamped).toMatchObject({ strokeWidth: 100, opacity: 1, fillOpacity: 0 });
     const small = normalizeShape(rectShape({ strokeWidth: 0 })) as IconShape;
-    expect(small.strokeWidth).toBe(0.25);
+    expect(small.strokeWidth).toBe(0.01);
     const broken = normalizeShape(rectShape({ strokeWidth: Number.NaN, opacity: 'đậm', fillOpacity: Infinity })) as IconShape;
     expect(broken).toMatchObject({ strokeWidth: 1.75, opacity: 1, fillOpacity: 1 });
   });
@@ -157,13 +157,13 @@ describe('chặn chèn thuộc tính qua màu', () => {
 describe('giới hạn hình học', () => {
   const doc = (shape: unknown) => normalizeDocument(rawDoc({ shapes: [shape] }));
 
-  it('toạ độ ngoài ±1000, NaN hoặc Infinity làm cả icon bị từ chối', () => {
-    expect(doc(rectShape({ geometry: { type: 'rect', x: 1001, y: 0, width: 4, height: 4, rx: 0 } }))).toBeNull();
-    expect(doc(rectShape({ geometry: { type: 'rect', x: 0, y: -1001, width: 4, height: 4, rx: 0 } }))).toBeNull();
+  it('toạ độ ngoài ±100000, NaN hoặc Infinity làm cả icon bị từ chối', () => {
+    expect(doc(rectShape({ geometry: { type: 'rect', x: 100001, y: 0, width: 4, height: 4, rx: 0 } }))).toBeNull();
+    expect(doc(rectShape({ geometry: { type: 'rect', x: 0, y: -100001, width: 4, height: 4, rx: 0 } }))).toBeNull();
     expect(doc(rectShape({ geometry: { type: 'rect', x: Number.NaN, y: 0, width: 4, height: 4, rx: 0 } }))).toBeNull();
     expect(doc(rectShape({ geometry: { type: 'rect', x: 0, y: 0, width: Infinity, height: 4, rx: 0 } }))).toBeNull();
     expect(doc(rectShape({ geometry: { type: 'rect', x: '3', y: 0, width: 4, height: 4, rx: 0 } }))).toBeNull();
-    expect(doc(rectShape({ geometry: { type: 'rect', x: 1000, y: -1000, width: 4, height: 4, rx: 0 } }))).not.toBeNull();
+    expect(doc(rectShape({ geometry: { type: 'rect', x: 100000, y: -100000, width: 4, height: 4, rx: 0 } }))).not.toBeNull();
   });
 
   it('chiều rộng/cao âm hoặc bán kính elip âm bị từ chối; bằng 0 thì chấp nhận', () => {
@@ -181,19 +181,20 @@ describe('giới hạn hình học', () => {
     expect(broken.geometry).toMatchObject({ rx: 0 });
   });
 
-  it('số đường con tối đa 64', () => {
+  it('số đường con tối đa theo LIMITS.maxSubpaths', () => {
     const subpath = { closed: false, nodes: [{ x: 0, y: 0 }, { x: 1, y: 1 }] };
-    expect(LIMITS.maxSubpaths).toBe(64);
-    expect(doc(pathShape(Array.from({ length: 64 }, () => subpath)))).not.toBeNull();
-    expect(doc(pathShape(Array.from({ length: 65 }, () => subpath)))).toBeNull();
+    expect(LIMITS.maxSubpaths).toBe(512);
+    expect(doc(pathShape(Array.from({ length: LIMITS.maxSubpaths }, () => subpath)))).not.toBeNull();
+    expect(doc(pathShape(Array.from({ length: LIMITS.maxSubpaths + 1 }, () => subpath)))).toBeNull();
   });
 
-  it('tổng số điểm neo của một lớp tối đa 2000', () => {
-    expect(LIMITS.maxNodes).toBe(2000);
-    expect(doc(pathShape([{ closed: false, nodes: nodes(2000) }]))).not.toBeNull();
-    expect(doc(pathShape([{ closed: false, nodes: nodes(2001) }]))).toBeNull();
+  it('tổng số điểm neo của một lớp tối đa theo LIMITS.maxNodes', () => {
+    expect(LIMITS.maxNodes).toBe(40000);
+    expect(doc(pathShape([{ closed: false, nodes: nodes(LIMITS.maxNodes) }]))).not.toBeNull();
+    expect(doc(pathShape([{ closed: false, nodes: nodes(LIMITS.maxNodes + 1) }]))).toBeNull();
     // đếm gộp qua các đường con
-    expect(doc(pathShape([{ closed: false, nodes: nodes(1000) }, { closed: false, nodes: nodes(1001) }]))).toBeNull();
+    const half = LIMITS.maxNodes / 2;
+    expect(doc(pathShape([{ closed: false, nodes: nodes(half) }, { closed: false, nodes: nodes(half + 1) }]))).toBeNull();
   });
 
   it('đường con hoặc điểm neo sai kiểu bị từ chối', () => {
@@ -209,7 +210,7 @@ describe('giới hạn hình học', () => {
     expect(doc(good)).not.toBeNull();
     expect(doc(pathShape([{ closed: false, nodes: [{ x: 0, y: 0, hout: 5 }] }]))).toBeNull();
     expect(doc(pathShape([{ closed: false, nodes: [{ x: 0, y: 0, hin: { x: 1 } }] }]))).toBeNull();
-    expect(doc(pathShape([{ closed: false, nodes: [{ x: 0, y: 0, hout: { x: 5000, y: 0 } }] }]))).toBeNull();
+    expect(doc(pathShape([{ closed: false, nodes: [{ x: 0, y: 0, hout: { x: 500000, y: 0 } }] }]))).toBeNull();
   });
 
   it('chỉ true mới là đường đóng', () => {
@@ -239,11 +240,11 @@ describe('normalizeDocument', () => {
     for (const id of ['a', 'Icon_1-b', 'x'.repeat(64), '9abc']) expect(normalizeDocument(rawDoc({ id }))).not.toBeNull();
   });
 
-  it('tối đa 200 lớp mỗi icon', () => {
+  it('tối đa LIMITS.maxShapes lớp mỗi icon', () => {
     const shapes = (count: number) => Array.from({ length: count }, (_, index) => rectShape({ id: `s${index}` }));
-    expect(LIMITS.maxShapes).toBe(200);
-    expect(normalizeDocument(rawDoc({ shapes: shapes(200) }))).not.toBeNull();
-    expect(normalizeDocument(rawDoc({ shapes: shapes(201) }))).toBeNull();
+    expect(LIMITS.maxShapes).toBe(500);
+    expect(normalizeDocument(rawDoc({ shapes: shapes(LIMITS.maxShapes) }))).not.toBeNull();
+    expect(normalizeDocument(rawDoc({ shapes: shapes(LIMITS.maxShapes + 1) }))).toBeNull();
   });
 
   it('một lớp hỏng làm cả icon bị từ chối thay vì lặng lẽ bỏ mất lớp', () => {

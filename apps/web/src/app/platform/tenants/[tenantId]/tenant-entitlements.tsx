@@ -15,6 +15,7 @@ import {
   Database,
   FolderArchive,
   Handshake,
+  Stamp,
   KanbanSquare,
   Landmark,
   LoaderCircle,
@@ -79,6 +80,7 @@ const STATUS: Readonly<
 
 const MODULE_ICONS: Record<string, LucideIcon> = {
   assistant: Sparkles,
+  correspondence: Stamp,
   crm: Handshake,
   finance: Landmark,
   maintenance: Wrench,

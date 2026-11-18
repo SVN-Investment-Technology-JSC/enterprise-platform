@@ -45,6 +45,7 @@ import type {
   HrmRequestType,
 } from '@enterprise-platform/contracts-hrm';
 import { formatRequestDuration, formatRequestPeriod } from '../request-time-format';
+import { isLeaveGroupFollower, leaveGroupSummary, overtimeGroupSummary } from '../leave-group-view';
 import {
   Sheet,
   SheetContent,
@@ -95,6 +96,7 @@ import {
 } from '../ui/create-request-form';
 import { isHiddenRequestKind, splitEmployeeLabel } from '../hrm-approval-kinds';
 import { leaveBalancesOf, type LeaveTypeItem, type ShiftItem } from '../request-form-model';
+import { TripDayLinesPanel } from '../ui/trip-day-lines-panel';
 
 /** Đơn của loại tuỳ chỉnh (GET /custom-requests) thành dòng của danh sách đơn. */
 function customRequestItem(
@@ -217,6 +219,9 @@ function UnpaidOtBadge() {
 
 const HRM_ACTION_KEYS = assistantActionKeys(HRM_ASSISTANT_ACTIONS);
 
+/** Loại đơn có form điền sẵn để sửa khi chưa duyệt. */
+const EDITABLE_REQUEST_KINDS: readonly RequestKind[] = ['leave', 'ot', 'business_trip', 'advance'];
+
 export default function RequestsPage() {
   const { can } = useHrmPermissions();
   const canCreateRequest = can('hrm.self.request');
@@ -234,6 +239,8 @@ export default function RequestsPage() {
     title: string;
     customType: HrmRequestType | null;
     initial?: RequestFormInitial;
+    /** Đang sửa đơn chưa duyệt: đơn này bị thay bằng nội dung form. */
+    replaces?: { id: string; expectedUpdatedAt?: string };
   } | null>(null);
   // Danh mục loại đơn cấu hình (GET /request-types).
   const [requestTypes, setRequestTypes] = useState<HrmRequestType[]>([]);
@@ -537,6 +544,9 @@ export default function RequestsPage() {
       if (leaveRes.ok) {
         const payload = await leaveRes.json();
         for (const item of payload.data || []) {
+          // Đơn nhiều khoản: chỉ hiện khoản chính; các khoản bổ sung được duyệt, từ chối, hủy cùng khoản chính.
+          if (isLeaveGroupFollower(item)) continue;
+          const group = leaveGroupSummary(item);
           const isApproved = item.status === 'APPROVED';
           const isApplied = Boolean(item.appliedAt);
           const wfStatus = isApproved
@@ -575,10 +585,12 @@ export default function RequestsPage() {
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: item.fromAt
-              ? formatRequestPeriod(item)
-              : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
-            duration: `${item.duration || 1} ngày`,
+            effectiveDate: group
+              ? group.periods.join('\n')
+              : item.fromAt
+                ? formatRequestPeriod(item)
+                : `${item.fromDate ? formatDate(item.fromDate) : '----'} - ${item.toDate ? formatDate(item.toDate) : '----'}`,
+            duration: group ? `${group.totalDays} ngày (${group.count} khoản)` : `${item.duration || 1} ngày`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
@@ -597,6 +609,9 @@ export default function RequestsPage() {
       if (otRes.ok) {
         const payload = await otRes.json();
         for (const item of payload.data || []) {
+          // Đơn nhiều khoảng: chỉ hiện khoảng chính; các khoảng bổ sung được duyệt, từ chối cùng khoảng chính.
+          if (isLeaveGroupFollower(item)) continue;
+          const group = overtimeGroupSummary(item);
           const isApproved = item.status === 'APPROVED';
           const wfStatus = isApproved
             ? 'APPROVED'
@@ -610,8 +625,9 @@ export default function RequestsPage() {
               : item.status === 'REJECTED'
                 ? 'REJECTED'
                 : 'PENDING';
-          const plannedHrs = item.plannedMinutes
-            ? (item.plannedMinutes / 60).toFixed(1)
+          const plannedMinutes = group ? group.totalMinutes : item.plannedMinutes;
+          const plannedHrs = plannedMinutes
+            ? (plannedMinutes / 60).toFixed(1)
             : '----';
           const stText = isApproved
             ? 'Đã duyệt OT'
@@ -633,10 +649,12 @@ export default function RequestsPage() {
               : '----',
             rawCreatedAt: item.createdAt,
             createdTimeMs,
-            effectiveDate: item.fromAt
-              ? formatRequestPeriod(item)
-              : `${item.workDate ? formatDate(item.workDate) : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
-            duration: plannedHrs === '----' ? '----' : `${plannedHrs} giờ`,
+            effectiveDate: group
+              ? group.periods.join('\n')
+              : item.fromAt
+                ? formatRequestPeriod(item)
+                : `${item.workDate ? formatDate(item.workDate) : '----'} (${item.startTime || '----'} - ${item.endTime || '----'})`,
+            duration: plannedHrs === '----' ? '----' : `${plannedHrs} giờ${group ? ` (${group.count} khoảng)` : ''}`,
             ...requestReasonView(item),
             approver: approverFallbackLabel(
               item.approvedBy,
@@ -1142,6 +1160,7 @@ export default function RequestsPage() {
     typeTitle: string,
     customType: HrmRequestType | null = null,
     initial?: RequestFormInitial,
+    replaces?: { id: string; expectedUpdatedAt?: string },
   ) => {
     setCreateForm((current) => ({
       seq: (current?.seq ?? 0) + 1,
@@ -1149,6 +1168,7 @@ export default function RequestsPage() {
       title: typeTitle,
       customType,
       initial,
+      replaces,
     }));
     setIsCreateModalOpen(true);
   };
@@ -1157,7 +1177,7 @@ export default function RequestsPage() {
    * Đơn điều chỉnh cho một đơn đã bị huỷ hiệu lực (link trong thông báo "Cần
    * gửi đơn điều chỉnh"): mở form cùng loại, điền sẵn nội dung đơn cũ.
    */
-  const openAdjustment = (original: RequestItem) => {
+  const openAdjustment = (original: RequestItem, edit = false) => {
     const catalog = requestCatalog.find((entry) => entry.id === original.kind);
     const d = original.rawDetails;
     const str = (key: string, fallback = '') =>
@@ -1180,7 +1200,22 @@ export default function RequestsPage() {
     // Lý do chọn từ danh mục: đơn nghỉ là loại nghỉ, các loại khác là `reasonId`.
     const reasonRef = original.kind === 'leave' ? str('leaveTypeId') : str('reasonId');
     if (reasonRef) initial.reasonId = reasonRef;
-    initial.description = `Điều chỉnh đơn ${original.code}`;
+    initial.description = edit ? str('description', str('reason')) : `Điều chỉnh đơn ${original.code}`;
+    if (edit) {
+      // Giờ địa phương của mốc từ/đến (đơn theo từ ngày giờ đến ngày giờ).
+      const clock = (key: string) => {
+        const value = d[key];
+        const date = typeof value === 'string' && value ? new Date(value) : null;
+        if (!date || Number.isNaN(date.getTime())) return '';
+        return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+      };
+      if (original.kind === 'leave' || original.kind === 'business_trip') {
+        initial.startTime = clock('fromAt') || undefined;
+        initial.endTime = clock('toAt') || undefined;
+      }
+      const attachment = str('attachmentFileId');
+      if (attachment) initial.attachmentFileId = attachment;
+    }
     if (original.kind === 'leave') initial.leaveDuration = str('duration', '1');
     if (original.kind === 'ot') {
       initial.startTime = str('startTime', '18:00').slice(0, 5);
@@ -1196,7 +1231,26 @@ export default function RequestsPage() {
       initial.requestedAmount = str('requestedAmount', '0');
       initial.numberOfInstallments = str('numberOfInstallments', '1');
     }
-    handleOpenCreateForType(original.kind, catalog?.title ?? original.typeName, null, initial);
+    handleOpenCreateForType(
+      original.kind,
+      catalog?.title ?? original.typeName,
+      null,
+      initial,
+      edit ? { id: original.id, expectedUpdatedAt: str('updatedAt') || undefined } : undefined,
+    );
+  };
+
+  /** Đơn của chính mình, đang chờ duyệt trực tiếp (chưa nối quy trình, chưa có bước nào duyệt) thì sửa tại chỗ được. */
+  const canEditRequest = (item: RequestItem | null | undefined) => {
+    if (!item || !EDITABLE_REQUEST_KINDS.includes(item.kind)) return false;
+    const d = item.rawDetails;
+    if (d.employeeId !== profile.id) return false;
+    if (!['PENDING_APPROVAL', 'SUBMITTED'].includes(item.workflowStatus)) return false;
+    if (procedureFieldsOf(d).instanceId || d.procedureLinkId || d.createdOnBehalf) return false;
+    if (d.groupId) return false;
+    // Chuyến công tác có phương tiện cần đặt lại xe: chưa điền sẵn được nên phải rút đơn rồi gửi lại.
+    if (item.kind === 'business_trip' && (d.transportMode || d.transportDetail)) return false;
+    return true;
   };
 
   // `?adjust=<loại>:<id>` từ thông báo: chờ danh sách đơn của mình nạp xong
@@ -1726,7 +1780,9 @@ export default function RequestsPage() {
           fields={
             detailRow ? (
               <>
-                <DetailField label="Thời gian">{detailRow.effectiveDate}</DetailField>
+                <DetailField label="Thời gian">
+                  <span className="block whitespace-pre-line tabular-nums">{detailRow.effectiveDate}</span>
+                </DetailField>
                 <DetailField label="Thời lượng">{detailRow.duration}</DetailField>
                 <DetailField label="Lý do" testId="card-reason">
                   {detailRow.reason}
@@ -1812,6 +1868,17 @@ export default function RequestsPage() {
                     </Button>
                   </>
                 )}
+                {canEditRequest(detailRow) && (
+                  <Button
+                    permission="hrm.self.request"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 flex-1 text-xs"
+                    onClick={() => openAdjustment(detailRow, true)}
+                  >
+                    Sửa đơn
+                  </Button>
+                )}
                 {canCancelSelected && (
                   <Popconfirm
                     title="Huỷ đơn từ yêu cầu này?"
@@ -1885,6 +1952,7 @@ export default function RequestsPage() {
               onCancel={createGuard.requestClose}
               onDirtyChange={() => setCreateDirtySeq(createForm.seq)}
               onSubmitted={handleRequestSubmitted}
+              replaces={createForm.replaces}
               onAbandoned={handleRequestAbandoned}
             />
           )}
@@ -1965,7 +2033,7 @@ export default function RequestsPage() {
               <div className="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-2">
                 <div className="flex justify-between py-1 border-b border-slate-200/60">
                   <span className="text-slate-500">Thời gian hiệu lực:</span>
-                  <span className="font-semibold text-slate-800">
+                  <span className="whitespace-pre-line text-right font-semibold tabular-nums text-slate-800">
                     {selectedRequest?.effectiveDate}
                   </span>
                 </div>
@@ -2262,6 +2330,10 @@ export default function RequestsPage() {
                     projects={workspaceProjects}
                   />
                 )}
+                {selectedRequest?.kind === 'business_trip' &&
+                  ['SUBMITTED', 'PENDING', 'APPROVED', 'APPLIED'].includes(selectedRequest.requestStatus) && (
+                    <TripDayLinesPanel tripId={String(selectedRequest.id)} />
+                  )}
                 {selectedRequest?.kind === 'shift_change' && (
                   <div className="flex justify-between">
                     <span>Tình trạng xác nhận chéo:</span>
@@ -2420,6 +2492,21 @@ export default function RequestsPage() {
                     </Button>
                   </div>
                 )}
+
+              {canEditRequest(selectedRequest) && selectedRequest && (
+                <Button
+                  permission="hrm.self.request"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-8"
+                  onClick={() => {
+                    setIsDetailDrawerOpen(false);
+                    openAdjustment(selectedRequest, true);
+                  }}
+                >
+                  Sửa đơn
+                </Button>
+              )}
 
               {/* Nút hủy đơn nếu còn ở trạng thái Pending */}
               {(selectedRequest?.workflowStatus === 'PENDING_APPROVAL' ||

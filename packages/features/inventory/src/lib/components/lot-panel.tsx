@@ -9,11 +9,15 @@ import {
 } from '@enterprise-platform/contracts-inventory';
 import { Table, type TableColumnsType } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
-import { Layers, ShieldCheck, X } from 'lucide-react';
+import { Layers, ShieldCheck } from 'lucide-react';
 import { SearchableSelect, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
 import { changeLotQuality, loadLots } from '../inventory-api';
 import { QUALITY_STATUS_BADGE, QUALITY_STATUS_LABEL, formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { cn } from '../ui/cn';
+import { Button } from '../ui/button';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 const QUALITY_OPTIONS = QUALITY_STATUSES.map((status) => ({
   value: status,
@@ -101,7 +105,7 @@ export function LotPanel({
       title: 'Số lô',
       dataIndex: 'lotNo',
       key: 'lotNo',
-      render: (value: string) => <strong style={{ fontFamily: 'ui-monospace, monospace' }}>{value}</strong>,
+      render: (value: string) => <strong className="font-mono">{value}</strong>,
     },
     {
       title: 'Hạn dùng',
@@ -110,7 +114,7 @@ export function LotPanel({
       sorter: (left, right) => (left.expiresOn ?? '9999-12-31').localeCompare(right.expiresOn ?? '9999-12-31'),
       render: (value: string | undefined) =>
         value ? (
-          <span style={{ color: value < today ? '#b91c1c' : undefined, fontWeight: value < today ? 600 : undefined }}>
+          <span className={cn(value < today && 'font-semibold text-red-700')}>
             {formatDate(value)}
             {value < today ? ' (hết hạn)' : ''}
           </span>
@@ -132,15 +136,8 @@ export function LotPanel({
         const badge = QUALITY_STATUS_BADGE[value];
         return (
           <span
-            style={{
-              padding: '2px 8px',
-              borderRadius: '4px',
-              fontSize: '12px',
-              fontWeight: 600,
-              background: badge.bg,
-              color: badge.text,
-              border: `1px solid ${badge.border}`,
-            }}
+            className="rounded px-2 py-0.5 text-xs font-semibold"
+            style={{ background: badge.bg, color: badge.text, border: `1px solid ${badge.border}` }}
           >
             {QUALITY_STATUS_LABEL[value]}
           </span>
@@ -152,9 +149,9 @@ export function LotPanel({
       key: 'balances',
       render: (_: unknown, lot: Lot) =>
         lot.balances.filter((balance) => balance.quantity > 0).length === 0 ? (
-          <span style={{ color: '#64748b' }}>Đã xuất hết</span>
+          <span className="text-slate-500">Đã xuất hết</span>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <div className="flex flex-col gap-0.5">
             {lot.balances
               .filter((balance) => balance.quantity > 0)
               .map((balance) => (
@@ -177,41 +174,34 @@ export function LotPanel({
       width: 150,
       render: (_: unknown, lot: Lot) =>
         canWriteQuality ? (
-          <button
+          <Button
             type="button"
-            className={styles.btnSecondary}
+            variant="outline"
             disabled={busy}
             onClick={() => openQualityDialog(lot)}
           >
             Đổi chất lượng
-          </button>
+          </Button>
         ) : null,
     },
   ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <div
-        style={{
-          padding: '12px 16px',
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Layers size={16} color="#2563eb" />
-          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>
+    <div className="flex flex-col gap-4">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Layers size={16} className="text-primary" />
+          <h4 className="m-0 text-sm font-bold text-slate-900">
             Lô hàng và hạn dùng
           </h4>
         </div>
-        <p style={{ margin: '3px 0 0', fontSize: '13px', color: '#64748b' }}>
+        <p className="m-0 mt-[3px] text-[13px] text-slate-500">
           Lô được tạo khi lập phiếu nhập có khai báo lô; phiếu xuất gợi ý lô theo hạn dùng gần nhất (FEFO). Lô
           không ở trạng thái Đạt không tính vào tồn khả dụng.
         </p>
       </div>
 
-      {error ? <p className={styles.empty}>{error}</p> : null}
+      {error ? <p className="m-0 py-8 text-center text-slate-500">{error}</p> : null}
 
       <Table<Lot>
         rowKey="id"
@@ -224,30 +214,23 @@ export function LotPanel({
       />
 
       {editing ? (
-        <div className={styles.modalOverlay}>
-          <div
-            className={styles.modalDialog}
-            style={{ maxWidth: '480px', background: '#ffffff', borderRadius: '8px', padding: '24px' }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+        <Dialog onEscape={!saving && !qualityDirty ? () => setEditing(undefined) : undefined}>
+          <DialogContent className="max-w-[480px]" aria-label={`Đổi trạng thái chất lượng lô ${editing.lotNo}`}>
+            <DialogHeader>
               <div>
-                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#0f172a' }}>
-                  Đổi trạng thái chất lượng lô {editing.lotNo}
-                </h3>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+                <DialogTitle>Đổi trạng thái chất lượng lô {editing.lotNo}</DialogTitle>
+                <DialogDescription>
                   {materialName ?? materialCode} ({materialCode}) · đang {QUALITY_STATUS_LABEL[editing.qualityStatus]}
-                </p>
+                </DialogDescription>
               </div>
               <CloseGuard dirty={qualityDirty} busy={saving} onClose={() => setEditing(undefined)}>
-                <button type="button" className={styles.closeButton}>
-                  <X size={18} />
-                </button>
+                <DialogCloseButton />
               </CloseGuard>
-            </div>
-            <form onSubmit={saveQuality} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>Trạng thái mới</label>
+            </DialogHeader>
+            <form onSubmit={saveQuality} className="flex min-h-0 flex-col">
+              <DialogBody className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-1">
+                <Label>Trạng thái mới</Label>
                 <SearchableSelect
                   options={QUALITY_OPTIONS.filter((option) => option.value !== editing.qualityStatus)}
                   value={nextStatus}
@@ -257,43 +240,37 @@ export function LotPanel({
                   emptyText="Không có trạng thái phù hợp"
                 />
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                  Lý do <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <textarea
+              <div className="flex flex-col gap-1">
+                <Label required>Lý do</Label>
+                <Textarea
                   required
                   rows={3}
                   value={reason}
                   placeholder="VD: Bao bì rách, chờ kiểm định lại"
-                  style={{ padding: '8px 10px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '14px' }}
                   onChange={(event) => setReason(event.target.value)}
                 />
               </div>
               {nextStatus !== 'PASSED' ? (
-                <p style={{ margin: 0, fontSize: '13px', color: '#b45309' }}>
+                <p className="m-0 text-[13px] text-amber-700">
                   Toàn bộ tồn của lô ở mọi kho sẽ không tính vào tồn khả dụng cho đến khi lô về trạng thái Đạt.
                 </p>
               ) : null}
-              {saveError ? <p style={{ margin: 0, fontSize: '13px', color: '#b91c1c' }}>{saveError}</p> : null}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              {saveError ? <p className="m-0 text-[13px] text-red-700">{saveError}</p> : null}
+              </DialogBody>
+              <DialogFooter>
                 <CloseGuard dirty={qualityDirty} busy={saving} onClose={() => setEditing(undefined)}>
-                  <button type="button" className={styles.modalCancelBtn}>
+                  <Button type="button" variant="outline">
                     Huỷ
-                  </button>
+                  </Button>
                 </CloseGuard>
-                <button
-                  type="submit"
-                  className={`${styles.drawerActionBtn} ${styles.drawerActionBtnPrimary}`}
-                  disabled={saving || !reason.trim()}
-                >
+                <Button type="submit" disabled={saving || !reason.trim()}>
                   <ShieldCheck size={14} />
                   <span>{saving ? 'Đang lưu…' : 'Lưu trạng thái'}</span>
-                </button>
-              </div>
+                </Button>
+              </DialogFooter>
             </form>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

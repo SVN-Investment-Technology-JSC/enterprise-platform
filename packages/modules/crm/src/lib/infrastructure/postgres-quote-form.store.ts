@@ -1,23 +1,29 @@
-import type {
-  CustomFieldDefinition,
-  CustomFieldEntityType,
-  CustomFieldType,
-  QuoteAdjustmentMode,
-  QuoteTemplate,
-  QuoteType,
+import {
+  QUOTE_LAYOUT_CONFLICT_CODE,
+  normalizeQuoteLinePickerColumns,
+  type CustomFieldDefinition,
+  type CustomFieldEntityType,
+  type CustomFieldType,
+  type QuoteAdjustmentMode,
+  type QuoteLinePickerColumn,
+  type QuoteTemplate,
+  type QuoteType,
 } from '@enterprise-platform/contracts-crm';
 import type {
   CustomFieldRecord,
   QuoteFormStore,
+  QuoteTemplateLayoutWrite,
   QuoteTemplateRecord,
   QuoteTypeRecord,
+  StoredQuoteTemplateLayout,
 } from '../application/quote-form-store.port.js';
 import { CrmConflictError } from '../domain/crm.error.js';
 import { parseQuoteCodePattern, QUOTE_CODE_SETTING_KEY } from '../domain/quote-code.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
-import { generateQuoteCode } from './postgres-quote.store.js';
-import { constraintViolation } from './sql-helpers.js';
+import { generateQuoteCode, peekQuoteCode } from './postgres-quote.store.js';
+import { constraintViolation, toIso } from './sql-helpers.js';
+import { parseStoredQuoteLayout } from './stored-quote-layout.js';
 
 /** Khoá thực thể ghi `audit_log` cho cài đặt báo giá theo mẫu. */
 export const QUOTE_TEMPLATE_AUDIT_ENTITY = 'quote_template';
@@ -26,6 +32,10 @@ export const QUOTE_CODE_SETTING_AUDIT_ENTITY = 'quote_code_setting';
 export const CUSTOM_FIELD_AUDIT_ENTITY = 'custom_field';
 /** `audit_log.entity_id` là UUID: cài đặt mã chỉ có một bản ghi nên dùng id cố định. */
 const QUOTE_CODE_SETTING_ID = '00000000-0000-0000-0000-000000000001';
+/** Khoá trong `crm_schema.settings`: cột hộp thoại "Thêm dòng báo giá". */
+export const QUOTE_LINE_PICKER_SETTING_KEY = 'quote.linePickerColumns';
+export const QUOTE_LINE_PICKER_SETTING_AUDIT_ENTITY = 'quote_line_picker_setting';
+const QUOTE_LINE_PICKER_SETTING_ID = '00000000-0000-0000-0000-000000000002';
 
 interface TemplateRow {
   id: string;
@@ -36,6 +46,13 @@ interface TemplateRow {
   active: boolean;
   is_default: boolean;
   sort_order: number;
+  has_layout: boolean;
+}
+
+interface LayoutRow {
+  layout: unknown;
+  layout_updated_at: Date | null;
+  layout_updated_by: string | null;
 }
 
 interface TypeRow {
@@ -61,7 +78,8 @@ interface CustomFieldRow {
 const CUSTOM_FIELD_COLUMNS = 'id, entity_type, name, field_type, options, required, sort_order, active';
 const CUSTOM_FIELD_NAME_EXISTS = () => new CrmConflictError('CUSTOM_FIELD_NAME_EXISTS', 'Tên trường tuỳ biến đã tồn tại.');
 
-const TEMPLATE_COLUMNS = 'id, name, discount_mode, tax_mode, description, active, is_default, sort_order';
+const TEMPLATE_COLUMNS =
+  'id, name, discount_mode, tax_mode, description, active, is_default, sort_order, (layout IS NOT NULL) AS has_layout';
 const TYPE_COLUMNS = 'id, name, description, active, is_default, sort_order';
 
 const TEMPLATE_NAME_EXISTS = () => new CrmConflictError('QUOTE_TEMPLATE_NAME_EXISTS', 'Tên mẫu báo giá đã tồn tại.');
@@ -129,6 +147,57 @@ export class PostgresQuoteFormStore implements QuoteFormStore {
         return toTemplate(row);
       })
       .catch(rethrowName(TEMPLATE_NAME_EXISTS, 'uq_crm_quote_templates_name'));
+  }
+
+  // Bố cục in của mẫu (phase 3) ---------------------------------------------------
+
+  async getTemplateLayout(tenantId: string, id: string): Promise<StoredQuoteTemplateLayout | undefined> {
+    const pool = await this.database.pool(tenantId);
+    const result = await pool.query<LayoutRow>(
+      `SELECT layout, layout_updated_at, layout_updated_by FROM crm_schema.quote_templates WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] ? toLayout(result.rows[0], id) : undefined;
+  }
+
+  saveTemplateLayout(
+    tenantId: string,
+    id: string,
+    write: QuoteTemplateLayoutWrite,
+    actorId: string,
+  ): Promise<StoredQuoteTemplateLayout | undefined> {
+    return this.database.transaction(tenantId, async (client) => {
+      // `updatedAt` trả cho web ở độ chính xác mili giây nên so cũng ở mili giây.
+      const current = await client.query<{ matches: boolean }>(
+        `SELECT ($2::timestamptz IS NOT DISTINCT FROM date_trunc('milliseconds', layout_updated_at)) AS matches
+           FROM crm_schema.quote_templates WHERE id = $1 FOR UPDATE`,
+        [id, write.expectedUpdatedAt ?? null],
+      );
+      const row = current.rows[0];
+      if (!row) return undefined;
+      if (write.expectedUpdatedAt !== undefined && !row.matches) {
+        throw new CrmConflictError(QUOTE_LAYOUT_CONFLICT_CODE, 'Mẫu vừa được người khác sửa. Tải lại để xem bản mới.');
+      }
+      // Mốc lưu luôn tăng (tối thiểu 1 ms) để hai lần lưu liền nhau không trùng `updatedAt`.
+      const result = await client.query<LayoutRow>(
+        `UPDATE crm_schema.quote_templates
+            SET layout = $2::jsonb,
+                layout_updated_at = GREATEST(
+                  date_trunc('milliseconds', clock_timestamp()),
+                  date_trunc('milliseconds', layout_updated_at) + interval '1 millisecond'),
+                layout_updated_by = $3
+          WHERE id = $1
+          RETURNING layout, layout_updated_at, layout_updated_by`,
+        [id, write.layout === null ? null : JSON.stringify(write.layout), actorId],
+      );
+      // Không ghi cả JSON (có thể chứa ảnh): chỉ số khối và kích thước.
+      await auditSetting(client, QUOTE_TEMPLATE_AUDIT_ENTITY, id, 'layout_updated', actorId, {
+        removed: write.layout === null,
+        blockCount: write.blockCount,
+        sizeBytes: write.sizeBytes,
+      });
+      return toLayout(result.rows[0], id);
+    });
   }
 
   // Loại báo giá --------------------------------------------------------------
@@ -245,6 +314,31 @@ export class PostgresQuoteFormStore implements QuoteFormStore {
       .catch(rethrowName(CUSTOM_FIELD_NAME_EXISTS, 'uq_crm_custom_field_definitions_name'));
   }
 
+  // Cột hộp thoại "Thêm dòng báo giá" -------------------------------------------
+
+  async linePickerColumns(tenantId: string): Promise<readonly QuoteLinePickerColumn[] | undefined> {
+    const pool = await this.database.pool(tenantId);
+    const result = await pool.query<{ value: unknown }>(`SELECT value FROM crm_schema.settings WHERE key = $1`, [
+      QUOTE_LINE_PICKER_SETTING_KEY,
+    ]);
+    const value = result.rows[0]?.value as { columns?: unknown } | undefined;
+    // Giá trị hỏng (sửa tay trong DB) coi như chưa cấu hình.
+    return normalizeQuoteLinePickerColumns(value?.columns);
+  }
+
+  saveLinePickerColumns(tenantId: string, columns: readonly QuoteLinePickerColumn[], actorId: string): Promise<void> {
+    return this.database.transaction(tenantId, async (client) => {
+      await client.query(
+        `INSERT INTO crm_schema.settings (key, value, updated_by) VALUES ($1, $2::jsonb, $3)
+         ON CONFLICT (key) DO UPDATE
+           SET value = EXCLUDED.value, version = crm_schema.settings.version + 1,
+               updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [QUOTE_LINE_PICKER_SETTING_KEY, JSON.stringify({ columns }), actorId],
+      );
+      await auditSetting(client, QUOTE_LINE_PICKER_SETTING_AUDIT_ENTITY, QUOTE_LINE_PICKER_SETTING_ID, 'update', actorId, { columns });
+    });
+  }
+
   // Mã báo giá ----------------------------------------------------------------
 
   async codePattern(tenantId: string): Promise<string | null> {
@@ -271,6 +365,11 @@ export class PostgresQuoteFormStore implements QuoteFormStore {
   async generateCode(tenantId: string): Promise<string> {
     const pool = await this.database.pool(tenantId);
     return generateQuoteCode(pool);
+  }
+
+  async peekCode(tenantId: string): Promise<string> {
+    const pool = await this.database.pool(tenantId);
+    return peekQuoteCode(pool);
   }
 
   async codeExists(tenantId: string, code: string, excludeQuoteId?: string): Promise<boolean> {
@@ -311,6 +410,15 @@ function toTemplate(row: TemplateRow): QuoteTemplate {
     active: row.active,
     isDefault: row.is_default,
     sortOrder: row.sort_order,
+    hasLayout: row.has_layout,
+  };
+}
+
+function toLayout(row: LayoutRow, id: string): StoredQuoteTemplateLayout {
+  return {
+    layout: parseStoredQuoteLayout(row.layout, `quote_templates ${id}`),
+    updatedAt: toIso(row.layout_updated_at),
+    updatedBy: row.layout_updated_by,
   };
 }
 

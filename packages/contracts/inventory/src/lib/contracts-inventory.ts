@@ -1616,7 +1616,7 @@ export interface PostedStockDocument {
  * `limit` thì phân trang theo mã, trang sau gọi lại với `cursor = nextCursor`.
  */
 export interface InternalMaterialCatalogQuery {
-  /** Tìm theo mã hoặc tên, không phân biệt hoa thường. */
+  /** Tìm theo mã, tên hoặc phân loại, không phân biệt hoa thường. */
   readonly search?: string;
   readonly ids?: readonly string[];
   readonly codes?: readonly string[];
@@ -1624,6 +1624,14 @@ export interface InternalMaterialCatalogQuery {
   readonly warehouseCode?: string;
   /** Mặc định cả STOCK và SERVICE. */
   readonly kinds?: readonly MaterialKind[];
+  /** Đúng phân loại này (không phân biệt hoa thường). */
+  readonly tradeCategory?: string;
+  /**
+   * Trả cả mặt hàng ngừng dùng (`includeInactive=true`). Mặc định chỉ mặt hàng
+   * đang dùng, trừ khi tra theo `ids`, `codes`. Đồng bộ bảng giá của Bán hàng cần
+   * cả mặt hàng ngừng dùng.
+   */
+  readonly includeInactive?: boolean;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -1673,6 +1681,21 @@ export interface InternalMaterialCatalogPage {
   readonly materials: readonly InternalMaterialCatalogItem[];
   /** Có khi còn trang sau (chỉ khi gọi với `limit`). */
   readonly nextCursor: string | null;
+}
+
+/**
+ * `GET v1/internal/materials/fingerprint?kind=STOCK,SERVICE`: dấu vân tay của
+ * danh mục mặt hàng (kể cả ngừng dùng) thuộc các nhóm `kind`, mặc định cả hàng
+ * hoá và dịch vụ. Bên gọi so với lần đồng bộ trước để biết danh mục có đổi không.
+ *
+ * `fingerprint` là md5 (hex) của `id|code|name|unit|sale_price|is_active` từng mặt
+ * hàng, xếp theo `id`, nối bằng xuống dòng. Chỉ đổi khi mã, tên, đơn vị, giá bán,
+ * trạng thái đổi hoặc thêm, xoá mặt hàng; giá rỗng khác giá 0. Danh mục rỗng trả
+ * md5 của chuỗi rỗng và `count = 0`.
+ */
+export interface InternalMaterialCatalogFingerprint {
+  readonly count: number;
+  readonly fingerprint: string;
 }
 
 /** Một dòng của yêu cầu xuất. */

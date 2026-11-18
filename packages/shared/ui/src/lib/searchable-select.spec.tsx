@@ -313,3 +313,45 @@ describe('SearchableSelect footerAction', () => {
     expect(screen.getByRole('button', { name: 'Tạo mới' })).toBeTruthy();
   });
 });
+
+describe('SearchableSelect nút xoá', () => {
+  const withEmpty = [{ value: '', label: 'Chưa giao' }, ...options];
+
+  it('chọn mục rỗng ("Chưa giao") thì không có gì để xoá nên không hiện nút xoá', () => {
+    render(<SearchableSelect options={withEmpty} value="" />);
+    expect(screen.getByDisplayValue('Chưa giao')).not.toBeNull();
+    expect(screen.queryByLabelText('Xoá tìm kiếm')).toBeNull();
+  });
+
+  it('đã chọn một giá trị thì hiện nút xoá', () => {
+    render(<SearchableSelect options={withEmpty} value="a" />);
+    expect(screen.queryByLabelText('Xoá tìm kiếm')).not.toBeNull();
+  });
+
+  it('đang gõ dở chữ khác nhãn đang chọn thì hiện nút xoá', () => {
+    render(<SearchableSelect options={withEmpty} value="" />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Alp' } });
+    expect(screen.queryByLabelText('Xoá tìm kiếm')).not.toBeNull();
+  });
+});
+
+describe('SearchableSelect tìm theo badge', () => {
+  it('gõ mã nằm ở badge (ví dụ mã hợp đồng) vẫn ra lựa chọn', () => {
+    Element.prototype.scrollIntoView = jest.fn();
+    render(
+      <SearchableSelect
+        searchInDropdown
+        options={[
+          { value: 'c1', label: 'Hợp đồng theo báo giá BG1', badge: 'HD2600015', description: 'Khách A' },
+          { value: 'c2', label: 'Hợp đồng theo báo giá BG2', badge: 'HD2600002', description: 'Khách B' },
+        ]}
+        value=""
+      />,
+    );
+    fireEvent.click(screen.getByRole('textbox'));
+    fireEvent.change(screen.getByLabelText('Tìm trong danh sách'), { target: { value: 'hd2600015' } });
+    const filtered = screen.getAllByRole('option');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].textContent).toContain('HD2600015');
+  });
+});

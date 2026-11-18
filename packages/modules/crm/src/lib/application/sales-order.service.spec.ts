@@ -15,6 +15,24 @@ const CUSTOMER = '44444444-4444-4444-8444-444444444444';
 const USER = '55555555-5555-4555-8555-555555555555';
 const CONTRACT = '66666666-6666-4666-8666-666666666666';
 const DELIVERY = '77777777-7777-4777-8777-777777777777';
+/** Bảng giá Cáp 1.000.000; bảng thứ hai Cáp 1.100.000; bảng đã tắt. */
+const PL = 'a0000000-0000-4000-8000-000000000001';
+const PL2 = 'a0000000-0000-4000-8000-000000000002';
+const PL_OFF = 'a0000000-0000-4000-8000-000000000003';
+const PRICE_LISTS = [
+  { id: PL, code: 'BG', name: 'Bảng giá', status: 'ACTIVE' as const, price: 1_000_000 },
+  { id: PL2, code: 'BG-110', name: 'Bảng giá 110%', status: 'ACTIVE' as const, price: 1_100_000 },
+  { id: PL_OFF, code: 'BG-TAT', name: 'Bảng giá đã tắt', status: 'INACTIVE' as const, price: 900_000 },
+].map((list) => ({
+  id: list.id,
+  code: list.code,
+  name: list.name,
+  listType: 'DERIVED' as const,
+  status: list.status,
+  validFrom: '2026-01-01',
+  validTo: null,
+  items: [{ materialId: CAP, unit: 'Cái', price: list.price, vatRate: 10 }],
+}));
 
 const actor = (extra: Partial<CrmActor> = {}): CrmActor => ({
   ...CRM_NO_CAPABILITIES,
@@ -91,6 +109,10 @@ function order(extra: Partial<SalesOrderDetail> = {}): SalesOrderDetail {
     infoNotedBy: null,
     infoNotedAt: null,
     priceDate: null,
+    priceListId: PL,
+    priceListCode: 'BG',
+    priceListName: 'Bảng giá',
+    priceListStatus: 'ACTIVE',
     shipping: { amount: 0, vatRate: 10 },
     totals: { grossAmount: 0, discountAmount: 0, netAmount: 0, shippingAmount: 0, vatAmount: 0, totalAmount: 11_000_000 },
     revision: 5,
@@ -132,10 +154,13 @@ function setup(detail = order(), contract?: ContractDetail) {
   const pricing: PricingStore = {
     discountCapPercent: async () => 50,
     saveDiscountCapPercent: async () => undefined,
-    priceListsForPricing: async () => [
-      { id: 'pl', code: 'BG', isStandard: true, validFrom: '2026-01-01', validTo: null, status: 'ACTIVE', customerGroupIds: [], items: [{ materialId: CAP, unit: 'Cái', price: 1_000_000, vatRate: 10 }] },
-    ],
+    priceListsForPricing: jest.fn(async (_t: string, _d: string, priceListId: string | null) => PRICE_LISTS.filter((list) => list.id === priceListId)),
+    priceListRef: jest.fn(async (_t: string, id: string) => {
+      const list = PRICE_LISTS.find((entry) => entry.id === id);
+      return list && { id: list.id, code: list.code, name: list.name, listType: list.listType, status: list.status, validFrom: list.validFrom, validTo: list.validTo };
+    }),
     policiesForPricing: async () => [],
+    pricedMaterials: async () => [],
     contractPricesForPricing: jest.fn(async (_t, _d, _c, _m, contractId?: string | null) =>
       contractId ? [{ contractId, contractCode: 'HD1', materialId: CAP, unit: 'Cái', price: 900_000, vatRate: 10, validFrom: '2026-01-01', validTo: null }] : [],
     ),
@@ -158,7 +183,7 @@ function setup(detail = order(), contract?: ContractDetail) {
     dispatcher,
     () => new Date('2026-10-27T03:00:00Z'),
   );
-  return { store, inventory, credit, dispatcher, service };
+  return { store, inventory, credit, dispatcher, service, pricing };
 }
 
 describe('SalesOrderService: xác nhận và giữ hàng (T4-09)', () => {
@@ -271,9 +296,9 @@ describe('SalesOrderService: xác nhận và giữ hàng (T4-09)', () => {
   it('TC-CON-02: đơn từ hợp đồng khung tính giá khung (nguồn Hợp đồng)', async () => {
     const contract = { id: CONTRACT, code: 'HD1', status: 'ACTIVE', validFrom: '2026-01-01', validTo: null, customerId: CUSTOMER, ownerUserId: USER, warehouseCode: null } as unknown as ContractDetail;
     const { store, service } = setup(order(), contract);
-    await service.create(actor(), { contractId: CONTRACT, lines: [{ materialId: CAP, quantity: 2 }] });
+    await service.create(actor(), { contractId: CONTRACT, priceListId: PL, lines: [{ materialId: CAP, quantity: 2 }] });
     const record = store.createOrder.mock.calls[0][1];
-    expect(record).toMatchObject({ source: 'CONTRACT', contractId: CONTRACT, customerId: CUSTOMER });
+    expect(record).toMatchObject({ source: 'CONTRACT', contractId: CONTRACT, customerId: CUSTOMER, priceListId: PL });
     expect(record.lines[0]).toMatchObject({ priceSource: 'CONTRACT', listPrice: 900_000, unitPrice: 900_000, lineAmount: 1_800_000, estUnitCost: 800_000 });
   });
 
@@ -381,6 +406,104 @@ describe('SalesOrderService: huỷ, đóng, đợt giao, yêu cầu xuất', () 
   });
 });
 
+describe('SalesOrderService: bảng giá của đơn (A7)', () => {
+  const contract = {
+    id: CONTRACT,
+    code: 'HD1',
+    status: 'ACTIVE',
+    validFrom: '2026-01-01',
+    validTo: null,
+    customerId: CUSTOMER,
+    ownerUserId: USER,
+    warehouseCode: null,
+  } as unknown as ContractDetail;
+
+  it('A7.1: đơn trực tiếp có dòng, không có bảng giá: PRICE_LIST_REQUIRED, không ghi', async () => {
+    const { store, service } = setup();
+    await expect(service.create(actor(), { customerId: CUSTOMER, lines: [{ materialId: CAP, quantity: 1 }] })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PRICE_LIST_REQUIRED',
+    });
+    expect(store.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('A7.2: đơn trực tiếp không dòng, không bảng giá: tạo được (chỉ phí vận chuyển)', async () => {
+    const { store, service } = setup();
+    await service.create(actor(), { customerId: CUSTOMER, shipping: { amount: 100_000 } });
+    expect(store.createOrder.mock.calls[0][1]).toMatchObject({ source: 'DIRECT', priceListId: null, lines: [], totals: { totalAmount: 110_000 } });
+  });
+
+  it('đơn trực tiếp chọn bảng giá: giá theo bảng đã chọn; bảng sai, không có, đã tắt thì 400', async () => {
+    const { store, service } = setup();
+    await service.create(actor(), { customerId: CUSTOMER, priceListId: PL2, lines: [{ materialId: CAP, quantity: 1 }] });
+    expect(store.createOrder.mock.calls[0][1]).toMatchObject({ priceListId: PL2, lines: [{ listPrice: 1_100_000, priceSource: 'GROUP_LIST' }] });
+    const create = (priceListId: string) => service.create(actor(), { customerId: CUSTOMER, priceListId, lines: [{ materialId: CAP, quantity: 1 }] });
+    await expect(create('x')).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
+    await expect(create('a0000000-0000-4000-8000-000000000099')).rejects.toMatchObject({ code: 'PRICE_LIST_NOT_FOUND' });
+    await expect(create(PL_OFF)).rejects.toMatchObject({ code: 'PRICE_LIST_NOT_EFFECTIVE' });
+  });
+
+  it('A7.3, A7.4: đơn từ hợp đồng bắt buộc bảng giá; dòng có giá hợp đồng vẫn lấy giá hợp đồng', async () => {
+    const { store, service } = setup(order(), contract);
+    await expect(service.create(actor(), { contractId: CONTRACT, lines: [{ materialId: CAP, quantity: 1 }] })).rejects.toMatchObject({
+      code: 'PRICE_LIST_REQUIRED',
+    });
+    await service.create(actor(), { contractId: CONTRACT, priceListId: PL2, lines: [{ materialId: CAP, quantity: 1 }] });
+    expect(store.createOrder.mock.calls[0][1]).toMatchObject({ priceListId: PL2, lines: [{ priceSource: 'CONTRACT', listPrice: 900_000 }] });
+  });
+
+  it('A7.5: đơn từ báo giá giữ bảng giá của báo giá: priceListId gửi kèm bị bỏ qua, không tính lại', async () => {
+    const { store, service, pricing } = setup(order({ source: 'QUOTE' }));
+    await service.update(actor(), ORDER, { revision: 5, priceListId: PL2, note: 'Ghi chú' });
+    expect(store.updateDraft).toHaveBeenCalledWith(
+      TENANT,
+      ORDER,
+      5,
+      expect.objectContaining({ priceListId: PL, note: 'Ghi chú', totals: order().totals }),
+      undefined,
+      USER,
+      undefined,
+    );
+    expect(pricing.priceListsForPricing).not.toHaveBeenCalled();
+  });
+
+  it('A7.6: sửa đơn nháp đổi bảng giá: tính lại dòng theo bảng mới', async () => {
+    const { store, service } = setup(order({ lines: [line('l1', CAP, 'QA-KHO-CAP', 'STOCK', 2)] }));
+    await service.update(actor(), ORDER, { revision: 5, priceListId: PL2 });
+    const [, , , header, lines] = store.updateDraft.mock.calls[0];
+    expect(header).toMatchObject({ priceListId: PL2, totals: { netAmount: 2_200_000 } });
+    // Không gửi dòng thì giữ dòng (chỉ ghi lại tổng).
+    expect(lines).toBeUndefined();
+    await expect(service.update(actor(), ORDER, { revision: 5, priceListId: null })).rejects.toMatchObject({ code: 'PRICE_LIST_REQUIRED' });
+    await expect(service.update(actor(), ORDER, { revision: 5, priceListId: PL_OFF })).rejects.toMatchObject({ code: 'PRICE_LIST_NOT_EFFECTIVE' });
+  });
+
+  it('A7.7: chỉ đổi kho giữ hàng theo dòng: không tính lại giá, không đòi bảng giá', async () => {
+    const { store, service, pricing } = setup(order({ priceListId: null, priceListCode: null, priceListName: null, priceListStatus: null }));
+    await service.update(actor(), ORDER, { revision: 5, lineWarehouses: [{ lineId: 'l1', warehouseCode: 'kho-2' }] });
+    expect(store.updateDraft).toHaveBeenCalledWith(
+      TENANT,
+      ORDER,
+      5,
+      expect.objectContaining({ priceListId: null }),
+      undefined,
+      USER,
+      [{ lineId: 'l1', warehouseCode: 'KHO-2' }],
+    );
+    expect(pricing.priceListsForPricing).not.toHaveBeenCalled();
+    expect(pricing.priceListRef).not.toHaveBeenCalled();
+  });
+
+  it('A7.8: đơn không còn Nháp: không đổi được bảng giá (409)', async () => {
+    const { store, service } = setup(order({ status: 'CONFIRMED' }));
+    await expect(service.update(actor(), ORDER, { revision: 5, priceListId: PL2 })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'ORDER_NOT_EDITABLE',
+    });
+    expect(store.updateDraft).not.toHaveBeenCalled();
+  });
+});
+
 describe('QuoteConversionService (TC-QUO-12)', () => {
   it('báo giá chưa khách chấp nhận trả 409; đã chấp nhận thì chuyển với đợt giao sau 7 ngày', async () => {
     const conversion = { convert: jest.fn().mockResolvedValue({ created: true }) };
@@ -391,5 +514,75 @@ describe('QuoteConversionService (TC-QUO-12)', () => {
     await service.convert(actor(), ORDER);
     expect(conversion.convert).toHaveBeenCalledWith(TENANT, ORDER, { today: '2026-10-27', plannedDate: '2026-11-03' }, USER);
     await expect(service.convert(actor({ canWriteOrder: false }), ORDER)).rejects.toMatchObject({ statusCode: 403 });
+  });
+});
+
+describe('SalesOrderService: kho giữ hàng theo từng dòng (D3-37)', () => {
+  const MUC = '33333333-3333-4333-8333-333333333333';
+  const twoWarehouses = (extra: Partial<SalesOrderDetail> = {}) =>
+    order({
+      lines: [line('l1', CAP, 'QA-KHO-CAP', 'STOCK', 10, { warehouseCode: 'KHO-2' }), { ...line('l2', MUC, 'QA-KHO-MUC', 'STOCK', 3), lineNo: 2 }],
+      ...extra,
+    });
+
+  it('xác nhận giữ mỗi dòng ở kho của dòng, dòng không chọn kho theo kho mặc định', async () => {
+    const { inventory, service } = setup(twoWarehouses());
+    await service.confirm(actor(), ORDER, { revision: 5 });
+    expect(inventory.reserve.mock.calls[0][1].lines).toEqual([
+      { materialCode: 'QA-KHO-CAP', warehouseCode: 'KHO-2', quantity: 10 },
+      { materialCode: 'QA-KHO-MUC', warehouseCode: 'KHO-1', quantity: 3 },
+    ]);
+  });
+
+  it('không có kho mặc định: báo đúng dòng thiếu kho, không gọi Kho', async () => {
+    const { inventory, service } = setup(twoWarehouses({ warehouseCode: null }));
+    await expect(service.confirm(actor(), ORDER, { revision: 5 })).rejects.toMatchObject({
+      code: 'WAREHOUSE_REQUIRED',
+      message: expect.stringContaining('dòng 2 (QA-KHO-MUC)'),
+    });
+    expect(inventory.reserve).not.toHaveBeenCalled();
+  });
+
+  it('phần giữ của hợp đồng chỉ dùng cho dòng cùng kho với dòng hợp đồng', async () => {
+    const contract = {
+      id: CONTRACT,
+      code: 'HD1',
+      status: 'ACTIVE',
+      validFrom: '2026-01-01',
+      validTo: null,
+      warehouseCode: 'KHO-1',
+      reservation: { reservationId: 'rc', reservationCode: 'GHK', status: 'HELD', expiresAt: null },
+      lines: [{ materialId: CAP, materialKind: 'STOCK', quantity: 15, warehouseCode: 'KHO-2' }],
+    } as unknown as ContractDetail;
+    const sameWarehouse = setup(order({ contractId: CONTRACT, source: 'CONTRACT', lines: [line('l1', CAP, 'QA-KHO-CAP', 'STOCK', 10, { warehouseCode: 'KHO-2' })] }), contract);
+    sameWarehouse.store.contractReservationUsage.mockResolvedValue(new Map());
+    await sameWarehouse.service.confirm(actor(), ORDER, { revision: 5 });
+    expect(sameWarehouse.inventory.reserve).not.toHaveBeenCalled();
+    const otherWarehouse = setup(order({ contractId: CONTRACT, source: 'CONTRACT' }), contract);
+    otherWarehouse.store.contractReservationUsage.mockResolvedValue(new Map());
+    await otherWarehouse.service.confirm(actor(), ORDER, { revision: 5 });
+    expect(otherWarehouse.inventory.reserve).toHaveBeenCalledTimes(1);
+  });
+
+  it('đợt giao có hàng ở nhiều kho mà chưa chọn kho xuất: báo tách đợt theo kho', async () => {
+    const confirmed = twoWarehouses({
+      status: 'CONFIRMED',
+      deliveries: [
+        {
+          id: DELIVERY, code: 'DH-01', seq: 1, plannedDate: '2026-11-01', warehouseCode: null, address: null, note: null, status: 'PLANNED',
+          issueDocumentId: null, issueDocumentCode: null, requestedAt: null, issuedAt: null, late: false,
+          lines: [
+            { id: 'dl1', orderLineId: 'l1', lineNo: 1, materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: '', unit: 'Cái', materialKind: 'STOCK', plannedQuantity: 4, deliveredQuantity: 0, actualCost: 0, serials: [] },
+            { id: 'dl2', orderLineId: 'l2', lineNo: 2, materialId: MUC, materialCode: 'QA-KHO-MUC', materialName: '', unit: 'Cái', materialKind: 'STOCK', plannedQuantity: 1, deliveredQuantity: 0, actualCost: 0, serials: [] },
+          ],
+        },
+      ],
+    });
+    const { inventory, service } = setup(confirmed);
+    await expect(service.requestIssue(actor(), ORDER, DELIVERY, { revision: 5 })).rejects.toMatchObject({
+      code: 'WAREHOUSE_REQUIRED',
+      message: expect.stringContaining('KHO-2, KHO-1'),
+    });
+    expect(inventory.createIssueRequest).not.toHaveBeenCalled();
   });
 });

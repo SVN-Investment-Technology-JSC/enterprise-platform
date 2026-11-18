@@ -12,6 +12,7 @@ export const BRAND_API_FUNCTIONS = [
   'unpublishIcon',
   'archiveIcon',
   'restoreIcon',
+  'purgeIcon',
   'getStandards',
   'saveStandards',
 ] as const;

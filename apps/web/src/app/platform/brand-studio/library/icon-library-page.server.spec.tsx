@@ -4,6 +4,10 @@ import { localStore } from '../store/local-store';
 import { remoteStore } from '../store/remote-store';
 import { createFakeBrandServer, httpError, type FakeBrandServer } from '../store/testing/fake-brand-server';
 import { IconLibraryPage } from './icon-library-page';
+import { chooseTileAction, confirmDialog } from './tile-actions.testing';
+import { lastToastText, resetToasts } from './toast.testing';
+
+jest.mock('@/components/ui/sonner', () => jest.requireActual('./toast.testing').toastMock);
 
 jest.mock('../export/export-dialog', () => ({ ExportDialog: () => null }));
 
@@ -37,9 +41,11 @@ async function showLibrary() {
 }
 
 beforeEach(() => {
+  resetToasts();
   mockServer = createFakeBrandServer();
   remoteStore.resetForTest();
   window.localStorage.clear();
+  window.sessionStorage.clear();
   localStore.reloadForTest();
   Object.defineProperty(globalThis, 'fetch', { value: jest.fn(), configurable: true, writable: true });
 });
@@ -49,15 +55,15 @@ afterEach(() => {
 });
 
 describe('IconLibraryPage: chế độ máy chủ', () => {
-  it('lúc kiểm tra kết nối chỉ có khung chờ, rồi hiện icon trên máy chủ cùng dải "Đã kết nối máy chủ"', async () => {
+  it('lúc kiểm tra kết nối chỉ có khung chờ, rồi hiện icon trên máy chủ, không hiện dải trạng thái', async () => {
     mockServer.seed(custom('a', 'Đồng hồ'));
     render(<IconLibraryPage />);
 
     expect(screen.getByLabelText('Đang tải thư viện')).toBeTruthy();
     expect(tiles()).toHaveLength(0);
 
-    await waitFor(() => expect(screen.getByText('Đã kết nối máy chủ')).toBeTruthy());
     await waitFor(() => expect(tiles()).toHaveLength(1 + presetCount));
+    expect(screen.queryByTestId('sync-banner')).toBeNull();
     expect(screen.getByRole('link', { name: 'Mở Đồng hồ' })).toBeTruthy();
   });
 
@@ -65,11 +71,10 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     mockServer.seed(custom('a', 'Sắp lưu trữ'));
     await showLibrary();
 
-    fireEvent.click(within(tileOf('Sắp lưu trữ')).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Sắp lưu trữ"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tileOf('Sắp lưu trữ'), 'Xoá');
+    await confirmDialog('Xoá');
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã lưu trữ "Sắp lưu trữ".'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã lưu trữ "Sắp lưu trữ".'));
     expect(screen.queryByRole('link', { name: 'Mở Sắp lưu trữ' })).toBeNull();
     expect(mockServer.rows.get('a')?.summary.status).toBe('archived');
   });
@@ -88,7 +93,7 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     expect(popup.textContent).toContain('1 icon mẫu sẽ được giữ lại');
     fireEvent.click(within(popup).getByRole('button', { name: 'Lưu trữ' }));
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã lưu trữ 2 icon, giữ lại 1 icon mẫu.'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã lưu trữ 2 icon, giữ lại 1 icon mẫu.'));
     expect(tiles()).toHaveLength(presetCount);
   });
 
@@ -97,11 +102,10 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     await showLibrary();
     mockServer.failWith('DELETE icons/a', httpError(503, 'Kho lưu trữ icon tạm thời không khả dụng. Vui lòng thử lại sau.'));
 
-    fireEvent.click(within(tileOf('Giữ lại')).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Giữ lại"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tileOf('Giữ lại'), 'Xoá');
+    await confirmDialog('Xoá');
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Kho lưu trữ icon tạm thời không khả dụng.'));
+    await waitFor(() => expect(lastToastText()).toContain('Kho lưu trữ icon tạm thời không khả dụng.'));
     expect(screen.getByRole('link', { name: 'Mở Giữ lại' })).toBeTruthy();
   });
 
@@ -109,9 +113,9 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
     mockServer.seed(custom('a', 'Gốc'));
     await showLibrary();
 
-    fireEvent.click(within(tileOf('Gốc')).getByRole('button', { name: 'Nhân bản' }));
+    await chooseTileAction(tileOf('Gốc'), 'Nhân bản');
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã nhân bản thành "Gốc (bản sao)"'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã nhân bản thành "Gốc (bản sao)"'));
     expect([...mockServer.rows.values()].some((row) => row.summary.name === 'Gốc (bản sao)')).toBe(true);
   });
 
@@ -124,7 +128,7 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Phát hành/ }));
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Phát hành"'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã chuyển 2 icon sang "Phát hành"'));
     expect(mockServer.rows.get('a')?.summary.status).toBe('published');
     expect(mockServer.rows.get('b')?.summary.status).toBe('published');
   });
@@ -138,7 +142,7 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Phát hành/ }));
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toMatch(/^Đã lưu 1\/2 icon\. /));
+    await waitFor(() => expect(lastToastText()).toMatch(/^Đã lưu 1\/2 icon\. /));
     expect(mockServer.rows.get('a')?.summary.status).toBe('published');
     expect(mockServer.rows.get('b')?.summary.status).toBe('draft');
   });
@@ -164,8 +168,55 @@ describe('IconLibraryPage: chế độ máy chủ', () => {
 
     fireEvent.change(screen.getByTestId('import-input'), { target: { files: [new File([svg], 'dong-ho.svg', { type: 'image/svg+xml' })] } });
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Máy chủ bận.'));
+    await waitFor(() => expect(lastToastText()).toContain('Máy chủ bận.'));
     expect(screen.getByRole('button', { name: /Nhập tệp/ })).toBeTruthy();
+  });
+
+  it('mục lọc "Đã lưu trữ" hiển thị icon đã lưu trữ, cho phép Khôi phục và Xoá vĩnh viễn', async () => {
+    mockServer.seed(custom('cu-1', 'Icon lưu trữ 1'), 'archived');
+    mockServer.seed(custom('cu-2', 'Icon lưu trữ 2'), 'archived');
+    await showLibrary();
+
+    expect(screen.queryByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeNull();
+    const archiveBtn = screen.getByRole('button', { name: 'Đã lưu trữ' });
+    expect(archiveBtn.textContent).toContain('2');
+
+    fireEvent.click(archiveBtn);
+    expect(tiles()).toHaveLength(2);
+    expect(screen.getByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Mở Icon lưu trữ 2' })).toBeTruthy();
+
+    await chooseTileAction(tileOf('Icon lưu trữ 1'), 'Khôi phục');
+    await waitFor(() => expect(lastToastText()).toContain('Đã khôi phục "Icon lưu trữ 1" về bản nháp.'));
+    expect(screen.queryByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeNull();
+    expect(mockServer.rows.get('cu-1')?.summary.status).toBe('draft');
+
+    await chooseTileAction(tileOf('Icon lưu trữ 2'), 'Xoá vĩnh viễn');
+    await confirmDialog('Xoá vĩnh viễn');
+    await waitFor(() => expect(lastToastText()).toContain('Đã xoá vĩnh viễn "Icon lưu trữ 2".'));
+    expect(mockServer.rows.has('cu-2')).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đã lưu trữ' }));
+    expect(screen.getByRole('link', { name: 'Mở Icon lưu trữ 1' })).toBeTruthy();
+  });
+
+  it('thao tác hàng loạt trong mục "Đã lưu trữ" hỗ trợ Khôi phục và Xoá vĩnh viễn', async () => {
+    mockServer.seed(custom('cu-1', 'Lưu trữ A'), 'archived');
+    mockServer.seed(custom('cu-2', 'Lưu trữ B'), 'archived');
+    await showLibrary();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đã lưu trữ' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Lưu trữ A' }));
+    fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Khôi phục' }));
+    await waitFor(() => expect(lastToastText()).toContain('Đã khôi phục 1 icon về bản nháp.'));
+    expect(mockServer.rows.get('cu-1')?.summary.status).toBe('draft');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Lưu trữ B' }));
+    fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: 'Xoá vĩnh viễn' }));
+    const popup = screen.getByText('Xoá vĩnh viễn 1 icon đã chọn?').closest('[class*="popconfirmPopup"]') as HTMLElement;
+    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá vĩnh viễn' }));
+    await waitFor(() => expect(lastToastText()).toContain('Đã xoá vĩnh viễn 1 icon.'));
+    expect(mockServer.rows.has('cu-2')).toBe(false);
   });
 });
 
@@ -180,11 +231,10 @@ describe('IconLibraryPage: chế độ cục bộ khi chưa có API', () => {
     expect(screen.queryByRole('button', { name: /Đồng bộ lên máy chủ/ })).toBeNull();
     expect(tiles()).toHaveLength(presetCount + 1);
 
-    fireEvent.click(within(tileOf('Cục bộ')).getByRole('button', { name: 'Xoá' }));
-    const popup = screen.getByText('Xoá "Cục bộ"?').closest('[class*="popconfirmPopup"]') as HTMLElement;
-    fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
+    await chooseTileAction(tileOf('Cục bộ'), 'Xoá');
+    await confirmDialog('Xoá');
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã xoá "Cục bộ".'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã xoá "Cục bộ".'));
     expect(mockServer.calls.some((call) => call.startsWith('DELETE'))).toBe(false);
   });
 
@@ -196,7 +246,7 @@ describe('IconLibraryPage: chế độ cục bộ khi chưa có API', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }));
 
-    await waitFor(() => expect(screen.getByText('Đã kết nối máy chủ')).toBeTruthy());
+    await waitFor(() => expect(screen.queryByText('Đang lưu tạm trong trình duyệt')).toBeNull());
     await waitFor(() => expect(screen.getByRole('link', { name: 'Mở Trên máy chủ' })).toBeTruthy());
   });
 });

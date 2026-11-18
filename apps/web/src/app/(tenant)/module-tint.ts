@@ -13,6 +13,7 @@ const MODULE_TINTS: Record<string, string> = {
   shared: 'bg-stone-100 text-stone-800',
   social: 'bg-rose-100 text-rose-700',
   crm: 'bg-orange-100 text-orange-700',
+  correspondence: 'bg-indigo-100 text-indigo-700',
 };
 
 export function moduleTint(key: string): string {

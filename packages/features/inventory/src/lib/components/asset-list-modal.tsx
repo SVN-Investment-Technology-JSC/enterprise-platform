@@ -1,15 +1,32 @@
 'use client';
 
 import type { Asset, AssetCriticality, AssetStatus, AssetType, InstalledMaterial, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { useMemo, useState, useEffect } from 'react';
-import { Search, X, Check, Trash2 } from 'lucide-react';
+import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { useMemo, useState } from 'react';
+import { Search, Check, Trash2 } from 'lucide-react';
 import {
   ASSET_TYPE_LABEL,
   ASSET_STATUS_LABEL,
   ASSET_CRITICALITY_LABEL,
 } from '../inventory-labels';
 import { BulkReturnToStockDialog, type BulkReturnItemEntry } from './bulk-return-dialog';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Dialog, DialogCloseButton, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+
+/** Màu pill tình trạng; tình trạng ngoài bốn giá trị dựng sẵn không có màu riêng. */
+const ASSET_STATUS_TONE: Readonly<Record<string, string>> = {
+  OPERATING: 'border-green-200 bg-green-50 text-green-800',
+  STOPPED: 'border-red-200 bg-red-50 text-red-800',
+  MAINTENANCE: 'border-amber-200 bg-amber-50 text-amber-700',
+  DISPOSED: 'border-slate-300 bg-slate-100 text-slate-500',
+};
+
+const sortHeadClass = 'cursor-pointer select-none py-[9px] text-xs text-slate-500';
+
+const pageSizeOptions = [15, 30, 45, 60].map((n) => ({ value: String(n), label: `${n} / trang` }));
 
 export interface AssetListModalProps {
   assets: readonly Asset[];
@@ -46,15 +63,6 @@ export function AssetListModal({
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
-
-  // Esc key để đóng popup
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   // Tra cứu thiết bị cha theo parentId
   const parentMap = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
@@ -191,297 +199,162 @@ export function AssetListModal({
     onClose();
   };
 
+  const typeOptions = [
+    { value: 'all', label: 'Tất cả phân loại' },
+    ...(Object.keys(ASSET_TYPE_LABEL) as AssetType[]).map((k) => ({ value: k, label: ASSET_TYPE_LABEL[k] })),
+  ];
+  const statusOptions = [
+    { value: 'all', label: 'Tất cả tình trạng' },
+    ...(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[]).map((k) => ({ value: k, label: ASSET_STATUS_LABEL[k] })),
+  ];
+  const criticalityOptions = [
+    { value: 'all', label: 'Tất cả mức độ' },
+    ...(Object.keys(ASSET_CRITICALITY_LABEL) as AssetCriticality[]).map((k) => ({
+      value: k,
+      label: ASSET_CRITICALITY_LABEL[k],
+    })),
+  ];
+
   return (
-    <div className={styles.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
-      <div
-        className={`${styles.modalDialog} ${styles.modalDialogWide}`}
-        style={{
-          maxWidth: '1150px',
-          maxHeight: '90vh',
-          display: 'flex',
-          flexDirection: 'column',
-          background: '#ffffff',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header Modal */}
-        <div className={styles.modalHead}>
+    <Dialog onEscape={isBulkDialogOpen ? undefined : onClose}>
+      <DialogContent className="max-h-[90vh] max-w-[1150px]" aria-label="Danh mục Thiết bị">
+        <DialogHeader>
           <div>
-            <h2 style={{ fontSize: '1.25rem', margin: 0 }}>
-              Danh mục Thiết bị (Bảng liệt kê đồng cấp)
-            </h2>
-            <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+            <DialogTitle>Danh mục Thiết bị (Bảng liệt kê đồng cấp)</DialogTitle>
+            <p className="mt-1 mb-0 text-sm text-slate-500">
               Danh sách liệt kê toàn bộ {assets.length} thiết bị/vị trí đồng cấp trên hệ thống. Bấm vào một dòng để chọn và xem chi tiết.
             </p>
           </div>
-          <button
-            type="button"
-            className={styles.closeButton}
-            title="Đóng hộp thoại (Esc)"
-            onClick={onClose}
-          >
-            <X size={18} />
-          </button>
-        </div>
+          <DialogCloseButton title="Đóng hộp thoại (Esc)" onClick={onClose} />
+        </DialogHeader>
 
         {/* Thanh tìm kiếm & Bộ lọc nhanh */}
-        <div
-          style={{
-            padding: '12px 20px',
-            background: '#f8fafc',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '10px',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-slate-200 bg-slate-50 px-5 py-3">
           {/* Ô tìm kiếm */}
-          <div style={{ position: 'relative', flex: 1, minWidth: '260px' }}>
+          <div className="relative min-w-[260px] flex-1">
             <Search
               size={15}
-              style={{
-                position: 'absolute',
-                left: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#94a3b8',
-              }}
+              className="pointer-events-none absolute top-1/2 left-2.5 z-10 -translate-y-1/2 text-slate-400"
             />
-            <input
+            <Input
               type="text"
+              className="h-8 pr-7 pl-8 text-[13px]"
               placeholder="Tìm theo mã, tên thiết bị, mã sê-ri, nhà sản xuất..."
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 setPage(1);
               }}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '6px 28px 6px 32px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                outline: 'none',
-              }}
             />
             {searchTerm ? (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
                 onClick={() => {
                   setSearchTerm('');
                   setPage(1);
                 }}
-                style={{
-                  position: 'absolute',
-                  right: '8px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
+                className="absolute top-1/2 right-2 h-auto -translate-y-1/2 p-0 text-slate-400 hover:bg-transparent hover:text-slate-900"
               >
                 ✕
-              </button>
+              </Button>
             ) : null}
           </div>
 
           {/* Bộ lọc dropdowns */}
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="flex flex-wrap items-center gap-2">
             {/* Loại thiết bị */}
-            <select
+            <SearchableSelect
+              options={typeOptions}
               value={typeFilter}
-              onChange={(e) => {
-                setTypeFilter(e.target.value);
+              onChange={(value) => {
+                setTypeFilter(value || 'all');
                 setPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                background: '#ffffff',
-                color: '#334155',
-                outline: 'none',
-              }}
-            >
-              <option value="all">Tất cả phân loại</option>
-              {(Object.keys(ASSET_TYPE_LABEL) as AssetType[]).map((k) => (
-                <option key={k} value={k}>
-                  {ASSET_TYPE_LABEL[k]}
-                </option>
-              ))}
-            </select>
+              clearable={false}
+              searchInDropdown
+              hideDropdownSearch
+              height={32}
+              style={{ width: 180 }}
+            />
 
             {/* Tình trạng vận hành */}
-            <select
+            <SearchableSelect
+              options={statusOptions}
               value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
+              onChange={(value) => {
+                setStatusFilter(value || 'all');
                 setPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                background: '#ffffff',
-                color: '#334155',
-                outline: 'none',
-              }}
-            >
-              <option value="all">Tất cả tình trạng</option>
-              {(Object.keys(ASSET_STATUS_LABEL) as AssetStatus[]).map((k) => (
-                <option key={k} value={k}>
-                  {ASSET_STATUS_LABEL[k]}
-                </option>
-              ))}
-            </select>
+              clearable={false}
+              searchInDropdown
+              hideDropdownSearch
+              height={32}
+              style={{ width: 180 }}
+            />
 
             {/* Mức độ quan trọng */}
-            <select
+            <SearchableSelect
+              options={criticalityOptions}
               value={criticalityFilter}
-              onChange={(e) => {
-                setCriticalityFilter(e.target.value);
+              onChange={(value) => {
+                setCriticalityFilter(value || 'all');
                 setPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '13px',
-                background: '#ffffff',
-                color: '#334155',
-                outline: 'none',
-              }}
-            >
-              <option value="all">Tất cả mức độ</option>
-              {(Object.keys(ASSET_CRITICALITY_LABEL) as AssetCriticality[]).map((k) => (
-                <option key={k} value={k}>
-                  {ASSET_CRITICALITY_LABEL[k]}
-                </option>
-              ))}
-            </select>
+              clearable={false}
+              searchInDropdown
+              hideDropdownSearch
+              height={32}
+              style={{ width: 170 }}
+            />
 
             {isFiltered ? (
-              <button
-                type="button"
-                className={styles.reset}
-                style={{ padding: '5px 10px', fontSize: '12px' }}
-                onClick={resetFilters}
-              >
+              <Button type="button" variant="outline" size="sm" onClick={resetFilters}>
                 Xóa lọc
-              </button>
+              </Button>
             ) : null}
           </div>
         </div>
 
         {/* Thanh tác vụ hàng loạt (Bulk Action Bar) */}
         {checkedIds.size > 0 ? (
-          <div
-            style={{
-              padding: '8px 20px',
-              background: '#eff6ff',
-              borderBottom: '1px solid #bfdbfe',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '8px',
-              fontSize: '13px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontWeight: 600, color: '#1e40af' }}>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200 bg-blue-50 px-5 py-2 text-[13px]">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-blue-800">
                 Đã chọn {checkedIds.size} thiết bị
               </span>
-              <button
+              <Button
                 type="button"
+                variant="link"
+                className="h-auto p-0 text-[13px] text-blue-500"
                 onClick={handleClearChecked}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#3b82f6',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  textDecoration: 'underline',
-                  padding: 0,
-                }}
               >
                 Bỏ chọn tất cả
-              </button>
+              </Button>
             </div>
 
             {onBulkReturn || onReturn ? (
-              <button
+              <Button
                 type="button"
+                variant="destructive"
+                className="border-red-300 bg-red-100 px-3 font-semibold hover:bg-red-200"
                 disabled={busy}
                 onClick={() => setIsBulkDialogOpen(true)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  padding: '5px 12px',
-                  background: '#fee2e2',
-                  color: '#b91c1c',
-                  border: '1px solid #fca5a5',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  cursor: busy ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                  if (!busy) {
-                    e.currentTarget.style.background = '#fecaca';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!busy) {
-                    e.currentTarget.style.background = '#fee2e2';
-                  }
-                }}
               >
                 <Trash2 size={14} />
                 <span>Gỡ {checkedIds.size} thiết bị đã chọn</span>
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : null}
 
         {/* Thân bảng liệt kê dạng list đồng cấp */}
-        <div style={{ flex: 1, overflowY: 'auto', maxHeight: 'calc(90vh - 210px)' }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              fontSize: '13px',
-            }}
-          >
-            <thead>
-              <tr
-                style={{
-                  background: '#f8fafc',
-                  borderBottom: '1px solid #e2e8f0',
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 2,
-                }}
-              >
+        <TableWrap className="max-h-[calc(90vh-210px)] flex-1">
+          <Table className="text-[13px]">
+            <TableHead>
+              <TableRow className="hover:bg-slate-50">
                 {/* Cột Checkbox multi-select header */}
-                <th
-                  style={{
-                    padding: '9px 10px',
-                    textAlign: 'center',
-                    width: '38px',
-                    background: '#f8fafc',
-                  }}
-                >
+                <TableHeaderCell className="w-[38px] px-2.5 py-[9px] text-center">
                   <input
                     type="checkbox"
                     title={isAllAssetsChecked ? 'Bỏ chọn toàn bộ' : `Chọn toàn bộ ${sortedAssets.length} thiết bị`}
@@ -491,144 +364,63 @@ export function AssetListModal({
                       if (el) el.indeterminate = isSomeAssetsChecked;
                     }}
                     onChange={handleToggleCheckAll}
-                    style={{ cursor: 'pointer' }}
+                    className="cursor-pointer"
                   />
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    color: '#64748b',
-                    width: '45px',
-                    background: '#f8fafc',
-                  }}
-                >
+                </TableHeaderCell>
+                <TableHeaderCell className="w-[45px] py-[9px] text-center text-xs text-slate-500">
                   STT
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: sortField === 'code' ? '#2563eb' : '#64748b',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    whiteSpace: 'nowrap',
-                    background: '#f8fafc',
-                  }}
+                </TableHeaderCell>
+                <TableHeaderCell
+                  className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'code' && 'text-blue-600')}
                   onClick={() => handleSort('code')}
                   title="Bấm để sắp xếp theo mã thiết bị"
                 >
                   Mã thiết bị {sortField === 'code' ? (sortAsc ? '▲' : '▼') : ''}
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: sortField === 'name' ? '#2563eb' : '#64748b',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    background: '#f8fafc',
-                  }}
+                </TableHeaderCell>
+                <TableHeaderCell
+                  className={cn(sortHeadClass, sortField === 'name' && 'text-blue-600')}
                   onClick={() => handleSort('name')}
                   title="Bấm để sắp xếp theo tên thiết bị"
                 >
                   Tên thiết bị {sortField === 'name' ? (sortAsc ? '▲' : '▼') : ''}
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: sortField === 'type' ? '#2563eb' : '#64748b',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    whiteSpace: 'nowrap',
-                    background: '#f8fafc',
-                  }}
+                </TableHeaderCell>
+                <TableHeaderCell
+                  className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'type' && 'text-blue-600')}
                   onClick={() => handleSort('type')}
                   title="Bấm để sắp xếp theo phân loại"
                 >
                   Phân loại {sortField === 'type' ? (sortAsc ? '▲' : '▼') : ''}
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: sortField === 'parent' ? '#2563eb' : '#64748b',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    whiteSpace: 'nowrap',
-                    background: '#f8fafc',
-                  }}
+                </TableHeaderCell>
+                <TableHeaderCell
+                  className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'parent' && 'text-blue-600')}
                   onClick={() => handleSort('parent')}
                   title="Bấm để sắp xếp theo vị trí/thiết bị cha"
                 >
                   Vị trí / Thiết bị cha {sortField === 'parent' ? (sortAsc ? '▲' : '▼') : ''}
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: sortField === 'status' ? '#2563eb' : '#64748b',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    whiteSpace: 'nowrap',
-                    background: '#f8fafc',
-                  }}
+                </TableHeaderCell>
+                <TableHeaderCell
+                  className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'status' && 'text-blue-600')}
                   onClick={() => handleSort('status')}
                   title="Bấm để sắp xếp theo tình trạng"
                 >
                   Tình trạng {sortField === 'status' ? (sortAsc ? '▲' : '▼') : ''}
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: sortField === 'criticality' ? '#2563eb' : '#64748b',
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    whiteSpace: 'nowrap',
-                    background: '#f8fafc',
-                  }}
+                </TableHeaderCell>
+                <TableHeaderCell
+                  className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'criticality' && 'text-blue-600')}
                   onClick={() => handleSort('criticality')}
                   title="Bấm để sắp xếp theo mức độ quan trọng"
                 >
                   Độ quan trọng {sortField === 'criticality' ? (sortAsc ? '▲' : '▼') : ''}
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'left',
-                    fontSize: '12px',
-                    color: '#64748b',
-                    whiteSpace: 'nowrap',
-                    background: '#f8fafc',
-                  }}
-                >
+                </TableHeaderCell>
+                <TableHeaderCell className="py-[9px] text-xs whitespace-nowrap text-slate-500">
                   Linh kiện lắp ráp
-                </th>
-                <th
-                  style={{
-                    padding: '9px 12px',
-                    textAlign: 'center',
-                    fontSize: '12px',
-                    color: '#64748b',
-                    whiteSpace: 'nowrap',
-                    width: '110px',
-                    background: '#f8fafc',
-                  }}
-                >
+                </TableHeaderCell>
+                <TableHeaderCell className="w-[110px] py-[9px] text-center text-xs whitespace-nowrap text-slate-500">
                   Thao tác
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+                </TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {pagedAssets.map((asset, idx) => {
                 const isSelected = asset.id === selectedId;
                 const isChecked = checkedIds.has(asset.id);
@@ -637,30 +429,19 @@ export function AssetListModal({
                 const stt = (safePage - 1) * pageSize + idx + 1;
 
                 return (
-                  <tr
+                  <TableRow
                     key={asset.id}
                     onClick={() => handleSelectAndClose(asset.id)}
-                    style={{
-                      cursor: 'pointer',
-                      background: isChecked ? '#f0fdf4' : isSelected ? '#eff6ff' : undefined,
-                      borderLeft: isChecked
-                        ? '4px solid #16a34a'
-                        : isSelected
-                        ? '4px solid #2563eb'
-                        : '4px solid transparent',
-                      borderBottom: '1px solid #f1f5f9',
-                      transition: 'background 0.12s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isSelected && !isChecked) e.currentTarget.style.background = '#f8fafc';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected && !isChecked) e.currentTarget.style.background = 'transparent';
-                    }}
+                    className={cn(
+                      'cursor-pointer border-l-4 border-l-transparent',
+                      isChecked
+                        ? 'border-l-green-600 bg-green-50 hover:bg-green-50'
+                        : isSelected && 'border-l-blue-600 bg-blue-50 hover:bg-blue-50',
+                    )}
                   >
                     {/* Cột Checkbox multi-select row */}
-                    <td
-                      style={{ padding: '10px 10px', textAlign: 'center' }}
+                    <TableCell
+                      className="px-2.5 text-center"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -669,112 +450,107 @@ export function AssetListModal({
                         aria-label={`Chọn thiết bị ${asset.code}`}
                         checked={isChecked}
                         onChange={() => handleToggleCheckAsset(asset.id)}
-                        style={{ cursor: 'pointer' }}
+                        className="cursor-pointer"
                       />
-                    </td>
+                    </TableCell>
 
                     {/* STT */}
-                    <td style={{ padding: '10px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>
+                    <TableCell className="text-center text-xs text-slate-400">
                       {stt}
-                    </td>
+                    </TableCell>
 
                     {/* Mã thiết bị */}
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                      <span className={styles.nodeCodeBadge} style={{ fontWeight: 700, fontSize: '13px' }}>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="font-mono text-[13px] font-bold text-blue-600">
                         {asset.code}
                       </span>
-                    </td>
+                    </TableCell>
 
                     {/* Tên thiết bị */}
-                    <td style={{ padding: '10px 12px' }}>
-                      <div style={{ fontWeight: 600, color: isSelected ? '#1d4ed8' : '#0f172a' }}>
+                    <TableCell>
+                      <div className={cn('font-semibold', isSelected ? 'text-blue-700' : 'text-slate-900')}>
                         {asset.name}
                       </div>
                       {asset.serialNumber ? (
-                        <div style={{ fontSize: '12px', color: '#64748b' }}>
+                        <div className="text-xs text-slate-500">
                           S/N: {asset.serialNumber} {asset.manufacturer ? `· Hãng: ${asset.manufacturer}` : ''}
                         </div>
                       ) : null}
-                    </td>
+                    </TableCell>
 
                     {/* Phân loại */}
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                      <span className={styles.typeBadge}>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="inline-block rounded border border-slate-200 bg-slate-100 px-2 py-[0.15rem] text-[13px] font-semibold text-slate-700">
                         {ASSET_TYPE_LABEL[asset.type] ?? asset.type}
                       </span>
-                    </td>
+                    </TableCell>
 
                     {/* Vị trí / Thiết bị cha */}
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                    <TableCell className="whitespace-nowrap">
                       {parent ? (
                         <span
-                          style={{ color: '#334155', fontSize: '13px' }}
+                          className="text-[13px] text-slate-700"
                           title={`Thuộc ${parent.name} (${parent.code})`}
                         >
-                          ↳ <strong>{parent.name}</strong> <code style={{ fontSize: '12px', color: '#64748b' }}>({parent.code})</code>
+                          ↳ <strong>{parent.name}</strong> <code className="text-xs text-slate-500">({parent.code})</code>
                         </span>
                       ) : (
-                        <span
-                          style={{
-                            color: '#15803d',
-                            fontWeight: 600,
-                            fontSize: '12px',
-                            background: '#dcfce7',
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                          }}
-                        >
+                        <span className="rounded bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
                           Node Gốc
                         </span>
                       )}
-                    </td>
+                    </TableCell>
 
                     {/* Tình trạng vận hành */}
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
-                      <span className={`${styles.statusBadge} ${styles[`status_${asset.status}`] ?? ''}`}>
+                    <TableCell className="whitespace-nowrap">
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-[0.35rem] rounded-full border px-[0.55rem] py-[0.15rem] text-xs font-bold whitespace-nowrap',
+                          ASSET_STATUS_TONE[asset.status],
+                        )}
+                      >
                         {ASSET_STATUS_LABEL[asset.status] ?? asset.status}
                       </span>
-                    </td>
+                    </TableCell>
 
                     {/* Độ quan trọng */}
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                    <TableCell className="whitespace-nowrap">
                       <span
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 600,
-                          color:
-                            asset.criticality === 'CRITICAL'
-                              ? '#dc2626'
-                              : asset.criticality === 'HIGH'
-                              ? '#ea580c'
+                        className={cn(
+                          'text-xs font-semibold',
+                          asset.criticality === 'CRITICAL'
+                            ? 'text-red-600'
+                            : asset.criticality === 'HIGH'
+                              ? 'text-orange-600'
                               : asset.criticality === 'MEDIUM'
-                              ? '#0284c7'
-                              : '#64748b',
-                        }}
+                                ? 'text-sky-600'
+                                : 'text-slate-500',
+                        )}
                       >
                         {ASSET_CRITICALITY_LABEL[asset.criticality] ?? asset.criticality}
                       </span>
-                    </td>
+                    </TableCell>
 
                     {/* Linh kiện lắp ráp */}
-                    <td style={{ padding: '10px 12px', whiteSpace: 'nowrap' }}>
+                    <TableCell className="whitespace-nowrap">
                       {line ? (
-                        <span className={styles.installedQty} style={{ fontSize: '12px' }}>
+                        <span className="rounded bg-green-100 px-[0.35rem] py-[0.05rem] text-xs font-semibold text-green-800">
                           Lắp: {line.quantity} {line.unit ?? ''}
                         </span>
                       ) : (
-                        <span style={{ color: '#94a3b8', fontSize: '12px' }}>—</span>
+                        <span className="text-xs text-slate-400">—</span>
                       )}
-                    </td>
+                    </TableCell>
 
                     {/* Thao tác */}
-                    <td style={{ padding: '10px 12px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                      <button
+                    <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                      <Button
                         type="button"
-                        className={styles.editRowBtn}
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
                         onClick={() => handleSelectAndClose(asset.id)}
                         title={`Xem chi tiết thiết bị ${asset.name}`}
-                        style={{ fontSize: '12px', padding: '3px 8px' }}
                       >
                         {isSelected ? (
                           <>
@@ -784,118 +560,81 @@ export function AssetListModal({
                         ) : (
                           <span>Chọn xem →</span>
                         )}
-                      </button>
-                    </td>
-                  </tr>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
               {sortedAssets.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={10}
-                    style={{
-                      textAlign: 'center',
-                      padding: '36px 16px',
-                      color: '#94a3b8',
-                      fontSize: '14px',
-                    }}
-                  >
-                    {isFiltered
-                      ? 'Không tìm thấy thiết bị nào khớp với tiêu chí tìm kiếm/bộ lọc.'
-                      : 'Chưa có thiết bị nào trong danh sách.'}
-                  </td>
-                </tr>
+                <TableEmpty colSpan={10}>
+                  {isFiltered
+                    ? 'Không tìm thấy thiết bị nào khớp với tiêu chí tìm kiếm/bộ lọc.'
+                    : 'Chưa có thiết bị nào trong danh sách.'}
+                </TableEmpty>
               ) : null}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableWrap>
 
         {/* Footer phân trang & Đóng */}
-        <div
-          style={{
-            padding: '12px 20px',
-            background: '#f8fafc',
-            borderTop: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '13px',
-            color: '#64748b',
-          }}
-        >
+        <div className="flex flex-wrap items-center justify-between gap-2.5 border-t border-slate-200 bg-slate-50 px-5 py-3 text-[13px] text-slate-500">
           {/* Thông tin số lượng & Select page size */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <div className="flex flex-wrap items-center gap-3.5">
             <span>
               Hiển thị <strong>{sortedAssets.length > 0 ? (safePage - 1) * pageSize + 1 : 0}–{Math.min(safePage * pageSize, sortedAssets.length)}</strong> / <strong>{sortedAssets.length}</strong> thiết bị
               {assets.length !== sortedAssets.length ? ` (tổng ${assets.length})` : ''}
             </span>
 
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+            <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
               <span>Hiển thị:</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value) || 15);
+              <SearchableSelect
+                options={pageSizeOptions}
+                value={String(pageSize)}
+                onChange={(value) => {
+                  setPageSize(Number(value) || 15);
                   setPage(1);
                 }}
-                style={{
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  color: '#0f172a',
-                  fontSize: '12px',
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value={15}>15 / trang</option>
-                <option value={30}>30 / trang</option>
-                <option value={45}>45 / trang</option>
-                <option value={60}>60 / trang</option>
-              </select>
-            </label>
+                clearable={false}
+                searchInDropdown
+                hideDropdownSearch
+                height={28}
+                style={{ width: 110 }}
+              />
+            </span>
           </div>
 
           {/* Cụm nút lùi/tiến trang & Đóng */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <button
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <Button
                 type="button"
-                className={styles.reset}
-                style={{ padding: '4px 10px', fontSize: '12px' }}
+                variant="outline"
+                size="sm"
                 disabled={safePage <= 1}
                 onClick={() => setPage((prev) => Math.max(1, prev - 1))}
               >
                 ← Trước
-              </button>
-              <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '13px', minWidth: '40px', textAlign: 'center' }}>
+              </Button>
+              <span className="min-w-10 text-center text-[13px] font-semibold text-slate-900">
                 {safePage} / {totalPages}
               </span>
-              <button
+              <Button
                 type="button"
-                className={styles.reset}
-                style={{ padding: '4px 10px', fontSize: '12px' }}
+                variant="outline"
+                size="sm"
                 disabled={safePage >= totalPages}
                 onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
               >
                 Sau →
-              </button>
+              </Button>
             </div>
 
-            <button
-              type="button"
-              className={styles.btnSecondary}
-              style={{ padding: '5px 14px', fontSize: '13px', fontWeight: 600 }}
-              onClick={onClose}
-            >
+            <Button type="button" variant="outline" onClick={onClose}>
               Đóng
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </DialogContent>
 
       {isBulkDialogOpen ? (
         <BulkReturnToStockDialog
@@ -906,6 +645,6 @@ export function AssetListModal({
           onConfirm={handleConfirmBulkReturn}
         />
       ) : null}
-    </div>
+    </Dialog>
   );
 }

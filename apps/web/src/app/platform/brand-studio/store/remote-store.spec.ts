@@ -82,15 +82,17 @@ describe('remoteStore: kết nối lần đầu', () => {
     expect(docs.find((doc) => doc.id === presetId)?.name).toBe('Mẫu đã sửa');
   });
 
-  it('icon đã lưu trữ không hiện trong thư viện nhưng vẫn nằm trong danh sách tóm tắt', async () => {
+  it('icon đã lưu trữ không hiện trong thư viện chính nhưng có trong archivedDocs và danh sách tóm tắt', async () => {
     mockServer.seed(icon('a'));
-    mockServer.seed(icon('cu'), 'archived');
+    mockServer.seed(icon('cu', 'Icon cũ'), 'archived');
 
     const snap = await connect();
 
     expect(snap.docsById.has('cu')).toBe(false);
+    expect(snap.archivedDocs.map((doc) => doc.id)).toEqual(['cu']);
+    expect(snap.archivedDocs[0]?.name).toBe('Icon cũ');
     expect(snap.summaries.get('cu')?.status).toBe('archived');
-    expect(specCalls().some((call) => call.includes('/cu/'))).toBe(false);
+    expect(specCalls().some((call) => call.includes('/cu/'))).toBe(true);
   });
 
   it('nạp spec với tối đa 6 yêu cầu cùng lúc', async () => {

@@ -10,7 +10,15 @@ import { useInventoryPermissions } from '../inventory-permissions';
 import { useCallback, useEffect, useState } from 'react';
 import { addAssetSparePart, loadAssetSpareParts, removeAssetSparePart } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+
+const TREE_BADGE =
+  'inline-flex items-center gap-1 rounded border border-green-200 bg-green-50 px-1.5 py-px text-xs font-semibold text-green-700';
+const TREE_BADGE_OFF =
+  'inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-px text-xs font-medium text-slate-500';
 
 /**
  * Vật tư TRỌNG YẾU của một thiết bị / tài sản (Phụ tùng BOM).
@@ -199,54 +207,53 @@ export function SparePartPanel({
 
 
   return (
-    <section className={styles.card}>
-      <header className={styles.cardHead}>
+    <section className="rounded-2xl border border-slate-200 bg-white p-[1.2rem] shadow-sm">
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3>Vật tư trọng yếu (Phụ tùng BOM)</h3>
-          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+          <h3 className="m-0 text-base font-bold text-slate-900">Vật tư trọng yếu (Phụ tùng BOM)</h3>
+          <p className="mt-0.5 mb-0 text-xs text-slate-500">
             Hiển thị theo các node con trong sơ đồ cây. Chỉ các node con đã lắp trên cây mới có thể gán cờ “Trọng yếu”.
           </p>
         </div>
         {!isEditing ? (
-          <button
+          <Button
             type="button"
-            className={styles.btnSecondary}
-            style={{ padding: '4px 10px', fontSize: '13px' }}
+            variant="outline"
             disabled={disabled}
             onClick={startEditing}
           >
             {(lines ?? []).length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
-          </button>
+          </Button>
         ) : null}
       </header>
 
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-3 text-red-800">
           {error}
         </p>
       ) : null}
 
       {isEditing ? (
-        <div className={styles.inlineEditContainer}>
-          <div className={styles.inlineEditHeader}>
-            <span className={styles.inlineEditBadge}>Chế độ chỉnh sửa phụ tùng BOM</span>
-            <p className={styles.inlineEditHint}>
+        <div className="flex flex-col gap-[0.85rem] rounded-lg border-[1.5px] border-blue-300 bg-slate-50 p-4 shadow-sm">
+          <div className="flex flex-col gap-1 border-b border-dashed border-slate-300 pb-2">
+            <span className="inline-flex items-center gap-[0.35rem] text-sm font-bold text-blue-700">Chế độ chỉnh sửa phụ tùng BOM</span>
+            <p className="m-0 text-[13px] leading-snug text-slate-500">
               Khai báo các vật tư thay thế, định mức sử dụng và tính chất trọng yếu. Chỉ node con thuộc sơ đồ cây mới được bật tính năng <strong>Trọng yếu</strong>. Nhấn <strong>Lưu phụ tùng (BOM)</strong> để áp dụng.
             </p>
           </div>
 
-          <div className={styles.inlineEditTableWrap}>
-            <table className={styles.inlineEditTable} style={{ tableLayout: 'fixed' }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '38%', padding: '8px 10px' }}>Tên vật tư con / Mã</th>
-                  <th style={{ width: '22%', padding: '8px 10px' }}>Vị trí sơ đồ cây</th>
-                  <th style={{ width: '18%', padding: '8px 10px' }}>Định mức số lượng</th>
-                  <th style={{ width: '14%', padding: '8px 10px' }}>Trọng yếu</th>
-                  <th style={{ width: '8%', textAlign: 'center', padding: '8px 6px' }}>Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
+          <TableWrap className="rounded-md border border-slate-200 bg-white">
+            <Table className="table-fixed">
+              <TableHead>
+                <TableRow className="hover:bg-slate-50">
+                  <TableHeaderCell className="w-[38%] px-2.5 py-2">Tên vật tư con / Mã</TableHeaderCell>
+                  <TableHeaderCell className="w-[22%] px-2.5 py-2">Vị trí sơ đồ cây</TableHeaderCell>
+                  <TableHeaderCell className="w-[18%] px-2.5 py-2">Định mức số lượng</TableHeaderCell>
+                  <TableHeaderCell className="w-[14%] px-2.5 py-2">Trọng yếu</TableHeaderCell>
+                  <TableHeaderCell className="w-[8%] px-1.5 py-2 text-center">Thao tác</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {draftLines.map((draft, index) => {
                   const mat = materials.find((m) => m.code === draft.materialCode);
                   const childNode = getTreeNode(draft.materialCode);
@@ -254,37 +261,36 @@ export function SparePartPanel({
                   const name = mat?.name ?? childNode?.materialName ?? draft.materialCode;
                   const unit = mat?.unit ?? childNode?.unit ?? '';
                   return (
-                    <tr key={draft.materialCode}>
-                      <td style={{ padding: '6px 10px' }}>
+                    <TableRow key={draft.materialCode}>
+                      <TableCell className="px-2.5 py-1.5">
                         <strong>{name}</strong>
-                        <div style={{ fontSize: '12px', color: '#64748b' }}>
+                        <div className="text-xs text-slate-500">
                           <code>{draft.materialCode}</code>
                           {' · '}
                           <span>trong kho: {formatNumber(stockOf(draft.materialCode))} {unit}</span>
                         </div>
-                      </td>
-                      <td style={{ padding: '6px 10px' }}>
+                      </TableCell>
+                      <TableCell className="px-2.5 py-1.5">
                         {inTree && childNode ? (
-                          <span className={styles.treeNodeBadge}>
+                          <span className={TREE_BADGE}>
                             Node con: <code>{childNode.unitCode}</code>
                           </span>
                         ) : (
                           <span
-                            className={styles.treeNodeBadgeNotInstalled}
+                            className={TREE_BADGE_OFF}
                             title="Chưa lắp vào cây tài sản, không thể gán trọng yếu"
                           >
                             Chưa thuộc cây con
                           </span>
                         )}
-                      </td>
-                      <td style={{ padding: '6px 8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <input
-                            className={styles.inlineEditInput}
+                      </TableCell>
+                      <TableCell className="px-2 py-1.5">
+                        <div className="flex items-center gap-1">
+                          <Input
+                            className="h-8 w-[75px] text-[13px]"
                             type="number"
                             min={getUnitQuantityConfig(unit).min}
                             step={getUnitQuantityConfig(unit).step}
-                            style={{ width: '75px' }}
                             value={draft.standardQuantity}
                             onChange={(e) =>
                               setDraftLines((prev) =>
@@ -296,20 +302,15 @@ export function SparePartPanel({
                               )
                             }
                           />
-                          <span style={{ fontSize: '12px', color: '#64748b' }}>{unit}</span>
+                          <span className="text-xs text-slate-500">{unit}</span>
                         </div>
-                      </td>
-                      <td style={{ padding: '6px 10px' }}>
+                      </TableCell>
+                      <TableCell className="px-2.5 py-1.5">
                         <label
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            fontSize: '13px',
-                            cursor: inTree ? 'pointer' : 'not-allowed',
-                            opacity: inTree ? 1 : 0.45,
-                            userSelect: 'none',
-                          }}
+                          className={cn(
+                            'inline-flex select-none items-center gap-1.5 text-[13px]',
+                            inTree ? 'cursor-pointer' : 'cursor-not-allowed opacity-45',
+                          )}
                           title={
                             inTree
                               ? 'Gán là vật tư phụ tùng trọng yếu'
@@ -330,10 +331,10 @@ export function SparePartPanel({
                               )
                             }
                           />
-                          <span style={{ fontWeight: draft.isCriticalSpare ? 600 : 400 }}>Trọng yếu</span>
+                          <span className={draft.isCriticalSpare ? 'font-semibold' : 'font-normal'}>Trọng yếu</span>
                         </label>
-                      </td>
-                      <td className={styles.center}>
+                      </TableCell>
+                      <TableCell className="text-center">
                         <Popconfirm
                           title="Xoá phụ tùng này khỏi bảng BOM?"
                           description={`Vật tư "${name}" (${draft.materialCode}) sẽ bị gỡ bỏ.`}
@@ -345,34 +346,34 @@ export function SparePartPanel({
                             setDraftLines((prev) => prev.filter((_, p) => p !== index))
                           }
                         >
-                          <button
+                          <Button
                             type="button"
-                            className={styles.deleteActionBtn}
+                            variant="destructive"
+                            size="sm"
                             title="Xoá dòng này"
                           >
                             Xoá
-                          </button>
+                          </Button>
                         </Popconfirm>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
                 {draftLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className={styles.inlineEmptyCell}>
-                      Chưa có phụ tùng nào trong danh sách. Thêm vật tư ở form bên dưới.
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={5}>
+                    Chưa có phụ tùng nào trong danh sách. Thêm vật tư ở form bên dưới.
+                  </TableEmpty>
                 ) : null}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableWrap>
 
           {/* Form thêm nhanh dòng mới vào draft có ô tìm kiếm/lọc trực tiếp */}
-          <div className={styles.spareForm} style={{ marginTop: '6px', padding: '8px 10px', background: '#ffffff', borderRadius: '6px', border: '1px dashed #cbd5e1', position: 'relative' }}>
-            <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
-              <input
+          <div className="relative mt-1.5 flex flex-wrap items-center gap-2 rounded-md border border-dashed border-slate-300 bg-white px-2.5 py-2">
+            <div className="relative min-w-[220px] flex-1">
+              <Input
                 type="text"
+                className="h-8 text-[13px]"
                 disabled={disabled || options.length === 0}
                 placeholder={
                   childMaterials.length === 0
@@ -389,38 +390,14 @@ export function SparePartPanel({
                   setIsDropdownOpen(true);
                   if (materialCode) setMaterialCode('');
                 }}
-                style={{
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  padding: '6px 10px',
-                  fontSize: '13px',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '5px',
-                  outline: 'none',
-                }}
               />
               {isDropdownOpen ? (
                 <>
                   <div
-                    style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                    className="fixed inset-0 z-[99]"
                     onClick={() => setIsDropdownOpen(false)}
                   />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      zIndex: 100,
-                      maxHeight: '200px',
-                      overflowY: 'auto',
-                      background: '#ffffff',
-                      border: '1px solid #93c5fd',
-                      borderRadius: '5px',
-                      boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                      marginTop: '4px',
-                    }}
-                  >
+                  <div className="absolute top-full right-0 left-0 z-[100] mt-1 max-h-[200px] overflow-y-auto rounded-[5px] border border-blue-300 bg-white shadow-lg">
                     {options
                       .filter((opt) => !draftLines.some((d) => d.materialCode === opt.code))
                       .filter((opt) => {
@@ -431,36 +408,22 @@ export function SparePartPanel({
                       .map((opt) => (
                         <div
                           key={opt.code}
-                          style={{
-                            padding: '7px 10px',
-                            fontSize: '13px',
-                            cursor: 'pointer',
-                            borderBottom: '1px solid #f1f5f9',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#eff6ff';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#ffffff';
-                          }}
+                          className="flex cursor-pointer items-center justify-between border-b border-slate-100 bg-white px-2.5 py-[7px] text-[13px] hover:bg-blue-50"
                           onClick={() => {
                             handleAddOption(opt.code);
                           }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontSize: '12px', padding: '1px 5px', borderRadius: '3px', background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
+                          <div className="flex items-center gap-1.5">
+                            <span className="rounded-[3px] bg-green-100 px-[5px] py-px text-xs font-semibold text-green-800">
                               Node con ({opt.unitCode})
                             </span>
-                            <strong>{opt.name}</strong> <code style={{ color: '#2563eb' }}>({opt.code})</code>
+                            <strong>{opt.name}</strong> <code className="text-blue-600">({opt.code})</code>
                           </div>
-                          {opt.unit ? <span style={{ color: '#64748b', fontSize: '12px' }}>{opt.unit}</span> : null}
+                          {opt.unit ? <span className="text-xs text-slate-500">{opt.unit}</span> : null}
                         </div>
                       ))}
                     {options.filter((opt) => !draftLines.some((d) => d.materialCode === opt.code)).length === 0 ? (
-                      <div style={{ padding: '10px', fontSize: '13px', color: '#64748b', textAlign: 'center' }}>
+                      <div className="p-2.5 text-center text-[13px] text-slate-500">
                         Không có node con nào khả dụng để thêm.
                       </div>
                     ) : null}
@@ -470,32 +433,31 @@ export function SparePartPanel({
             </div>
           </div>
 
-          <div className={styles.inlineActionRow}>
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <div />
-            <div className={styles.inlineSaveGroup}>
-              <button
+            <div className="flex items-center gap-[0.6rem]">
+              <Button
                 type="button"
-                className={styles.modalCancelBtn}
+                variant="outline"
                 disabled={disabled}
                 onClick={cancelEditing}
               >
                 Hủy bỏ
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={styles.modalSaveBtn}
                 disabled={disabled}
                 onClick={() => void handleSaveAll()}
               >
                 {saving ? 'Đang lưu…' : 'Lưu phụ tùng (BOM)'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       ) : (
         <>
           {lines && lines.length > 0 ? (
-            <div className={styles.spareCardGrid}>
+            <div className="mb-3 flex flex-col gap-[0.6rem]">
               {lines.map((line) => {
                 const onHand = stockOf(line.materialCode);
                 const free = freeOf(line.materialCode);
@@ -504,38 +466,48 @@ export function SparePartPanel({
                 const inTree = Boolean(childNode);
 
                 return (
-                  <div key={line.id} className={styles.spareItemCard}>
-                    <div className={styles.spareCardLeft}>
-                      <div className={styles.spareCardIconWrap}>
-                        <span className={styles.spareCardIcon}></span>
+                  <div
+                    key={line.id}
+                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-[0.95rem] py-3 shadow-sm transition-all hover:-translate-y-px hover:border-slate-300 hover:shadow-md"
+                  >
+                    <div className="flex flex-1 items-center gap-[0.85rem]">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50">
+                        <span className="text-base"></span>
                       </div>
-                      <div className={styles.spareCardInfo}>
-                        <div className={styles.spareCardTitleRow}>
-                          <span className={styles.spareCardName}>{line.materialName}</span>
-                          <span className={styles.spareCardCodeTag}>{line.materialCode}</span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold text-slate-900">{line.materialName}</span>
+                          <span className="rounded border border-slate-200 bg-slate-100 px-1.5 py-[0.1rem] font-mono text-[13px] font-semibold text-slate-600">{line.materialCode}</span>
                           {inTree && childNode ? (
-                            <span className={styles.treeNodeBadge} style={{ fontSize: '12px', padding: '1px 6px' }}>
+                            <span className={TREE_BADGE}>
                               Node con: {childNode.unitCode}
                             </span>
                           ) : (
-                            <span className={styles.treeNodeBadgeNotInstalled} style={{ fontSize: '12px', padding: '1px 6px' }}>
+                            <span className={TREE_BADGE_OFF}>
                               Chưa thuộc cây
                             </span>
                           )}
                           {line.isCriticalSpare && inTree ? (
-                            <span className={styles.criticalBadge}>Trọng yếu</span>
+                            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-100 px-[0.45rem] py-[0.1rem] text-xs font-bold text-amber-700">Trọng yếu</span>
                           ) : null}
                         </div>
-                        <div className={styles.spareCardMeta}>
-                          <span className={styles.spareQuotaTag}>
+                        <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
+                          <span className="text-slate-700">
                             Định mức: <strong>{formatNumber(line.standardQuantity)} {line.unit}</strong>
                           </span>
-                          <span className={styles.metaDot}>•</span>
-                          <span className={isOutOfStock ? styles.stockBadgeDanger : styles.stockBadgeSuccess}>
+                          <span className="text-slate-300">•</span>
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded border px-1.5 py-px text-xs font-semibold',
+                              isOutOfStock
+                                ? 'border-red-200 bg-red-50 text-red-700'
+                                : 'border-green-200 bg-green-50 text-green-800',
+                            )}
+                          >
                             {isOutOfStock ? 'Hết hàng trong kho' : `Tồn kho: ${formatNumber(onHand)} ${line.unit}`}
                           </span>
                           {free !== onHand ? (
-                            <span className={styles.spareFreeStock}>
+                            <span className="text-xs text-slate-500">
                               (Khả dụng: {formatNumber(free)})
                             </span>
                           ) : null}
@@ -547,11 +519,11 @@ export function SparePartPanel({
               })}
             </div>
           ) : lines ? (
-            <p className={styles.empty}>Chưa cấu hình phụ tùng trọng yếu (BOM) nào cho thiết bị.</p>
+            <p className="m-0 py-8 text-center text-slate-500">Chưa cấu hình phụ tùng trọng yếu (BOM) nào cho thiết bị.</p>
           ) : null}
 
           {options.length === 0 && (lines ?? []).length === 0 ? (
-            <p className={styles.hint}>
+            <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
               Chưa có vật tư con nào đang lắp trên {assetCode}. Dùng nút “+” trên sơ đồ cây để lắp vật tư từ
               kho vào đây trước, rồi mới chọn vật tư nào là trọng yếu.
             </p>
@@ -561,4 +533,3 @@ export function SparePartPanel({
     </section>
   );
 }
-

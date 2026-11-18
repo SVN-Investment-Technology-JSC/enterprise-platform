@@ -97,6 +97,29 @@ interface SubmittedPayload {
   /** Đơn tự gắn theo một đơn công tác (người gửi không chọn dự án). */
   readonly viaRequestKind?: string | null;
   readonly viaRequestId?: string | null;
+  /** Chi tiết đơn do module nguồn dịch sẵn ("nhãn – giá trị"); xem `sanitizeDetails`. */
+  readonly details?: unknown;
+}
+
+const MAX_DETAILS = 40;
+const MAX_DETAIL_LABEL = 100;
+const MAX_DETAIL_VALUE = 2000;
+
+/**
+ * Chi tiết đơn đến từ module khác nên không tin hình dạng của nó: chỉ giữ cặp chuỗi không rỗng, cắt độ dài và số
+ * dòng. Trả `null` khi không còn gì để lưu.
+ */
+export function sanitizeDetails(value: unknown): { label: string; value: string }[] | null {
+  if (!Array.isArray(value)) return null;
+  const items = value
+    .flatMap((entry) => {
+      const item = (entry ?? {}) as { label?: unknown; value?: unknown };
+      const label = typeof item.label === 'string' ? item.label.trim().slice(0, MAX_DETAIL_LABEL) : '';
+      const text = typeof item.value === 'string' ? item.value.trim().slice(0, MAX_DETAIL_VALUE) : '';
+      return label && text ? [{ label, value: text }] : [];
+    })
+    .slice(0, MAX_DETAILS);
+  return items.length > 0 ? items : null;
 }
 
 interface UpdatedPayload {
@@ -248,8 +271,8 @@ async function registerRequest(
     `INSERT INTO workspace_schema.project_requests
        (project_id, code, source_module, source_kind, source_id, request_type_label,
         requester_user_id, requester_name, from_date, to_date, status, source_version,
-        launch_url, submitted_at, status_changed_at, linked_via_kind, linked_via_source_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$15,$16)
+        launch_url, submitted_at, status_changed_at, linked_via_kind, linked_via_source_id, details)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$15,$16,$17::jsonb)
      RETURNING id`,
     [
       project.id,
@@ -268,6 +291,7 @@ async function registerRequest(
       payload.submittedAt ?? new Date().toISOString(),
       payload.viaRequestKind?.slice(0, 40) ?? null,
       payload.viaRequestId ?? null,
+      JSON.stringify(sanitizeDetails(payload.details)),
     ],
   );
   const id = inserted.rows[0]?.id as string;

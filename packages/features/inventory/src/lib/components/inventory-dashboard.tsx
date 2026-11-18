@@ -3,7 +3,7 @@ import {
   resolveDashboardCards,
   type DashboardCardSize,
 } from '@enterprise-platform/feature-module-shell';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { formatDateTime as formatSharedDateTime, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import type {
   InventoryLedgerRow,
@@ -14,13 +14,19 @@ import {
   type InventoryDashboardData,
 } from '../inventory-dashboard.cards';
 import { formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Card, CardHeader, CardTitle } from '../ui/card';
+import { cn } from '../ui/cn';
+import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
+
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 30].map((value) => ({ value: String(value), label: `${value} / trang` }));
 
 const SIZE_CLASS: Readonly<Record<DashboardCardSize, string>> = {
-  sm: styles.cardSm,
-  md: styles.cardMd,
-  lg: styles.cardLg,
-  xl: styles.cardXl,
+  sm: 'col-span-1',
+  md: 'col-span-1 min-[48.01rem]:col-span-2',
+  lg: 'col-span-1 min-[48.01rem]:col-span-2 min-[72.01rem]:col-span-3',
+  xl: 'col-span-1 min-[48.01rem]:col-span-2 min-[72.01rem]:col-span-4',
 };
 
 const TRANSACTION_TYPE_LABEL: Record<string, string> = {
@@ -100,13 +106,15 @@ export function InventoryDashboard({
   }, [ledger, safeCurrentPage, pageSize]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div className="flex flex-col gap-6">
       {/* Top Banner & Quick Actions */}
-      <div className={styles.sectionHeading}>
+      <div className="mb-[1.1rem] flex flex-wrap items-center justify-between gap-[0.85rem]">
         <div>
-          <span className={styles.eyebrow}>Trung tâm Điều hành Kho &amp; Thiết bị</span>
-          <h1>Tổng quan Tài sản &amp; Tồn kho</h1>
-          <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
+          <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-[0.65rem] py-[0.2rem] text-[0.8125rem] font-bold text-slate-900">
+            Trung tâm Điều hành Kho &amp; Thiết bị
+          </span>
+          <h1 className="m-0 text-[1.25rem] font-bold tracking-[-0.02em] text-slate-900">Tổng quan Tài sản &amp; Tồn kho</h1>
+          <p className="m-0 mt-1 text-[14px] text-slate-500">
             Theo dõi tổng lượng tồn kho, cảnh báo định mức Min/Max và tiến độ luân chuyển thiết bị.
           </p>
         </div>
@@ -114,89 +122,56 @@ export function InventoryDashboard({
 
       {/* Dynamic KPI / Chart Cards Section */}
       {activeCards.length > 0 ? (
-        <div className={styles.dashboardCardsGrid}>
+        <div className="grid grid-cols-1 gap-4 min-[48.01rem]:grid-cols-2 min-[72.01rem]:grid-cols-4">
           {activeCards.map((card) => (
-            <section
-              key={card.id}
-              className={`${styles.card} ${SIZE_CLASS[card.size]}`}
-              style={{ display: 'flex', flexDirection: 'column', padding: '16px' }}
-            >
-              <h2 className={styles.cardTitle} style={{ margin: '0 0 10px', fontSize: '14px', color: '#64748b', fontWeight: 600 }}>
+            <Card key={card.id} className={cn('gap-0 p-4', SIZE_CLASS[card.size])}>
+              <h2 className="m-0 mb-[10px] text-[14px] font-semibold text-slate-500">
                 {card.title}
               </h2>
               {card.render(dashboardData)}
-            </section>
+            </Card>
           ))}
         </div>
       ) : (
-        <div
-          className={styles.empty}
-          style={{
-            padding: '24px',
-            textAlign: 'center',
-            background: '#ffffff',
-            borderRadius: '8px',
-            border: '1px dashed #cbd5e1',
-          }}
-        >
-          <p style={{ margin: '0 0 8px', color: '#64748b', fontSize: '14px' }}>
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center">
+          <p className="m-0 mb-2 text-[14px] text-slate-500">
             Chưa có thẻ tổng quan nào được chọn hiển thị.
           </p>
-          <button
-            type="button"
-            className={styles.reset}
-            style={{ fontSize: '13px', padding: '4px 10px' }}
-            onClick={() => onNavigate('settings')}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={() => onNavigate('settings')}>
             Đi đến Cài đặt thẻ →
-          </button>
+          </Button>
         </div>
       )}
 
-
       {/* Master Detail 2 Panels Grid */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(320px, 1fr) minmax(420px, 1.4fr)',
-          gap: '16px',
-        }}
-      >
+      <div className="grid gap-4 [grid-template-columns:minmax(320px,1fr)_minmax(420px,1.4fr)]">
         {/* Left Panel: Warehouse Distribution */}
-        <div className={styles.card}>
-          <div className={styles.cardHead}>
-            <h3 style={{ margin: 0, fontSize: '16px' }}>Phân bổ theo Kho lưu trữ</h3>
-            <span style={{ fontSize: '13px', color: '#64748b' }}>
+        <Card className="gap-0">
+          <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+            <CardTitle className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">Phân bổ theo Kho lưu trữ</CardTitle>
+            <span className="text-[13px] text-slate-500">
               {workspace.warehouses.length} kho
             </span>
-          </div>
+          </CardHeader>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '16px' }}>
+          <div className="mt-4 flex flex-col gap-[10px]">
             {workspace.warehouses.map((wh) => {
               const stockInWh = workspace.stock.filter((s) => s.warehouseId === wh.id);
               const totalItems = stockInWh.reduce((sum, s) => sum + s.quantity, 0);
               return (
                 <div
                   key={wh.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                  }}
+                  className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-[10px]"
                 >
                   <div>
-                    <strong style={{ fontSize: '14px', color: '#0f172a' }}>{wh.name}</strong>
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>Mã kho: {wh.code}</div>
+                    <strong className="text-[14px] text-slate-900">{wh.name}</strong>
+                    <div className="text-[12px] text-slate-500">Mã kho: {wh.code}</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 700, fontSize: '14px', color: '#2563eb' }}>
+                  <div className="text-right">
+                    <div className="text-[14px] font-bold text-slate-900">
                       {formatNumber(totalItems)}
                     </div>
-                    <small style={{ fontSize: '12px', color: '#64748b' }}>
+                    <small className="text-[12px] text-slate-500">
                       {stockInWh.length} danh mục
                     </small>
                   </div>
@@ -204,195 +179,137 @@ export function InventoryDashboard({
               );
             })}
             {workspace.warehouses.length === 0 ? (
-              <p style={{ color: '#64748b', fontSize: '13px' }}>Chưa có kho nào được thiết lập.</p>
+              <p className="text-[13px] text-slate-500">Chưa có kho nào được thiết lập.</p>
             ) : null}
           </div>
-        </div>
+        </Card>
 
         {/* Right Panel: Recent Transactions */}
-        <div className={styles.card} style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className={styles.cardHead}>
-            <h3 style={{ margin: 0, fontSize: '16px' }}>Giao dịch Kho gần đây</h3>
-            <button
-              type="button"
-              className={styles.reset}
-              style={{ fontSize: '13px', padding: '4px 10px' }}
-              onClick={() => onNavigate('transactions')}
-            >
+        <Card className="gap-0">
+          <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
+            <CardTitle className="m-0 text-base font-bold tracking-[-0.02em] text-slate-900">Giao dịch Kho gần đây</CardTitle>
+            <Button type="button" variant="outline" size="sm" onClick={() => onNavigate('transactions')}>
               Xem tất cả →
-            </button>
-          </div>
+            </Button>
+          </CardHeader>
 
-          <div style={{ overflowX: 'auto', marginTop: '12px', flex: 1 }}>
-            <table className={styles.table} style={{ width: '100%', fontSize: '13px' }}>
-              <thead>
+          <TableWrap className="mt-3 flex-1 overflow-x-auto">
+            <Table className="text-[13px]">
+              <TableHead>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Mã phiếu</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Loại giao dịch</th>
-                  <th style={{ textAlign: 'left', padding: '8px' }}>Vật tư</th>
-                  <th style={{ textAlign: 'center', padding: '8px' }}>Số lượng</th>
-                  <th style={{ textAlign: 'right', padding: '8px' }}>Thời gian</th>
+                  <TableHeaderCell className="p-2 text-left">Mã phiếu</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-left">Loại giao dịch</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-left">Vật tư</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-center">Số lượng</TableHeaderCell>
+                  <TableHeaderCell className="p-2 text-right">Thời gian</TableHeaderCell>
                 </tr>
-              </thead>
-              <tbody>
+              </TableHead>
+              <TableBody>
                 {pagedLedger.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}
-                    >
-                      Chưa có giao dịch kho nào phát sinh trong sổ cái.
-                    </td>
-                  </tr>
+                  <TableEmpty colSpan={5}>Chưa có giao dịch kho nào phát sinh trong sổ cái.</TableEmpty>
                 ) : (
                   pagedLedger.map((row) => {
                     const material = materialById.get(row.materialId);
                     const isReceipt = row.quantity > 0;
                     return (
-                      <tr key={row.id}>
-                        <td style={{ fontWeight: 600, color: '#2563eb', padding: '8px' }}>
+                      <TableRow key={row.id}>
+                        <TableCell className="p-2 font-semibold text-slate-900">
                           {row.transactionCode}
-                        </td>
-                        <td style={{ padding: '8px' }}>
+                        </TableCell>
+                        <TableCell className="p-2">
                           <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: '999px',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              background: isReceipt ? '#dcfce7' : '#fee2e2',
-                              color: isReceipt ? '#15803d' : '#b91c1c',
-                            }}
+                            className={cn(
+                              'rounded-full px-2 py-0.5 text-[12px] font-semibold',
+                              isReceipt ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700',
+                            )}
                           >
                             {TRANSACTION_TYPE_LABEL[row.type] ?? row.type}
                           </span>
-                        </td>
-                        <td style={{ padding: '8px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        </TableCell>
+                        <TableCell className="p-2">
+                          <div className="flex items-center gap-[6px]">
                             <strong>{material?.code ?? row.materialId}</strong>
                             {material && material.isActive === false ? (
-                              <span
-                                style={{
-                                  fontSize: '12px',
-                                  padding: '1px 5px',
-                                  borderRadius: '4px',
-                                  background: '#f1f5f9',
-                                  color: '#64748b',
-                                  border: '1px solid #cbd5e1',
-                                  fontWeight: 500,
-                                }}
-                              >
+                              <Badge variant="outline" className="h-auto rounded px-[5px] py-px text-[12px] font-medium text-slate-500">
                                 Ngừng dùng
-                              </span>
+                              </Badge>
                             ) : null}
                           </div>
                           {material ? (
-                            <div style={{ fontSize: '12px', color: '#64748b' }}>
+                            <div className="text-[12px] text-slate-500">
                               {material.name}
                             </div>
                           ) : null}
-                        </td>
-                        <td
-                          style={{
-                            textAlign: 'center',
-                            fontWeight: 700,
-                            color: isReceipt ? '#15803d' : '#b91c1c',
-                            padding: '8px',
-                          }}
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            'p-2 text-center font-bold',
+                            isReceipt ? 'text-green-700' : 'text-red-700',
+                          )}
                         >
                           {isReceipt ? '+' : ''}
                           {formatNumber(row.quantity)} {material?.unit ?? ''}
-                        </td>
-                        <td
-                          style={{
-                            textAlign: 'right',
-                            fontSize: '12px',
-                            color: '#64748b',
-                            padding: '8px',
-                          }}
-                        >
+                        </TableCell>
+                        <TableCell className="p-2 text-right text-[12px] text-slate-500">
                           {formatDateTime(row.createdAt)}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })
                 )}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </TableWrap>
 
           {/* Pagination Footer */}
           {ledger.length > 0 ? (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '8px',
-                marginTop: '12px',
-                paddingTop: '8px',
-                borderTop: '1px solid #e2e8f0',
-                fontSize: '13px',
-                color: '#64748b',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2 text-[13px] text-slate-500">
+              <div className="flex flex-wrap items-center gap-3">
                 <span>
                   Trang <strong>{safeCurrentPage}</strong> / <strong>{totalPages}</strong> ({ledger.length} giao dịch)
                 </span>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b' }}>
+                <div className="inline-flex items-center gap-[6px] text-[12px] text-slate-500">
                   <span>Hiển thị:</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => {
-                      setPageSize(Number(event.target.value) || 5);
-                      setCurrentPage(1);
-                    }}
-                    style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '12px',
-                      outline: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value={5}>5 / trang</option>
-                    <option value={10}>10 / trang</option>
-                    <option value={15}>15 / trang</option>
-                    <option value={30}>30 / trang</option>
-                  </select>
-                </label>
+                  <div className="w-[110px]">
+                    <SearchableSelect
+                      options={PAGE_SIZE_OPTIONS}
+                      value={String(pageSize)}
+                      onChange={(value) => {
+                        setPageSize(Number(value) || 5);
+                        setCurrentPage(1);
+                      }}
+                      clearable={false}
+                      height={28}
+                    />
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <button
+              <div className="flex items-center gap-[6px]">
+                <Button
                   type="button"
-                  className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                  variant="outline"
+                  size="sm"
                   disabled={safeCurrentPage <= 1}
                   onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                 >
                   ← Trước
-                </button>
-                <span style={{ fontWeight: 600, color: '#0f172a', fontSize: '12px' }}>
+                </Button>
+                <span className="text-[12px] font-semibold text-slate-900">
                   {safeCurrentPage} / {totalPages}
                 </span>
-                <button
+                <Button
                   type="button"
-                  className={styles.reset}
-                  style={{ padding: '3px 8px', fontSize: '12px' }}
+                  variant="outline"
+                  size="sm"
                   disabled={safeCurrentPage >= totalPages}
                   onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                 >
                   Sau →
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
-        </div>
+        </Card>
       </div>
     </div>
   );

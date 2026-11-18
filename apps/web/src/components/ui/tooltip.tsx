@@ -31,13 +31,17 @@ function TooltipContent({
   sideOffset = 4,
   align = 'center',
   alignOffset = 0,
+  positionerClassName,
   children,
   ...props
 }: TooltipPrimitive.Popup.Props &
   Pick<
     TooltipPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset'
-  >) {
+  > & {
+    /** Lớp cho khung định vị, dùng khi tooltip phải nằm trên hộp thoại có z-index lớn hơn 50. */
+    positionerClassName?: string;
+  }) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Positioner
@@ -45,7 +49,7 @@ function TooltipContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className="isolate z-50"
+        className={cn('isolate z-50', positionerClassName)}
       >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"

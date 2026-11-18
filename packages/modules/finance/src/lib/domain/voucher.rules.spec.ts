@@ -107,21 +107,17 @@ describe('hạch toán cho dự án/công việc và dự án liên quan', () =>
     expect(v.allocation).toEqual({ type: 'PROJECT', projectId: ID(11), workItemId: null });
   });
 
-  it('hạch toán cho công việc: bắt buộc công việc; hạch toán cho dự án không được kèm công việc', () => {
-    expect(normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2, workItemId: W1 } })).allocation).toEqual({
-      type: 'WORK_ITEM',
-      projectId: P2,
-      workItemId: W1,
-    });
-    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2 } }))).toThrow(/công việc/);
-    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P2, workItemId: W1 } }))).toThrow(/không kèm công việc/);
+  it('hạch toán nội bộ chỉ ở cấp dự án: công việc không phải đích hạch toán', () => {
+    const asWorkItem = { type: 'WORK_ITEM', projectId: P2, workItemId: W1 } as never;
+    expect(() => normalizeVoucherInput(receipt({ allocation: asWorkItem }))).toThrow(/chỉ ở cấp dự án/);
+    const withItem = { type: 'PROJECT', projectId: P2, workItemId: W1 } as never;
+    expect(() => normalizeVoucherInput(receipt({ allocation: withItem }))).toThrow(/không kèm công việc/);
   });
 
   it('từ chối hình thức lạ, thiếu dự án và id không hợp lệ', () => {
-    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'TEAM' as never, projectId: P2 } }))).toThrow(/Hình thức hạch toán/);
+    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'TEAM' as never, projectId: P2 } }))).toThrow(/chỉ ở cấp dự án/);
     expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: '' } }))).toThrow(/Chọn dự án/);
     expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: 'abc' } }))).toThrow(/không hợp lệ/);
-    expect(() => normalizeVoucherInput(receipt({ allocation: { type: 'WORK_ITEM', projectId: P2, workItemId: 'abc' } }))).toThrow(/không hợp lệ/);
   });
 
   it('lệnh chuyển tiền không hạch toán cho dự án', () => {
@@ -177,6 +173,32 @@ describe('validateForSubmit', () => {
   });
 
   it('phiếu thu đủ thông tin thì hợp lệ', () => {
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), refs())).toEqual([]);
+  });
+
+  it('bắt buộc hạch toán dự án (cài đặt): thiếu hạch toán thì lỗi, có dự án hoặc công việc thì hợp lệ', () => {
+    const required = refs({ requireAllocation: true });
+    const P1 = '11111111-1111-4111-8111-111111111111';
+    const P2 = '22222222-2222-4222-8222-222222222222';
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), required)).toEqual([
+      expect.stringContaining('bắt buộc hạch toán dự án'),
+    ]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P1 } })), required)).toEqual([]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P2 } })), required)).toEqual([]);
+  });
+
+  it('lý do bắt buộc chọn dự án: thiếu hạch toán thì lỗi dù cài đặt chung tắt; có dự án thì hợp lệ', () => {
+    const P1 = '11111111-1111-4111-8111-111111111111';
+    const strict = refs({ reason: { kind: 'RECEIPT', isActive: true, requireProject: true }, requireAllocation: false });
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), strict)).toEqual([expect.stringContaining('Lý do đã chọn bắt buộc hạch toán')]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P1 } })), strict)).toEqual([]);
+    // Lý do không bắt buộc và cài đặt chung tắt: không đòi.
+    const loose = refs({ reason: { kind: 'RECEIPT', isActive: true, requireProject: false } });
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), loose)).toEqual([]);
+  });
+
+  it('không bắt buộc hạch toán khi cài đặt tắt hoặc vắng', () => {
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), refs({ requireAllocation: false }))).toEqual([]);
     expect(validateForSubmit(normalizeVoucherInput(receipt()), refs())).toEqual([]);
   });
 

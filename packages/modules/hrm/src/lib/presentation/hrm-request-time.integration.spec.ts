@@ -543,7 +543,7 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       ).rejects.toMatchObject({ status: 400 });
     });
 
-    it('công tác từ thứ Sáu đến thứ Hai: tự tính ngày làm việc theo ca (bỏ qua T7-CN), lưu mốc giờ', async () => {
+    it('công tác từ thứ Sáu đến thứ Hai: tính theo ca (ngày không có ca như T7-CN vẫn là ngày công tác), lưu mốc giờ', async () => {
       const result = await requestController().createBusinessTripRequest(req, {
         employeeId,
         reasonId: tripReason,
@@ -554,11 +554,46 @@ integration('Đơn từ theo từ ngày giờ đến ngày giờ và loại đơ
       expect(result.data).toMatchObject({
         fromDate: '2026-10-23',
         toDate: '2026-10-26',
-        daysCount: 2,
+        daysCount: 4,
         fromAt: '2026-10-23T01:00:00.000Z',
         toAt: '2026-10-26T10:00:00.000Z',
         timeKnown: true,
       });
+    });
+
+    it('công tác gắn dự án gửi theo từ ngày giờ đến ngày giờ: sự kiện gửi Workspace mang đủ ngày công tác', async () => {
+      const projectId = randomUUID();
+      const result = await requestController().createBusinessTripRequest(req, {
+        employeeId,
+        reasonId: tripReason,
+        destination: 'Hà Nội',
+        fromAt: '2026-10-01T08:00',
+        toAt: '2026-10-02T17:00',
+        projectId,
+        projectCode: 'DA-TEST',
+        projectName: 'Dự án thử',
+      } as any);
+      const event = (
+        await pool.query(
+          `SELECT payload->'payload' AS p FROM integration_schema.outbox_events WHERE event_type='hrm.project_request.submitted' AND aggregate_id=$1`,
+          [result.data.id],
+        )
+      ).rows[0];
+      // Thiếu ngày thì Workspace không dựng được lịch công tác của dự án.
+      expect(event.p).toMatchObject({
+        requestKind: 'business_trip',
+        projectId,
+        fromDate: '2026-10-01',
+        toDate: '2026-10-02',
+      });
+      // Chi tiết đơn gửi kèm để Workspace hiện đầy đủ đơn công tác trong dự án.
+      expect(event.p.details).toEqual(
+        expect.arrayContaining([
+          { label: 'Địa điểm công tác', value: 'Hà Nội' },
+          { label: 'Từ', value: '01/10/2026 08:00' },
+          { label: 'Đến', value: '02/10/2026 17:00' },
+        ]),
+      );
     });
 
     it('công tác chồng giờ với công tác khác bị chặn; ngày kết thúc đúng 00:00 không tính ngày đó', async () => {

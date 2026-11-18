@@ -21,6 +21,7 @@ import { ArrowLeft, Plus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import { MaterialPickerDialog } from '../components/material-picker';
+import { WarehouseSelect } from '../components/warehouse-select';
 import {
   deliveryAction,
   errorMessage,
@@ -46,7 +47,16 @@ import {
   remainingToPlan,
   warehouseOptions,
 } from '../fulfillment.model';
-import { formatPercent, parseNumber } from '../pricing/pricing.model';
+import {
+  CHANGE_PRICE_LIST_CONFIRM,
+  NO_PRICE_LISTS_TEXT,
+  PICK_PRICE_LIST_FIRST,
+  PriceListSelect,
+  priceListOptions,
+  todayInVietnam,
+  usePriceLists,
+} from '../pricing/price-list-select';
+import { formatPercent, parseNumber, priceListDisplayName } from '../pricing/pricing.model';
 import { formatMoney, personName } from '../sales.model';
 import { OrderInfoNote } from './order-info-note';
 import styles from '../sales.module.scss';
@@ -64,6 +74,7 @@ const lineRequest = (line: SalesOrderLine) => ({
   unit: line.unit,
   overrideUnitPrice: line.overrideUnitPrice,
   overrideDiscountPercent: line.overrideDiscountPercent,
+  warehouseCode: line.warehouseCode ?? null,
 });
 
 /**
@@ -95,6 +106,10 @@ export function OrderDetail({
   const [picking, setPicking] = useState(false);
   const [planning, setPlanning] = useState<DeliveryPlan | 'new'>();
   const [reasonFor, setReasonFor] = useState<'cancel' | 'close'>();
+  const { lists: priceLists, loaded: priceListsLoaded } = usePriceLists();
+  /** Bảng giá vừa chọn đang chờ xác nhận (đơn đã có dòng thì giá tính lại). */
+  const [pendingPriceList, setPendingPriceList] = useState<string | null>(null);
+  const [priceListError, setPriceListError] = useState<string>();
 
   const load = useCallback(
     () =>
@@ -148,6 +163,30 @@ export function OrderDetail({
 
   const actions = orderActions(detail, capabilities);
   const linesEditable = actions.includes('edit') && detail.source !== 'QUOTE';
+  const priceDate = detail.priceDate ?? todayInVietnam();
+  const chosenPriceList = detail.priceListId
+    ? { id: detail.priceListId, code: detail.priceListCode, name: detail.priceListName, status: detail.priceListStatus }
+    : null;
+  /** Lưu bảng giá ngay; ô chọn đọc theo đơn đã lưu nên lỗi thì tự quay về bảng cũ. */
+  const applyPriceList = async (next: string) => {
+    setPriceListError(undefined);
+    setBusy(true);
+    try {
+      setDetail(await updateOrder(detail.id, { revision: detail.revision, priceListId: next || null }));
+      toast.success(detail.lines.length ? 'Đã đổi bảng giá và tính lại giá các dòng.' : 'Đã chọn bảng giá.');
+    } catch (cause) {
+      const message = errorMessage(cause, 'Không đổi được bảng giá.');
+      setPriceListError(message);
+      toast.error(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const choosePriceList = (next: string) => {
+    if (next === (detail.priceListId ?? '')) return;
+    if (detail.lines.length) setPendingPriceList(next);
+    else void applyPriceList(next);
+  };
   const act = (action: OrderAction, reason?: string) =>
     run(() => orderAction(detail.id, action, { revision: detail.revision, reason }), ACTION_DONE[action]);
 
@@ -170,6 +209,33 @@ export function OrderDetail({
       ),
     },
     { title: 'SL', key: 'quantity', width: 100, align: 'right', render: (_: unknown, row) => `${formatQuantity(row.quantity)} ${row.unit}` },
+    {
+      // Kho giữ hàng của dòng (D3-37): đổi được khi đơn còn Nháp (kể cả đơn từ báo giá), không tính lại giá.
+      title: 'Kho',
+      key: 'warehouse',
+      width: 240,
+      render: (_: unknown, row) =>
+        row.materialKind === 'SERVICE' ? (
+          <span className={styles.muted}>Không giữ</span>
+        ) : actions.includes('edit') ? (
+          <WarehouseSelect
+            value={row.warehouseCode}
+            height={30}
+            ariaLabel={`Kho dòng ${row.lineNo}`}
+            placeholder={detail.warehouseCode ? `Theo đơn (${detail.warehouseCode})` : 'Chọn kho'}
+            stock={stock.find((item) => item.materialId === row.materialId)?.byWarehouse}
+            disabled={busy}
+            onChange={(code) =>
+              void run(
+                () => updateOrder(detail.id, { revision: detail.revision, lineWarehouses: [{ lineId: row.id, warehouseCode: code }] }),
+                'Đã đổi kho của dòng.',
+              )
+            }
+          />
+        ) : (
+          (row.warehouseCode ?? (detail.warehouseCode ? `${detail.warehouseCode} (theo đơn)` : <span className={styles.muted}>Chưa chọn</span>))
+        ),
+    },
     {
       title: 'Nguồn giá',
       key: 'source',
@@ -284,8 +350,23 @@ export function OrderDetail({
           <dd>{formatDay(detail.orderDate)}</dd>
           <dt>Giao dự kiến</dt>
           <dd>{formatDay(detail.expectedDeliveryDate) || <span className={styles.muted}>Chưa đặt</span>}</dd>
-          <dt>Kho giữ hàng</dt>
+          <dt>Kho giữ hàng mặc định</dt>
           <dd>{detail.warehouseCode ?? <span className={styles.muted}>Chưa chọn</span>}</dd>
+          {linesEditable ? null : (
+            <>
+              <dt>Bảng giá</dt>
+              <dd>
+                {detail.priceListName ? (
+                  <>
+                    {priceListDisplayName(detail.priceListName, detail.priceListStatus)}{' '}
+                    {detail.priceListCode ? <span className={styles.mono}>{detail.priceListCode}</span> : null}
+                  </>
+                ) : (
+                  <span className={styles.muted}>Chưa chọn</span>
+                )}
+              </dd>
+            </>
+          )}
           {detail.reservationExpiresAt ? (
             <>
               <dt>Hạn giữ hàng</dt>
@@ -367,11 +448,42 @@ export function OrderDetail({
         <div className={styles.toolbar}>
           <h3 className={styles.sectionTitle}>Dòng hàng</h3>
           {linesEditable ? (
-            <button type="button" className={styles.buttonGhost} disabled={busy} onClick={() => setPicking(true)}>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              disabled={busy || !detail.priceListId}
+              title={detail.priceListId ? undefined : PICK_PRICE_LIST_FIRST}
+              onClick={() => setPicking(true)}
+            >
               <Plus size={14} /> Thêm dòng
             </button>
           ) : null}
         </div>
+        {linesEditable ? (
+          <div className={styles.fieldGrid}>
+            <Field
+              label="Bảng giá"
+              required
+              error={priceListError}
+              hint={
+                priceListsLoaded && !priceListOptions(priceLists, priceDate, chosenPriceList).length
+                  ? NO_PRICE_LISTS_TEXT
+                  : detail.priceListId
+                    ? 'Giá hợp đồng ưu tiên; mặt hàng khác lấy giá theo bảng này'
+                    : PICK_PRICE_LIST_FIRST
+              }
+            >
+              <PriceListSelect
+                lists={priceLists}
+                date={priceDate}
+                value={detail.priceListId ?? ''}
+                current={chosenPriceList}
+                disabled={busy}
+                onChange={choosePriceList}
+              />
+            </Field>
+          </div>
+        ) : null}
         <Table<SalesOrderLine>
           size="small"
           rowKey="id"
@@ -467,16 +579,33 @@ export function OrderDetail({
           }}
         />
       ) : null}
+      {pendingPriceList !== null ? (
+        <CrmDialog
+          open
+          title="Đổi bảng giá?"
+          submitLabel="Đồng ý"
+          cancelLabel="Huỷ"
+          onClose={() => setPendingPriceList(null)}
+          onSubmit={() => {
+            const next = pendingPriceList;
+            setPendingPriceList(null);
+            void applyPriceList(next);
+          }}
+        >
+          <p className={styles.muted}>{CHANGE_PRICE_LIST_CONFIRM}</p>
+        </CrmDialog>
+      ) : null}
       {picking ? (
         <MaterialPickerDialog
           title="Thêm dòng đơn"
+          withOverridePrice
           onClose={() => setPicking(false)}
           onPick={async (picked) => {
             const done = await run(
               () =>
                 updateOrder(detail.id, {
                   revision: detail.revision,
-                  lines: [...detail.lines.map(lineRequest), { materialId: picked.material.id, quantity: picked.quantity ?? 1 }],
+                  lines: [...detail.lines.map(lineRequest), { materialId: picked.material.id, quantity: picked.quantity ?? 1, overrideUnitPrice: picked.unitPrice }],
                 }),
               'Đã thêm dòng; giá tính theo bảng giá, chính sách như báo giá.',
             );
@@ -717,8 +846,11 @@ function OrderHeaderDialog({
         <Field label="Ngày giao dự kiến" hint="Hạn giữ hàng = ngày giao dự kiến + 2 ngày">
           <DatePickerInput value={expectedDeliveryDate || undefined} onChange={setExpectedDeliveryDate} height={38} aria-label="Ngày giao dự kiến" />
         </Field>
-        <Field label="Mã kho giữ hàng" hint={warehouses.length ? `Kho đang có hàng: ${warehouses.join(', ')}` : undefined}>
-          <input className={styles.input} maxLength={50} value={warehouseCode} onChange={(event) => setWarehouseCode(event.target.value.toUpperCase())} />
+        <Field
+          label="Kho giữ hàng mặc định"
+          hint={`Dòng không chọn kho riêng giữ hàng ở kho này.${warehouses.length ? ` Kho đang có hàng: ${warehouses.join(', ')}` : ''}`}
+        >
+          <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>
         <Field label="Địa chỉ giao" wide>
           <input className={styles.input} maxLength={500} value={deliveryAddress} onChange={(event) => setDeliveryAddress(event.target.value)} />

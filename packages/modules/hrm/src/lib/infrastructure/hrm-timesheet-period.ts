@@ -7,6 +7,8 @@ import {
 import type { PoolClient } from 'pg';
 import { lifecycleAudit } from './hrm-lifecycle.js';
 import { isoDate } from './hrm-time.js';
+import { clearOvertimeCompSnapshot, snapshotOvertimeComp } from './hrm-overtime-month.js';
+import { autoAccrueCompOff } from './hrm-comp-off.js';
 
 /**
  * Luật khóa / mở lại kỳ công, dùng chung cho API kỳ công cũ (/timesheet-periods/:id/lock|reopen)
@@ -34,14 +36,7 @@ export async function lockTimesheetPeriod(
     throw new BadRequestException(
       'Cần tính lại bảng công sau thay đổi dữ liệu nguồn',
     );
-  const issues = await db.query(
-    `SELECT id FROM hrm_schema.timesheets WHERE tenant_id=$1 AND period_id=$2 AND status='ABNORMAL' LIMIT 1`,
-    [tenantId, id],
-  );
-  if (issues.rowCount)
-    throw new BadRequestException(
-      'Cần giải trình các dòng bất thường trước khi khóa kỳ',
-    );
+  // Dòng bất thường không chặn khóa kỳ: ngày đó 0 công, HR điều chỉnh sau.
   const pending = await db.query(
     `SELECT id FROM hrm_schema.attendance_corrections WHERE tenant_id=$1 AND status='PENDING' AND request_date BETWEEN $2 AND $3 UNION ALL SELECT id FROM hrm_schema.leave_requests WHERE tenant_id=$1 AND status='PENDING' AND from_date<=$3 AND to_date>=$2 UNION ALL SELECT id FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND status='PENDING' AND work_date BETWEEN $2 AND $3 UNION ALL SELECT id FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND status='PENDING' AND from_date<=$3 AND to_date>=$2 UNION ALL SELECT id FROM hrm_schema.shift_change_requests WHERE tenant_id=$1 AND status IN ('PENDING','PEER_CONFIRMED') AND from_date<=$3 AND to_date>=$2 LIMIT 1`,
     [tenantId, period.rows[0].from_date, period.rows[0].to_date],
@@ -59,10 +54,14 @@ export async function lockTimesheetPeriod(
   await lifecycleAudit(db, tenantId, actorId, 'TIMESHEET_PERIOD_LOCKED', id, {
     before: period.rows[0],
   });
+  // Chụp chính sách làm thêm và số liệu của tháng: từ đây lương và chuyển đổi nghỉ bù đọc ảnh này.
+  const snapshot = await snapshotOvertimeComp(db, tenantId, actorId, period.rows[0]);
   const locked = await db.query(
     `UPDATE hrm_schema.timesheet_periods SET status='LOCKED',locked_by=$3,locked_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenantId, id, actorId],
   );
+  // Bật công thức tự động: cuối tháng (chốt công) cộng luôn quỹ nghỉ bù từ ảnh chụp vừa ghi.
+  if (snapshot?.policy.enabled) await autoAccrueCompOff(db as PoolClient, tenantId, actorId, snapshot.month);
   return locked.rows[0];
 }
 
@@ -103,6 +102,7 @@ export async function reopenTimesheetPeriod(
     `UPDATE hrm_schema.payroll_runs SET status='DRAFT',calculated_at=NULL,updated_at=now() WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status<>'CANCELLED'`,
     [tenantId, runs.rows.map((r) => r.id)],
   );
+  await clearOvertimeCompSnapshot(db, tenantId, id);
   await lifecycleAudit(
     db,
     tenantId,

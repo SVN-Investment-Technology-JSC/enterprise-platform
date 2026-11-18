@@ -18,6 +18,15 @@ const QUOTE_ID = '40000000-0000-4000-8000-000000000001';
 const CAP = '11111111-1111-4111-8111-111111111111';
 const BT = '22222222-2222-4222-8222-222222222222';
 const NV1 = '00000000-0000-4000-8000-000000000001';
+/** Bảng giá đang dùng của phiên bản mẫu. */
+const PL = 'a0000000-0000-4000-8000-000000000001';
+/** Bảng giá khác: Cáp 1.200.000, không có Gói bảo trì. */
+const PL2 = 'a0000000-0000-4000-8000-000000000002';
+/** Bảng giá đã tắt. */
+const PL_OFF = 'a0000000-0000-4000-8000-000000000003';
+/** Bảng giá chỉ hiệu lực nửa đầu năm 2026. */
+const PL_H1 = 'a0000000-0000-4000-8000-000000000004';
+const PL_MISSING = 'a0000000-0000-4000-8000-000000000099';
 const TN = '00000000-0000-4000-8000-000000000002';
 
 const seller: CrmActor = { ...CRM_NO_CAPABILITIES, tenantId: 't1', userId: NV1, displayName: 'NV1', canWriteQuote: true };
@@ -37,30 +46,76 @@ class FakeCatalog implements CatalogReader {
 
 const catalog = () =>
   new FakeCatalog([
-    { id: CAP, code: 'QA-KHO-CAP', name: 'Cáp', unit: 'Cái', category: null, kind: 'STOCK', avgCost: 800_000, totalAvailable: 70 },
+    { id: CAP, code: 'QA-KHO-CAP', name: 'Cáp', unit: 'Cái', category: null, kind: 'STOCK', avgCost: 800_000, totalAvailable: 70, tradeCategory: 'Dây cáp' },
     { id: BT, code: 'QA-KHO-BT', name: 'Gói bảo trì', unit: 'Gói', category: null, kind: 'SERVICE', avgCost: null, totalAvailable: null },
   ]);
+
+const PRICE_LISTS = [
+  {
+    id: PL,
+    code: 'BG-105',
+    name: 'Bảng giá 105%',
+    listType: 'DERIVED' as const,
+    validFrom: '2026-01-01',
+    validTo: null,
+    status: 'ACTIVE' as const,
+    items: [
+      { materialId: CAP, unit: 'Cái', price: 1_000_000, vatRate: 10 },
+      { materialId: BT, unit: 'Gói', price: 500_000, vatRate: 10 },
+    ],
+  },
+  {
+    id: PL2,
+    code: 'BG-120',
+    name: 'Bảng giá 120%',
+    listType: 'DERIVED' as const,
+    validFrom: '2026-01-01',
+    validTo: null,
+    status: 'ACTIVE' as const,
+    items: [{ materialId: CAP, unit: 'Cái', price: 1_200_000, vatRate: 8 }],
+  },
+  {
+    id: PL_OFF,
+    code: 'BG-TAT',
+    name: 'Bảng giá đã tắt',
+    listType: 'MANUAL' as const,
+    validFrom: '2026-01-01',
+    validTo: null,
+    status: 'INACTIVE' as const,
+    items: [{ materialId: CAP, unit: 'Cái', price: 900_000, vatRate: 10 }],
+  },
+  {
+    id: PL_H1,
+    code: 'BG-H1',
+    name: 'Bảng giá nửa đầu năm',
+    listType: 'DERIVED' as const,
+    validFrom: '2026-01-01',
+    validTo: '2026-06-30',
+    status: 'ACTIVE' as const,
+    items: [{ materialId: CAP, unit: 'Cái', price: 950_000, vatRate: 10 }],
+  },
+];
 
 const pricing: PricingStore = {
   contractPricesForPricing: async () => [],
   discountCapPercent: async () => 50,
   saveDiscountCapPercent: async () => undefined,
-  priceListsForPricing: async () => [
-    {
-      id: 'pl',
-      code: 'BG-CHUAN',
-      isStandard: true,
-      validFrom: '2026-01-01',
-      validTo: null,
-      status: 'ACTIVE',
-      customerGroupIds: [],
-      items: [
-        { materialId: CAP, unit: 'Cái', price: 1_000_000, vatRate: 10 },
-        { materialId: BT, unit: 'Gói', price: 500_000, vatRate: 10 },
-      ],
-    },
-  ],
+  // Như store thật: chỉ trả bảng đã chọn.
+  priceListsForPricing: jest.fn(async (_t: string, _date: string, priceListId: string | null) =>
+    PRICE_LISTS.filter((list) => list.id === priceListId),
+  ),
+  priceListRef: jest.fn(async (_t: string, id: string) => {
+    const list = PRICE_LISTS.find((entry) => entry.id === id);
+    return list
+      ? { id: list.id, code: list.code, name: list.name, listType: list.listType, status: list.status, validFrom: list.validFrom, validTo: list.validTo }
+      : undefined;
+  }),
   policiesForPricing: async () => [],
+  // Cáp có giá đúng ĐVT; gói bảo trì chỉ có giá theo "Thùng" (khác ĐVT "Gói" của Kho) nên không tính được.
+  pricedMaterials: jest.fn(async () => [
+    { materialId: CAP, code: 'QA-KHO-CAP', units: ['cái'] },
+    { materialId: BT, code: 'QA-KHO-BT', units: ['thùng'] },
+  ]),
 };
 
 function quoteLine(extra: Partial<QuoteLine>): QuoteLine {
@@ -99,7 +154,13 @@ function quoteLine(extra: Partial<QuoteLine>): QuoteLine {
   };
 }
 
-function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quoteLine({})], submittedBy: string | null = null): QuoteVersion {
+function version(
+  status: QuoteStatus,
+  versionNo = 1,
+  lines: QuoteLine[] = [quoteLine({})],
+  submittedBy: string | null = null,
+  extra: Partial<QuoteVersion> = {},
+): QuoteVersion {
   const net = lines.reduce((sum, line) => sum + line.lineAmount, 0);
   const gross = lines.reduce((sum, line) => sum + line.grossAmount, 0);
   const cost = lines.reduce((sum, line) => sum + line.estCost, 0);
@@ -111,6 +172,10 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
     validUntil: '2099-12-31',
     priceDate: null,
     pricedOn: null,
+    priceListId: PL,
+    priceListCode: 'BG-105',
+    priceListName: 'Bảng giá 105%',
+    priceListStatus: 'ACTIVE',
     note: null,
     shipping: { amount: 0, vatRate: 10, cost: 0 },
     totals: {
@@ -138,6 +203,8 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
     respondedAt: null,
     supersededAt: null,
     createdAt: '',
+    layoutSnapshot: null,
+    sellerLogo: null,
     promotions: [],
     form: {
       quoteName: null,
@@ -153,8 +220,12 @@ function version(status: QuoteStatus, versionNo = 1, lines: QuoteLine[] = [quote
       fees: [],
       customFields: {},
       feesAmount: 0,
+      organizationId: null,
+      organizationName: null,
+      seller: null,
     },
     lines,
+    ...extra,
   };
 }
 
@@ -263,6 +334,66 @@ describe('QuoteService', () => {
     expect(service5).toMatchObject({ materialKind: 'SERVICE', unit: 'Gói', estUnitCost: null, lineAmount: 2_500_000 });
   });
 
+  it('A6.17 tìm mặt hàng theo báo giá: chỉ mặt hàng có giá trong bảng giá đã chọn, đúng ĐVT; không theo báo giá thì cả danh mục', async () => {
+    const { service } = setup(version('DRAFT', 1, []));
+    const priced = await service.catalogMaterials(seller, { search: 'ca', quoteId: QUOTE_ID, versionNo: '1' });
+    expect(priced).toEqual({ items: [expect.objectContaining({ id: CAP })], nextCursor: null });
+    // Lấy dư một dòng để biết còn trang sau.
+    expect(pricing.pricedMaterials).toHaveBeenLastCalledWith('t1', expect.objectContaining({ customerId: 'c1', priceListId: PL, search: 'ca', limit: 31 }));
+    const all = await service.catalogMaterials(seller, { search: 'ca' });
+    expect(all.items.map((material) => material.id)).toEqual([CAP, BT]);
+    expect(all.nextCursor).toBeNull();
+  });
+
+  it('tìm mặt hàng theo trang: còn trang sau thì trả mã cuối làm cursor; lọc nhóm hàng hoá, dịch vụ', async () => {
+    const { service } = setup(version('DRAFT', 1, []));
+    const first = await service.catalogMaterials(seller, { limit: '1' });
+    expect(first).toEqual({ items: [expect.objectContaining({ id: CAP })], nextCursor: 'QA-KHO-CAP' });
+    const pricedFirst = await service.catalogMaterials(seller, { limit: '1', quoteId: QUOTE_ID, versionNo: '1', cursor: 'QA-KHO-A' });
+    expect(pricedFirst.nextCursor).toBe('QA-KHO-CAP');
+    expect(pricing.pricedMaterials).toHaveBeenLastCalledWith('t1', expect.objectContaining({ cursor: 'QA-KHO-A', limit: 2 }));
+    // Cáp là hàng hoá: lọc dịch vụ thì không còn mặt hàng nào có giá.
+    const services = await service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1', kind: 'SERVICE' });
+    expect(services.items).toEqual([]);
+    // Lọc phân loại theo bảng giá: so với phân loại ở Kho, không phân biệt hoa thường.
+    const cable = await service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1', tradeCategory: 'dây CÁP' });
+    expect(cable.items.map((material) => material.id)).toEqual([CAP]);
+    const none = await service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1', tradeCategory: 'Chiếu sáng' });
+    expect(none.items).toEqual([]);
+    // Bản giả không đọc được phân loại: trả rỗng, không lỗi.
+    await expect(service.catalogTradeCategories(seller, 'STOCK')).resolves.toEqual([]);
+    await expect(service.catalogMaterials(seller, { quoteId: 'khong-phai-id', versionNo: '1' })).rejects.toThrow('Không tìm thấy báo giá');
+  });
+
+  it('TC-QW-14/15: chèn lô trước một dòng; số dòng liên tục; vị trí không có thì 400 LINE_POSITION_INVALID', async () => {
+    const lines = [1, 2, 3].map((lineNo) => quoteLine({ id: `line-${lineNo}`, lineNo, quantity: lineNo }));
+    const { service, quotes } = setup(version('DRAFT', 1, lines));
+    await service.addLines(seller, QUOTE_ID, '1', {
+      revision: 3,
+      beforeLineNo: 2,
+      lines: [{ materialId: BT, quantity: 7 }, { materialId: CAP, quantity: 8 }],
+    });
+    const write = quotes.saveVersion.mock.calls[0][4];
+    expect(write.lines.map((line) => [line.lineNo, line.id.startsWith('line-') ? line.id : 'new', line.quantity])).toEqual([
+      [1, 'line-1', 1],
+      [2, 'new', 7],
+      [3, 'new', 8],
+      [4, 'line-2', 2],
+      [5, 'line-3', 3],
+    ]);
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, beforeLineNo: 1, lines: [{ materialId: BT, quantity: 9 }] });
+    expect(quotes.saveVersion.mock.calls[1][4].lines.map((line) => line.quantity)).toEqual([9, 1, 2, 3]);
+    // Không truyền: thêm cuối như cũ.
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, lines: [{ materialId: BT, quantity: 4 }] });
+    expect(quotes.saveVersion.mock.calls[2][4].lines.map((line) => line.quantity)).toEqual([1, 2, 3, 4]);
+    for (const beforeLineNo of [0, 4, 99, -1, 1.5, '2']) {
+      await expect(
+        service.addLines(seller, QUOTE_ID, '1', { revision: 3, beforeLineNo: beforeLineNo as number, lines: [{ materialId: BT, quantity: 1 }] }),
+      ).rejects.toMatchObject({ statusCode: 400, code: 'LINE_POSITION_INVALID' });
+    }
+    expect(quotes.saveVersion).toHaveBeenCalledTimes(3);
+  });
+
   it('mặt hàng không có trong danh mục Kho: 400', async () => {
     const { service } = setup(version('DRAFT', 1, []));
     await expect(
@@ -327,6 +458,23 @@ describe('QuoteService', () => {
     const submission = quotes.submit.mock.calls[0][3];
     expect(submission).toMatchObject({ outcome: 'PENDING', procedure: null });
     expect(submission.approvalRequested?.recipientUserIds).toEqual([TN]);
+    expect(links.start).not.toHaveBeenCalled();
+  });
+
+  it('vượt ngưỡng, quản trị viên tenant gửi duyệt: duyệt thẳng, vẫn lưu lý do, không báo cấp trên', async () => {
+    const { service, quotes, links } = setup(
+      version('DRAFT', 1, [quoteLine({ overridden: true })]),
+      { binding: { mode: 'PROCEDURE', procedureDefinitionId: 'def-1' } },
+    );
+    await service.submit({ ...seller, isTenantAdmin: true }, QUOTE_ID, '1', { revision: 3 });
+    const submission = quotes.submit.mock.calls[0][3];
+    expect(submission).toMatchObject({
+      outcome: 'APPROVED',
+      procedure: null,
+      approvalRequested: null,
+      approvedNote: 'Quản trị viên gửi duyệt, duyệt thẳng',
+    });
+    expect(submission.reasons.length).toBeGreaterThan(0);
     expect(links.start).not.toHaveBeenCalled();
   });
 
@@ -406,5 +554,221 @@ describe('QuoteService', () => {
       const { service } = setup(version('DRAFT'), { opportunities: oppWith(stageOf(code, 'OPEN')) });
       await expect(service.create(seller, { opportunityId: '50000000-0000-4000-8000-000000000001' })).resolves.toBeDefined();
     }
+  });
+});
+
+describe('QuoteService: bảng giá chọn theo phiên bản (A6)', () => {
+  const noList = { priceListId: null, priceListCode: null, priceListName: null, priceListStatus: null };
+  const customers = { getCustomer: jest.fn(async () => ({ id: 'c1' })) } as unknown as CustomerStore;
+  const creator = () => {
+    const ctx = setup(version('DRAFT', 1, []));
+    // Lập thẳng cho khách: cần đọc khách trong phạm vi.
+    (ctx.service as unknown as { customers: CustomerStore }).customers = customers;
+    return ctx;
+  };
+
+  it('A6.1: lập báo giá không gửi bảng giá: tạo được, bảng giá rỗng', async () => {
+    const { service, quotes } = creator();
+    await service.create(seller, { customerId: '50000000-0000-4000-8000-000000000002' });
+    expect(quotes.createQuote.mock.calls[0][1]).toMatchObject({ priceListId: null });
+  });
+
+  it('A6.1, A6.3-A6.5: lập báo giá có bảng giá: kiểm id, tồn tại, đang bật và còn hiệu lực hôm nay', async () => {
+    const { service, quotes } = creator();
+    await service.create(seller, { customerId: '50000000-0000-4000-8000-000000000002', priceListId: PL2.toUpperCase() });
+    expect(quotes.createQuote.mock.calls[0][1]).toMatchObject({ priceListId: PL2 });
+    const request = (priceListId: string) => service.create(seller, { customerId: '50000000-0000-4000-8000-000000000002', priceListId });
+    await expect(request('khong-phai-id')).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_REFERENCE' });
+    await expect(request(PL_MISSING)).rejects.toMatchObject({ statusCode: 400, code: 'PRICE_LIST_NOT_FOUND' });
+    await expect(request(PL_OFF)).rejects.toMatchObject({ statusCode: 400, code: 'PRICE_LIST_NOT_EFFECTIVE' });
+    // Hôm nay (27/10/2026) bảng nửa đầu năm đã hết hiệu lực.
+    await expect(request(PL_H1)).rejects.toMatchObject({ statusCode: 400, code: 'PRICE_LIST_NOT_EFFECTIVE' });
+    expect(quotes.createQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it('A6.2: chưa chọn bảng giá thì không thêm được dòng (thêm một dòng, thêm lô)', async () => {
+    const { service, quotes } = setup(version('DRAFT', 1, [], null, noList));
+    await expect(service.addLine(seller, QUOTE_ID, '1', { revision: 3, materialId: CAP, quantity: 1 })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PRICE_LIST_REQUIRED',
+      message: 'Vui lòng chọn bảng giá trước khi thêm dòng hàng.',
+    });
+    await expect(service.addLines(seller, QUOTE_ID, '1', { revision: 3, lines: [{ materialId: CAP, quantity: 1 }] })).rejects.toMatchObject({
+      code: 'PRICE_LIST_REQUIRED',
+    });
+    expect(quotes.saveVersion).not.toHaveBeenCalled();
+  });
+
+  it('A6.6: chọn bảng rồi thêm dòng: giá theo bảng đã chọn', async () => {
+    const { service, quotes } = setup(version('DRAFT', 1, [], null, { priceListId: PL2 }));
+    await service.addLine(seller, QUOTE_ID, '1', { revision: 3, materialId: CAP, quantity: 2 });
+    const write = quotes.saveVersion.mock.calls[0][4];
+    expect(write.priceListId).toBe(PL2);
+    expect(write.lines[0]).toMatchObject({ listPrice: 1_200_000, vatRate: 8, priceReferenceCode: 'BG-120', priceSource: 'GROUP_LIST' });
+    expect(pricing.priceListsForPricing).toHaveBeenLastCalledWith('t1', '2026-10-27', PL2, [CAP]);
+  });
+
+  it('A6.7: đổi bảng giá khi đã có dòng: tính lại mọi dòng, dòng ghi đè giữ ghi đè', async () => {
+    const lines = [
+      quoteLine({ id: 'line-1', lineNo: 1 }),
+      quoteLine({ id: 'line-2', lineNo: 2, overrideUnitPrice: 700_000, overridden: true }),
+      quoteLine({ id: 'line-3', lineNo: 3, overrideDiscountPercent: 5, overridden: true }),
+    ];
+    const { service, quotes } = setup(version('DRAFT', 1, lines));
+    await service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL2 });
+    const write = quotes.saveVersion.mock.calls[0][4];
+    expect(quotes.saveVersion.mock.calls[0][3]).toBe('IN_PLACE');
+    expect(write.priceListId).toBe(PL2);
+    expect(write.lines.map((line) => [line.listPrice, line.overrideUnitPrice, line.overrideDiscountPercent, line.unitPrice])).toEqual([
+      [1_200_000, null, null, 1_200_000],
+      [1_200_000, 700_000, null, 700_000],
+      [1_200_000, null, 5, 1_140_000],
+    ]);
+  });
+
+  it('A6.8: đổi sang bảng thiếu một mặt hàng đang có: PRICE_NOT_FOUND kèm số dòng, không lưu', async () => {
+    const lines = [quoteLine({ id: 'line-1', lineNo: 1 }), quoteLine({ id: 'line-2', lineNo: 2, materialId: BT, unit: 'Gói', materialKind: 'SERVICE' })];
+    const { service, quotes } = setup(version('DRAFT', 1, lines));
+    await expect(service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL2 })).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'PRICE_NOT_FOUND',
+      details: { line: 2 },
+    });
+    expect(quotes.saveVersion).not.toHaveBeenCalled();
+  });
+
+  it('A6.9: bỏ chọn bảng giá khi đã có dòng: PRICE_LIST_REQUIRED; chưa có dòng thì bỏ được', async () => {
+    const { service, quotes } = setup(version('DRAFT'));
+    await expect(service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: null })).rejects.toMatchObject({
+      code: 'PRICE_LIST_REQUIRED',
+    });
+    expect(quotes.saveVersion).not.toHaveBeenCalled();
+    const empty = setup(version('DRAFT', 1, []));
+    await empty.service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: null });
+    expect(empty.quotes.saveVersion.mock.calls[0][4].priceListId).toBeNull();
+  });
+
+  it('A6.10: đổi ngày tính giá làm bảng đã chọn hết hiệu lực: PRICE_LIST_NOT_EFFECTIVE', async () => {
+    const { service, quotes } = setup(version('DRAFT', 1, undefined, null, { priceListId: PL_H1, priceDate: '2026-06-01' }));
+    await expect(service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceDate: '2026-07-15' })).rejects.toMatchObject({
+      code: 'PRICE_LIST_NOT_EFFECTIVE',
+    });
+    // Chọn bảng mới được kiểm tại ngày tính giá gửi cùng request.
+    await service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceDate: '2026-03-01' });
+    expect(quotes.saveVersion.mock.calls[0][4]).toMatchObject({ priceDate: '2026-03-01', priceListId: PL_H1 });
+    expect(quotes.saveVersion.mock.calls[0][4].lines[0].listPrice).toBe(950_000);
+    const later = setup(version('DRAFT', 1, [], null, { priceDate: '2026-07-15' }));
+    await expect(later.service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL_H1 })).rejects.toMatchObject({
+      code: 'PRICE_LIST_NOT_EFFECTIVE',
+    });
+  });
+
+  it('A6.11: phiên bản mới mang bảng giá; đổi bảng khi sửa bản đã duyệt chỉ ghi vào phiên bản mới', async () => {
+    const revised = setup(version('APPROVED'));
+    await revised.service.revise(seller, QUOTE_ID, '1', { revision: 3 });
+    expect(revised.quotes.saveVersion.mock.calls[0][3]).toBe('NEW_VERSION');
+    expect(revised.quotes.saveVersion.mock.calls[0][4].priceListId).toBe(PL);
+
+    const changed = setup(version('SENT'));
+    await changed.service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL2 });
+    expect(changed.quotes.saveVersion.mock.calls[0][3]).toBe('NEW_VERSION');
+    expect(changed.quotes.saveVersion.mock.calls[0][4]).toMatchObject({ priceListId: PL2, lines: [{ listPrice: 1_200_000 }] });
+  });
+
+  it('A6.13: báo giá chờ duyệt hoặc khách đã chấp nhận: không đổi được bảng giá (409)', async () => {
+    for (const status of ['PENDING', 'ACCEPTED'] as const) {
+      const { service, quotes } = setup(version(status));
+      await expect(service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL2 })).rejects.toMatchObject({
+        statusCode: 409,
+      });
+      expect(quotes.saveVersion).not.toHaveBeenCalled();
+    }
+  });
+
+  it('A6.14: đổi bảng giá với revision cũ: 409 STALE_VERSION', async () => {
+    const { service, quotes } = setup(version('DRAFT'));
+    await expect(service.updateVersion(seller, QUOTE_ID, '1', { revision: 2, priceListId: PL2 })).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'STALE_VERSION',
+    });
+    expect(quotes.saveVersion).not.toHaveBeenCalled();
+  });
+
+  it('A6.15: bảng đã chọn bị tắt sau khi lập báo giá: sửa bản nháp báo PRICE_LIST_NOT_EFFECTIVE; báo giá trống vẫn sửa được', async () => {
+    const { service, quotes } = setup(version('DRAFT', 1, undefined, null, { priceListId: PL_OFF, priceListStatus: 'INACTIVE' }));
+    await expect(service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, note: 'Ghi chú' })).rejects.toMatchObject({
+      code: 'PRICE_LIST_NOT_EFFECTIVE',
+    });
+    await expect(service.recalculate(seller, QUOTE_ID, '1', { revision: 3 })).rejects.toMatchObject({ code: 'PRICE_LIST_NOT_EFFECTIVE' });
+    expect(quotes.saveVersion).not.toHaveBeenCalled();
+    // Chuyển sang bảng còn áp dụng thì sửa tiếp được.
+    await service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL });
+    expect(quotes.saveVersion.mock.calls[0][4].priceListId).toBe(PL);
+    const empty = setup(version('DRAFT', 1, [], null, { priceListId: PL_OFF }));
+    await empty.service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, note: 'Ghi chú' });
+    expect(empty.quotes.saveVersion).toHaveBeenCalled();
+  });
+
+  it('A6.16: danh mục chọn mặt hàng khi chưa chọn bảng giá: rỗng, không đọc bảng giá', async () => {
+    const { service } = setup(version('DRAFT', 1, [], null, noList));
+    (pricing.pricedMaterials as jest.Mock).mockClear();
+    await expect(service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1' })).resolves.toEqual({ items: [], nextCursor: null });
+    expect(pricing.pricedMaterials).not.toHaveBeenCalled();
+  });
+});
+
+describe('QuoteService.remove: xoá báo giá Nháp hoặc Chờ duyệt', () => {
+  const removable = (links: { id: string; instanceId: string | null; previousStatus: string }[] = []) => {
+    const ctx = setup(version('PENDING'));
+    const quotes = ctx.quotes as unknown as Record<string, jest.Mock>;
+    quotes['prepareDelete'] = jest.fn(async () => ({ code: 'BG2600001', links }));
+    quotes['reopenDeletionLinks'] = jest.fn(async () => undefined);
+    quotes['deleteQuote'] = jest.fn(async () => undefined);
+    const links_ = ctx.links as unknown as Record<string, jest.Mock>;
+    links_['cancel'] = jest.fn(async () => 'cancelled');
+    return { ...ctx, store: quotes, approval: links_ };
+  };
+
+  it('người phụ trách xoá được; đang duyệt qua Quy trình thì huỷ hồ sơ trước rồi xoá', async () => {
+    const { service, store, approval } = removable([{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }, { id: 'link-2', instanceId: null, previousStatus: 'FAILED' }]);
+    await service.remove(seller, QUOTE_ID);
+    expect(approval['cancel']).toHaveBeenCalledTimes(1);
+    expect(approval['cancel']).toHaveBeenCalledWith('t1', 'inst-1', expect.objectContaining({ reason: expect.stringContaining('đã bị xoá'), actorUserId: NV1 }));
+    expect(store['deleteQuote']).toHaveBeenCalledWith('t1', QUOTE_ID, NV1, expect.stringContaining('đã bị xoá'));
+    expect(store['reopenDeletionLinks']).not.toHaveBeenCalled();
+  });
+
+  it('không phải người phụ trách, không có quyền quản trị bán hàng: 403, không đụng dữ liệu', async () => {
+    const { service, store } = removable();
+    await expect(service.remove(lead, QUOTE_ID)).rejects.toMatchObject({ statusCode: 403 });
+    expect(store['prepareDelete']).not.toHaveBeenCalled();
+  });
+
+  it('quản trị bán hàng xoá được báo giá của người khác', async () => {
+    const { service, store } = removable();
+    await service.remove({ ...lead, canWriteQuote: false, canManage: true }, QUOTE_ID);
+    expect(store['deleteQuote']).toHaveBeenCalled();
+  });
+
+  it('không có quyền lập báo giá: 403', async () => {
+    const { service } = removable();
+    await expect(service.remove({ ...seller, canWriteQuote: false }, QUOTE_ID)).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('hồ sơ Quy trình vừa duyệt xong: 409, mở lại liên kết, không xoá', async () => {
+    const plan = [{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }];
+    const { service, store, approval } = removable(plan);
+    approval['cancel'].mockResolvedValue('finished');
+    await expect(service.remove(seller, QUOTE_ID)).rejects.toMatchObject({ code: 'QUOTE_PROCEDURE_FINISHED' });
+    expect(store['reopenDeletionLinks']).toHaveBeenCalledWith('t1', plan);
+    expect(store['deleteQuote']).not.toHaveBeenCalled();
+  });
+
+  it('xoá lỗi sau khi đã huỷ hồ sơ: mở lại liên kết để đối soát áp kết quả huỷ', async () => {
+    const plan = [{ id: 'link-1', instanceId: 'inst-1', previousStatus: 'RUNNING' }];
+    const { service, store } = removable(plan);
+    store['deleteQuote'].mockRejectedValue(new Error('db'));
+    await expect(service.remove(seller, QUOTE_ID)).rejects.toThrow('db');
+    expect(store['reopenDeletionLinks']).toHaveBeenCalledWith('t1', plan);
   });
 });

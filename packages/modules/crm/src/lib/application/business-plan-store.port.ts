@@ -64,6 +64,20 @@ export interface PlanAttachment {
   readonly figures: BusinessPlanFigures;
 }
 
+/** Quy trình duyệt PAKD trình riêng: định nghĩa đã gắn và tiêu đề hồ sơ. */
+export interface PlanProcedureStart {
+  readonly definitionId: string;
+  readonly title: string;
+}
+
+/** Liên kết Quy trình của vòng duyệt PAKD. */
+export interface PlanRoundLink {
+  readonly id: string;
+  readonly status: string;
+  readonly instanceId: string | null;
+  readonly instanceCode: string | null;
+}
+
 export interface BusinessPlanStore {
   /** PAKD của một phiên bản báo giá (kèm dòng chi phí). */
   findByVersion(tenantId: string, quoteId: string, versionNo: number): Promise<BusinessPlanRecord | undefined>;
@@ -74,8 +88,20 @@ export interface BusinessPlanStore {
   create(tenantId: string, record: NewBusinessPlanRecord, actorId: string): Promise<string>;
   /** Sửa (đang soạn hoặc bị từ chối, bị từ chối thì về đang soạn); phiên bản báo giá phải còn Nháp. */
   update(tenantId: string, planId: string, expectedVersion: number, change: BusinessPlanChange, actorId: string): Promise<void>;
-  /** Trình riêng: đang soạn -> chờ duyệt, mở vòng mới. */
-  submit(tenantId: string, planId: string, expectedVersion: number, figures: BusinessPlanFigures, actorId: string): Promise<void>;
+  /**
+   * Trình riêng: đang soạn -> chờ duyệt, mở vòng mới. Có `procedure` (loại duyệt `BUSINESS_PLAN` qua Quy trình) thì
+   * cùng transaction tạo liên kết `crm_business_plan` cho vòng đó; trả id liên kết để tạo phiên sau commit.
+   */
+  submit(
+    tenantId: string,
+    planId: string,
+    expectedVersion: number,
+    figures: BusinessPlanFigures,
+    actorId: string,
+    procedure?: PlanProcedureStart | null,
+  ): Promise<string | null>;
+  /** Liên kết Quy trình của vòng đang mở (PAKD trình riêng qua Quy trình); rỗng khi duyệt trực tiếp. */
+  currentRoundLink(tenantId: string, planId: string): Promise<PlanRoundLink | undefined>;
   /** Duyệt hay từ chối PAKD đang chờ duyệt do trình riêng; người trình không tự duyệt. */
   decide(
     tenantId: string,

@@ -43,6 +43,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Chip, FieldRow, IconButton, Section, ToggleGroup, type ToggleOption } from '../../components/controls';
+import { Hint } from '../../components/hint';
 import { formatDecimal, NumberField, SliderNumber } from '../../components/number-field';
 import { PaintPicker } from '../../components/paint-picker';
 import { useGesture } from '../../components/use-gesture';
@@ -129,6 +130,8 @@ function ShapeProperties({ state, dispatch, palette, rules }: EditorPanelProps) 
   const rect = useMemo(() => geometryRect(editable), [editable]);
   const paths = useMemo(() => pathActionState(shapes), [shapes]);
   const radius = useMemo(() => rectRadiusInfo(shapes), [shapes]);
+  const maskedShapes = useMemo(() => shapes.filter((shape) => shape.mask), [shapes]);
+  const maskedIds = useMemo(() => maskedShapes.filter((shape) => !shape.locked).map((shape) => shape.id), [maskedShapes]);
 
   const stroke = commonValue(target, (shape) => shape.stroke, 'none');
   const fill = commonValue(target, (shape) => shape.fill, 'none');
@@ -167,9 +170,11 @@ function ShapeProperties({ state, dispatch, palette, rules }: EditorPanelProps) 
     <div className="text-xs text-slate-700">
       <Section>
         <div className="flex items-center gap-1">
-          <p className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800" title={shapes.length === 1 ? shapes[0].name : undefined}>
-            {shapes.length === 1 ? shapes[0].name : `${shapes.length} lớp`}
-          </p>
+          <Hint label={shapes.length === 1 ? shapes[0].name : undefined}>
+            <p className="min-w-0 flex-1 truncate text-xs font-medium text-slate-800">
+              {shapes.length === 1 ? shapes[0].name : `${shapes.length} lớp`}
+            </p>
+          </Hint>
           <IconButton label="Nhân đôi" onClick={() => dispatch({ type: 'duplicate', ids: selection })}>
             <Copy />
           </IconButton>
@@ -292,15 +297,16 @@ function ShapeProperties({ state, dispatch, palette, rules }: EditorPanelProps) 
             <div className="flex items-center gap-1.5 pl-12 text-[11px] text-amber-700" role="status">
               <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="min-w-0 flex-1">Ngoài bộ nét cho phép</span>
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={snapStrokeWidths}
-                title="Đưa về độ dày gần nhất trong bộ cho phép"
-                className="shrink-0 text-blue-700 hover:underline disabled:opacity-40"
-              >
-                Chuẩn hoá
-              </button>
+              <Hint label="Đưa về độ dày gần nhất trong bộ cho phép">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={snapStrokeWidths}
+                  className="shrink-0 text-blue-700 hover:underline disabled:opacity-40"
+                >
+                  Chuẩn hoá
+                </button>
+              </Hint>
             </div>
           ) : null}
           <FieldRow label="Đầu" title="Đầu nét">
@@ -460,6 +466,26 @@ function ShapeProperties({ state, dispatch, palette, rules }: EditorPanelProps) 
           onChange={(value) => setAlignToCanvas(value === 'canvas')}
         />
       </Section>
+
+      {maskedShapes.length > 0 ? (
+        <Section title="Mặt nạ">
+          <p className="text-[11px] leading-snug text-slate-500" data-testid="mask-info">
+            {maskedShapes.length === 1
+              ? `Lớp này có mặt nạ gồm ${maskedShapes[0].mask?.layers.length ?? 0} hình.`
+              : `${maskedShapes.length} lớp đang chọn có mặt nạ.`}{' '}
+            Phần nhìn thấy do mặt nạ quyết định: vùng trắng hiện, vùng đen bị khoét. Di chuyển hay co giãn lớp thì mặt nạ đi theo.
+          </p>
+          <div>
+            <Chip
+              label="Bỏ mặt nạ: lớp hiện đủ hình dạng của nó, không còn bị khoét"
+              disabled={maskedIds.length === 0}
+              onClick={() => dispatch({ type: 'updateShapes', ids: maskedIds, patch: { mask: undefined } })}
+            >
+              Bỏ mặt nạ
+            </Chip>
+          </div>
+        </Section>
+      ) : null}
 
       <Section title="Lớp và đường">
         <div className="flex items-center gap-0.5">

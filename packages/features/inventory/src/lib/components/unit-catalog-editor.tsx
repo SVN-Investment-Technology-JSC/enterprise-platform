@@ -2,7 +2,9 @@
 
 import { X } from 'lucide-react';
 import { useState } from 'react';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
 
 /**
  * Trình soạn một DANH MỤC CHUỖI: đơn vị tính, tình trạng, loại vật tư, vị trí…
@@ -48,21 +50,31 @@ export function UnitCatalogEditor({
   };
 
   return (
-    <div className={styles.unitEditor}>
-      <ul className={styles.unitList}>
+    <div className="flex flex-col gap-3">
+      <ul className="m-0 flex min-h-[2.2rem] list-none flex-wrap items-center gap-[0.45rem] p-0">
         {units.map((unit) => {
           const inUse = usedUnits.has(unit);
           return (
-            <li key={unit} className={`${styles.unitTag} ${inUse ? styles.unitTagInUse : ''}`}>
+            <li
+              key={unit}
+              className={cn(
+                'inline-flex items-center gap-[0.4rem] rounded-full border px-[0.65rem] py-1 text-sm font-medium transition-all',
+                inUse
+                  ? 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100'
+                  : 'border-slate-200 bg-slate-100 text-slate-800 hover:border-slate-300 hover:bg-slate-200',
+              )}
+            >
               <span>{unit}</span>
               {inUse ? (
-                <span className={styles.unitTagBadge} title={`Đang có vật tư dùng ${noun} này`}>
+                <span
+                  className="rounded-full border border-blue-200 bg-blue-100 px-[0.35rem] py-[0.05rem] text-xs font-semibold not-italic text-blue-800"
+                  title={`Đang có vật tư dùng ${noun} này`}>
                   đang dùng
                 </span>
               ) : null}
               <button
                 type="button"
-                className={styles.unitTagDelete}
+                className="ml-[0.1rem] inline-flex size-4 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-slate-500 transition-all hover:enabled:bg-red-100 hover:enabled:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={disabled || inUse}
                 aria-label={`Xoá ${noun} ${unit}`}
                 title={
@@ -76,13 +88,12 @@ export function UnitCatalogEditor({
           );
         })}
         {units.length === 0 ? (
-          <li className={styles.unitEmpty}>Chưa khai {noun} nào.</li>
+          <li className="py-1 text-sm italic text-slate-400">Chưa khai {noun} nào.</li>
         ) : null}
       </ul>
 
-      <div className={styles.unitAdd}>
-        <input
-          className={styles.unitInput}
+      <div className="flex max-w-md items-center gap-2">
+        <Input
           value={draft}
           disabled={disabled}
           placeholder={placeholder}
@@ -96,14 +107,9 @@ export function UnitCatalogEditor({
             add();
           }}
         />
-        <button
-          type="button"
-          className={styles.unitAddBtn}
-          disabled={disabled || !draft.trim()}
-          onClick={add}
-        >
+        <Button type="button" disabled={disabled || !draft.trim()} onClick={add}>
           Thêm
-        </button>
+        </Button>
       </div>
     </div>
   );

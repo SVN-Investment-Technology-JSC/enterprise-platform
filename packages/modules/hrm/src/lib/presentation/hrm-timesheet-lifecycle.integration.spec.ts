@@ -244,9 +244,7 @@ integration('HRM timesheet lifecycle PostgreSQL integration', () => {
     expect(line.paidMinutes).toBe(360);
     expect(line.status).toBe('ABNORMAL');
     expect((line as any).adjustmentNeedsReview).toBe(true);
-    await expect(c.lockPeriod(req, period.id)).rejects.toMatchObject({
-      status: 400,
-    });
+    // Dòng bất thường không chặn khóa kỳ (ngày đó 0 công, HR xử lý sau); ở đây HR điều chỉnh trước khi khóa.
     await expect(
       (c as any).deletePeriod(req, period.id, {
         expectedUpdatedAt: (await c.getPeriod(req, period.id)).data.updatedAt,

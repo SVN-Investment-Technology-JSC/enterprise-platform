@@ -13,7 +13,7 @@ import {
   type SchedulingWarning,
   type UpdateEventRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
+import { DatePickerInput, TimePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useEffect, useMemo, useState } from 'react';
 import type { EventPrefill, FormPrefill } from '../assistant-drafts';
 import { EVENT_TYPE_LABELS } from '../workspace-labels';
@@ -64,6 +64,8 @@ interface FormState {
   freq: RecurrenceFrequency;
   interval: string;
   count: string;
+  /** Lặp hằng tuần theo thứ: 0 = T2 … 6 = CN; rỗng = theo thứ của ngày bắt đầu. */
+  byDay: number[];
   participantUserIds: string[];
   scope: RecurrenceScope;
 }
@@ -81,6 +83,7 @@ const EMPTY: FormState = {
   freq: 'WEEKLY',
   interval: '1',
   count: '10',
+  byDay: [],
   participantUserIds: [],
   scope: 'single',
 };
@@ -90,6 +93,15 @@ const RESPONSES: readonly { value: ParticipantResponse; label: string }[] = [
   { value: 'tentative', label: 'Có thể' },
   { value: 'declined', label: 'Từ chối' },
 ];
+
+const WEEKDAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'] as const;
+const WEEKDAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const;
+
+/** Thứ của `YYYY-MM-DD` theo lịch (0 = T2 … 6 = CN); null khi ngày chưa nhập. */
+function weekdayOf(date: string): number | null {
+  const value = new Date(`${date}T00:00:00`);
+  return Number.isFinite(value.getTime()) ? (value.getDay() + 6) % 7 : null;
+}
 
 const SCOPE_LABELS: Record<RecurrenceScope, string> = {
   single: 'Chỉ buổi này',
@@ -251,7 +263,13 @@ export function EventForm({
     const interval = Math.max(Math.trunc(Number(form.interval) || 1), 1);
     const count = Math.max(Math.trunc(Number(form.count) || 1), 1);
     // Luôn kèm COUNT: chuỗi vô hạn bị server từ chối.
-    return `FREQ=${form.freq};INTERVAL=${interval};COUNT=${count}`;
+    let days = form.freq === 'WEEKLY' ? form.byDay : [];
+    if (form.freq === 'WEEKLY' && !days.length) {
+      const own = weekdayOf(form.date);
+      days = own === null ? [] : [own];
+    }
+    const byDay = days.length ? `;BYDAY=${[...days].sort((a, b) => a - b).map((d) => WEEKDAY_CODES[d]).join(',')}` : '';
+    return `FREQ=${form.freq};INTERVAL=${interval}${byDay};COUNT=${count}`;
   };
 
   const submit = async () => {
@@ -409,20 +427,20 @@ export function EventForm({
         {form.allDay ? null : (
           <Field label="Giờ bắt đầu - kết thúc">
             <div className={styles.timeRange}>
-              <input
-                type="time"
+              <TimePickerInput
                 aria-label="Giờ bắt đầu"
+                height={38}
                 value={form.startTime}
                 disabled={!canEdit}
-                onChange={(event) => set({ startTime: event.target.value })}
+                onChange={(value) => set({ startTime: value })}
               />
               <span aria-hidden>-</span>
-              <input
-                type="time"
+              <TimePickerInput
                 aria-label="Giờ kết thúc"
+                height={38}
                 value={form.endTime}
                 disabled={!canEdit}
-                onChange={(event) => set({ endTime: event.target.value })}
+                onChange={(value) => set({ endTime: value })}
               />
             </div>
           </Field>
@@ -485,7 +503,8 @@ export function EventForm({
           </label>
 
           {form.repeats ? (
-            <div className={styles.fieldRow}>
+            <>
+            <div className={styles.fieldRowThree}>
               <Field label="Tần suất">
                 <Choice
                   label="Tần suất"
@@ -517,6 +536,31 @@ export function EventForm({
                 />
               </Field>
             </div>
+            {form.freq === 'WEEKLY' ? (
+              <Field label="Lặp vào thứ" hint="Mặc định là thứ của ngày bắt đầu. Bấm để thêm hoặc bỏ thứ, ví dụ chỉ T6 để họp báo cáo mỗi thứ Sáu.">
+                <div className={styles.weekdayRow} role="group" aria-label="Lặp vào thứ">
+                  {WEEKDAYS.map((label, day) => {
+                    const on = (form.byDay.length ? form.byDay : [weekdayOf(form.date)]).includes(day);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        aria-pressed={on}
+                        className={on ? `${styles.weekdayBtn} ${styles.weekdayBtnOn}` : styles.weekdayBtn}
+                        onClick={() => {
+                          const base = form.byDay.length ? form.byDay : [weekdayOf(form.date)].filter((d): d is number => d !== null);
+                          const next = base.includes(day) ? base.filter((d) => d !== day) : [...base, day];
+                          set({ byDay: next });
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Field>
+            ) : null}
+            </>
           ) : null}
         </>
       )}

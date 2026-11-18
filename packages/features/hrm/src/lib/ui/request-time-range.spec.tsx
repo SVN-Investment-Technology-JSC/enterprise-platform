@@ -82,6 +82,30 @@ describe('RequestTimeRange', () => {
     expect(screen.getByText(/16:00 - 17:00 ngày 12\/10 trùng ca làm việc/)).toBeTruthy();
   });
 
+  it('showSummary=false (đơn nghỉ bù): ẩn thẻ tổng giờ và cảnh báo, vẫn báo lỗi chặn gửi và báo cho form cha', async () => {
+    const onPreview = jest.fn();
+    fetchMock.mockResolvedValue({
+      data: preview({ totalMinutes: 2640, totalHours: 44, totalDays: 5.5, warnings: ['2026-11-15 là ngày nghỉ, không tính vào đơn.'], errors: ['Vượt hạn mức.'] }),
+    } as never);
+    render(
+      <RequestTimeRange
+        employeeId="e1"
+        fromAt="2026-11-13T07:30"
+        toAt="2026-11-19T17:00"
+        leaveTypeId="lt-comp"
+        showSummary={false}
+        onChange={jest.fn()}
+        onPreview={onPreview}
+      />,
+    );
+    await settle();
+    await waitFor(() => expect(onPreview).toHaveBeenLastCalledWith(expect.objectContaining({ totalMinutes: 2640 })));
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByTestId('time-total')).toBeNull();
+    expect(screen.queryByText('2026-11-15 là ngày nghỉ, không tính vào đơn.')).toBeNull();
+    expect(screen.getByRole('alert').textContent).toBe('Vượt hạn mức.');
+  });
+
   it('đơn công tác: gửi kind=trip và không hiện thẻ tính toán', async () => {
     fetchMock.mockResolvedValue({
       data: preview({ totalMinutes: 720, totalHours: 12, totalDays: 1.5, errors: [], warnings: [] }),

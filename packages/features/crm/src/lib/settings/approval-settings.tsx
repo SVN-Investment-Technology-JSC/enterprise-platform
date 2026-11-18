@@ -202,6 +202,11 @@ function ThresholdSettings() {
   );
 }
 
+/** Chú thích riêng của từng loại gắn duyệt (D3-30). */
+export const APPROVAL_KIND_HINTS: Readonly<Partial<Record<ApprovalKind, string>>> = {
+  BUSINESS_PLAN: 'Chỉ áp dụng cho PAKD trình riêng; PAKD đi kèm báo giá theo kết quả duyệt báo giá.',
+};
+
 function ApprovalBindings() {
   const [bindings, setBindings] = useState<readonly ApprovalBinding[]>([]);
   const [procedures, setProcedures] = useState<readonly ProcedureDefinitionOption[]>([]);
@@ -276,7 +281,7 @@ function BindingRow({
       }}
     >
       <h3 className={styles.sectionTitle}>{APPROVAL_KIND_LABELS[binding.kind]}</h3>
-      <Field label="Cách duyệt">
+      <Field label="Cách duyệt" hint={APPROVAL_KIND_HINTS[binding.kind]}>
         <SearchableSelect options={labelOptions(APPROVAL_MODE_LABELS)} value={mode} onChange={(value) => setMode(value as ApprovalMode)} />
       </Field>
       {mode === 'PROCEDURE' ? (

@@ -14,7 +14,6 @@ import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import type { InventoryClient, IssueRequestInput, ReserveStockRequest, ReservedStock } from './application/fulfillment.port.js';
-import { PriceListService } from './application/price-list.service.js';
 import { vietnamToday } from './application/pricing.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { ReceivableAdjustmentService } from './application/receivable-adjustment.service.js';
@@ -22,18 +21,18 @@ import type { FinanceClient, FinanceReceiptVoucherRequest, FinanceVoucherState }
 import { ReceivableService } from './application/receivable.service.js';
 import { SalesOrderService } from './application/sales-order.service.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { CrmError } from './domain/crm.error.js';
 import { addDays } from './domain/receivables.js';
 import { applyFinanceVoucherEvent, FINANCE_VOUCHER_POSTED, FINANCE_VOUCHER_RETURNED, FINANCE_VOUCHER_STATUS_CHANGED } from './infrastructure/finance-events.js';
 import { PostgresIntegrationRequests } from './infrastructure/integration-requests.js';
 import { applyStockIssued } from './infrastructure/inventory-events.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
 import { PROCEDURE_START_MAX_ATTEMPTS } from './infrastructure/quote-procedure-links.js';
 import { applyOrderCreditProcedureResult, PostgresCreditStore } from './infrastructure/postgres-credit.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
-import { PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
+import { PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
 import { PostgresReceivableStore } from './infrastructure/postgres-receivable.store.js';
 import { PostgresSalesOrderStore } from './infrastructure/postgres-sales-order.store.js';
 import { insertReceivableEntry, recognizeDateTerms } from './infrastructure/receivable-recognition.js';
@@ -116,6 +115,7 @@ class FakeFinance implements FinanceClient {
 
 integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)', () => {
   let handle: CrmTestDatabaseHandle;
+  let priceListId: string;
   const tenantId = randomUUID();
   const today = vietnamToday(new Date());
   const actor = (userId: string, extra: Partial<CrmActor> = {}): CrmActor => ({
@@ -175,9 +175,10 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     customers = new CustomerService(customerStore, scopes);
     timeline = new CustomerTimelineService(new PostgresTimelineStore(handle.database), customerStore, scopes);
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(ql, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(ql, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
+      validFrom: '2026-01-01',
       items: [
         { materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 },
         { materialId: BT, materialCode: 'QA-KHO-BT', materialName: 'Gói bảo trì', unit: 'Gói', price: 500_000, vatRate: 10 },
@@ -226,7 +227,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
 
   /** Đơn trực tiếp `quantity` cáp đã xác nhận và giao đủ (một đợt). */
   async function deliveredOrder(customerId: string, quantity: number): Promise<SalesOrderDetail> {
-    const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity }] });
+    const draft = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity }] });
     let order = await orders.confirm(nv, draft.id, { revision: draft.revision });
     order = await orders.saveDelivery(nv, order.id, null, { revision: order.revision, plannedDate: addDays(today, 1), lines: [{ orderLineId: order.lines[0].id, quantity }] });
     order = await orders.requestIssue(nv, order.id, order.deliveries[0].id, { revision: order.revision });
@@ -242,7 +243,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
 
   it('TC-AR-01: xuất đợt 1 ghi nợ đúng giá trị gồm VAT, hạn = ngày giao + 30; nhận trùng không ghi lại; chứng từ đảo ghi bút đảo', async () => {
     const customerId = await newCustomer();
-    const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 10 }] });
+    const draft = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 10 }] });
     let order = await orders.confirm(nv, draft.id, { revision: draft.revision });
     order = await orders.saveDelivery(nv, order.id, null, { revision: order.revision, plannedDate: addDays(today, 1), lines: [{ orderLineId: order.lines[0].id, quantity: 4 }] });
     order = await orders.requestIssue(nv, order.id, order.deliveries[0].id, { revision: order.revision });
@@ -415,7 +416,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
   it('TC-AR-09/10: dư nợ + đơn bằng hạn mức thì xác nhận; vượt 1 đồng với cấu hình chặn thì 409, không giữ hàng', async () => {
     const customerId = await newCustomer();
     await debit(customerId, 80_000_000);
-    const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 2 }] });
+    const draft = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 2 }] });
     const total = draft.totals.totalAmount;
     await handle.pool.query(`UPDATE crm_schema.customers SET credit_limit = $2 WHERE id = $1`, [customerId, 80_000_000 + total]);
     expect((await orders.confirm(nv, draft.id, { revision: draft.revision })).status).toBe('CONFIRMED');
@@ -424,7 +425,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     try {
       const other = await newCustomer(80_000_000 + total - 1);
       await debit(other, 80_000_000);
-      const blocked = await orders.create(nv, { customerId: other, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 2 }] });
+      const blocked = await orders.create(nv, { priceListId, customerId: other, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 2 }] });
       const reservationsBefore = inventory.reservations.size;
       await expect(orders.confirm(nv, blocked.id, { revision: blocked.revision })).rejects.toMatchObject({
         statusCode: 409,
@@ -440,7 +441,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
 
   it('TC-AR-11: vượt hạn mức, cấu hình duyệt: Chờ duyệt hạn mức; duyệt xong mới giữ hàng; từ chối thì về Nháp', async () => {
     const customerId = await newCustomer(1_000);
-    const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
+    const draft = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
     const pending = await orders.confirm(nv, draft.id, { revision: draft.revision });
     expect(pending).toMatchObject({ status: 'CREDIT_PENDING', creditRequest: { status: 'PENDING', mode: 'DIRECT' } });
     expect(pending.lines[0].reservationStatus).toBeNull();
@@ -451,7 +452,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     expect(approved).toMatchObject({ status: 'CONFIRMED', creditRequest: { status: 'APPROVED', decidedBy: QL } });
     expect(approved.lines[0].reservationStatus).toBe('HELD');
 
-    const second = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
+    const second = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
     await orders.confirm(nv, second.id, { revision: second.revision });
     await expect(credit.decide(ql, second.id, false, {})).rejects.toMatchObject({ statusCode: 400 });
     const rejected = await credit.decide(ql, second.id, false, { reason: 'Khách nợ nhiều' });
@@ -468,7 +469,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     );
     try {
       const customerId = await newCustomer(1_000);
-      const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
+      const draft = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
       const pending = await orders.confirm(nv, draft.id, { revision: draft.revision });
       expect(pending.creditRequest).toMatchObject({ status: 'PENDING', mode: 'PROCEDURE' });
       const link = (
@@ -515,7 +516,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     let ledger = await receivables.ledger(kt, customerId);
     expect(ledger.openItems.map((item) => [item.amount, item.dueDate])).toEqual([[3_000_000, addDays(today, 30)]]);
 
-    const order = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity: 2 }] });
+    const order = await orders.create(nv, { priceListId, contractId: draft.id, lines: [{ materialId: CAP, quantity: 2 }] });
     let detail = await orders.confirm(nv, order.id, { revision: order.revision });
     detail = await orders.saveDelivery(nv, detail.id, null, { revision: detail.revision, plannedDate: addDays(today, 1), lines: [{ orderLineId: detail.lines[0].id, quantity: 2 }] });
     detail = await orders.requestIssue(nv, detail.id, detail.deliveries[0].id, { revision: detail.revision });
@@ -566,7 +567,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
 
     /** Lập đơn thuộc hợp đồng với một đợt giao mỗi số lượng trong `parts`. */
     const contractOrder = async (quantity: number, parts: number[]) => {
-      let detail = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity }] });
+      let detail = await orders.create(nv, { priceListId, contractId: draft.id, lines: [{ materialId: CAP, quantity }] });
       detail = await orders.confirm(nv, detail.id, { revision: detail.revision });
       for (const [index, part] of parts.entries()) {
         detail = await orders.saveDelivery(nv, detail.id, null, {
@@ -595,7 +596,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     const first = await contractOrder(3, [3]);
     const second = await contractOrder(2, [1, 1]);
     // T8-08: đơn Nháp bị bỏ dở chưa là cam kết, không chặn đợt giao đủ.
-    const abandoned = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity: 1 }] });
+    const abandoned = await orders.create(nv, { priceListId, contractId: draft.id, lines: [{ materialId: CAP, quantity: 1 }] });
     expect(abandoned.status).toBe('DRAFT');
     expect(await termDebits()).toEqual([3_000_000]);
     // Đơn thứ nhất giao đủ nhưng đơn thứ hai chưa giao: chưa ghi nợ 70%.
@@ -724,7 +725,7 @@ integration('Bán hàng GĐ5: công nợ, thu tiền, hạn mức (PostgreSQL)',
     );
     try {
       const customerId = await newCustomer(1_000);
-      const draft = await orders.create(nv, { customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
+      const draft = await orders.create(nv, { priceListId, customerId, warehouseCode: 'KHO-1', lines: [{ materialId: CAP, quantity: 1 }] });
       const pending = await orders.confirm(nv, draft.id, { revision: draft.revision });
       const requestId = pending.creditRequest?.id as string;
       // Còn lần thử: chưa chuyển.

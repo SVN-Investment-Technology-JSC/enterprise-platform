@@ -44,4 +44,17 @@ describe('nguồn Bán hàng (crm_quote, crm_order_credit)', () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('CRM');
   });
+
+  it('PAKD trình riêng (crm_business_plan) đi như báo giá: tự hoàn thành bước S, hỏi Bán hàng trước khi huỷ hiệu lực', async () => {
+    expect(AUTO_COMPLETE_SOURCE_TYPES).toContain('crm_business_plan');
+    expect(REVERSAL_GUARDED_SOURCE_TYPES).toContain('crm_business_plan');
+    const fetchMock = jest.fn().mockResolvedValue(new Response(JSON.stringify({ allowed: true }), { status: 200 }));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const guard = new HttpInstanceReversalGuard('http://hrm', 'http://finance', 'http://crm/api/crm');
+
+    await expect(guard.check('tenant-1', { sourceType: 'crm_business_plan', sourceId: 'round-1' })).resolves.toEqual({
+      allowed: true,
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://crm/api/crm/v1/internal/instances/round-1/reversal-check');
+  });
 });

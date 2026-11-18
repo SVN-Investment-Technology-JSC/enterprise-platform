@@ -419,3 +419,36 @@ export function isAllowedPushEndpoint(endpoint: unknown): endpoint is string {
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) return false;
   return PUSH_HOSTS.some((pattern) => pattern.test(url.hostname.toLowerCase()));
 }
+
+/* --------------------- Firebase Cloud Messaging (Mobile) --------------------- */
+
+export const FCM_PLATFORMS = ['ios', 'android'] as const;
+export type FcmPlatform = (typeof FCM_PLATFORMS)[number];
+
+export function isFcmPlatform(value: unknown): value is FcmPlatform {
+  return typeof value === 'string' && (FCM_PLATFORMS as readonly string[]).includes(value);
+}
+
+/** Token đăng ký thiết bị của FCM (chuỗi ký tự ASCII in được, không khoảng trắng, dài 20..4096). */
+const FCM_TOKEN_PATTERN = /^[\x21-\x7E]{20,4096}$/;
+
+export function isValidFcmToken(token: unknown): token is string {
+  return typeof token === 'string' && FCM_TOKEN_PATTERN.test(token);
+}
+
+export interface RegisterFcmDeviceRequest {
+  readonly token: string;
+  readonly platform: FcmPlatform;
+  readonly deviceId?: string;
+}
+
+export interface DeleteFcmDeviceRequest {
+  readonly token?: string;
+  readonly deviceId?: string;
+}
+
+export interface FcmPushStatus {
+  readonly enabled: boolean;
+  readonly tokens: number;
+}
+

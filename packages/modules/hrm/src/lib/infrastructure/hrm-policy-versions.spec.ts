@@ -82,6 +82,29 @@ describe('planPolicyPublish', () => {
     );
     expect(plan.toClose.map((x) => x.id).sort()).toEqual(['a1', 'b1']);
   });
+  it('OVERWRITE truncates the earlier bounded version and replaces the later one', () => {
+    const plan = planPolicyPublish(
+      [v('a3', '2026-10-02', '2026-11-30'), v('a4', '2026-12-01', null)],
+      { ...company, from: '2026-11-01' },
+      undefined,
+      'OVERWRITE',
+    );
+    expect(plan.conflicts).toHaveLength(0);
+    expect(plan.toClose.map((x) => x.id)).toEqual(['a3']);
+    expect(plan.toRemove.map((x) => x.id)).toEqual(['a4']);
+  });
+  it('OVERWRITE still refuses a version that outlives a bounded new range', () => {
+    const plan = planPolicyPublish([v('a4', '2026-11-15', null)], { ...company, from: '2026-11-01', to: '2026-11-30' }, undefined, 'OVERWRITE');
+    expect(plan.conflicts).toHaveLength(1);
+    expect(plan.toRemove).toHaveLength(0);
+  });
+  it('REPORT keeps reporting the same two conflicts', () => {
+    const plan = planPolicyPublish(
+      [v('a3', '2026-10-02', '2026-11-30'), v('a4', '2026-12-01', null)],
+      { ...company, from: '2026-11-01' },
+    );
+    expect(plan.conflicts.map((c) => c.id)).toEqual(['a3', 'a4']);
+  });
   it('warns about a gap when the new version is bounded', () => {
     const plan = planPolicyPublish([v('a1', '2026-01-01', null)], {
       ...company,

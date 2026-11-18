@@ -25,12 +25,14 @@ import {
   draftTotal,
   draftsFromPlan,
   isPlanConflict,
+  isPlanInProcedure,
   planActions,
   planConflictMessage,
   planDirty,
   planReasons,
   type PlanLineDraft,
 } from './business-plan.model';
+import { PROCEDURE_ACTION_LABEL, crmReturnPath, procedureHrefOf } from '../tasks/tasks.model';
 
 const KIND_OPTIONS = labelOptions(BUSINESS_PLAN_COST_KIND_LABELS);
 const ROW = { display: 'grid', gridTemplateColumns: '200px 1fr 170px 60px', gap: 8, alignItems: 'center' } as const;
@@ -94,6 +96,8 @@ export function BusinessPlanPanel({ detail, onChanged }: { detail: QuoteDetail; 
       setError(message);
       toast.error(message);
       if (isPlanConflict(cause)) await reload();
+      // Đang duyệt qua Quy trình: tải lại báo giá để có hồ sơ Quy trình (nút Duyệt trên Quy trình).
+      if (isPlanInProcedure(cause)) onChanged?.();
       return false;
     } finally {
       setBusy(false);
@@ -174,7 +178,16 @@ export function BusinessPlanPanel({ detail, onChanged }: { detail: QuoteDetail; 
     );
   }
 
-  const actions = planActions(plan, capabilities, currentUserId);
+  // PAKD trình riêng đang chờ người xem duyệt trên Quy trình: không hiện Duyệt, Từ chối trực tiếp (server chặn 409).
+  const awaiting = detail.awaitingMyApproval?.subject === 'BUSINESS_PLAN' ? detail.awaitingMyApproval : null;
+  const viaProcedure = awaiting?.mode === 'PROCEDURE';
+  const procedureHref = procedureHrefOf(
+    awaiting,
+    crmReturnPath(typeof window === 'undefined' ? '' : window.location.hash, `#quotes/${detail.id}`),
+  );
+  const actions = planActions(plan, capabilities, currentUserId).filter(
+    (action) => !viaProcedure || (action !== 'approve' && action !== 'reject'),
+  );
   const editing = actions.includes('save');
   const dirty = planDirty(plan, drafts, note);
   const total = editing ? draftTotal(drafts) : plan.figures?.extraCostTotal ?? 0;
@@ -301,6 +314,19 @@ export function BusinessPlanPanel({ detail, onChanged }: { detail: QuoteDetail; 
         ) : null}
       </dl>
       {editing && dirty && costVisible ? <p className={styles.muted}>Có thay đổi chưa lưu; số liệu lợi nhuận cập nhật sau khi lưu.</p> : null}
+
+      {viaProcedure ? (
+        <div className={styles.toolbar}>
+          {procedureHref ? (
+            <a className={styles.buttonPrimary} href={procedureHref}>
+              {PROCEDURE_ACTION_LABEL}
+            </a>
+          ) : (
+            <span className={styles.muted}>Hồ sơ Quy trình đang được tạo; vui lòng tải lại sau ít phút.</span>
+          )}
+          {awaiting?.procedureInstanceCode ? <span className={styles.muted}>Hồ sơ {awaiting.procedureInstanceCode}</span> : null}
+        </div>
+      ) : null}
 
       {actions.length ? (
         <div className={styles.toolbar}>

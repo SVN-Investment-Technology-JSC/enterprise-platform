@@ -28,7 +28,9 @@ import {
   type RelinkProcedureWorkspaceRequest,
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
+  type ProcedureSourceSummary,
   isAttributeEnterableAt,
+  validateProcedureSourceSummary,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   canDeleteProcedureInstance,
@@ -172,6 +174,7 @@ export const AUTO_COMPLETE_SOURCE_TYPES: readonly string[] = [
   'crm_quote',
   'crm_order_credit',
   'crm_tender_plan',
+  'crm_business_plan',
 ];
 /** Nguồn phải được hỏi trước khi huỷ hiệu lực hồ sơ: module nguồn có thể đã ghi sổ/áp dụng kết quả. */
 export const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = [
@@ -179,7 +182,25 @@ export const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = [
   'finance_voucher',
   'crm_quote',
   'crm_order_credit',
+  'crm_business_plan',
 ];
+
+/**
+ * Kiểm và chuẩn hoá thông tin nguồn (D3-31) bằng hàm dùng chung của contracts; sai thì 400 với lỗi đầu tiên
+ * (tiếng Việt). Rỗng (`null`, `undefined`, không còn dòng nào) là không có thông tin nguồn.
+ */
+export function parseSourceSummary(input: unknown): ProcedureSourceSummary | null {
+  const result = validateProcedureSourceSummary(input);
+  if (!result.ok) {
+    throw new ProcedureEngineError('validation', result.errors[0]?.message ?? 'Thông tin nguồn không hợp lệ.');
+  }
+  return result.summary;
+}
+
+/** Yêu cầu khởi tạo của người dùng, kèm thông tin nguồn tuỳ chọn (contracts chưa khai trên `StartProcedureInstanceRequest`). */
+export type StartProcedureInstanceInput = StartProcedureInstanceRequest & {
+  readonly sourceSummary?: ProcedureSourceSummary | null;
+};
 
 /** Kết quả tự hoàn thành bước S khi khởi tạo hồ sơ. */
 export interface ProcedureAutoCompleteOutcome {
@@ -362,6 +383,7 @@ export class ProcedureEngineApplication {
       initiatedByName: string;
       sourceType?: ProcedureInstanceSourceType;
       sourceId?: string;
+      sourceSummary?: ProcedureSourceSummary | null;
       assetCode?: string;
       startDueAt?: string;
       endDueAt?: string;
@@ -417,6 +439,7 @@ export class ProcedureEngineApplication {
       decisions: [],
       sourceType: options.sourceType ?? 'manual',
       sourceId: options.sourceId,
+      ...(options.sourceSummary ? { sourceSummary: options.sourceSummary } : {}),
       assetCode: options.assetCode,
       startDueAt: options.startDueAt,
       endDueAt: options.endDueAt,
@@ -1708,7 +1731,7 @@ export class ProcedureEngineApplication {
 
   async startInstance(
     actor: ProcedureActor,
-    input: StartProcedureInstanceRequest,
+    input: StartProcedureInstanceInput,
   ): Promise<ProcedureInstance> {
     return (await this.startInstanceDetailed(actor, input)).instance;
   }
@@ -1720,7 +1743,7 @@ export class ProcedureEngineApplication {
    */
   async startInstanceDetailed(
     actor: ProcedureActor,
-    input: StartProcedureInstanceRequest,
+    input: StartProcedureInstanceInput,
   ): Promise<{ instance: ProcedureInstance; autoComplete?: ProcedureAutoCompleteOutcome }> {
     if (!actor.canCreateInstances) {
       throw new ProcedureEngineError('forbidden', 'Bạn không có quyền khởi tạo hồ sơ quy trình.');
@@ -1746,6 +1769,7 @@ export class ProcedureEngineApplication {
         'Tiêu đề hồ sơ là bắt buộc và không vượt quá 255 ký tự.',
       );
     }
+    const sourceSummary = parseSourceSummary(input.sourceSummary);
     const workspaceLink = input.workspaceLink
       ? this.validateWorkspaceLinkRequest(input.workspaceLink, input.sourceType)
       : undefined;
@@ -1936,6 +1960,7 @@ export class ProcedureEngineApplication {
         initiatedByName: submitter?.displayName || input.initiatedByName || actor.displayName,
         sourceType: input.sourceType,
         sourceId: input.sourceId,
+        sourceSummary,
         assetCode,
         startDueAt: input.startDueAt,
         endDueAt: input.endDueAt,
@@ -2292,6 +2317,7 @@ export class ProcedureEngineApplication {
       idempotencyKey: `${input.sourceType || 'external'}:${input.idempotencyKey}`,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      sourceSummary: input.sourceSummary,
       assetCode: input.assetCode?.trim() || undefined,
       initiatedBy: input.initiatedBy,
       initiatedByName: input.initiatedByName,
@@ -2327,6 +2353,76 @@ export class ProcedureEngineApplication {
           }
         : {}),
     };
+  }
+
+  /**
+   * Module nguồn cập nhật thông tin nguồn của hồ sơ khi chứng từ đổi (service token, D3-31). Chỉ là thông tin hiển
+   * thị: hồ sơ đã kết thúc vẫn cập nhật được, không ghi nhật ký bước, không đổi luồng. `null` là xoá.
+   */
+  async updateSourceSummaryForService(
+    tenantId: string,
+    instanceId: string,
+    input: unknown,
+  ): Promise<{ readonly id: string; readonly sourceSummary: ProcedureSourceSummary | null }> {
+    const sourceSummary = parseSourceSummary(input);
+    const current = (await this.store.read(tenantId)).instances.find((candidate) => candidate.id === instanceId);
+    if (!current || current.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+    // Không đổi thì không mở transaction: transaction ghi lại toàn bộ state của tenant.
+    if (JSON.stringify(current.sourceSummary ?? null) === JSON.stringify(sourceSummary)) {
+      return { id: current.id, sourceSummary };
+    }
+    return this.store.transaction(tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance || instance.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      if (sourceSummary) instance.sourceSummary = sourceSummary;
+      else delete instance.sourceSummary;
+      return { id: instance.id, sourceSummary };
+    });
+  }
+
+  /**
+   * Phân hệ nguồn huỷ hồ sơ khi chứng từ gốc không còn (ví dụ CRM xoá báo giá đang chờ duyệt). Chỉ hồ sơ đang chạy:
+   * chuyển Đã huỷ (bước hiện tại cũng huỷ), ghi lịch sử kèm lý do; diff trạng thái phát `procedure.instance.completed`
+   * (status `cancelled`) như khi người dùng huỷ. Gọi lại khi đã huỷ thì trả kết quả cũ; hồ sơ đã kết thúc khác thì 409.
+   */
+  async cancelInstanceForService(
+    tenantId: string,
+    instanceId: string,
+    input: { readonly reason?: unknown; readonly actorUserId?: unknown; readonly actorName?: unknown } | undefined,
+  ): Promise<{ readonly id: string; readonly status: ProcedureInstance['status'] }> {
+    const reason = typeof input?.reason === 'string' ? input.reason.trim() : '';
+    if (reason.length < 3) throw new ProcedureEngineError('validation', 'Cần ghi lý do huỷ hồ sơ (ít nhất 3 ký tự).');
+    if (reason.length > 1000) throw new ProcedureEngineError('validation', 'Lý do huỷ hồ sơ tối đa 1000 ký tự.');
+    const actorId = typeof input?.actorUserId === 'string' && input.actorUserId.trim() ? input.actorUserId.trim() : 'system';
+    const actorName = typeof input?.actorName === 'string' && input.actorName.trim() ? input.actorName.trim().slice(0, 200) : 'Phân hệ nguồn';
+    let held: string[] = [];
+    const result = await this.store.transaction(tenantId, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === instanceId);
+      if (!instance || instance.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
+      if (instance.status === 'cancelled') return { id: instance.id, status: instance.status };
+      if (instance.status !== 'running') throw new ProcedureEngineError('conflict', 'Hồ sơ đã kết thúc, không huỷ được.');
+      const now = this.clock.now().toISOString();
+      held = instance.steps.flatMap((step) => step.materialReservations ?? []);
+      instance.status = 'cancelled';
+      instance.completedAt = now;
+      const current = instance.steps.find((step) => step.id === instance.currentStepId);
+      if (current && current.status !== 'completed') {
+        current.status = 'cancelled';
+        current.completedAt = now;
+      }
+      instance.activity.unshift({
+        id: this.ids.next(),
+        action: 'cancel',
+        actorId,
+        actorName,
+        summary: 'Phân hệ nguồn đã huỷ hồ sơ.',
+        comment: reason,
+        createdAt: now,
+      });
+      return { id: instance.id, status: instance.status };
+    });
+    if (held.length > 0) await this.releaseReservations(tenantId, held);
+    return result;
   }
 
   /**
@@ -3512,6 +3608,7 @@ export class ProcedureEngineApplication {
   ): ProcedureInstance {
     return {
       ...instance,
+      sourceSummary: instance.sourceSummary ?? null,
       authorization: deriveProcedureAuthorization(instance, actor),
     };
   }

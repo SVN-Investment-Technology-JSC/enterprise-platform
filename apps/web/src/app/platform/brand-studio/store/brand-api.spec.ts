@@ -11,11 +11,14 @@ import {
   isBrandApiError,
   listIcons,
   publishIcon,
+  purgeIcon,
   restoreIcon,
   saveIcon,
   saveStandards,
   svgUrl,
   unpublishIcon,
+  resetSlotOverride,
+  updateCustomSlot,
 } from './brand-api';
 
 jest.mock('@enterprise-platform/shared-ui', () => ({ authFetch: jest.fn() }));
@@ -101,7 +104,7 @@ describe('brand-api: yêu cầu', () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ baseVersion: 4, document: { id: 'icon-1' } });
   });
 
-  it('phát hành, gỡ, lưu trữ và khôi phục dùng đúng phương thức và đường dẫn', async () => {
+  it('phát hành, gỡ, lưu trữ, khôi phục và xoá vĩnh viễn dùng đúng phương thức và đường dẫn', async () => {
     mockFetch.mockResolvedValue(reply(200, {}));
 
     await publishIcon('icon-1');
@@ -113,6 +116,20 @@ describe('brand-api: yêu cầu', () => {
     await restoreIcon('icon-1');
     expect([lastCall().init.method, lastCall().url]).toEqual(['POST', `${BASE}/icons/icon-1/restore`]);
     expect(lastCall().init.body).toBeUndefined();
+
+    mockFetch.mockResolvedValue(reply(204));
+    await expect(purgeIcon('icon-1')).resolves.toBeUndefined();
+    expect([lastCall().init.method, lastCall().url]).toEqual(['DELETE', `${BASE}/icons/icon-1/permanent`]);
+    expect(lastCall().init.body).toBeUndefined();
+  });
+
+  it('sửa vị trí gửi PUT kèm trường null, khôi phục ghi đè gọi DELETE .../override', async () => {
+    mockFetch.mockResolvedValue(reply(200, {}));
+    await updateCustomSlot('brand.logo', { label: null, recommendedSize: 40 });
+    expect([lastCall().init.method, lastCall().url]).toEqual(['PUT', `${BASE}/slots/definitions/brand.logo`]);
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({ label: null, recommendedSize: 40 });
+    await resetSlotOverride('brand.logo');
+    expect([lastCall().init.method, lastCall().url]).toEqual(['DELETE', `${BASE}/slots/definitions/brand.logo/override`]);
   });
 
   it('bảng màu và quy chuẩn: GET rồi PUT kèm baseVersion', async () => {

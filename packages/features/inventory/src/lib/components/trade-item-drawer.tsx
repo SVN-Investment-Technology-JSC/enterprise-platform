@@ -7,10 +7,8 @@ import type {
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
 import { CloseGuard, Popconfirm, SearchableSelect, VnNumberInput } from '@enterprise-platform/shared-ui';
-import { X } from 'lucide-react';
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { formatDateTime } from '../inventory-labels';
-import styles from '../inventory.module.scss';
 import { useUserLabel } from '../user-names';
 import {
   TRADE_GROUP_LABEL,
@@ -29,18 +27,16 @@ import {
 } from './material-drawer-sections';
 import { FormError, submitErrorMessage, useFormSubmit } from './form-error';
 import { TradeStatusBadge } from './trade-status-badge';
+import { Button } from '../ui/button';
+import { DialogCloseButton } from '../ui/dialog';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
+import { Sheet, SheetBody, SheetContent, SheetHeader } from '../ui/sheet';
 
-const inputStyle: CSSProperties = {
-  width: '100%',
-  height: '36px',
-  padding: '0 10px',
-  border: '1px solid #cbd5e1',
-  borderRadius: '6px',
-  fontSize: '14px',
-  color: '#0f172a',
-  background: '#ffffff',
-  boxSizing: 'border-box',
-};
+/** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
+const NUMBER_INPUT_CLASS =
+  'h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-sm outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:bg-slate-100 disabled:opacity-50 aria-invalid:border-red-500';
 
 /** Một trường ở chế độ sửa, cùng dáng nhãn với `DrawerField`. */
 function EditField({
@@ -55,11 +51,10 @@ function EditField({
   children: ReactNode;
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: 0 }}>
-      <label htmlFor={htmlFor} style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>
+    <div className="flex min-w-0 flex-col gap-1">
+      <Label htmlFor={htmlFor} required={required} className="text-xs font-bold text-slate-500">
         {label}
-        {required ? <span style={{ color: '#dc2626' }}> *</span> : null}
-      </label>
+      </Label>
       {children}
     </div>
   );
@@ -199,43 +194,33 @@ export function TradeItemDrawer({
   };
 
   // ESC: ở chế độ xem đóng drawer; ở chế độ sửa thì hủy sửa về xem (chưa đổi gì), hoặc hỏi xác nhận (đã đổi).
-  const escapeRef = useRef<() => void>(() => undefined);
-  escapeRef.current = () => {
+  const handleEscape = () => {
     if (busy) return;
+    // Popconfirm hoặc danh sách chọn đang mở tự xử lý ESC của nó.
+    if (document.querySelector('[class*="popconfirmPopup"], [role="listbox"]')) return;
     if (!editing) onClose();
     else if (dirty) cancelButtonRef.current?.click();
     else cancelEdit();
   };
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return;
-      // Popconfirm hoặc danh sách chọn đang mở tự xử lý ESC của nó.
-      if (document.querySelector('[class*="popconfirmPopup"], [role="listbox"]')) return;
-      escapeRef.current();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
 
   const categoryOptions = withCurrent(categoriesOf(group, catalog), draft.category);
   const usageOptions = withCurrent(catalog?.usageModes ?? [], draft.usage);
   const unitOptions = withCurrent(units, draft.unit);
 
   return (
-    <>
-      {/* Backdrop thông minh: chế độ xem click ngoài là đóng; chế độ sửa không đóng để khỏi mất dữ liệu đang nhập. */}
-      <div className={styles.drawerBackdrop} onClick={editing ? undefined : onClose} />
-      <aside className={styles.drawerPanel} role="dialog" aria-modal="true" aria-label={`Chi tiết ${item.code}`}>
-        <div className={styles.drawerHead}>
-          <div className={styles.drawerHeadInfo}>
-            <span className={styles.drawerEyebrow}>{TRADE_GROUP_LABEL[group]}</span>
-            <h2 className={styles.drawerTitle}>{item.name}</h2>
-            <p className={styles.drawerSubtitle}>
-              <code>{item.code}</code>
+    // Backdrop thông minh: chế độ xem click ngoài là đóng; chế độ sửa không đóng để khỏi mất dữ liệu đang nhập.
+    <Sheet onEscape={handleEscape} onBackdropClick={editing ? undefined : onClose}>
+      <SheetContent aria-label={`Chi tiết ${item.code}`}>
+        <SheetHeader>
+          <div className="flex min-w-0 flex-1 flex-col gap-[0.3rem]">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.04em] text-slate-500">{TRADE_GROUP_LABEL[group]}</span>
+            <h2 className="m-0 text-xl font-bold leading-[1.3] text-slate-900">{item.name}</h2>
+            <p className="m-0 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+              <code className="rounded bg-slate-100 px-[0.35rem] py-[0.1rem] font-mono font-bold text-slate-700">{item.code}</code>
               <TradeStatusBadge active={item.isActive} />
             </p>
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div className="flex items-center gap-2">
             {canManage && item.isActive ? (
               <Popconfirm
                 title="Ngừng sử dụng mặt hàng?"
@@ -246,15 +231,15 @@ export function TradeItemDrawer({
                 disabled={busy || editing}
                 onConfirm={() => void retire()}
               >
-                <button type="button" className={styles.btnSecondary} disabled={busy || editing}>
+                <Button type="button" variant="outline" disabled={busy || editing}>
                   Ngừng dùng
-                </button>
+                </Button>
               </Popconfirm>
             ) : null}
             {canManage && !item.isActive ? (
-              <button type="button" className={styles.btnPrimary} disabled={busy} onClick={() => void reactivate()}>
+              <Button type="button" disabled={busy} onClick={() => void reactivate()}>
                 Dùng lại
-              </button>
+              </Button>
             ) : null}
             {canManage && !editing ? (
               <Popconfirm
@@ -266,53 +251,41 @@ export function TradeItemDrawer({
                 disabled={busy}
                 onConfirm={() => void remove()}
               >
-                <button type="button" className={styles.btnSecondary} disabled={busy}>
+                <Button type="button" variant="outline" disabled={busy}>
                   Xóa
-                </button>
+                </Button>
               </Popconfirm>
             ) : null}
             {canManage && item.isActive && !editing ? (
-              <button type="button" className={styles.btnSecondary} onClick={startEdit}>
+              <Button type="button" variant="outline" onClick={startEdit}>
                 Sửa
-              </button>
+              </Button>
             ) : null}
             <CloseGuard dirty={dirty} busy={busy} onClose={onClose}>
-              <button type="button" className={styles.drawerCloseBtn} aria-label="Đóng" title="Đóng">
-                <X size={16} />
-              </button>
+              <DialogCloseButton />
             </CloseGuard>
           </div>
-        </div>
+        </SheetHeader>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.25rem 1.6rem', display: 'flex', flexDirection: 'column', gap: '1rem', background: '#f8fafc' }}>
+        <SheetBody className="flex flex-col gap-4">
           <FormError error={error} />
           {!item.isActive ? (
             <p
               role="status"
-              style={{
-                margin: 0,
-                padding: '10px 12px',
-                borderRadius: '8px',
-                border: '1px solid #fda4af',
-                background: '#fff1f2',
-                color: '#9f1239',
-                fontSize: '13px',
-                lineHeight: 1.5,
-              }}
+              className="m-0 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2.5 text-[13px] leading-normal text-rose-800"
             >
               Mặt hàng đã ngừng dùng: không hiện ở các ô chọn và không sửa được. Lịch sử giao dịch và tồn kho vẫn
               được giữ. Bấm Dùng lại để sửa hoặc dùng tiếp.
             </p>
           ) : null}
           <DrawerSection title="Thông tin chung">
-            <form onSubmit={save} aria-label="Sửa thông tin hàng hóa" style={{ display: 'contents' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '14px 20px' }}>
+            <form onSubmit={save} aria-label="Sửa thông tin hàng hóa" className="contents">
+              <div className="grid grid-cols-2 gap-x-5 gap-y-3.5">
                 <DrawerField label="Mã">{item.code}</DrawerField>
                 {editing ? (
                   <EditField label="Tên" htmlFor="trade-edit-name" required>
-                    <input
+                    <Input
                       id="trade-edit-name"
-                      style={inputStyle}
                       autoFocus
                       value={draft.name}
                       onChange={(event) => change({ name: event.target.value })}
@@ -333,7 +306,7 @@ export function TradeItemDrawer({
                       onChange={(value) => change({ category: value || '' })}
                       clearable
                       height={36}
-                      style={{ width: '100%' }}
+                      className="w-full"
                     />
                   </EditField>
                 ) : (
@@ -350,13 +323,12 @@ export function TradeItemDrawer({
                         onChange={(value) => change({ unit: value || '' })}
                         clearable={false}
                         height={36}
-                        style={{ width: '100%' }}
+                        className="w-full"
                       />
                     ) : (
-                      <input
+                      <Input
                         id="trade-edit-unit"
-                        style={inputStyle}
-                        value={draft.unit}
+                          value={draft.unit}
                         onChange={(event) => change({ unit: event.target.value })}
                       />
                     )}
@@ -373,7 +345,7 @@ export function TradeItemDrawer({
                       onChange={(value) => change({ usage: value || '' })}
                       clearable
                       height={36}
-                      style={{ width: '100%' }}
+                      className="w-full"
                     />
                   </EditField>
                 ) : (
@@ -383,14 +355,14 @@ export function TradeItemDrawer({
                   <EditField label="Giá bán (VND)" htmlFor="trade-edit-price">
                     <VnNumberInput
                       id="trade-edit-price"
-                      style={inputStyle}
+                      className={NUMBER_INPUT_CLASS}
                       placeholder="Bỏ trống nếu chưa khai báo"
                       value={draft.price}
                       aria-invalid={priceInvalid}
                       onChange={(price) => change({ price })}
                     />
                     {priceInvalid ? (
-                      <span role="alert" style={{ fontSize: '13px', color: '#dc2626' }}>
+                      <span role="alert" className="text-[13px] text-red-600">
                         Giá bán phải là số không âm.
                       </span>
                     ) : null}
@@ -403,9 +375,8 @@ export function TradeItemDrawer({
                 </DrawerField>
                 {editing ? (
                   <EditField label="Mô tả" htmlFor="trade-edit-description">
-                    <textarea
+                    <Textarea
                       id="trade-edit-description"
-                      style={inputStyle}
                       rows={3}
                       maxLength={2000}
                       placeholder="Thông tin thêm"
@@ -418,9 +389,8 @@ export function TradeItemDrawer({
                 )}
                 {editing ? (
                   <EditField label="Barcode" htmlFor="trade-edit-barcode">
-                    <input
+                    <Input
                       id="trade-edit-barcode"
-                      style={inputStyle}
                       placeholder="Mã vạch"
                       value={draft.barcode}
                       onChange={(event) => change({ barcode: event.target.value })}
@@ -434,17 +404,17 @@ export function TradeItemDrawer({
               </div>
 
               {editing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '14px' }}>
+                <div className="mt-3.5 flex flex-col gap-3">
                   <FormError error={saveError} />
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <div className="flex justify-end gap-2">
                     <CloseGuard dirty={dirty} busy={busy} onClose={cancelEdit}>
-                      <button ref={cancelButtonRef} type="button" className={styles.btnSecondary}>
+                      <Button ref={cancelButtonRef} type="button" variant="outline">
                         Huỷ
-                      </button>
+                      </Button>
                     </CloseGuard>
-                    <button type="submit" className={styles.btnPrimary} disabled={busy || !ready}>
+                    <Button type="submit" disabled={busy || !ready}>
                       {busy ? 'Đang lưu…' : 'Lưu thay đổi'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ) : null}
@@ -458,8 +428,8 @@ export function TradeItemDrawer({
           <DrawerSection title="Tồn kho">
             <MaterialStockSection material={item} stock={stock} warehouses={warehouses} />
           </DrawerSection>
-        </div>
-      </aside>
-    </>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
   );
 }

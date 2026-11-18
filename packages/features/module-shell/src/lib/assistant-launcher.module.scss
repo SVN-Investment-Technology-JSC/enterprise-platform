@@ -24,6 +24,19 @@
     outline: 2px solid #d9ab00;
     outline-offset: 2px;
   }
+
+  // Có icon thương hiệu: icon tự mang nền nên bỏ viền/nền của nút, icon 30px căn giữa (cùng kiểu các nút vuông của khung sáng).
+  &:has(> svg[data-brand-slot]),
+  &:has(> svg[data-brand-slot]):hover {
+    border: 0;
+    background: transparent;
+  }
+
+  &:has(> svg[data-brand-slot]) > svg {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
 }
 
 .buttonActive {
@@ -40,6 +53,11 @@
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+// Xem chú thích cùng quy tắc ở module-shell-light.module.scss: icon thương hiệu không thừa hưởng nét viền của .icon.
+.icon[data-brand-slot]:not([stroke]) {
+  stroke: none;
 }
 
 .panel {

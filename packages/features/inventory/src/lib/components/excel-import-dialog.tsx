@@ -1,7 +1,16 @@
 'use client';
 
-import type { Material, Warehouse } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect, formatCurrencyVn, formatQuantityVn, parseVnNumber, CloseGuard } from '@enterprise-platform/shared-ui';
+import type {
+  Material,
+  Warehouse,
+} from '@enterprise-platform/contracts-inventory';
+import {
+  SearchableSelect,
+  formatCurrencyVn,
+  formatQuantityVn,
+  parseVnNumber,
+  CloseGuard,
+} from '@enterprise-platform/shared-ui';
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,12 +22,23 @@ import {
   Layers,
   Sparkles,
   Upload,
-  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import type { MovementKind, MovementLineItem } from './movement-form';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import {
+  Dialog,
+  DialogBody,
+  DialogCloseButton,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 
 export interface ExcelImportDialogProps {
   warehouses: readonly Warehouse[];
@@ -340,12 +360,7 @@ const FIELD_RULES: FieldRule[] = [
     label: 'Định mức tồn tối đa (Max)',
     required: false,
     category: 'stock',
-    positiveKeywords: [
-      'ton toi da',
-      'dinh muc ton toi da',
-      'max stock',
-      'max',
-    ],
+    positiveKeywords: ['ton toi da', 'dinh muc ton toi da', 'max stock', 'max'],
     negativeKeywords: ['toi thieu', 'min'],
   },
 
@@ -675,10 +690,10 @@ export function ExcelImportDialog({
     movementKind === 'receipt'
       ? 'Nhập kho'
       : movementKind === 'issue'
-      ? 'Xuất kho'
-      : movementKind === 'transfer'
-      ? 'Luân chuyển kho'
-      : 'Kho hàng';
+        ? 'Xuất kho'
+        : movementKind === 'transfer'
+          ? 'Luân chuyển kho'
+          : 'Kho hàng';
 
   const dialogTitle = isDirectMovement
     ? `Thêm vật tư hàng loạt cho phiếu ${movementLabel} từ tệp Excel`
@@ -702,7 +717,9 @@ export function ExcelImportDialog({
 
   // Mapping state & Confidence
   const [mapping, setMapping] = useState<ColumnMapping>(DEFAULT_MAPPING);
-  const [confidences, setConfidences] = useState<Record<keyof ColumnMapping, ConfidenceLevel>>({
+  const [confidences, setConfidences] = useState<
+    Record<keyof ColumnMapping, ConfidenceLevel>
+  >({
     materialCode: 'none',
     barcode: 'none',
     materialName: 'none',
@@ -726,7 +743,9 @@ export function ExcelImportDialog({
   );
 
   // Profile Mapping state (Lưu mẫu cấu hình)
-  const [savedProfiles, setSavedProfiles] = useState<Record<string, ColumnMapping>>({});
+  const [savedProfiles, setSavedProfiles] = useState<
+    Record<string, ColumnMapping>
+  >({});
   const [selectedPresetId, setSelectedPresetId] = useState<string>('auto');
   const [newProfileName, setNewProfileName] = useState<string>('');
   const [showSaveProfileModal, setShowSaveProfileModal] = useState(false);
@@ -810,7 +829,8 @@ export function ExcelImportDialog({
       const row = jsonRows[i];
       if (
         Array.isArray(row) &&
-        row.filter((cell) => typeof cell === 'string' && cell.trim().length > 1).length >= 2
+        row.filter((cell) => typeof cell === 'string' && cell.trim().length > 1)
+          .length >= 2
       ) {
         detectedHeaderIdx = i;
         break;
@@ -861,15 +881,20 @@ export function ExcelImportDialog({
     const builtIn = BUILT_IN_PRESETS.find((p) => p.id === presetKey);
     if (builtIn) {
       const newMapping: ColumnMapping = { ...DEFAULT_MAPPING };
-      const newConf: Record<keyof ColumnMapping, ConfidenceLevel> = { ...confidences };
+      const newConf: Record<keyof ColumnMapping, ConfidenceLevel> = {
+        ...confidences,
+      };
 
-      for (const [fieldKey, expectedHeader] of Object.entries(builtIn.mapping) as [
-        keyof ColumnMapping,
-        string,
-      ][]) {
+      for (const [fieldKey, expectedHeader] of Object.entries(
+        builtIn.mapping,
+      ) as [keyof ColumnMapping, string][]) {
         if (!expectedHeader) continue;
         const normExpected = normalize(expectedHeader);
-        const match = fileHeaders.find((h) => normalize(h) === normExpected || normalize(h).includes(normExpected));
+        const match = fileHeaders.find(
+          (h) =>
+            normalize(h) === normExpected ||
+            normalize(h).includes(normExpected),
+        );
         if (match) {
           newMapping[fieldKey] = match;
           newConf[fieldKey] = 'high';
@@ -884,7 +909,9 @@ export function ExcelImportDialog({
     if (savedProfiles[presetKey]) {
       const p = savedProfiles[presetKey];
       setMapping({ ...p });
-      const newConf: Record<keyof ColumnMapping, ConfidenceLevel> = { ...confidences };
+      const newConf: Record<keyof ColumnMapping, ConfidenceLevel> = {
+        ...confidences,
+      };
       for (const k of Object.keys(p) as (keyof ColumnMapping)[]) {
         if (p[k]) newConf[k] = 'exact';
       }
@@ -1017,7 +1044,11 @@ export function ExcelImportDialog({
 
   // Phân tích & Tiền kiểm tra dữ liệu theo ánh xạ cột (Data Validation)
   const parsedDataResults = useMemo<ParsedRowResult[]>(() => {
-    if (rawRows.length <= headerRowIdx + 1 || !mapping.materialCode || !mapping.quantity) {
+    if (
+      rawRows.length <= headerRowIdx + 1 ||
+      !mapping.materialCode ||
+      !mapping.quantity
+    ) {
       return [];
     }
 
@@ -1049,7 +1080,9 @@ export function ExcelImportDialog({
       if (!row || row.length === 0) continue;
 
       const rawCode =
-        colIndices.materialCode >= 0 ? String(row[colIndices.materialCode] ?? '').trim() : '';
+        colIndices.materialCode >= 0
+          ? String(row[colIndices.materialCode] ?? '').trim()
+          : '';
       if (!rawCode) {
         // Bỏ qua dòng trống hoàn toàn
         const hasAnyValue = row.some(
@@ -1070,7 +1103,9 @@ export function ExcelImportDialog({
         materialMap.get(normalizedCode) || materialMap.get(normalize(rawCode));
       const isNew = !existingMaterial && Boolean(rawCode);
       if (isNew && movementKind && movementKind !== 'receipt') {
-        errors.push('Mã vật tư chưa có trong danh mục nên không thể xuất hoặc chuyển kho');
+        errors.push(
+          'Mã vật tư chưa có trong danh mục nên không thể xuất hoặc chuyển kho',
+        );
       }
 
       // 2. Mã vạch Barcode
@@ -1081,7 +1116,9 @@ export function ExcelImportDialog({
 
       // 3. Tên vật tư
       let name =
-        colIndices.materialName >= 0 ? String(row[colIndices.materialName] ?? '').trim() : '';
+        colIndices.materialName >= 0
+          ? String(row[colIndices.materialName] ?? '').trim()
+          : '';
       if (!name && existingMaterial) {
         name = existingMaterial.name;
       }
@@ -1091,20 +1128,25 @@ export function ExcelImportDialog({
 
       // 4. Nhóm vật tư
       let materialType =
-        colIndices.materialType >= 0 ? String(row[colIndices.materialType] ?? '').trim() : '';
+        colIndices.materialType >= 0
+          ? String(row[colIndices.materialType] ?? '').trim()
+          : '';
       if (!materialType && existingMaterial?.type) {
         materialType = existingMaterial.type;
       }
 
       // 5. Thương hiệu / Hãng sản xuất
       let manufacturer =
-        colIndices.manufacturer >= 0 ? String(row[colIndices.manufacturer] ?? '').trim() : '';
+        colIndices.manufacturer >= 0
+          ? String(row[colIndices.manufacturer] ?? '').trim()
+          : '';
       if (!manufacturer && existingMaterial?.manufacturer) {
         manufacturer = existingMaterial.manufacturer;
       }
 
       // 6. Đơn vị tính
-      let unit = colIndices.unit >= 0 ? String(row[colIndices.unit] ?? '').trim() : '';
+      let unit =
+        colIndices.unit >= 0 ? String(row[colIndices.unit] ?? '').trim() : '';
       if (!unit && existingMaterial?.unit) {
         unit = existingMaterial.unit;
       }
@@ -1113,7 +1155,8 @@ export function ExcelImportDialog({
       }
 
       // 7. Số lượng
-      const rawQty = colIndices.quantity >= 0 ? row[colIndices.quantity] : undefined;
+      const rawQty =
+        colIndices.quantity >= 0 ? row[colIndices.quantity] : undefined;
       const parsedQty = parseNumericValue(rawQty);
       if (parsedQty === undefined) {
         errors.push('Số lượng không hợp lệ hoặc để trống');
@@ -1122,11 +1165,13 @@ export function ExcelImportDialog({
       }
 
       // 8. Đơn giá
-      const rawCost = colIndices.unitCost >= 0 ? row[colIndices.unitCost] : undefined;
+      const rawCost =
+        colIndices.unitCost >= 0 ? row[colIndices.unitCost] : undefined;
       const parsedCost = parseNumericValue(rawCost);
 
       // 9. Thuế suất VAT
-      const rawVat = colIndices.vatRate >= 0 ? row[colIndices.vatRate] : undefined;
+      const rawVat =
+        colIndices.vatRate >= 0 ? row[colIndices.vatRate] : undefined;
       const parsedVat = parseNumericValue(rawVat);
 
       // 10. Kho thực hiện (Hỗ trợ chốt chặn 1 kho hoặc nạp đa kho)
@@ -1142,7 +1187,8 @@ export function ExcelImportDialog({
           // hàng nhập nhầm kho làm sai số tồn mà không ai biết.
           const rawWh = String(row[colIndices.warehouseCode] ?? '').trim();
           const resolvedWh =
-            warehouseMap.get(rawWh.toUpperCase()) || warehouseMap.get(normalize(rawWh));
+            warehouseMap.get(rawWh.toUpperCase()) ||
+            warehouseMap.get(normalize(rawWh));
           if (!rawWh) {
             errors.push('Thiếu mã kho');
           } else if (!resolvedWh) {
@@ -1154,30 +1200,42 @@ export function ExcelImportDialog({
 
       // 11. Vị trí kệ / ô
       const locationId =
-        colIndices.locationId >= 0 ? String(row[colIndices.locationId] ?? '').trim() : undefined;
+        colIndices.locationId >= 0
+          ? String(row[colIndices.locationId] ?? '').trim()
+          : undefined;
 
       // 12. Định mức Min / Max
-      const rawMin = colIndices.minStock >= 0 ? row[colIndices.minStock] : undefined;
+      const rawMin =
+        colIndices.minStock >= 0 ? row[colIndices.minStock] : undefined;
       const parsedMin = parseNumericValue(rawMin);
-      const rawMax = colIndices.maxStock >= 0 ? row[colIndices.maxStock] : undefined;
+      const rawMax =
+        colIndices.maxStock >= 0 ? row[colIndices.maxStock] : undefined;
       const parsedMax = parseNumericValue(rawMax);
 
       // 13. Số lô & Hạn dùng & Ghi chú
       const lotNumber =
         colIndices.lotNumber >= 0
-          ? String(row[colIndices.lotNumber] ?? '').trim().toUpperCase()
+          ? String(row[colIndices.lotNumber] ?? '')
+              .trim()
+              .toUpperCase()
           : undefined;
       const expiryDate =
-        colIndices.expiryDate >= 0 ? String(row[colIndices.expiryDate] ?? '').trim() : undefined;
+        colIndices.expiryDate >= 0
+          ? String(row[colIndices.expiryDate] ?? '').trim()
+          : undefined;
       const lineNote =
-        colIndices.lineNote >= 0 ? String(row[colIndices.lineNote] ?? '').trim() : undefined;
+        colIndices.lineNote >= 0
+          ? String(row[colIndices.lineNote] ?? '').trim()
+          : undefined;
 
       const status: 'valid' | 'warning' | 'error' =
         errors.length > 0 ? 'error' : isNew ? 'warning' : 'valid';
 
       results.push({
         rowIndex: r + 1,
-        materialCode: existingMaterial ? existingMaterial.code : (normalizedCode || rawCode),
+        materialCode: existingMaterial
+          ? existingMaterial.code
+          : normalizedCode || rawCode,
         barcode,
         materialName: name,
         materialType,
@@ -1217,7 +1275,9 @@ export function ExcelImportDialog({
   const stats = useMemo(() => {
     const total = parsedDataResults.length;
     const valid = parsedDataResults.filter((r) => r.status === 'valid').length;
-    const warning = parsedDataResults.filter((r) => r.status === 'warning').length;
+    const warning = parsedDataResults.filter(
+      (r) => r.status === 'warning',
+    ).length;
     const error = parsedDataResults.filter((r) => r.status === 'error').length;
     const readyToImport = valid + warning;
     const totalQty = parsedDataResults
@@ -1226,7 +1286,15 @@ export function ExcelImportDialog({
     // Nạp dữ liệu cả kho là tất cả hoặc không: còn dòng lỗi thì không cho nạp,
     // để người dùng sửa file rồi nạp lại một lần, không nạp trùng phần đã vào sổ.
     const blockedByErrors = !isSingleWarehouseOnly && error > 0;
-    return { total, valid, warning, error, readyToImport, totalQty, blockedByErrors };
+    return {
+      total,
+      valid,
+      warning,
+      error,
+      readyToImport,
+      totalQty,
+      blockedByErrors,
+    };
   }, [parsedDataResults, isSingleWarehouseOnly]);
 
   // Xử lý nạp danh sách hợp lệ ra bên ngoài
@@ -1246,7 +1314,9 @@ export function ExcelImportDialog({
       materialType: r.materialType,
       manufacturer: r.manufacturer,
       unit: r.unit,
-      warehouseCode: isSingleWarehouseOnly ? defaultWarehouseCode : r.warehouseCode,
+      warehouseCode: isSingleWarehouseOnly
+        ? defaultWarehouseCode
+        : r.warehouseCode,
       locationId: r.locationId,
       quantity: r.quantity,
       unitCost: r.unitCost,
@@ -1254,7 +1324,8 @@ export function ExcelImportDialog({
       minStock: r.minStock,
       maxStock: r.maxStock,
       serialNumbers: [],
-      lineNote: r.lineNote || (r.isNew ? 'Vật tư mới nạp từ file Excel' : undefined),
+      lineNote:
+        r.lineNote || (r.isNew ? 'Vật tư mới nạp từ file Excel' : undefined),
       receiptLot:
         (!movementKind || movementKind === 'receipt') && r.lotNumber
           ? {
@@ -1309,156 +1380,102 @@ export function ExcelImportDialog({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={`${styles.modalDialog} ${styles.movementDialog}`}
-        style={{
-          maxWidth: '1120px',
-          width: '95vw',
-          background: '#ffffff',
-          borderRadius: '12px',
-          boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '92vh',
-        }}
-        onClick={(e) => e.stopPropagation()}
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent
+        className="z-1100 w-[95vw] max-w-280"
+        backdropClassName="z-1100"
+        aria-label={dialogTitle}
       >
         {/* Header Dialog */}
-        <div className={styles.modalHead}>
+        <DialogHeader>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div
-                style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '8px',
-                  background: '#dcfce7',
-                  color: '#15803d',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
+            <div className="flex items-center gap-[10px]">
+              <div className="w-[36px] h-[36px] rounded-[8px] bg-[#dcfce7] text-[#15803d] flex items-center justify-center">
                 <FileSpreadsheet size={20} />
               </div>
               <div>
-                <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                  {dialogTitle}
-                </h2>
-                <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+                <DialogTitle>{dialogTitle}</DialogTitle>
+                <p className="m-[2px_0_0] text-[13px] text-[#64748b]">
                   {dialogSubtitle}
                 </p>
               </div>
             </div>
           </div>
           <CloseGuard dirty={isDirty} onClose={onCancel}>
-            <button
-              type="button"
-              className={styles.closeButton}
-              title="Đóng"
-              aria-label="Đóng"
-            >
-              <X size={18} />
-            </button>
+            <DialogCloseButton />
           </CloseGuard>
-        </div>
+        </DialogHeader>
 
         {/* Thanh tiến trình 3 bước (Wizard Step Bar) */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '12px 24px',
-            background: '#f8fafc',
-            borderBottom: '1px solid #e2e8f0',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="flex items-center justify-between py-[12px] px-[24px] bg-[#f8fafc] border-b border-b-[#e2e8f0]">
+          <div className="flex items-center gap-[10px]">
             <div
-              style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '50%',
-                background: step >= 1 ? '#2563eb' : '#e2e8f0',
-                color: step >= 1 ? '#fff' : '#64748b',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '13px',
-                fontWeight: 700,
-              }}
+              className={cn(
+                'flex h-[26px] w-[26px] items-center justify-center rounded-full text-[13px] font-bold',
+                step >= 1
+                  ? 'bg-[#2563eb] text-white'
+                  : 'bg-[#e2e8f0] text-[#64748b]',
+              )}
             >
               1
             </div>
             <span
-              style={{
-                fontSize: '14px',
-                fontWeight: step === 1 ? 700 : 500,
-                color: step === 1 ? '#0f172a' : '#64748b',
-              }}
+              className={cn(
+                'text-[14px]',
+                step === 1
+                  ? 'font-bold text-[#0f172a]'
+                  : 'font-medium text-[#64748b]',
+              )}
             >
               Chọn tệp Excel
             </span>
           </div>
 
-          <div style={{ height: '1px', flex: 1, background: '#e2e8f0', margin: '0 16px' }} />
+          <div className="h-[1px] flex-1 bg-[#e2e8f0] mx-[16px]" />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="flex items-center gap-[10px]">
             <div
-              style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '50%',
-                background: step >= 2 ? '#2563eb' : '#e2e8f0',
-                color: step >= 2 ? '#fff' : '#64748b',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '13px',
-                fontWeight: 700,
-              }}
+              className={cn(
+                'flex h-[26px] w-[26px] items-center justify-center rounded-full text-[13px] font-bold',
+                step >= 2
+                  ? 'bg-[#2563eb] text-white'
+                  : 'bg-[#e2e8f0] text-[#64748b]',
+              )}
             >
               2
             </div>
             <span
-              style={{
-                fontSize: '14px',
-                fontWeight: step === 2 ? 700 : 500,
-                color: step === 2 ? '#0f172a' : '#64748b',
-              }}
+              className={cn(
+                'text-[14px]',
+                step === 2
+                  ? 'font-bold text-[#0f172a]'
+                  : 'font-medium text-[#64748b]',
+              )}
             >
               Liên kết cột thông minh
             </span>
           </div>
 
-          <div style={{ height: '1px', flex: 1, background: '#e2e8f0', margin: '0 16px' }} />
+          <div className="h-[1px] flex-1 bg-[#e2e8f0] mx-[16px]" />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="flex items-center gap-[10px]">
             <div
-              style={{
-                width: '26px',
-                height: '26px',
-                borderRadius: '50%',
-                background: step >= 3 ? '#2563eb' : '#e2e8f0',
-                color: step >= 3 ? '#fff' : '#64748b',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '13px',
-                fontWeight: 700,
-              }}
+              className={cn(
+                'flex h-[26px] w-[26px] items-center justify-center rounded-full text-[13px] font-bold',
+                step >= 3
+                  ? 'bg-[#2563eb] text-white'
+                  : 'bg-[#e2e8f0] text-[#64748b]',
+              )}
             >
               3
             </div>
             <span
-              style={{
-                fontSize: '14px',
-                fontWeight: step === 3 ? 700 : 500,
-                color: step === 3 ? '#0f172a' : '#64748b',
-              }}
+              className={cn(
+                'text-[14px]',
+                step === 3
+                  ? 'font-bold text-[#0f172a]'
+                  : 'font-medium text-[#64748b]',
+              )}
             >
               Kiểm tra &amp; Xác nhận nạp
             </span>
@@ -1466,24 +1483,15 @@ export function ExcelImportDialog({
         </div>
 
         {/* Thân Hộp Thoại */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '20px 24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-          }}
-        >
+        <div className="flex-1 overflow-y-auto py-[20px] px-[24px] flex flex-col gap-[16px]">
           {/* ===================== BƯỚC 1: TẢI FILE ===================== */}
           {step === 1 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="flex flex-col gap-[16px]">
               <input
+                className="hidden"
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx, .xls, .csv"
-                style={{ display: 'none' }}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleFileChange(file);
@@ -1491,15 +1499,7 @@ export function ExcelImportDialog({
               />
 
               <div
-                style={{
-                  border: '2px dashed #cbd5e1',
-                  borderRadius: '12px',
-                  padding: '40px 20px',
-                  textAlign: 'center',
-                  background: '#f8fafc',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
+                className="[border:2px_dashed_#cbd5e1] rounded-[12px] py-[40px] px-[20px] text-center bg-[#f8fafc] cursor-pointer [transition:all_0.2s]"
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
@@ -1508,83 +1508,34 @@ export function ExcelImportDialog({
                   if (file) handleFileChange(file);
                 }}
               >
-                <div
-                  style={{
-                    width: '54px',
-                    height: '54px',
-                    borderRadius: '50%',
-                    background: '#eff6ff',
-                    color: '#2563eb',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    margin: '0 auto 12px',
-                  }}
-                >
+                <div className="w-[54px] h-[54px] rounded-full bg-[#eff6ff] text-[#2563eb] flex items-center justify-center m-[0_auto_12px]">
                   <Upload size={26} />
                 </div>
-                <h3
-                  style={{
-                    margin: '0 0 6px',
-                    fontSize: '16px',
-                    fontWeight: 600,
-                    color: '#1e293b',
-                  }}
-                >
+                <h3 className="m-[0_0_6px] text-[16px] font-semibold text-[#1e293b]">
                   {fileName
                     ? `Đã chọn: ${fileName} (${fileSize})`
                     : 'Kéo thả tệp Excel vào đây hoặc bấm để chọn tệp'}
                 </h3>
-                <p style={{ margin: 0, fontSize: '14px', color: '#64748b' }}>
-                  Hỗ trợ định dạng .xlsx, .xls hoặc .csv (dung lượng tối đa 20MB)
+                <p className="m-0 text-[14px] text-[#64748b]">
+                  Hỗ trợ định dạng .xlsx, .xls hoặc .csv (dung lượng tối đa
+                  20MB)
                 </p>
                 {fileName ? (
-                  <button
+                  <Button
+                    variant="outline"
+                    className="mt-3"
                     type="button"
-                    style={{
-                      marginTop: '12px',
-                      padding: '6px 14px',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
                     onClick={(e) => {
                       e.stopPropagation();
                       fileInputRef.current?.click();
                     }}
                   >
                     Chọn tệp khác
-                  </button>
+                  </Button>
                 ) : (
-                  <div
-                    style={{
-                      marginTop: '14px',
-                      display: 'flex',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <button
+                  <div className="mt-[14px] flex justify-center gap-[10px] flex-wrap">
+                    <Button
                       type="button"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 14px',
-                        borderRadius: '6px',
-                        border: '1px solid #2563eb',
-                        background: '#2563eb',
-                        color: '#ffffff',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        boxShadow: '0 1px 2px rgba(37,99,235,0.2)',
-                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         fileInputRef.current?.click();
@@ -1592,22 +1543,10 @@ export function ExcelImportDialog({
                     >
                       <Upload size={14} />
                       <span>Chọn file từ máy tính</span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="outline"
                       type="button"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 14px',
-                        borderRadius: '6px',
-                        border: '1px solid #cbd5e1',
-                        background: '#ffffff',
-                        color: '#334155',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleDownloadTemplate();
@@ -1615,61 +1554,39 @@ export function ExcelImportDialog({
                     >
                       <Download size={14} />
                       <span>Tải file Excel mẫu chuẩn</span>
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
 
               {/* Tùy chọn Sheet & Cấu hình Header */}
               {rawRows.length > 0 ? (
-                <div
-                  style={{
-                    background: '#ffffff',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    padding: '16px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '14px',
-                  }}
-                >
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div className="bg-[#ffffff] border border-[#e2e8f0] rounded-[8px] p-[16px] flex flex-col gap-[14px]">
+                  <div className="grid grid-cols-[1fr_1fr] gap-[16px]">
                     <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '14px',
-                          fontWeight: 600,
-                          color: '#334155',
-                          marginBottom: '6px',
-                        }}
-                      >
+                      <Label className="text-[14px] font-semibold text-[#334155] mb-[6px]">
                         Trang tính (Sheet) cần đọc:
-                      </label>
+                      </Label>
                       <SearchableSelect
-                        options={sheets.map((sheet) => ({ value: sheet, label: sheet }))}
+                        className="w-full text-[14px]"
+                        options={sheets.map((sheet) => ({
+                          value: sheet,
+                          label: sheet,
+                        }))}
                         value={selectedSheet}
                         placeholder="Tìm trang tính…"
                         emptyText="Không tìm thấy trang tính"
                         clearable={false}
                         onChange={setSelectedSheet}
-                        style={{ width: '100%', fontSize: '14px' }}
                       />
                     </div>
 
                     <div>
-                      <label
-                        style={{
-                          display: 'block',
-                          fontSize: '14px',
-                          fontWeight: 600,
-                          color: '#334155',
-                          marginBottom: '6px',
-                        }}
-                      >
+                      <Label className="text-[14px] font-semibold text-[#334155] mb-[6px]">
                         Kho lưu trữ mặc định (khi file không có cột kho):
-                      </label>
+                      </Label>
                       <SearchableSelect
+                        className="w-full text-[14px]"
                         options={warehouses.map((warehouse) => ({
                           value: warehouse.code,
                           label: `${warehouse.name} (${warehouse.code})`,
@@ -1680,48 +1597,39 @@ export function ExcelImportDialog({
                         emptyText="Không tìm thấy kho phù hợp"
                         clearable={false}
                         onChange={setFallbackWarehouse}
-                        style={{ width: '100%', fontSize: '14px' }}
                       />
                     </div>
                   </div>
 
                   {/* Chọn dòng Tiêu đề (Header Row) */}
                   <div>
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: '6px',
-                      }}
-                    >
-                      <label style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>
+                    <div className="flex items-center justify-between mb-[6px]">
+                      <Label className="text-[14px] font-semibold text-[#334155]">
                         Dòng tiêu đề (Chứa tên các cột dữ liệu):
-                      </label>
-                      <span style={{ fontSize: '13px', color: '#64748b' }}>
-                        Hệ thống tự động phát hiện dòng số <strong>{headerRowIdx + 1}</strong>
+                      </Label>
+                      <span className="text-[13px] text-[#64748b]">
+                        Hệ thống tự động phát hiện dòng số{' '}
+                        <strong>{headerRowIdx + 1}</strong>
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '13px', color: '#475569' }}>Dòng số:</span>
-                      <input
+                    <div className="flex items-center gap-[8px]">
+                      <span className="text-[13px] text-[#475569]">
+                        Dòng số:
+                      </span>
+                      <Input
+                        className="w-[70px] h-8 text-center text-[13px]"
                         type="number"
                         min={1}
                         max={Math.min(rawRows.length, 50)}
-                        style={{
-                          width: '70px',
-                          padding: '6px 8px',
-                          borderRadius: '6px',
-                          border: '1px solid #cbd5e1',
-                          fontSize: '14px',
-                          textAlign: 'center',
-                        }}
                         value={headerRowIdx + 1}
-                        onChange={(e) => handleChangeHeaderRow(Number(e.target.value) - 1)}
+                        onChange={(e) =>
+                          handleChangeHeaderRow(Number(e.target.value) - 1)
+                        }
                       />
-                      <span style={{ fontSize: '13px', color: '#64748b' }}>
-                        (Bỏ qua các dòng tên công ty / tiêu đề hóa đơn ở các dòng trên)
+                      <span className="text-[13px] text-[#64748b]">
+                        (Bỏ qua các dòng tên công ty / tiêu đề hóa đơn ở các
+                        dòng trên)
                       </span>
                     </div>
                   </div>
@@ -1729,60 +1637,38 @@ export function ExcelImportDialog({
                   {/* Xem trước 3 dòng đầu tiên của file */}
                   {rawRows.length > 0 ? (
                     <div>
-                      <span
-                        style={{
-                          fontSize: '13px',
-                          fontWeight: 600,
-                          color: '#475569',
-                          display: 'block',
-                          marginBottom: '6px',
-                        }}
-                      >
+                      <span className="text-[13px] font-semibold text-[#475569] block mb-[6px]">
                         Xem trước cấu trúc file (3 dòng đầu):
                       </span>
-                      <div
-                        style={{
-                          overflowX: 'auto',
-                          border: '1px solid #f1f5f9',
-                          borderRadius: '6px',
-                        }}
-                      >
-                        <table
-                          style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}
-                        >
+                      <div className="overflow-x-auto border border-[#f1f5f9] rounded-[6px]">
+                        <table className="w-full text-[13px] border-collapse">
                           <tbody>
                             {rawRows.slice(0, 4).map((r, rIdx) => (
                               <tr
                                 key={rIdx}
-                                style={{
-                                  background:
-                                    rIdx === headerRowIdx
-                                      ? '#eff6ff'
-                                      : rIdx % 2 === 0
-                                      ? '#fff'
-                                      : '#f8fafc',
-                                  fontWeight: rIdx === headerRowIdx ? 700 : 400,
-                                  borderBottom: '1px solid #e2e8f0',
-                                }}
+                                className={cn(
+                                  'border-b border-b-[#e2e8f0]',
+                                  rIdx === headerRowIdx
+                                    ? 'bg-[#eff6ff] font-bold'
+                                    : rIdx % 2 === 0
+                                      ? 'bg-white font-normal'
+                                      : 'bg-[#f8fafc] font-normal',
+                                )}
                               >
-                                <td
-                                  style={{
-                                    padding: '6px 10px',
-                                    color: '#94a3b8',
-                                    width: '60px',
-                                  }}
-                                >
+                                <td className="py-[6px] px-[10px] text-[#94a3b8] w-[60px]">
                                   #{rIdx + 1}
                                   {rIdx === headerRowIdx ? ' (Header)' : ''}
                                 </td>
-                                {r.slice(0, 8).map((cell: any, cIdx: number) => (
-                                  <td
-                                    key={cIdx}
-                                    style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}
-                                  >
-                                    {String(cell ?? '')}
-                                  </td>
-                                ))}
+                                {r
+                                  .slice(0, 8)
+                                  .map((cell: any, cIdx: number) => (
+                                    <td
+                                      className="py-[6px] px-[10px] whitespace-nowrap"
+                                      key={cIdx}
+                                    >
+                                      {String(cell ?? '')}
+                                    </td>
+                                  ))}
                               </tr>
                             ))}
                           </tbody>
@@ -1797,55 +1683,31 @@ export function ExcelImportDialog({
 
           {/* ===================== BƯỚC 2: LIÊN KẾT CỘT THÔNG MINH ===================== */}
           {step === 2 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="flex flex-col gap-[16px]">
               {/* Profile & Preset Bar */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '12px 16px',
-                  background: '#f0fdf4',
-                  border: '1px solid #bbf7d0',
-                  borderRadius: '8px',
-                  flexWrap: 'wrap',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <div className="flex items-center justify-between py-[12px] px-[16px] bg-[#f0fdf4] border border-[#bbf7d0] rounded-[8px] flex-wrap gap-[12px]">
+                <div className="flex items-center gap-[10px] flex-1">
                   <Sparkles size={18} color="#16a34a" />
-                  <span style={{ fontSize: '14px', fontWeight: 600, color: '#166534' }}>
+                  <span className="text-[14px] font-semibold text-[#166534]">
                     Mẫu liên kết cột (Preset):
                   </span>
-                  <div style={{ minWidth: '320px', maxWidth: '420px' }}>
+                  <div className="min-w-[320px] max-w-[420px]">
                     <SearchableSelect
+                      className="w-full text-[13px]"
                       options={presetOptions}
                       value={selectedPresetId}
                       placeholder="Chọn mẫu ứng dụng..."
                       searchPlaceholder="Tìm kiếm mẫu ứng dụng..."
                       onChange={handleSelectPreset}
                       clearable={false}
-                      style={{ width: '100%', fontSize: '13px' }}
                     />
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
+                <div className="flex items-center gap-[8px]">
+                  <Button
+                    variant="outline"
                     type="button"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #cbd5e1',
-                      background: '#ffffff',
-                      color: '#0f172a',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
                     onClick={() => {
                       const result = detectSmartColumnMapping(fileHeaders);
                       setMapping(result.mapping);
@@ -1856,41 +1718,27 @@ export function ExcelImportDialog({
                   >
                     <Sparkles size={13} color="#2563eb" />
                     <span>Quét lại thông minh</span>
-                  </button>
+                  </Button>
 
                   {savedProfiles[selectedPresetId] ? (
-                    <button
+                    <Button
+                      variant="link"
+                      className="h-auto p-0 text-[13px] text-red-600"
                       type="button"
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#dc2626',
-                        fontSize: '13px',
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
                       onClick={() => handleDeleteProfile(selectedPresetId)}
                     >
                       Xóa mẫu này
-                    </button>
+                    </Button>
                   ) : null}
 
-                  <button
+                  <Button
+                    variant="outline"
+                    className="border-green-300 text-green-700"
                     type="button"
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #86efac',
-                      background: '#ffffff',
-                      color: '#15803d',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                    }}
                     onClick={() => setShowSaveProfileModal(true)}
                   >
                     + Lưu mẫu khớp cột này
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -1900,8 +1748,8 @@ export function ExcelImportDialog({
                   cat === 'identity'
                     ? '1. Thông tin định danh hàng hóa'
                     : cat === 'stock'
-                    ? '2. Kho bãi, Vị trí & Số lượng'
-                    : '3. Giá vốn, Lô sản xuất & Hạn sử dụng';
+                      ? '2. Kho bãi, Vị trí & Số lượng'
+                      : '3. Giá vốn, Lô sản xuất & Hạn sử dụng';
 
                 const catIcon =
                   cat === 'identity' ? (
@@ -1916,82 +1764,30 @@ export function ExcelImportDialog({
 
                 return (
                   <div
+                    className="border border-[#e2e8f0] rounded-[8px] overflow-hidden bg-[#ffffff]"
                     key={cat}
-                    style={{
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      background: '#ffffff',
-                    }}
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '10px 14px',
-                        background: '#f8fafc',
-                        borderBottom: '1px solid #e2e8f0',
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        color: '#1e293b',
-                      }}
-                    >
+                    <div className="flex items-center gap-[8px] py-[10px] px-[14px] bg-[#f8fafc] border-b border-b-[#e2e8f0] text-[14px] font-bold text-[#1e293b]">
                       {catIcon}
                       <span>{catTitle}</span>
                     </div>
 
-                    <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
-                      <thead style={{ background: '#ffffff', borderBottom: '1px solid #f1f5f9' }}>
+                    <table className="w-full text-[13px] border-collapse">
+                      <thead className="bg-[#ffffff] border-b border-b-[#f1f5f9]">
                         <tr>
-                          <th
-                            style={{
-                              padding: '8px 14px',
-                              textAlign: 'left',
-                              width: '240px',
-                              color: '#64748b',
-                            }}
-                          >
+                          <th className="py-[8px] px-[14px] text-left w-[240px] text-[#64748b]">
                             Trường hệ thống
                           </th>
-                          <th
-                            style={{
-                              padding: '8px 14px',
-                              textAlign: 'left',
-                              width: '100px',
-                              color: '#64748b',
-                            }}
-                          >
+                          <th className="py-[8px] px-[14px] text-left w-[100px] text-[#64748b]">
                             Bắt buộc?
                           </th>
-                          <th
-                            style={{
-                              padding: '8px 14px',
-                              textAlign: 'left',
-                              minWidth: '280px',
-                              color: '#64748b',
-                            }}
-                          >
+                          <th className="py-[8px] px-[14px] text-left min-w-[280px] text-[#64748b]">
                             Cột tương ứng trong tệp Excel
                           </th>
-                          <th
-                            style={{
-                              padding: '8px 14px',
-                              textAlign: 'left',
-                              width: '180px',
-                              color: '#64748b',
-                            }}
-                          >
+                          <th className="py-[8px] px-[14px] text-left w-[180px] text-[#64748b]">
                             Độ tin cậy khớp
                           </th>
-                          <th
-                            style={{
-                              padding: '8px 14px',
-                              textAlign: 'left',
-                              width: '200px',
-                              color: '#64748b',
-                            }}
-                          >
+                          <th className="py-[8px] px-[14px] text-left w-[200px] text-[#64748b]">
                             Dòng 1 ví dụ
                           </th>
                         </tr>
@@ -2002,127 +1798,89 @@ export function ExcelImportDialog({
                           const conf = confidences[rule.key];
                           const colIdx = val ? fileHeaders.indexOf(val) : -1;
                           const sampleVal =
-                            colIdx >= 0 ? rawRows[headerRowIdx + 1]?.[colIdx] : undefined;
+                            colIdx >= 0
+                              ? rawRows[headerRowIdx + 1]?.[colIdx]
+                              : undefined;
 
                           return (
-                            <tr key={rule.key} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                              <td style={{ padding: '9px 14px', fontWeight: 600, color: '#0f172a' }}>
+                            <tr
+                              className="border-b border-b-[#f1f5f9]"
+                              key={rule.key}
+                            >
+                              <td className="py-[9px] px-[14px] font-semibold text-[#0f172a]">
                                 {rule.label}
                               </td>
-                              <td style={{ padding: '9px 14px' }}>
+                              <td className="py-[9px] px-[14px]">
                                 {rule.required ? (
-                                  <span
-                                    style={{
-                                      fontSize: '11px',
-                                      background: '#fee2e2',
-                                      color: '#b91c1c',
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      fontWeight: 600,
-                                    }}
-                                  >
+                                  <span className="text-[11px] bg-[#fee2e2] text-[#b91c1c] py-[2px] px-[6px] rounded-[4px] font-semibold">
                                     Bắt buộc
                                   </span>
                                 ) : (
-                                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                                  <span className="text-[12px] text-[#94a3b8]">
                                     Tùy chọn
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: '9px 14px' }}>
-                                {rule.key === 'warehouseCode' && isSingleWarehouseOnly ? (
-                                  <span
-                                    style={{
-                                      fontSize: '13px',
-                                      fontWeight: 600,
-                                      color: '#1e293b',
-                                      background: '#f1f5f9',
-                                      padding: '5px 10px',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cbd5e1',
-                                      display: 'inline-block',
-                                    }}
-                                  >
-                                    Cố định: {defaultWarehouseCode} (Chốt chặn 1 kho - 1 phiếu)
+                              <td className="py-[9px] px-[14px]">
+                                {rule.key === 'warehouseCode' &&
+                                isSingleWarehouseOnly ? (
+                                  <span className="text-[13px] font-semibold text-[#1e293b] bg-[#f1f5f9] py-[5px] px-[10px] rounded-[6px] border border-[#cbd5e1] inline-block">
+                                    Cố định: {defaultWarehouseCode} (Chốt chặn 1
+                                    kho - 1 phiếu)
                                   </span>
                                 ) : (
                                   <SearchableSelect
-                                    options={fileHeaders.map((h) => ({ value: h, label: h }))}
+                                    className="w-full max-w-[340px] text-[13px]"
+                                    options={fileHeaders.map((h) => ({
+                                      value: h,
+                                      label: h,
+                                    }))}
                                     value={val}
                                     placeholder={`Chọn cột cho ${rule.label}…`}
                                     searchPlaceholder="Tìm tên cột trong file..."
                                     emptyText="Không tìm thấy cột"
                                     onChange={(newVal) => {
-                                      setMapping((m) => ({ ...m, [rule.key]: newVal }));
+                                      setMapping((m) => ({
+                                        ...m,
+                                        [rule.key]: newVal,
+                                      }));
                                       setConfidences((c) => ({
                                         ...c,
                                         [rule.key]: newVal ? 'exact' : 'none',
                                       }));
                                     }}
                                     clearable
-                                    style={{ width: '100%', maxWidth: '340px', fontSize: '13px' }}
                                   />
                                 )}
                               </td>
-                              <td style={{ padding: '9px 14px' }}>
+                              <td className="py-[9px] px-[14px]">
                                 {val ? (
                                   conf === 'exact' ? (
-                                    <span
-                                      style={{
-                                        fontSize: '11px',
-                                        background: '#dcfce7',
-                                        color: '#15803d',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        fontWeight: 600,
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                      }}
-                                    >
+                                    <span className="text-[11px] bg-[#dcfce7] text-[#15803d] py-[2px] px-[6px] rounded-[4px] font-semibold inline-flex items-center gap-[4px]">
                                       ✓ Khớp chuẩn 100%
                                     </span>
                                   ) : conf === 'high' ? (
-                                    <span
-                                      style={{
-                                        fontSize: '11px',
-                                        background: '#e0f2fe',
-                                        color: '#0369a1',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        fontWeight: 600,
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                      }}
-                                    >
+                                    <span className="text-[11px] bg-[#e0f2fe] text-[#0369a1] py-[2px] px-[6px] rounded-[4px] font-semibold inline-flex items-center gap-[4px]">
                                       ✦ Gợi ý chuẩn cao
                                     </span>
                                   ) : (
-                                    <span
-                                      style={{
-                                        fontSize: '11px',
-                                        background: '#f1f5f9',
-                                        color: '#475569',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                      }}
-                                    >
+                                    <span className="text-[11px] bg-[#f1f5f9] text-[#475569] py-[2px] px-[6px] rounded-[4px]">
                                       Người dùng chọn
                                     </span>
                                   )
                                 ) : (
-                                  <span style={{ fontSize: '12px', color: '#cbd5e1' }}>
+                                  <span className="text-[12px] text-[#cbd5e1]">
                                     — Bỏ qua —
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: '9px 14px', color: '#64748b' }}>
-                                {rule.key === 'warehouseCode' && isSingleWarehouseOnly
+                              <td className="py-[9px] px-[14px] text-[#64748b]">
+                                {rule.key === 'warehouseCode' &&
+                                isSingleWarehouseOnly
                                   ? defaultWarehouseCode
                                   : sampleVal !== undefined && sampleVal !== ''
-                                  ? String(sampleVal)
-                                  : '—'}
+                                    ? String(sampleVal)
+                                    : '—'}
                               </td>
                             </tr>
                           );
@@ -2137,106 +1895,41 @@ export function ExcelImportDialog({
 
           {/* ===================== BƯỚC 3: KIỂM TRA & XÁC NHẬN ===================== */}
           {step === 3 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="flex flex-col gap-[14px]">
               {/* Dải tổng quan trạng thái */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '12px 16px',
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '14px',
-                  }}
-                >
-                  <span style={{ color: '#64748b' }}>Tổng số dòng đọc được:</span>
-                  <strong style={{ color: '#0f172a' }}>{stats.total}</strong>
+              <div className="flex items-center gap-[12px] py-[12px] px-[16px] bg-[#f8fafc] border border-[#e2e8f0] rounded-[8px] flex-wrap">
+                <div className="flex items-center gap-[6px] text-[14px]">
+                  <span className="text-[#64748b]">Tổng số dòng đọc được:</span>
+                  <strong className="text-[#0f172a]">{stats.total}</strong>
                 </div>
 
-                <div style={{ width: '1px', height: '16px', background: '#cbd5e1' }} />
+                <div className="w-[1px] h-[16px] bg-[#cbd5e1]" />
 
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '14px',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      background: '#16a34a',
-                    }}
-                  />
-                  <span style={{ color: '#166534', fontWeight: 600 }}>Hợp lệ: {stats.valid}</span>
+                <div className="flex items-center gap-[6px] text-[14px]">
+                  <span className="w-[8px] h-[8px] rounded-full bg-[#16a34a]" />
+                  <span className="text-[#166534] font-semibold">
+                    Hợp lệ: {stats.valid}
+                  </span>
                 </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '14px',
-                  }}
-                >
-                  <span
-                    style={{
-                      width: '8px',
-                      height: '8px',
-                      borderRadius: '50%',
-                      background: '#eab308',
-                    }}
-                  />
-                  <span style={{ color: '#854d0e', fontWeight: 600 }}>
+                <div className="flex items-center gap-[6px] text-[14px]">
+                  <span className="w-[8px] h-[8px] rounded-full bg-[#eab308]" />
+                  <span className="text-[#854d0e] font-semibold">
                     Mã mới (tự tạo danh mục): {stats.warning}
                   </span>
                 </div>
 
                 {stats.error > 0 ? (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '14px',
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        background: '#dc2626',
-                      }}
-                    />
-                    <span style={{ color: '#991b1b', fontWeight: 600 }}>
+                  <div className="flex items-center gap-[6px] text-[14px]">
+                    <span className="w-[8px] h-[8px] rounded-full bg-[#dc2626]" />
+                    <span className="text-[#991b1b] font-semibold">
                       Lỗi (bỏ qua): {stats.error}
                     </span>
                   </div>
                 ) : null}
 
-                <div
-                  style={{
-                    marginLeft: 'auto',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <span style={{ fontSize: '13px', color: '#475569' }}>
+                <div className="ml-[auto] flex items-center gap-[8px]">
+                  <span className="text-[13px] text-[#475569]">
                     Tổng số lượng dự kiến nạp:{' '}
                     <strong>{formatQuantityVn(stats.totalQty)}</strong>
                   </span>
@@ -2244,57 +1937,44 @@ export function ExcelImportDialog({
               </div>
 
               {/* Bảng xem trước danh sách chi tiết */}
-              <div
-                style={{
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  overflowX: 'auto',
-                  maxHeight: '400px',
-                }}
-              >
-                <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
-                  <thead
-                    style={{
-                      background: '#f8fafc',
-                      position: 'sticky',
-                      top: 0,
-                      zIndex: 1,
-                      borderBottom: '1px solid #e2e8f0',
-                    }}
-                  >
+              <div className="border border-[#e2e8f0] rounded-[8px] overflow-x-auto max-h-[400px]">
+                <table className="w-full text-[13px] border-collapse">
+                  <thead className="bg-[#f8fafc] sticky top-[0] z-[1] border-b border-b-[#e2e8f0]">
                     <tr>
-                      <th style={{ padding: '8px 10px', textAlign: 'center', width: '45px' }}>#</th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center', width: '90px' }}>
+                      <th className="py-[8px] px-[10px] text-center w-[45px]">
+                        #
+                      </th>
+                      <th className="py-[8px] px-[10px] text-center w-[90px]">
                         Trạng thái
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '110px' }}>
+                      <th className="py-[8px] px-[10px] text-left min-w-[110px]">
                         Mã SKU
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '110px' }}>
+                      <th className="py-[8px] px-[10px] text-left min-w-[110px]">
                         Mã vạch
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '180px' }}>
+                      <th className="py-[8px] px-[10px] text-left min-w-[180px]">
                         Tên hàng hóa
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', width: '100px' }}>
+                      <th className="py-[8px] px-[10px] text-left w-[100px]">
                         Kho nạp
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'center', width: '65px' }}>
+                      <th className="py-[8px] px-[10px] text-center w-[65px]">
                         ĐVT
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', width: '85px' }}>
+                      <th className="py-[8px] px-[10px] text-right w-[85px]">
                         Số lượng
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '130px' }}>
+                      <th className="py-[8px] px-[10px] text-left min-w-[130px]">
                         Thuộc nhóm
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '120px' }}>
+                      <th className="py-[8px] px-[10px] text-left min-w-[120px]">
                         Hãng SX
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'right', width: '110px' }}>
+                      <th className="py-[8px] px-[10px] text-right w-[110px]">
                         Đơn giá vốn
                       </th>
-                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: '140px' }}>
+                      <th className="py-[8px] px-[10px] text-left min-w-[140px]">
                         Ghi chú / Lỗi
                       </th>
                     </tr>
@@ -2303,123 +1983,77 @@ export function ExcelImportDialog({
                     {parsedDataResults.map((r) => (
                       <tr
                         key={r.rowIndex}
-                        style={{
-                          background:
-                            r.status === 'error'
-                              ? '#fef2f2'
-                              : r.isNew
-                              ? '#fefce8'
-                              : '#ffffff',
-                          borderBottom: '1px solid #f1f5f9',
-                        }}
+                        className={cn(
+                          'border-b border-b-[#f1f5f9]',
+                          r.status === 'error'
+                            ? 'bg-[#fef2f2]'
+                            : r.isNew
+                              ? 'bg-[#fefce8]'
+                              : 'bg-white',
+                        )}
                       >
-                        <td
-                          style={{
-                            padding: '8px 10px',
-                            textAlign: 'center',
-                            color: '#94a3b8',
-                          }}
-                        >
+                        <td className="py-[8px] px-[10px] text-center text-[#94a3b8]">
                           {r.rowIndex}
                         </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                        <td className="py-[8px] px-[10px] text-center">
                           {r.status === 'valid' ? (
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                background: '#dcfce7',
-                                color: '#15803d',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                fontWeight: 600,
-                              }}
-                            >
+                            <span className="text-[11px] bg-[#dcfce7] text-[#15803d] py-[2px] px-[6px] rounded-[4px] font-semibold">
                               Hợp lệ
                             </span>
                           ) : r.status === 'warning' ? (
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                background: '#fef08a',
-                                color: '#854d0e',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                fontWeight: 600,
-                              }}
-                            >
+                            <span className="text-[11px] bg-[#fef08a] text-[#854d0e] py-[2px] px-[6px] rounded-[4px] font-semibold">
                               Mã mới
                             </span>
                           ) : (
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                background: '#fee2e2',
-                                color: '#b91c1c',
-                                padding: '2px 6px',
-                                borderRadius: '4px',
-                                fontWeight: 600,
-                              }}
-                            >
+                            <span className="text-[11px] bg-[#fee2e2] text-[#b91c1c] py-[2px] px-[6px] rounded-[4px] font-semibold">
                               Lỗi
                             </span>
                           )}
                         </td>
-                        <td style={{ padding: '8px 10px', fontWeight: 700, color: '#0f172a' }}>
+                        <td className="py-[8px] px-[10px] font-bold text-[#0f172a]">
                           {r.materialCode}
                         </td>
-                        <td style={{ padding: '8px 10px', color: '#475569', fontSize: '12px' }}>
+                        <td className="py-[8px] px-[10px] text-[#475569] text-[12px]">
                           {r.barcode || '—'}
                         </td>
-                        <td style={{ padding: '8px 10px', color: '#334155' }}>{r.materialName}</td>
-                        <td style={{ padding: '8px 10px', color: '#334155', fontWeight: 600 }}>
+                        <td className="py-[8px] px-[10px] text-[#334155]">
+                          {r.materialName}
+                        </td>
+                        <td className="py-[8px] px-[10px] text-[#334155] font-semibold">
                           {r.warehouseCode}
                         </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#475569' }}>
+                        <td className="py-[8px] px-[10px] text-center text-[#475569]">
                           {r.unit}
                         </td>
-                        <td
-                          style={{
-                            padding: '8px 10px',
-                            textAlign: 'right',
-                            fontWeight: 600,
-                            color: '#0f172a',
-                          }}
-                        >
-                          {r.quantity > 0
-                            ? formatQuantityVn(r.quantity)
-                            : '—'}
+                        <td className="py-[8px] px-[10px] text-right font-semibold text-[#0f172a]">
+                          {r.quantity > 0 ? formatQuantityVn(r.quantity) : '—'}
                         </td>
-                        <td style={{ padding: '8px 10px', color: '#475569' }}>
-                          <span
-                            style={{
-                              background: '#f1f5f9',
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              fontSize: '12px',
-                            }}
-                          >
+                        <td className="py-[8px] px-[10px] text-[#475569]">
+                          <span className="bg-[#f1f5f9] py-[2px] px-[8px] rounded-[4px] text-[12px]">
                             {r.materialType || '—'}
                           </span>
                         </td>
-                        <td style={{ padding: '8px 10px', color: '#475569', fontSize: '12px' }}>
+                        <td className="py-[8px] px-[10px] text-[#475569] text-[12px]">
                           {r.manufacturer || '—'}
                         </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: '#475569' }}>
+                        <td className="py-[8px] px-[10px] text-right text-[#475569]">
                           {r.unitCost !== undefined
                             ? formatCurrencyVn(r.unitCost)
                             : '—'}
                         </td>
-                        <td style={{ padding: '8px 10px', fontSize: '13px' }}>
+                        <td className="py-[8px] px-[10px] text-[13px]">
                           {r.errors.length > 0 ? (
-                            <span style={{ color: '#dc2626', fontWeight: 500 }}>
+                            <span className="text-[#dc2626] font-medium">
                               {r.errors.join(', ')}
                             </span>
                           ) : r.isNew ? (
-                            <span style={{ color: '#a16207' }}>
+                            <span className="text-[#a16207]">
                               Chưa có trong danh mục (sẽ tự động tạo)
                             </span>
                           ) : (
-                            <span style={{ color: '#64748b' }}>{r.lineNote || '—'}</span>
+                            <span className="text-[#64748b]">
+                              {r.lineNote || '—'}
+                            </span>
                           )}
                         </td>
                       </tr>
@@ -2433,153 +2067,91 @@ export function ExcelImportDialog({
 
         {/* Modal nhỏ lưu mẫu Profile */}
         {showSaveProfileModal ? (
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0, 0, 0, 0.4)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 9999,
-            }}
-            onClick={() => setShowSaveProfileModal(false)}
-          >
-            <div
-              style={{
-                background: '#fff',
-                borderRadius: '8px',
-                padding: '20px',
-                width: '380px',
-                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-              }}
-              onClick={(e) => e.stopPropagation()}
+          <Dialog onEscape={() => setShowSaveProfileModal(false)}>
+            <DialogContent
+              className="z-1100 max-w-sm"
+              backdropClassName="z-1100"
+              aria-label="Lưu cấu hình khớp cột"
             >
-              <h4
-                style={{
-                  margin: '0 0 8px',
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: '#0f172a',
-                }}
-              >
-                Lưu cấu hình khớp cột
-              </h4>
-              <p style={{ margin: '0 0 14px', fontSize: '13px', color: '#64748b' }}>
-                Đặt tên cho mẫu để sử dụng lại cho các file có cấu trúc tương tự (ví dụ: &ldquo;File KiotViet chi nhánh&rdquo;, &ldquo;File MISA Kho Tổng&rdquo;).
-              </p>
-              <input
-                type="text"
-                placeholder="Nhập tên mẫu cấu hình..."
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '14px',
-                  marginBottom: '16px',
-                }}
-                value={newProfileName}
-                onChange={(e) => setNewProfileName(e.target.value)}
-                autoFocus
-              />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                <button
+              <DialogHeader>
+                <DialogTitle>Lưu cấu hình khớp cột</DialogTitle>
+                <DialogCloseButton
+                  onClick={() => setShowSaveProfileModal(false)}
+                />
+              </DialogHeader>
+              <DialogBody>
+                <p className="m-[0_0_14px] text-[13px] text-[#64748b]">
+                  Đặt tên cho mẫu để sử dụng lại cho các file có cấu trúc tương
+                  tự (ví dụ: &ldquo;File KiotViet chi nhánh&rdquo;, &ldquo;File
+                  MISA Kho Tổng&rdquo;).
+                </p>
+                <Input
+                  className="h-8 text-[13px]"
+                  type="text"
+                  placeholder="Nhập tên mẫu cấu hình..."
+                  value={newProfileName}
+                  onChange={(e) => setNewProfileName(e.target.value)}
+                  autoFocus
+                />
+              </DialogBody>
+              <DialogFooter>
+                <Button
                   type="button"
-                  style={{
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    border: '1px solid #cbd5e1',
-                    background: '#fff',
-                    color: '#475569',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                  }}
+                  variant="outline"
                   onClick={() => setShowSaveProfileModal(false)}
                 >
                   Huỷ
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  style={{
-                    padding: '6px 14px',
-                    borderRadius: '6px',
-                    border: 'none',
-                    background: '#2563eb',
-                    color: '#fff',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
                   disabled={!newProfileName.trim()}
                   onClick={handleSaveCurrentProfile}
                 >
                   Lưu mẫu
-                </button>
-              </div>
-            </div>
-          </div>
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         ) : null}
 
         {/* Footer Actions của Wizard */}
-        <div
-          className={styles.modalFoot}
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '12px 24px',
-            borderTop: '1px solid #e2e8f0',
-            background: '#ffffff',
-          }}
-        >
+        <DialogFooter className="justify-between">
           <div>
             {step > 1 ? (
-              <button
+              <Button
                 type="button"
-                className={`${styles.action} ${styles.actionGhost}`}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                variant="outline"
                 onClick={() => setStep((s) => (s - 1) as any)}
               >
                 <ArrowLeft size={15} />
                 <span>Quay lại bước trước</span>
-              </button>
+              </Button>
             ) : (
               <CloseGuard dirty={isDirty} onClose={onCancel}>
-                <button
-                  type="button"
-                  className={`${styles.action} ${styles.actionGhost}`}
-                >
+                <Button type="button" variant="outline">
                   Huỷ bỏ
-                </button>
+                </Button>
               </CloseGuard>
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="flex items-center gap-[10px]">
             {step === 1 ? (
-              <button
+              <Button
                 type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
                 disabled={!fileName || rawRows.length === 0}
                 onClick={() => setStep(2)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
                 <span>Tiếp tục: Khớp cột dữ liệu</span>
                 <ArrowRight size={15} />
-              </button>
+              </Button>
             ) : null}
 
             {step === 2 ? (
-              <button
+              <Button
                 type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
                 disabled={!mapping.materialCode || !mapping.quantity}
                 onClick={() => setStep(3)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
                 <span>
                   Tiếp tục: Kiểm tra dữ liệu (
@@ -2589,39 +2161,34 @@ export function ExcelImportDialog({
                   )
                 </span>
                 <ArrowRight size={15} />
-              </button>
+              </Button>
             ) : null}
 
             {step === 3 && stats.blockedByErrors ? (
-              <span role="alert" style={{ color: '#b91c1c', fontSize: '13px', fontWeight: 600 }}>
+              <span
+                className="text-[#b91c1c] text-[13px] font-semibold"
+                role="alert"
+              >
                 Còn {stats.error} dòng lỗi. Sửa file rồi chọn lại để nạp.
               </span>
             ) : null}
 
             {step === 3 ? (
-              <button
+              <Button
                 type="button"
-                className={`${styles.action} ${styles.actionPrimary}`}
                 disabled={stats.readyToImport === 0 || stats.blockedByErrors}
                 onClick={handleConfirmImport}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  background: '#16a34a',
-                  borderColor: '#16a34a',
-                }}
               >
                 <Check size={16} />
                 <span>
                   Đồng ý nạp {stats.readyToImport} vật tư vào{' '}
                   {isDirectMovement ? 'phiếu' : 'hệ thống kho'}
                 </span>
-              </button>
+              </Button>
             ) : null}
           </div>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

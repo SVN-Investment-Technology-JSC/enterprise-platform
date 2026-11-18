@@ -1,6 +1,7 @@
 'use client';
 
 import type { MyProfile } from '@enterprise-platform/contracts-chat';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { MessageCircle, X } from 'lucide-react';
 import { Component, useEffect, useRef, useState, type ReactNode } from 'react';
 import { chatApi } from './chat-api';
@@ -59,7 +60,7 @@ function LauncherButton() {
         title="Chat nội bộ"
         onClick={() => setOpen(!open)}
       >
-        {open ? <X aria-hidden="true" /> : <MessageCircle aria-hidden="true" />}
+        {open ? <X aria-hidden="true" /> : <AppIcon slot="module.chat" fallback={MessageCircle} />}
         {!open && unreadTotal > 0 ? (
           <span className={styles.launcherBadge} aria-hidden="true">
             {unreadTotal > 99 ? '99+' : unreadTotal}

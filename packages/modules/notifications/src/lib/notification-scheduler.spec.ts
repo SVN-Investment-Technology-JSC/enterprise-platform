@@ -24,6 +24,8 @@ interface FakeDatabase {
   readonly outbox: unknown[][];
   lockAvailable: boolean;
   failOutbox: boolean;
+  /** Người nhận không có trong core_schema.users. */
+  missingUsers?: Set<string>;
 }
 
 function fakePool(database: FakeDatabase): Pool {
@@ -50,6 +52,8 @@ function fakePool(database: FakeDatabase): Pool {
         return result([{ acquired: database.lockAvailable }]);
       }
       if (sql.includes('notification_schema.schedule_emissions')) {
+        expect(sql).toContain('core_schema.users');
+        if (database.missingUsers?.has(String(values[1]))) return result([]);
         const key = `${values[0]}:${values[1]}:${values[2]}`;
         if (database.emissions.has(key) || stagedEmissions.has(key)) return result([]);
         stagedEmissions.add(key);
@@ -148,6 +152,27 @@ describe('notification scheduler', () => {
     expect(String(database.outbox[0][5])).toContain(
       'workspace.calendar-event.reminder',
     );
+  });
+
+  it('skips recipients that no longer exist without failing the other schedules', async () => {
+    const database: FakeDatabase = {
+      emissions: new Set(),
+      outbox: [],
+      lockAvailable: true,
+      failOutbox: false,
+      missingUsers: new Set([candidate.userId]),
+    };
+    const scheduler = new PostgresNotificationScheduler(fakePool(database));
+    const other = { ...candidate, userId: '20000000-0000-4000-8000-000000000009' };
+
+    await expect(
+      scheduler.emitDue(
+        '30000000-0000-4000-8000-000000000004',
+        [candidate, other],
+        new Date('2026-10-25T00:46:00.000Z'),
+      ),
+    ).resolves.toBe(1);
+    expect(database.outbox).toHaveLength(1);
   });
 
   it('does no work when another replica owns the tenant advisory lock', async () => {

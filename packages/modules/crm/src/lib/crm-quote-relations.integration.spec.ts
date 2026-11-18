@@ -6,7 +6,6 @@ import { CrmDataScopeService } from './application/data-scope.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
 import { OpportunityService } from './application/opportunity.service.js';
 import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteConversionService } from './application/quote-conversion.service.js';
 import { QuoteFormService } from './application/quote-form.service.js';
@@ -15,13 +14,12 @@ import type { ApprovalLinks } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import {
   PostgresDiscountPolicyStore,
-  PostgresPriceListStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteConversionStore } from './infrastructure/postgres-quote-conversion.store.js';
@@ -89,6 +87,7 @@ integration('Bán hàng GĐI: trường tuỳ biến, người theo dõi, đối
   let conversion: QuoteConversionService;
   let opportunities: OpportunityService;
   let customerId: string;
+  let priceListId: string;
   let foreignCustomerId: string;
   let lineTemplateId: string;
   let orderTemplateId: string;
@@ -129,9 +128,9 @@ integration('Bán hàng GĐI: trường tuỳ biến, người theo dõi, đối
     });
     conversion = new QuoteConversionService(new PostgresQuoteConversionStore(handle.database), quoteStore, scopes);
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     await new DiscountPolicyService(new PostgresDiscountPolicyStore(handle.database)).create(admin, {
@@ -155,7 +154,7 @@ integration('Bán hàng GĐI: trường tuỳ biến, người theo dõi, đối
   }, 60_000);
 
   async function draft(extra: Record<string, unknown> = {}, quantity = 10, owner = nv1) {
-    const created = await quotes.create(owner, { customerId: owner === nv1 ? customerId : foreignCustomerId, ...extra });
+    const created = await quotes.create(owner, { priceListId, customerId: owner === nv1 ? customerId : foreignCustomerId, ...extra });
     return quotes.addLine(owner, created.id, created.currentVersion, { revision: created.version.revision, materialId: CAP, quantity });
   }
 
@@ -267,9 +266,9 @@ integration('Bán hàng GĐI: trường tuỳ biến, người theo dõi, đối
     await expect(quotes.updateVersion(nv1, created.id, 1, { revision: again.version.revision, customFields: { [dept.id]: null } })).rejects.toMatchObject({ code: 'CUSTOM_FIELD_REQUIRED' });
 
     // Tạo báo giá nhận giá trị trường (kiểm kiểu, chưa ép bắt buộc).
-    const born = await quotes.create(nv1, { customerId, customFields: { [dept.id]: 'Kinh doanh' } });
+    const born = await quotes.create(nv1, { customerId, priceListId, customFields: { [dept.id]: 'Kinh doanh' } });
     expect(born.version.form.customFields).toEqual({ [dept.id]: 'Kinh doanh' });
-    await expect(quotes.create(nv1, { customerId, customFields: { [dept.id]: 'Nhân sự' } })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(quotes.create(nv1, { customerId, priceListId, customFields: { [dept.id]: 'Nhân sự' } })).rejects.toMatchObject({ statusCode: 400 });
 
     // Tắt trường: không nhập được nữa, không còn bắt buộc, giá trị cũ giữ nguyên.
     await form.updateCustomField(admin, dept.id, { name: 'Phòng ban phụ trách', fieldType: 'SELECT', options: ['Kỹ thuật', 'Kinh doanh'], required: true, active: false });
@@ -533,7 +532,7 @@ integration('Bán hàng GĐI: trường tuỳ biến, người theo dõi, đối
   });
 
   async function orderQuote(templateId: string, adjust: Parameters<QuoteService['updateVersion']>[3]) {
-    const created = await quotes.create(nv1, { customerId, templateId });
+    const created = await quotes.create(nv1, { customerId, priceListId, templateId });
     let current = await quotes.addLine(nv1, created.id, 1, { revision: created.version.revision, materialId: CAP, quantity: 3 });
     current = await quotes.addLine(nv1, created.id, 1, { revision: current.version.revision, materialId: CAP, quantity: 7 });
     current = await quotes.updateVersion(nv1, created.id, 1, { ...adjust, revision: current.version.revision });

@@ -977,6 +977,7 @@
   color: inherit;
   font: inherit;
   font-weight: 700;
+  text-align: left;
   cursor: pointer;
 
   svg {
@@ -1018,6 +1019,17 @@
     color: var(--ep-link);
     text-decoration: underline;
   }
+}
+
+// Mã có độ dài khác nhau: giữ chung một bề rộng tối thiểu để tên luôn bắt đầu cùng một cột.
+.groupToggle .treeCode,
+.cellTitleButton .treeCode {
+  display: inline-block;
+  width: 10rem;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cellSub {
@@ -2165,6 +2177,7 @@
 
 /* Ô nhập và nút gửi / huỷ nằm chung một hàng; nút bám đáy ô khi ô cao lên. */
 .timelineReplyBox {
+  position: relative; // neo danh sách gợi ý `@` (.mentionList)
   display: flex;
   align-items: flex-end;
   gap: 8px;
@@ -2189,6 +2202,48 @@
       @include focus-ring;
     }
   }
+}
+
+/* Ô nhập có tô màu lượt nhắc: lớp phản chiếu `.timelineMirror` vẽ chữ, textarea trong suốt đè lên nhận phím. */
+.timelineInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+
+  textarea {
+    position: relative;
+    display: block;
+    width: 100%;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--ep-text);
+    scrollbar-gutter: stable;
+
+    &::placeholder {
+      color: var(--ep-text-muted);
+    }
+  }
+}
+
+.timelineMirror {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  color: var(--ep-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: normal;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  word-break: normal;
+  scrollbar-gutter: stable;
+  pointer-events: none;
 }
 
 .timelineReplyActions {
@@ -3369,6 +3424,13 @@
   gap: 14px;
 }
 
+/* Ba ô lặp lại (tần suất, mỗi, số lần) luôn trên một hàng. */
+.fieldRowThree {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
 /* Khối tạo nhanh (vd khách hàng mới) lồng trong một trường của form. */
 .inlineCreate {
   display: flex;
@@ -3431,9 +3493,14 @@
   align-items: center;
   gap: 8px;
 
-  input {
+  > * {
     flex: 1 1 0;
     min-width: 0;
+  }
+
+  /* Dấu gạch giữa hai giờ chỉ rộng bằng chính nó. */
+  > span {
+    flex: 0 0 auto;
   }
 }
 
@@ -6620,6 +6687,26 @@
   }
 }
 
+/* Hộp chi tiết đơn công tác trên lịch dự án: hai khối (thông tin đơn, chi tiết công tác). */
+.tripSectionTitle {
+  margin: 0 0 10px;
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* Bọc cặp nhãn/giá trị mà không phá lưới hai cột của .detailGrid. */
+.detailRow {
+  display: contents;
+
+  dd {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+}
+
 /* Thanh nút ở góc tab "Đơn từ" và trong ngăn báo cáo. */
 .requestToolbar {
   display: flex;
@@ -6762,6 +6849,81 @@
   }
 }
 
+/*
+ * Thanh đầu danh sách thành viên: "Chọn tất cả" hoặc, khi đã tích người, các thao tác hàng loạt.
+ * Chiều cao cố định cho cả hai trạng thái để tích chọn không làm danh sách bên dưới nhảy.
+ */
+.membersBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 40px;
+}
+
+.membersBarCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.membersBarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  button {
+    height: 32px;
+    min-height: 0;
+    padding: 0 10px;
+    white-space: nowrap;
+  }
+}
+
+.membersBarRole {
+  width: 120px;
+}
+
+/* Dòng thành viên: ô tích + tên ở trái, vai trò ở phải. */
+.memberPick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  /* Cùng cỡ chữ với danh sách "Thêm thành viên" (.personRow). */
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Ô tích cùng kiểu với phần "Thêm thành viên": 15px, màu vàng của hệ thống. */
+.membersBarCheck input[type='checkbox'],
+.memberPick input[type='checkbox'] {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--ep-accent-strong);
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.addFootActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.addRole {
+  width: 150px;
+}
+
 /* Danh sách thành viên hiện tại cuộn riêng. */
 .membersCurrentList {
   flex: 1 1 auto;
@@ -6784,7 +6946,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  width: 200px;
+  width: 170px;
 
   >[role='group'] {
     flex: 1;
@@ -7079,6 +7241,137 @@
   & + & {
     border-top: 1px solid var(--ep-border-strong);
   }
+}
+
+/*
+ * Từ hai việc trở lên: mỗi việc là một thẻ có viền riêng và thanh tiêu đề (số thứ tự, tên, các nút), thu gọn được.
+ * Thu gọn thì chỉ còn thanh tiêu đề kèm dòng tóm tắt (người phụ trách, hạn, ưu tiên).
+ */
+.draftToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.draftToolbarCount {
+  color: var(--ep-text-sub);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.draftToolbarActions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.draftItemCard {
+  gap: 0;
+  padding: 0;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 10px;
+  background: var(--ep-surface);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+
+  /* Thẻ nào cũng đủ viền; bỏ vạch ngăn trên của kiểu cũ. */
+  &:first-child {
+    padding-top: 0;
+  }
+
+  & + & {
+    margin-top: 16px;
+    border-top: 1px solid var(--ep-border-strong);
+  }
+
+  .draftGrid {
+    padding: 16px 16px 18px;
+  }
+}
+
+.draftCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 8px;
+  border-bottom: 1px solid var(--ep-border);
+  border-radius: 9px 9px 0 0;
+  background: #f1f3f6;
+}
+
+/* Thu gọn: không còn phần thân nên thanh tiêu đề bo đủ bốn góc. */
+.draftItemCard:has(.draftGridCollapsed) .draftCardHead {
+  border-bottom: 0;
+  border-radius: 9px;
+}
+
+.draftCardToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  cursor: pointer;
+
+  &:hover {
+    background: rgb(15 23 42 / 6%);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.draftCardNumber {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--ep-accent);
+  color: var(--ep-text);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.draftCardSummary {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.draftCardTitle,
+.draftCardTitleEmpty,
+.draftCardMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draftCardTitle {
+  color: var(--ep-text);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.draftCardTitleEmpty {
+  color: var(--ep-text-muted);
+  font-size: 13.5px;
+  font-style: italic;
+}
+
+.draftCardMeta {
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.draftGrid.draftGridCollapsed {
+  display: none;
 }
 
 .draftHead {
@@ -7780,9 +8073,10 @@
   padding: 12px 12px 8px;
 }
 
+/* Ô tìm cả hàng, dưới nó hai ô chọn (trạng thái, sắp xếp) chia đôi bằng nhau. */
 .taskListFilters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 11rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 0 12px 10px;
   border-bottom: 1px solid var(--ep-line);
@@ -7790,6 +8084,7 @@
 
 .taskSearch {
   display: flex;
+  grid-column: 1 / -1;
   align-items: center;
   gap: 6px;
   min-height: 36px;
@@ -7823,11 +8118,18 @@
   list-style: none;
 }
 
+/*
+ * Dòng việc là lưới hai cột: mã đứng riêng một cột (bề rộng cố định), tên, trạng thái và người phụ trách thẳng
+ * hàng bên phải. Mọi dòng nên mã luôn một cột và tên luôn bắt đầu cùng một chỗ.
+ */
 .taskRow,
 .taskRowActive {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  --task-code-w: 5.5rem;
+
+  display: grid;
+  grid-template-columns: var(--task-code-w) minmax(0, 1fr);
+  gap: 5px 8px;
+  align-items: baseline;
   width: 100%;
   padding: 10px 12px;
   border: 1px solid transparent;
@@ -7856,20 +8158,28 @@
   }
 }
 
+.taskRow .treeCode,
+.taskRowActive .treeCode {
+  grid-column: 1;
+  grid-row: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .taskRowTitle {
+  grid-column: 2;
+  min-width: 0;
   overflow: hidden;
   font-size: 13.5px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-
-  .treeCode {
-    margin-right: 6px;
-  }
 }
 
 .taskRowMeta {
   display: flex;
+  grid-column: 2;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
@@ -7877,8 +8187,20 @@
 }
 
 .taskRowPerson {
+  display: inline-flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--ep-text-muted);
   font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  svg {
+    flex: none;
+  }
 }
 
 .taskDetail {
@@ -7972,6 +8294,21 @@
     &:first-child {
       border-top: 0;
     }
+  }
+}
+
+/* Mã việc con một bề rộng cố định để tên các việc con thẳng cột. */
+.taskChildList .cellTitleButton {
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+
+  .treeCode {
+    flex: none;
+    width: 5.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -10185,6 +10522,235 @@ button.kpiCard {
   container-type: inline-size;
 }
 
+/*
+ * Bảng dạng cây hai cấp (nhóm → dòng): "Công việc của tôi" và "Dự án". Bố cục cố định để mở/thu nhóm không làm cột dịch chỗ.
+ *
+ * Ô đầu tiên là một "cây" hai cấp, cùng một lưới ở cả hai cấp:
+ *   hàng nhóm : [mũi tên][mã dự án][tên dự án ........ ↗]
+ *   hàng việc : [thụt lề ][mã việc][tên việc .........]
+ * Chỗ của mã luôn một bề rộng (--work-code-w) nên tên dự án và tên việc bắt đầu cùng một cột; việc nằm lùi vào so với
+ * nhóm một khoảng bằng mũi tên + thụt lề nhỏ. Tên dài bị cắt một dòng, rê chuột để xem đủ.
+ */
+.treeTable {
+  --work-code-w: 9rem;
+  --work-arrow-w: 14px;
+  --work-gap: 8px;
+  --work-indent: 14px;
+
+  table-layout: fixed;
+}
+
+.myWorkColAssigner {
+  width: 130px;
+}
+
+.myWorkColPriority {
+  width: 168px;
+}
+
+.myWorkColStatus {
+  width: 172px;
+}
+
+.myWorkColDue {
+  width: 152px;
+}
+
+.myWorkColProgress {
+  width: 144px;
+}
+
+.workCell {
+  display: flex;
+  align-items: center;
+  gap: var(--work-gap);
+  min-width: 0;
+}
+
+.treeTable .groupToggle {
+  flex: 1;
+  min-width: 0;
+  gap: var(--work-gap);
+  text-align: left;
+
+  svg {
+    flex: none;
+    width: var(--work-arrow-w);
+  }
+}
+
+/* Chỗ của mã: một bề rộng cho cả nhóm lẫn việc; mã dài bị cắt. */
+.treeTable .workCell .treeCode {
+  display: inline-block;
+  flex: none;
+  width: var(--work-code-w);
+  margin: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Việc nằm lùi vào: mũi tên của nhóm + thụt lề, trừ bớt vào chỗ của mã để tên hai cấp vẫn thẳng cột. */
+.workIndent {
+  flex: none;
+  width: calc(var(--work-arrow-w) + var(--work-indent));
+}
+
+.treeTable .workChild .treeCode {
+  width: calc(var(--work-code-w) - var(--work-indent));
+}
+
+.treeTable .workChild .cellTitleButton {
+  flex: 1;
+  gap: var(--work-gap);
+  min-width: 0;
+}
+
+.workTitle {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.treeTable .cellSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mở thẳng dự án: một biểu tượng nhỏ cuối ô tên, thay cho chữ "Mở dự án" lặp ở từng nhóm. */
+.groupOpenIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-link);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.myWorkTable {
+  min-width: 1060px;
+}
+
+.projectsTable {
+  --work-code-w: 7rem;
+
+  min-width: 1134px;
+}
+
+.projectsColCheck {
+  width: 40px;
+}
+
+.projectsColCustomer {
+  width: 164px;
+}
+
+.projectsColTags {
+  width: 150px;
+}
+
+.projectsColStatus {
+  width: 148px;
+}
+
+.projectsColTime {
+  width: 198px;
+}
+
+.projectsColProgress {
+  width: 140px;
+}
+
+.projectsColActions {
+  width: 44px;
+}
+
+/*
+ * Ô còn trống nhưng sửa được (chưa có khách hàng, chưa có nhãn): ngày thường chỉ hiện "—" cho bảng đỡ lặp chữ; rê
+ * chuột vào dòng (hoặc tab tới ô) mới hiện ô chọn. Chiều rộng cột cố định nên đổi qua lại không làm bảng xê dịch.
+ */
+.emptyEdit {
+  position: relative;
+
+  > .emptyDash {
+    position: absolute;
+    top: 50%;
+    left: 12px;
+    transform: translateY(-50%);
+    color: var(--ep-text-muted);
+  }
+
+  > :not(.emptyDash) {
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.projectsTable tbody tr:hover .emptyEdit > :not(.emptyDash),
+.projectsTable .emptyEdit:focus-within > :not(.emptyDash) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.projectsTable tbody tr:hover .emptyEdit > .emptyDash,
+.projectsTable .emptyEdit:focus-within > .emptyDash {
+  opacity: 0;
+}
+
+/* Nhãn: tối đa hai nhãn trên một dòng, còn lại gộp thành "+N" (rê chuột xem đủ). */
+.projectsTable .chipGroup {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* Nút "⋯" cuối dòng: chỉ hiện khi rê chuột, tab tới hoặc đang mở menu, để bảng khỏi lặp một biểu tượng ở mọi dòng. */
+.rowKebab {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ep-text-sub);
+  cursor: pointer;
+  opacity: 0;
+
+  &:hover {
+    background: var(--ep-hover);
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.projectsTable tbody tr:hover .rowKebab,
+.rowKebab:focus-visible,
+.rowKebab[aria-expanded='true'] {
+  opacity: 1;
+}
+
 /* Đầu bảng dính trên, dòng tổng dính dưới khi cuộn. */
 .ledgerTable {
   margin: 0;
@@ -11041,4 +11607,226 @@ button.kpiCard {
       color: #334155;
     }
   }
+}
+
+/* Thanh tiến độ dự án hai lớp: lớp sáng là tiến độ dự kiến theo thời gian, lớp đậm là tiến độ thực tế. */
+.progressTrackLayered {
+  position: relative;
+}
+
+.progressExpected {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: #bfdbfe;
+}
+
+.progressTrackLayered .progressFill,
+.progressTrackLayered .progressFillDone {
+  position: relative;
+}
+
+.progressLate {
+  color: #b45309;
+}
+
+/* Bảng chọn nhanh tiến độ (ProgressCell). */
+.progressBarButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.progressPicker {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: 8px;
+  background: var(--ep-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+}
+
+.progressPickerSteps {
+  display: flex;
+  gap: 4px;
+}
+
+.progressPickerStep,
+.progressPickerStepActive {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: #dbeafe;
+  color: #2563eb;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: #bfdbfe;
+  }
+}
+
+.progressPickerStepActive {
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+
+  &:hover {
+    background: #1d4ed8;
+  }
+}
+
+.progressPickerRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* Cột Tiến độ của bảng WBS hẹp: thu thanh lại để số phần trăm không đè sang cột bên. */
+.wbsColProgress .progressEdit {
+  gap: 4px;
+}
+
+.wbsColProgress .progressBar {
+  width: 44px;
+}
+
+.wbsColProgress .progressValue,
+.wbsColProgress .progressValueManual {
+  min-width: 0;
+}
+
+/* Lịch sử báo cáo tiến độ trong tab Tổng quan. */
+.progressHistory {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  li {
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--ep-line);
+  }
+
+  li:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  p {
+    margin: 4px 0 0;
+    font-size: 13px;
+    white-space: pre-wrap;
+  }
+}
+
+.progressHistoryHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+
+  b {
+    min-width: 42px;
+    color: #2563eb;
+  }
+
+  span {
+    color: var(--ep-text-sub);
+  }
+}
+
+/* Lớp tiến độ dự kiến trong thanh của ProgressCell (nằm dưới lớp thực tế vì vẽ trước). */
+.progressBar > .progressExpected {
+  background: #bfdbfe;
+}
+
+/* Đầu việc của công việc tính tiến độ theo đầu việc. */
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+
+  li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+}
+
+.checklistDone {
+  color: var(--ep-text-sub);
+  text-decoration: line-through;
+}
+
+.checklistAdd {
+  display: flex;
+  gap: 8px;
+
+  input {
+    flex: 1;
+  }
+}
+
+/* Dòng tổng ở đầu sổ chứng từ của dự án. */
+.ledgerTotal td {
+  background: var(--ep-surface-2, rgb(0 0 0 / 4%));
+}
+
+.weekdayRow {
+  display: flex;
+  gap: 6px;
+}
+
+.weekdayBtn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--ep-border, #d6dae1);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-accent-soft);
+  }
+}
+
+.weekdayBtnOn {
+  border-color: rgb(217 171 0 / 70%);
+  background: var(--ep-accent-soft);
+  color: #5c4500;
+  font-weight: 600;
 }

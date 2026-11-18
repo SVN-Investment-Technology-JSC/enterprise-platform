@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { Hint } from './hint';
 import type { Gesture } from './use-gesture';
 
 const INPUT_CLASS =
@@ -31,10 +32,28 @@ export function LiveTextField({
 }) {
   if (multiline) {
     return (
-      <textarea
+      <Hint label={label}>
+        <textarea
+          aria-label={label}
+          rows={2}
+          value={value}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          onBlur={gesture.end}
+          onChange={(event) => {
+            gesture.start();
+            onChange(event.target.value);
+          }}
+          className={cn(INPUT_CLASS, 'resize-none py-1.5 leading-snug', className)}
+        />
+      </Hint>
+    );
+  }
+  return (
+    <Hint label={label}>
+      <input
+        type="text"
         aria-label={label}
-        title={label}
-        rows={2}
         value={value}
         placeholder={placeholder}
         maxLength={maxLength}
@@ -43,24 +62,8 @@ export function LiveTextField({
           gesture.start();
           onChange(event.target.value);
         }}
-        className={cn(INPUT_CLASS, 'resize-none py-1.5 leading-snug', className)}
+        className={cn(INPUT_CLASS, 'h-7', className)}
       />
-    );
-  }
-  return (
-    <input
-      type="text"
-      aria-label={label}
-      title={label}
-      value={value}
-      placeholder={placeholder}
-      maxLength={maxLength}
-      onBlur={gesture.end}
-      onChange={(event) => {
-        gesture.start();
-        onChange(event.target.value);
-      }}
-      className={cn(INPUT_CLASS, 'h-7', className)}
-    />
+    </Hint>
   );
 }

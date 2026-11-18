@@ -1,10 +1,16 @@
 import {
   DISCOUNT_CRITERION_LABELS,
+  PRICE_LIST_RATIO_MAX,
+  PRICE_LIST_RATIO_MIN,
+  PRICE_LIST_TYPE_LABELS,
   PRICE_SOURCE_LABELS,
+  PRICING_STATUS_LABELS,
   type DiscountPolicy,
   type DiscountPolicyRule,
   type PriceListSummary,
+  type PriceListSyncResult,
   type PricingResult,
+  type PricingStatus,
   type SavePriceListItemRequest,
 } from '@enterprise-platform/contracts-crm';
 
@@ -50,10 +56,82 @@ export function validityLabel(from: string, to: string | null): string {
   return to ? `${formatDate(from)} – ${formatDate(to)}` : `Từ ${formatDate(from)}`;
 }
 
-export function priceListScopeLabel(list: Pick<PriceListSummary, 'isStandard' | 'customerGroups'>): string {
-  if (list.isStandard) return 'Bảng giá chuẩn (mọi khách)';
-  if (!list.customerGroups.length) return 'Chưa gán nhóm khách';
-  return list.customerGroups.map((group) => group.name).join(', ');
+/** Cột "Loại": Mặc định, Theo tỷ lệ (kèm tỷ lệ), Tự nhập. */
+export function priceListTypeLabel(list: Pick<PriceListSummary, 'listType' | 'ratioPercent'>): string {
+  const label = PRICE_LIST_TYPE_LABELS[list.listType];
+  return list.listType === 'DERIVED' && list.ratioPercent !== null ? `${label} (${formatPercent(list.ratioPercent)})` : label;
+}
+
+const TYPE_ORDER: Readonly<Record<PriceListSummary['listType'], number>> = { DEFAULT: 0, DERIVED: 1, MANUAL: 1 };
+
+/** Bảng mặc định đứng đầu; các bảng khác giữ thứ tự server trả. */
+export function sortPriceLists<T extends Pick<PriceListSummary, 'listType'>>(lists: readonly T[]): T[] {
+  return lists
+    .map((list, index) => ({ list, index }))
+    .sort((left, right) => TYPE_ORDER[left.list.listType] - TYPE_ORDER[right.list.listType] || left.index - right.index)
+    .map((entry) => entry.list);
+}
+
+/** Đơn giá một dòng: rỗng là "Chưa nhập giá ở Kho" (khác 0 đồng). */
+export const MISSING_PRICE_TEXT = 'Chưa nhập giá ở Kho';
+export function priceText(price: number | null | undefined): string {
+  return price === null || price === undefined ? MISSING_PRICE_TEXT : `${formatMoney(price)} đ`;
+}
+
+/** Số có tối đa 2 chữ số thập phân. */
+function hasAtMostTwoDecimals(value: number): boolean {
+  return Math.abs(value * 100 - Math.round(value * 100)) < 1e-6;
+}
+
+export type ParsedNumber = { readonly ok: true; readonly value: number } | { readonly ok: false; readonly error: string };
+
+/** Tỷ lệ giá so với bảng mặc định (%): 0,01 đến 1000, tối đa 2 chữ số thập phân; nhận dấu phẩy thập phân. */
+export function parseRatioPercent(text: string): ParsedNumber {
+  const value = parseNumber(text);
+  if (value === undefined) return { ok: false, error: 'Tỷ lệ phải là số, ví dụ 105 hoặc 105,5.' };
+  if (value < PRICE_LIST_RATIO_MIN || value > PRICE_LIST_RATIO_MAX) {
+    return { ok: false, error: `Tỷ lệ phải từ ${formatPercent(PRICE_LIST_RATIO_MIN)} đến ${formatPercent(PRICE_LIST_RATIO_MAX)}.` };
+  }
+  if (!hasAtMostTwoDecimals(value)) return { ok: false, error: 'Tỷ lệ chỉ được tối đa 2 chữ số thập phân.' };
+  return { ok: true, value };
+}
+
+/** Thuế suất (%): 0 đến 100, tối đa 2 chữ số thập phân; nhận dấu phẩy thập phân. */
+export function parseVatRate(text: string): ParsedNumber {
+  const value = parseNumber(text);
+  if (value === undefined) return { ok: false, error: 'Thuế suất phải là số, ví dụ 8 hoặc 8,5.' };
+  if (value < 0 || value > 100) return { ok: false, error: 'Thuế suất phải từ 0 đến 100.' };
+  if (!hasAtMostTwoDecimals(value)) return { ok: false, error: 'Thuế suất chỉ được tối đa 2 chữ số thập phân.' };
+  return { ok: true, value };
+}
+
+/** Đơn giá nhập tay: số không âm, tối đa 2 chữ số thập phân. */
+export function parseUnitPrice(text: string): ParsedNumber {
+  const value = parseNumber(text);
+  if (value === undefined || value < 0) return { ok: false, error: 'Đơn giá phải là số không âm.' };
+  if (!hasAtMostTwoDecimals(value)) return { ok: false, error: 'Đơn giá chỉ được tối đa 2 chữ số thập phân.' };
+  return { ok: true, value };
+}
+
+/** Bảng đang bật và còn hiệu lực tại ngày `YYYY-MM-DD` (trọn ngày). */
+export function isPriceListEffective(list: Pick<PriceListSummary, 'status' | 'validFrom' | 'validTo'>, date: string): boolean {
+  return list.status === 'ACTIVE' && list.validFrom <= date && (!list.validTo || list.validTo >= date);
+}
+
+/** Tên bảng giá để hiện dạng chữ; bảng đã tắt thì thêm " (Ngừng áp dụng)". */
+export function priceListDisplayName(name: string | null | undefined, status: PricingStatus | null | undefined): string {
+  if (!name) return '';
+  return status === 'INACTIVE' ? `${name} (${PRICING_STATUS_LABELS.INACTIVE})` : name;
+}
+
+/** Câu báo kết quả đồng bộ bảng giá mặc định với Kho. */
+export function syncResultMessage(result: PriceListSyncResult): string {
+  const parts = [`thêm ${result.added}`, `cập nhật ${result.updated}`, `bỏ ${result.removed} dòng`];
+  let message = `Đã đồng bộ bảng giá mặc định: ${parts.join(', ')}.`;
+  if (result.skippedWithoutUnit) message += ` Bỏ qua ${result.skippedWithoutUnit} mặt hàng chưa có đơn vị tính ở Kho.`;
+  if (result.derivedListsUpdated) message += ` Đã tính lại ${result.derivedListsUpdated} bảng giá theo tỷ lệ.`;
+  if (result.manualPricesRemoved) message += ` Bỏ ${result.manualPricesRemoved} giá tay của mặt hàng không còn ở Kho.`;
+  return message;
 }
 
 export interface PastedItems {
@@ -193,6 +271,9 @@ export interface PriceRowDraft {
     readonly salePrice?: number | null;
     /** Giá vốn bình quân của Kho, chỉ để tham khảo khi định giá. */
     readonly avgCost?: number | null;
+    /** Nhóm ở Kho (STOCK hàng hoá, SERVICE dịch vụ) và phân loại, chỉ để hiện. */
+    readonly kind?: string | null;
+    readonly tradeCategory?: string | null;
   };
   /** Đơn vị tính: lấy theo Kho; chỉ gõ tay khi danh mục Kho chưa có đơn vị. */
   readonly unit: string;

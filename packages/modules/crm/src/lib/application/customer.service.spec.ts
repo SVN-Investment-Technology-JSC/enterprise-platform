@@ -122,6 +122,22 @@ describe('CustomerService', () => {
     expect(store.updateCustomer).not.toHaveBeenCalled();
   });
 
+  it('A8.4: bản giao diện cũ gửi priceListId khi tạo, sửa khách: bỏ qua, không lỗi, không ghi', async () => {
+    const { store, service } = setup();
+    // Kể cả giá trị không hợp lệ: trường không còn được đọc.
+    await service.create(writer, { name: 'Công ty B', priceListId: 'khong-phai-id' } as never);
+    await service.update(writer, CUSTOMER_ID, { code: 'KH000001', name: 'Công ty B', version: 3, priceListId: 'a0000000-0000-4000-8000-000000000001' } as never);
+    expect(store.createCustomer.mock.calls[0][2]).not.toHaveProperty('priceListId');
+    expect(store.updateCustomer.mock.calls[0][3]).not.toHaveProperty('priceListId');
+  });
+
+  it('A8.5: chi tiết khách không còn bảng giá', async () => {
+    const { service } = setup();
+    const detail = await service.get(writer, CUSTOMER_ID);
+    expect(detail).not.toHaveProperty('priceListId');
+    expect(detail).not.toHaveProperty('priceListCode');
+  });
+
   it('sửa: trường không gửi giữ giá trị cũ, MST không đổi thì không kiểm trùng', async () => {
     const { store, service } = setup({ matches: [{ id: 'x', code: 'K', name: 'K' }] });
     await service.update(writer, CUSTOMER_ID, { code: 'kh000009', name: 'Tên mới', version: 3 } as never);

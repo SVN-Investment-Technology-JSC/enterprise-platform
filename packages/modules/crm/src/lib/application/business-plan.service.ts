@@ -25,7 +25,7 @@ import type { BusinessPlanRecord, BusinessPlanStore, PlanAttachment, PlanLineRec
 import { canViewQuoteCost, requireSalesManager } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
-import type { EditableQuote, QuoteStore } from './quote-store.port.js';
+import type { ApprovalLinks, EditableQuote, QuoteSettingsStore, QuoteStore } from './quote-store.port.js';
 
 const QUOTE_NOT_FOUND = 'Không tìm thấy báo giá.';
 
@@ -86,6 +86,8 @@ function requireApprover(actor: CrmActor): void {
  *   hay bị từ chối cùng báo giá; có thể trình, duyệt PAKD riêng khi báo giá chưa gửi.
  * - Người trình không tự duyệt. Bị từ chối thì sửa lại (về đang soạn) rồi trình lại, mỗi lần trình là một vòng
  *   và lịch sử các vòng được giữ.
+ * - PAKD trình riêng duyệt theo loại `BUSINESS_PLAN` (D3-30): trực tiếp trong CRM, hoặc qua Quy trình
+ *   (`crm_business_plan`, kết quả áp từ sự kiện của Quy trình; đang chờ thì duyệt tay bị chặn 409).
  * - Quyền xem giá vốn, lợi nhuận (`crm.quote.cost.read`) kiểm ở đây; người không có chỉ thấy doanh thu.
  * - Báo giá ngoài phạm vi dữ liệu trả 404 như báo giá.
  */
@@ -94,6 +96,10 @@ export class BusinessPlanService implements QuoteBusinessPlans {
     private readonly plans: BusinessPlanStore,
     private readonly quotes: Pick<QuoteStore, 'loadForEdit'>,
     private readonly scopes: Pick<CrmDataScopeService, 'resolve'>,
+    /** Cách duyệt loại `BUSINESS_PLAN` (D3-30); rỗng thì PAKD trình riêng luôn duyệt trực tiếp như phase 2. */
+    private readonly settings?: Pick<QuoteSettingsStore, 'binding'>,
+    /** Tạo phiên Quy trình sau khi trình (PAKD trình riêng qua Quy trình). */
+    private readonly links?: ApprovalLinks,
   ) {}
 
   async get(actor: CrmActor, quoteId: string, versionNo: unknown): Promise<BusinessPlanDetail | null> {
@@ -150,7 +156,18 @@ export class BusinessPlanService implements QuoteBusinessPlans {
     assertPlanSubmittable(plan.status);
     this.assertQuoteDraft(quote);
     const figures = computeBusinessPlan(basisOf(quote.version), costLinesOf(plan.lines));
-    await this.plans.submit(actor.tenantId, plan.id, expected, figures, actor.userId);
+    // Loại duyệt `BUSINESS_PLAN` qua Quy trình (D3-30): cùng transaction tạo liên kết cho vòng mới.
+    const binding = this.settings && this.links ? await this.settings.binding(actor.tenantId, 'BUSINESS_PLAN') : null;
+    const procedure =
+      binding?.mode === 'PROCEDURE' && binding.procedureDefinitionId
+        ? {
+            definitionId: binding.procedureDefinitionId,
+            title: `Duyệt PAKD báo giá ${quote.head.code} v${quote.version.versionNo} - ${quote.head.customerName}`.slice(0, 255),
+          }
+        : null;
+    const linkId = await this.plans.submit(actor.tenantId, plan.id, expected, figures, actor.userId, procedure);
+    // Tạo phiên Quy trình ngay sau khi commit; lỗi đã ghi vào liên kết và worker thử lại.
+    if (linkId && this.links) await this.links.start(actor.tenantId, linkId).catch(() => undefined);
     return this.reload(actor, quoteId, quote);
   }
 
@@ -230,6 +247,14 @@ export class BusinessPlanService implements QuoteBusinessPlans {
     }
     if (plan.submittedBy === actor.userId) {
       throw new CrmForbiddenError('Không được tự duyệt phương án kinh doanh do mình trình.');
+    }
+    // Đang duyệt qua Quy trình: kết quả đến từ Quy trình. Chỉ duyệt tay khi Quy trình không tạo được phiên.
+    const link = await this.plans.currentRoundLink(actor.tenantId, plan.id);
+    if (link && !(link.status === 'FAILED' && !link.instanceId) && link.status !== 'CLOSED') {
+      throw new CrmConflictError(
+        'PLAN_IN_PROCEDURE',
+        'Phương án kinh doanh đang được duyệt qua Quy trình; vui lòng thao tác trên hồ sơ Quy trình.',
+      );
     }
     const reason = optionalText(request?.reason, 2000, 'lý do');
     if (decision === 'REJECTED' && !reason) throw new CrmValidationError('REASON_REQUIRED', 'Phải ghi lý do từ chối.');

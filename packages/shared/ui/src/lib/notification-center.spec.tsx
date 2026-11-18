@@ -146,6 +146,28 @@ describe('NotificationProvider', () => {
     expect(screen.queryByRole('dialog', { name: 'Thông báo' })).toBeNull();
   });
 
+  it('closes the drawer when a notification opens a link on the current page', async () => {
+    // Đang ở trang Văn thư; liên kết chỉ đổi phần #: trang không tải lại nên ngăn phải tự đóng.
+    window.history.pushState({}, '', '/modules/correspondence');
+    const onPage = { ...first, module: 'correspondence', deepLink: '/modules/correspondence#letters/letter-1', title: 'Công văn chờ bạn duyệt' };
+    const fixture = fakeClient({
+      list: jest.fn().mockResolvedValue({ items: [onPage] }),
+      setRead: jest.fn().mockResolvedValue({ ...onPage, readAt: '2026-10-01T08:00:00.000Z', sequence: 11 }),
+    });
+    render(
+      <NotificationProvider client={fixture.client}>
+        <NotificationBell />
+      </NotificationProvider>,
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Thông báo, 1 chưa đọc' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Thông báo, 1 chưa đọc' }));
+    fireEvent.click(await screen.findByText('Công văn chờ bạn duyệt'));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Thông báo' })).toBeNull());
+    expect(window.location.hash).toBe('#letters/letter-1');
+    window.history.pushState({}, '', '/');
+  });
+
   it('applies optimistic read state before the REST mutation settles', async () => {
     const pending = deferred<NotificationRecord>();
     const fixture = fakeClient({ setRead: jest.fn(() => pending.promise) });

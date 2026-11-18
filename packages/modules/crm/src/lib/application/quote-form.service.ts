@@ -3,10 +3,14 @@ import type {
   CustomFieldEntityType,
   GeneratedQuoteCode,
   QuoteCodeSettings,
+  QuoteLayout,
+  QuoteLinePickerSettings,
   QuoteTemplate,
+  QuoteTemplateLayout,
   QuoteType,
   SaveCustomFieldRequest,
   SaveQuoteCodeSettingsRequest,
+  SaveQuoteTemplateLayoutRequest,
   SaveQuoteTemplateRequest,
   SaveQuoteTypeRequest,
 } from '@enterprise-platform/contracts-crm';
@@ -15,7 +19,11 @@ import {
   CUSTOM_FIELD_OPTIONS_MAX,
   CUSTOM_FIELD_TYPES,
   CUSTOM_FIELDS_MAX,
+  DEFAULT_QUOTE_LINE_PICKER_COLUMNS,
   QUOTE_ADJUSTMENT_MODES,
+  normalizeQuoteLinePickerColumns,
+  utf8ByteLength,
+  validateQuoteLayout,
 } from '@enterprise-platform/contracts-crm';
 import { CrmConflictError, CrmNotFoundError, CrmValidationError } from '../domain/crm.error.js';
 import { isUuid, optionalText, requiredText } from '../domain/fields.js';
@@ -61,6 +69,41 @@ export class QuoteFormService {
     const updated = await this.store.updateTemplate(actor.tenantId, id, record, actor.userId);
     if (!updated) throw new CrmNotFoundError('Không tìm thấy mẫu báo giá.');
     return updated;
+  }
+
+  // Bố cục in của mẫu (phase 3) ---------------------------------------------------
+
+  /** Đọc bố cục: `crm.read` (guard đã kiểm), kể cả mẫu đang tắt. Mẫu chưa có bố cục: `layout: null`. */
+  async getLayout(actor: CrmActor, id: string): Promise<QuoteTemplateLayout> {
+    if (!isUuid(id)) throw templateNotFound();
+    const stored = await this.store.getTemplateLayout(actor.tenantId, id);
+    if (!stored) throw templateNotFound();
+    return stored;
+  }
+
+  /**
+   * Lưu bố cục (`crm.manage`), kể cả mẫu đang tắt (chuẩn bị trước khi bật). `layout: null` là xoá. Bố cục được kiểm
+   * và chuẩn hoá bằng `validateQuoteLayout` (trường lạ bị bỏ); lỗi trả 400 kèm `errors` theo từng trường.
+   * `expectedUpdatedAt` lệch với bản đang lưu: 409 `LAYOUT_CONFLICT`; không gửi thì ghi đè.
+   */
+  async saveLayout(actor: CrmActor, id: string, request: SaveQuoteTemplateLayoutRequest): Promise<QuoteTemplateLayout> {
+    requireSalesManager(actor);
+    if (!isUuid(id)) throw templateNotFound();
+    const layout = layoutOf(request?.layout);
+    const json = layout ? JSON.stringify(layout) : '';
+    const saved = await this.store.saveTemplateLayout(
+      actor.tenantId,
+      id,
+      {
+        layout,
+        ...(request.expectedUpdatedAt !== undefined ? { expectedUpdatedAt: expectedUpdatedAtOf(request.expectedUpdatedAt) } : {}),
+        blockCount: layout?.blocks.length ?? 0,
+        sizeBytes: utf8ByteLength(json),
+      },
+      actor.userId,
+    );
+    if (!saved) throw templateNotFound();
+    return saved;
   }
 
   // Loại báo giá --------------------------------------------------------------
@@ -120,17 +163,33 @@ export class QuoteFormService {
     return updated;
   }
 
+  // Cột hộp thoại "Thêm dòng báo giá" -------------------------------------------
+
+  /** Ai có `crm.read` cũng đọc (hộp thoại cần biết cột nào hiện); chưa cấu hình thì hiện mọi cột. */
+  async linePickerSettings(actor: CrmActor): Promise<QuoteLinePickerSettings> {
+    return { columns: (await this.store.linePickerColumns(actor.tenantId)) ?? DEFAULT_QUOTE_LINE_PICKER_COLUMNS };
+  }
+
+  async saveLinePickerSettings(actor: CrmActor, request: QuoteLinePickerSettings): Promise<QuoteLinePickerSettings> {
+    requireSalesManager(actor);
+    const columns = normalizeQuoteLinePickerColumns(request?.columns);
+    if (!columns) throw new CrmValidationError('INVALID_COLUMNS', 'Vui lòng chọn các cột hiển thị.');
+    await this.store.saveLinePickerColumns(actor.tenantId, columns, actor.userId);
+    return { columns };
+  }
+
   // Mã báo giá ----------------------------------------------------------------
 
   async codeSettings(actor: CrmActor): Promise<QuoteCodeSettings> {
-    return this.describeCode(await this.store.codePattern(actor.tenantId));
+    const [pattern, next] = await Promise.all([this.store.codePattern(actor.tenantId), this.store.peekCode(actor.tenantId)]);
+    return this.describeCode(pattern, next);
   }
 
   async saveCodeSettings(actor: CrmActor, request: SaveQuoteCodeSettingsRequest): Promise<QuoteCodeSettings> {
     requireSalesManager(actor);
     const pattern = normalizeQuoteCodePattern(request?.pattern);
     await this.store.saveCodePattern(actor.tenantId, pattern, actor.userId);
-    return this.describeCode(pattern);
+    return this.describeCode(pattern, await this.store.peekCode(actor.tenantId));
   }
 
   /** Nút "sinh lại": mã kế tiếp, chiếm một số thứ tự (số đã sinh không dùng lại). */
@@ -139,14 +198,40 @@ export class QuoteFormService {
     return { code: await this.store.generateCode(actor.tenantId) };
   }
 
-  private describeCode(pattern: string | null): QuoteCodeSettings {
+  private describeCode(pattern: string | null, next: string): QuoteCodeSettings {
     const today = vietnamToday(this.now());
     const date = { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)), day: Number(today.slice(8, 10)) };
     return {
       pattern,
       example: pattern ? formatQuoteCodePattern(pattern, date, 1) : `BG${today.slice(2, 4)}00001`,
+      next,
     };
   }
+}
+
+const templateNotFound = () => new CrmNotFoundError('Không tìm thấy mẫu báo giá.');
+
+/** Bố cục gửi lên: `null` là xoá; còn lại phải qua `validateQuoteLayout` (lỗi đầu tiên làm mã, đủ danh sách ở `errors`). */
+function layoutOf(value: unknown): QuoteLayout | null {
+  if (value === undefined) throw new CrmValidationError('LAYOUT_INVALID', 'Thiếu bố cục cần lưu.');
+  if (value === null) return null;
+  const result = validateQuoteLayout(value);
+  if (!result.ok) {
+    const [first] = result.errors;
+    throw new CrmValidationError(first.code, first.message, { errors: result.errors });
+  }
+  return result.layout;
+}
+
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$/;
+
+/** Mốc `updatedAt` đã đọc: `null` (chưa từng lưu) hoặc thời điểm ISO 8601. */
+function expectedUpdatedAtOf(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !ISO_TIMESTAMP.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new CrmValidationError('INVALID', 'Mốc cập nhật của bố cục không hợp lệ. Tải lại trình thiết kế rồi lưu lại.');
+  }
+  return value;
 }
 
 function flag(value: unknown, fallback: boolean): boolean {

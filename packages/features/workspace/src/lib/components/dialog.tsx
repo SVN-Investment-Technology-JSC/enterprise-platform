@@ -30,6 +30,13 @@ export interface DialogProps {
    * cuộn riêng, hộp thoại không cuộn cả khối.
    */
   readonly fixedHeight?: boolean;
+  /**
+   * Hộp thoại lưu từng thao tác ngay khi bấm (không có nháp chờ "Lưu"): đóng bằng X, Esc hay bấm ra ngoài không cần
+   * hỏi "bỏ thay đổi?". Mặc định `true`.
+   */
+  readonly guardDiscard?: boolean;
+  /** Ẩn cả chân hộp thoại (nút Huỷ và nút gửi). Hộp thoại lưu ngay từng thao tác không cần chân. */
+  readonly hideFooter?: boolean;
   readonly onClose: () => void;
   readonly onSubmit: () => void;
   readonly children: ReactNode;
@@ -57,6 +64,8 @@ export function Dialog({
   size = 'default',
   centered = false,
   fixedHeight = false,
+  guardDiscard = true,
+  hideFooter = false,
   onClose,
   onSubmit,
   children,
@@ -82,9 +91,9 @@ export function Dialog({
    * sạch những gì vừa gõ. Nút Huỷ ở chân form vẫn đóng ngay: đó là ý định rõ.
    */
   const requestClose = useCallback(() => {
-    if (dirty) setConfirmDiscard(true);
+    if (dirty && guardDiscard) setConfirmDiscard(true);
     else onClose();
-  }, [dirty, onClose]);
+  }, [dirty, guardDiscard, onClose]);
 
   useEffect(() => {
     // Form trong card không phải hộp thoại nổi: Esc không đóng nó.
@@ -131,6 +140,7 @@ export function Dialog({
           </p>
         ) : null}
       </div>
+      {hideFooter ? null : (
       <footer className={styles.dialogFoot}>
         {cancelLabel === null ? null : (
           <button type="button" className={styles.buttonGhost} onClick={onClose}>
@@ -145,6 +155,7 @@ export function Dialog({
           {submitting ? 'Đang lưu…' : submitLabel}
         </button>
       </footer>
+      )}
       <ConfirmBox
         open={confirmDiscard}
         title="Bạn có chắc chắn muốn đóng?"

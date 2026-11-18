@@ -1,6 +1,6 @@
 import {
-  brandKeyOf,
   normalizeHex,
+  paintBrandKeys,
   slugify,
   type BrandPalette,
   type IconDocument,
@@ -41,8 +41,7 @@ export function tokenUsage(docs: readonly IconDocument[]): ReadonlyMap<string, n
     const keys = new Set<string>();
     for (const shape of doc.shapes) {
       for (const paint of [shape.fill, shape.stroke]) {
-        const key = brandKeyOf(paint);
-        if (key !== null) keys.add(key);
+        for (const key of paintBrandKeys(paint)) keys.add(key);
       }
     }
     for (const key of keys) usage.set(key, (usage.get(key) ?? 0) + 1);

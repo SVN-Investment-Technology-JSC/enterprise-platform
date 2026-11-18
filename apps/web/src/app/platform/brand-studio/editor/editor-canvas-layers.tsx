@@ -2,6 +2,7 @@
 
 import {
   buildIconModel,
+  defsNode,
   toCamelAttr,
   type BrandPalette,
   type ColorMode,
@@ -43,8 +44,10 @@ export const ShapesLayer = memo(function ShapesLayer({
   opacity?: number;
 }) {
   const model = useMemo(() => buildIconModel(doc, { colorMode, palette }), [doc, colorMode, palette]);
+  const defs = defsNode(model);
   return (
     <g {...toProps(model.rootAttrs)} opacity={opacity} pointerEvents="none" style={{ color: CANVAS_INK }}>
+      {defs ? renderNode(defs, -1) : null}
       {model.children.map(renderNode)}
     </g>
   );

@@ -51,8 +51,10 @@
     "@enterprise-platform/contracts-chat": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
+    "@enterprise-platform/contracts-realtime": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
     "@nestjs/common": "^11.2.1",
+    "firebase-admin": "^14.5.1",
     "pg": "^8.23.0",
     "web-push": "^3.6.7"
   },

@@ -63,6 +63,7 @@ export interface FakeBrandServer {
     unpublishIcon(id: string): Promise<BrandIconSummary>;
     archiveIcon(id: string): Promise<BrandIconSummary>;
     restoreIcon(id: string): Promise<BrandIconSummary>;
+    purgeIcon(id: string): Promise<void>;
     getStandards(): Promise<BrandStandardsResponse>;
     saveStandards(input: SaveBrandStandardsRequest): Promise<SaveBrandStandardsResponse>;
   };
@@ -260,6 +261,14 @@ export function createFakeBrandServer(): FakeBrandServer {
         await enter(`POST icons/${id}/restore`);
         row(id);
         return setState(id, { status: 'draft', publishedVersion: null });
+      },
+      async purgeIcon(id) {
+        await enter(`DELETE icons/${id}/permanent`);
+        const target = row(id);
+        if (target.summary.status !== 'archived') {
+          throw fail(400, E.requestInvalid, 'Chỉ xoá vĩnh viễn được icon đang ở trạng thái Đã lưu trữ.');
+        }
+        rows.delete(id);
       },
       async getStandards() {
         await enter('GET standards');
