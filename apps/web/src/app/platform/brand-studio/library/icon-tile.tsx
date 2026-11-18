@@ -18,6 +18,7 @@ export function IconTile({
   palette,
   selected,
   preset,
+  archived = false,
   onSelect,
   ...handlers
 }: IconActionHandlers & {
@@ -25,6 +26,7 @@ export function IconTile({
   palette: BrandPalette;
   selected: boolean;
   preset: boolean;
+  archived?: boolean;
   onSelect: (checked: boolean) => void;
 }) {
   return (
@@ -48,7 +50,7 @@ export function IconTile({
             <span className="block truncate text-sm font-medium text-slate-900">{doc.name}</span>
           </Hint>
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <StatusChip status={doc.status} />
+            <StatusChip archived={archived} status={doc.status} />
             <span className="text-[11px] text-slate-500">{categoryLabel(doc.category)}</span>
           </span>
         </span>
@@ -65,6 +67,7 @@ export function IconTile({
 
       <IconActionsMenu
         {...handlers}
+        archived={archived}
         className="absolute right-3 top-3 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100 pointer-coarse:opacity-100"
         doc={doc}
         preset={preset}

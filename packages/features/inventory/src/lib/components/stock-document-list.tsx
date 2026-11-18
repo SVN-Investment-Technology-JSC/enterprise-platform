@@ -28,7 +28,10 @@ import {
 import { DocumentActionBar, StockDocumentDetail } from './stock-document-detail';
 import { StockDocumentForm } from './stock-document-form';
 import { DocumentStatusBadge, errorMessage } from './stock-document-parts';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { Card, CardHeader } from '../ui/card';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 
 const PAGE_SIZE = 20;
 
@@ -65,7 +68,7 @@ function baseColumns(): TableColumnsType<StockDocument> {
       dataIndex: 'code',
       key: 'code',
       width: 150,
-      render: (value: string) => <strong className={styles.code}>{value}</strong>,
+      render: (value: string) => <strong className="font-bold text-blue-600">{value}</strong>,
     },
     {
       title: 'Loại',
@@ -183,40 +186,40 @@ export function StockDocumentList({
   };
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
+    <Card className="gap-0 rounded-2xl px-[clamp(1rem,2vw,1.5rem)] py-[1.2rem]">
+      <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
         <div>
-          <h2>Chứng từ kho</h2>
-          <span className={styles.countHint}>{formatNumber(total)} chứng từ</span>
+          <h2 className="m-0 text-base font-bold tracking-tight text-slate-900">Chứng từ kho</h2>
+          <span className="text-[13px] tabular-nums text-slate-500">{formatNumber(total)} chứng từ</span>
         </div>
-        <div className={styles.docActions}>
-          <button type="button" className={styles.btnSecondary} onClick={() => void reload()} disabled={loading}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" onClick={() => void reload()} disabled={loading}>
             <RotateCw size={15} /> Tải lại
-          </button>
+          </Button>
           {capabilities.canWriteTransactions ? (
-            <button
+            <Button
               type="button"
-              className={styles.btnPrimary}
+             
               onClick={() =>
                 setForm({ draft: emptyDraft('RECEIPT_PURCHASE', warehouses.find((item) => item.isActive)?.code ?? ''), key: Date.now() })
               }
             >
               <FilePlus2 size={15} /> Lập chứng từ
-            </button>
+            </Button>
           ) : null}
         </div>
-      </div>
+      </CardHeader>
 
-      <div className={styles.docFilterRow}>
-        <label className={styles.docField}>
+      <div className="mb-[0.85rem] flex flex-wrap items-end gap-[0.7rem]">
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Loại</span>
           <SearchableSelect options={TYPE_OPTIONS} value={docType} height={36} onChange={(value) => filtersChanged(() => setDocType(value))} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Trạng thái</span>
           <SearchableSelect options={STATUS_OPTIONS} value={status} height={36} onChange={(value) => filtersChanged(() => setStatus(value))} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Kho</span>
           <SearchableSelect
             options={warehouseOptions}
@@ -224,19 +227,19 @@ export function StockDocumentList({
             height={36}
             onChange={(value) => filtersChanged(() => setWarehouseCode(value))}
           />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Từ ngày</span>
-          <input type="date" value={fromDate} onChange={(event) => filtersChanged(() => setFromDate(event.target.value))} />
-        </label>
-        <label className={styles.docField}>
+          <Input className="font-normal" type="date" value={fromDate} onChange={(event) => filtersChanged(() => setFromDate(event.target.value))} />
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Đến ngày</span>
-          <input type="date" value={toDate} onChange={(event) => filtersChanged(() => setToDate(event.target.value))} />
-        </label>
+          <Input className="font-normal" type="date" value={toDate} onChange={(event) => filtersChanged(() => setToDate(event.target.value))} />
+        </Label>
       </div>
 
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">
           {error}
         </p>
       ) : null}
@@ -287,7 +290,7 @@ export function StockDocumentList({
           onClose={() => setForm(undefined)}
         />
       ) : null}
-    </section>
+    </Card>
   );
 }
 
@@ -357,27 +360,27 @@ export function StockDocumentApproval({
   ];
 
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHead}>
+    <Card className="gap-0 rounded-2xl px-[clamp(1rem,2vw,1.5rem)] py-[1.2rem]">
+      <CardHeader className="mb-4 flex-row flex-wrap items-center justify-between gap-3">
         <div>
-          <h2>Chứng từ chờ duyệt</h2>
-          <span className={styles.countHint}>{formatNumber(total)} chứng từ đang chờ</span>
+          <h2 className="m-0 text-base font-bold tracking-tight text-slate-900">Chứng từ chờ duyệt</h2>
+          <span className="text-[13px] tabular-nums text-slate-500">{formatNumber(total)} chứng từ đang chờ</span>
         </div>
-        <button type="button" className={styles.btnSecondary} onClick={() => void reload()} disabled={loading}>
+        <Button type="button" variant="outline" onClick={() => void reload()} disabled={loading}>
           <RotateCw size={15} /> Tải lại
-        </button>
-      </div>
+        </Button>
+      </CardHeader>
       {capabilities.canApproveDocuments ? null : (
-        <p className={styles.docWarn}>
+        <p className="my-[0.6rem] rounded-[0.55rem] border border-amber-200 bg-amber-50 px-[0.8rem] py-[0.6rem] text-[13px] text-amber-800">
           Bạn chỉ xem được danh sách; duyệt hoặc từ chối cần quyền "Duyệt chứng từ kho".
         </p>
       )}
-      <div className={styles.docFilterRow}>
-        <label className={styles.docField}>
+      <div className="mb-[0.85rem] flex flex-wrap items-end gap-[0.7rem]">
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Loại</span>
           <SearchableSelect options={TYPE_OPTIONS} value={docType} height={36} onChange={setDocType} />
-        </label>
-        <label className={styles.docField}>
+        </Label>
+        <Label className="flex min-w-44 flex-col gap-1 text-xs font-bold text-slate-600">
           <span>Kho</span>
           <SearchableSelect
             options={[{ value: '', label: 'Mọi kho' }, ...warehouses.map((item) => ({ value: item.code, label: `${item.code} - ${item.name}` }))]}
@@ -385,10 +388,10 @@ export function StockDocumentApproval({
             height={36}
             onChange={setWarehouseCode}
           />
-        </label>
+        </Label>
       </div>
       {error ? (
-        <p role="alert" className={styles.alert}>
+        <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">
           {error}
         </p>
       ) : null}
@@ -411,6 +414,6 @@ export function StockDocumentApproval({
           onClose={() => setOpened(undefined)}
         />
       ) : null}
-    </section>
+    </Card>
   );
 }

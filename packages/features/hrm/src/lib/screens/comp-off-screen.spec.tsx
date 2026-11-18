@@ -10,7 +10,6 @@ import type {
 import { compOffApi } from '../hrm-comp-off-api';
 import { buildCompOffFundSummary, compVersionPhase, overlapEffects, removableCompVersionId } from '../comp-off-model';
 import { CompOffFundCard } from '../ui/comp-off-fund-card';
-import { OvertimeClassifyHint } from '../ui/comp-off/comp-off-hints';
 import { CompOffBalancesPanel } from '../ui/comp-off/comp-off-balances-panel';
 import { CompOffConversionPanel } from '../ui/comp-off/comp-off-conversion-panel';
 import { OvertimeClassifyPanel } from '../ui/comp-off/overtime-classify-panel';
@@ -182,7 +181,7 @@ describe('Phân loại làm thêm', () => {
     end: '2026-10-06T04:00',
     hours: 10,
     crossesMidnight: true,
-    ruleSet: 'NIGHT_REST',
+    ruleSet: 'CLOCK_WINDOW',
     restFractionSuggested: 1,
     otHoursSuggested: 2,
     nightHoursSuggested: 8,
@@ -218,16 +217,9 @@ describe('Phân loại làm thêm', () => {
 describe('Cấu hình làm thêm và nghỉ bù', () => {
   const config = {
     enabled: true,
-    ruleSet: 'NIGHT_REST' as const,
     normalHoursPerDay: 8,
     monthlyCapHours: 40,
     yearlyCapHours: 200,
-    nightCapped: false,
-    nightStartMinute: 1320,
-    nightEndMinute: 360,
-    nightRestHoursPerDay: 8,
-    allowHalfDay: true,
-    declaredNightWindow: false,
     compFactor: 1.5,
     dayBasisHours: null,
     decimals: 1,
@@ -250,13 +242,14 @@ describe('Cấu hình làm thêm và nghỉ bù', () => {
     expect(screen.getByText('Phiên bản 2')).toBeTruthy();
   });
 
-  it('chế độ NIGHT_REST ẩn khung giờ đêm; lưu cần lý do và gửi ngày hiệu lực mùng 1 chưa có phiên bản', async () => {
+  it('lưu cần lý do và gửi ngày hiệu lực mùng 1 chưa có phiên bản', async () => {
     mockActions.add('hrm.policy.manage');
     api.settings.mockResolvedValue(settings);
     api.saveSettings.mockResolvedValue(settings);
     render(<OvertimeCompSettingsScreen />);
-    await screen.findByText('Số giờ ca đêm bù cho mỗi ngày nghỉ sau ca đêm');
+    await screen.findByText('Số giờ chuẩn một ngày làm việc');
     expect(screen.queryByText('Khung giờ đêm: từ')).toBeNull();
+    expect(screen.queryByText('Chế độ phân loại làm thêm / ca đêm')).toBeNull();
     const save = screen.getByText('Lưu phiên bản mới').closest('button') as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByPlaceholderText('Bắt buộc'), { target: { value: 'Đổi trần tháng' } });
@@ -266,7 +259,8 @@ describe('Cấu hình làm thêm và nghỉ bù', () => {
     const body = api.saveSettings.mock.calls[0]?.[0];
     expect(body?.effectiveFrom).toMatch(/^\d{4}-\d{2}-01$/);
     expect(body?.reason).toBe('Đổi trần tháng');
-    expect(body?.config).toMatchObject({ enabled: true, ruleSet: 'NIGHT_REST', monthlyCapHours: 40, nightRestHoursPerDay: 8 });
+    expect(body?.config).toMatchObject({ enabled: true, monthlyCapHours: 40 });
+    expect(body?.config).not.toHaveProperty('ruleSet');
     expect(body?.config).not.toHaveProperty('nightStartMinute');
   });
 
@@ -275,7 +269,7 @@ describe('Cấu hình làm thêm và nghỉ bù', () => {
     api.settings.mockResolvedValue(settings);
     api.saveSettings.mockResolvedValue(settings);
     render(<OvertimeCompSettingsScreen />);
-    await screen.findByText('Số giờ ca đêm bù cho mỗi ngày nghỉ sau ca đêm');
+    await screen.findByText('Số giờ chuẩn một ngày làm việc');
     const month = screen.getByLabelText('Hiệu lực từ tháng') as HTMLInputElement;
     const thisMonth = new Date().toLocaleDateString('en-CA').slice(0, 7);
     expect(month.value).toBe(thisMonth);
@@ -329,16 +323,9 @@ describe('quản lý phiên bản', () => {
 describe('thẻ quỹ nghỉ bù ở Chính sách phép', () => {
   const config = {
     enabled: true,
-    ruleSet: 'NIGHT_REST' as const,
     normalHoursPerDay: 8,
     monthlyCapHours: 40,
     yearlyCapHours: 200,
-    nightCapped: false,
-    nightStartMinute: 1320,
-    nightEndMinute: 360,
-    nightRestHoursPerDay: 8,
-    allowHalfDay: true,
-    declaredNightWindow: false,
     compFactor: 1.5,
     dayBasisHours: null,
     decimals: 1,
@@ -379,38 +366,5 @@ describe('overlapEffects', () => {
       [3, 'TRUNCATE', '2026-10-31'],
       [4, 'REPLACE', null],
     ]);
-  });
-});
-
-describe('Gợi ý phân loại trên form đơn làm thêm', () => {
-  const basePreview = { enabled: true, ruleSet: 'NIGHT_REST' as const, parts: [], otHours: 2, nightHours: 8, askNextDayRest: true };
-
-  it('ca xuyên đêm: hiện lựa chọn hôm sau nghỉ và số giờ gợi ý', async () => {
-    api.classifyPreview.mockResolvedValue(basePreview);
-    render(<OvertimeClassifyHint employeeId="e1" fromAt="2026-10-05T18:00" toAt="2026-10-06T04:00" value="FULL" onChange={jest.fn()} />);
-    expect(await screen.findByText('Hôm sau nghỉ')).toBeTruthy();
-    expect(screen.getByText('2 giờ')).toBeTruthy();
-    expect(screen.getByText('8 giờ')).toBeTruthy();
-    expect(api.classifyPreview).toHaveBeenCalledWith({ employeeId: 'e1', fromAt: '2026-10-05T18:00', toAt: '2026-10-06T04:00', nextDayRest: 'FULL' });
-  });
-
-  it('ca không xuyên đêm: không hỏi và đưa lựa chọn nghỉ về Không nghỉ', async () => {
-    api.classifyPreview.mockResolvedValue({ ...basePreview, askNextDayRest: false, otHours: 5, nightHours: 0 });
-    const onChange = jest.fn();
-    render(<OvertimeClassifyHint employeeId="e1" fromAt="2026-10-07T18:00" toAt="2026-10-07T23:00" value="HALF" onChange={onChange} />);
-    await screen.findByTestId('overtime-classify-hint');
-    expect(screen.queryByText('Hôm sau nghỉ')).toBeNull();
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith('NONE'));
-  });
-
-  it('quy tắc chưa bật hoặc không xem trước được: không hiện gì', async () => {
-    api.classifyPreview.mockResolvedValue({ ...basePreview, enabled: false });
-    const { container, rerender } = render(<OvertimeClassifyHint employeeId="e1" fromAt="2026-10-07T18:00" toAt="2026-10-07T23:00" value="NONE" onChange={jest.fn()} />);
-    await waitFor(() => expect(api.classifyPreview).toHaveBeenCalled());
-    expect(container.textContent).toBe('');
-    api.classifyPreview.mockRejectedValue(new Error('403'));
-    rerender(<OvertimeClassifyHint employeeId="e1" fromAt="2026-10-08T18:00" toAt="2026-10-08T23:00" value="NONE" onChange={jest.fn()} />);
-    await waitFor(() => expect(api.classifyPreview).toHaveBeenCalledTimes(2));
-    expect(container.textContent).toBe('');
   });
 });

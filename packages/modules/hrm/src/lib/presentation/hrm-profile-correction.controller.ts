@@ -32,6 +32,7 @@ import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { lockEmployee } from '../infrastructure/hrm-time.js';
 import { rejectionNote, requireDate, requireText } from '../infrastructure/hrm-validation.js';
+import { readReplacement } from '../infrastructure/hrm-request-edit.js';
 
 @Controller('v1/profile-corrections')
 export class HrmProfileCorrectionController {
@@ -164,6 +165,7 @@ export class HrmProfileCorrectionController {
         tenantId,
         kind: 'profile_correction',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn điều chỉnh hồ sơ',

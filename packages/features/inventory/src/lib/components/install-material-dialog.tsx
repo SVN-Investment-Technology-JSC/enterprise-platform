@@ -14,7 +14,11 @@ import { getUnitQuantityConfig } from '../inventory-labels';
 import type { LotAllocation } from '../stock-document.model';
 import { LotPickerDrawer, SerialPickerDrawer } from './stock-document-parts';
 import { FormError, useFormSubmit } from './form-error';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 /** Drawer chọn serial, lô mở chồng lên hộp thoại (`modalOverlay` z-index 1000). */
 const PICKER_Z_INDEX = 1100;
@@ -169,80 +173,26 @@ export function InstallMaterialDialog({
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
+  const dialogTitle = parent ? 'Lắp vật tư vào thiết bị' : 'Xuất kho thiết bị / Cụm gốc';
+
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{
-          maxWidth: '580px',
-          background: '#f5f5f5',
-          border: '1px solid #e0e0e0',
-          borderRadius: '8px',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-          padding: '24px',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header theo quy chuẩn Typography & Close Button */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            marginBottom: '16px',
-          }}
-        >
+    <Dialog onEscape={!busy && !isDirty ? onCancel : undefined}>
+      <DialogContent className="max-w-[580px]" aria-label={dialogTitle}>
+        <DialogHeader>
           <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: '24px',
-                fontWeight: 700,
-                color: '#333333',
-                lineHeight: 1.25,
-              }}
-            >
-              {parent ? 'Lắp vật tư vào thiết bị' : 'Xuất kho thiết bị / Cụm gốc'}
-            </h2>
-            <p
-              style={{
-                margin: '4px 0 0',
-                fontSize: '14px',
-                color: '#666666',
-                lineHeight: 1.4,
-              }}
-            >
+            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogDescription>
               {parent ? (
                 <>Xuất vật tư từ kho và lắp ráp trực tiếp vào cụm <strong>{parent.name}</strong> ({parent.code}).</>
               ) : (
                 <>Xuất vật tư/thiết bị từ kho và đưa lên làm <strong>Thiết bị / Cụm gốc cấp cao nhất</strong> trên cây tài sản.</>
               )}
-            </p>
+            </DialogDescription>
           </div>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-            <button
-              type="button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '32px',
-                height: '32px',
-                padding: 0,
-                border: 'none',
-                borderRadius: '4px',
-                background: 'transparent',
-                color: '#666666',
-                fontSize: '16px',
-                cursor: 'pointer',
-                transition: 'background 0.15s ease',
-              }}
-              title="Đóng"
-            >
-              ✕
-            </button>
+            <DialogCloseButton />
           </CloseGuard>
-        </div>
+        </DialogHeader>
 
         <form
           onSubmit={(e) => {
@@ -259,32 +209,19 @@ export function InstallMaterialDialog({
                 : undefined,
             }));
           }}
-          style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+          className="flex min-h-0 flex-col"
         >
+          <DialogBody className="flex flex-col gap-3.5">
           {/* Thiết bị đích nhận lắp đặt */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Vị trí tiếp nhận trên cây
-            </label>
-            <div
-              style={{
-                padding: '8px 12px',
-                borderRadius: '4px',
-                background: '#ffffff',
-                border: '1px solid #e0e0e0',
-                fontSize: '14px',
-                color: '#1e293b',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
+          <div className="flex flex-col gap-[5px]">
+            <Label>Vị trí tiếp nhận trên cây</Label>
+            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900">
               {parent ? (
                 <span>
-                  <strong>{parent.name}</strong> <code style={{ color: '#2563eb' }}>({parent.code})</code>
+                  <strong>{parent.name}</strong> <code className="text-blue-600">({parent.code})</code>
                 </span>
               ) : (
-                <span style={{ color: '#047857', fontWeight: 600 }}>
+                <span className="font-semibold text-emerald-700">
                   Là Thiết bị / Cụm gốc (Root Node - Cấp cao nhất)
                 </span>
               )}
@@ -292,42 +229,26 @@ export function InstallMaterialDialog({
           </div>
 
           {/* Chọn Vật tư từ kho — Searchable Combobox (Input & Dropdown kết hợp chung 1 element) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }} ref={dropdownRef}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                Vật tư cần lắp <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <span style={{ fontSize: '13px', color: '#64748b' }}>
+          <div className="flex flex-col gap-1.5" ref={dropdownRef}>
+            <div className="flex items-center justify-between">
+              <Label required>Vật tư cần lắp</Label>
+              <span className="text-[13px] text-slate-500">
                 {filteredMaterials.length} / {materials.length} vật tư
               </span>
             </div>
 
             {/* Khung Combobox duy nhất kết hợp Input tìm kiếm và Dropdown lựa chọn */}
-            <div style={{ position: 'relative' }}>
+            <div className="relative">
               <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  background: '#ffffff',
-                  border: isDropdownOpen ? '1px solid #2563eb' : '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  boxShadow: isDropdownOpen ? '0 0 0 2px rgba(37,99,235,0.1)' : 'none',
-                  transition: 'all 0.15s ease',
-                  padding: '2px 8px 2px 10px',
-                }}
+                className={cn(
+                  'flex items-center rounded-md border bg-white py-0.5 pl-2.5 pr-2 transition-all',
+                  isDropdownOpen ? 'border-blue-600 ring-2 ring-blue-100' : 'border-slate-300',
+                )}
               >
-                <Search size={15} style={{ color: '#94a3b8', marginRight: '6px', flexShrink: 0 }} />
-                <input
+                <Search size={15} className="mr-1.5 shrink-0 text-slate-400" />
+                <Input
                   type="text"
-                  style={{
-                    width: '100%',
-                    border: 'none',
-                    outline: 'none',
-                    background: 'transparent',
-                    fontSize: '14px',
-                    color: '#1e293b',
-                    padding: '6px 0',
-                  }}
+                  className="h-auto rounded-none border-0 bg-transparent px-0 py-1.5 focus-visible:border-0 focus-visible:ring-0"
                   placeholder={picked ? `${picked.name} (${picked.code})` : 'Gõ mã hoặc tên vật tư để tìm & chọn…'}
                   value={materialSearchTerm}
                   onFocus={() => setIsDropdownOpen(true)}
@@ -339,15 +260,7 @@ export function InstallMaterialDialog({
                 {materialSearchTerm || materialCode ? (
                   <button
                     type="button"
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#94a3b8',
-                      cursor: 'pointer',
-                      padding: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                    }}
+                    className="flex cursor-pointer items-center border-0 bg-transparent p-1 text-slate-400"
                     onClick={() => {
                       setMaterialSearchTerm('');
                       handleSelectMaterial('');
@@ -358,46 +271,21 @@ export function InstallMaterialDialog({
                 ) : null}
                 <button
                   type="button"
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: '#64748b',
-                    cursor: 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
+                  className="flex cursor-pointer items-center border-0 bg-transparent p-1 text-slate-500"
                   onClick={() => setIsDropdownOpen((prev) => !prev)}
                 >
                   <ChevronDown
                     size={16}
-                    style={{
-                      transform: isDropdownOpen ? 'rotate(180deg)' : 'none',
-                      transition: 'transform 0.2s ease',
-                    }}
+                    className={cn('transition-transform duration-200', isDropdownOpen && 'rotate-180')}
                   />
                 </button>
               </div>
 
               {/* Danh sách dropdown kết quả thả xuống */}
               {isDropdownOpen ? (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 4px)',
-                    left: 0,
-                    right: 0,
-                    maxHeight: '220px',
-                    overflowY: 'auto',
-                    background: '#ffffff',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: '6px',
-                    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                    zIndex: 50,
-                  }}
-                >
+                <div className="absolute inset-x-0 top-[calc(100%+4px)] z-50 max-h-[220px] overflow-y-auto rounded-md border border-slate-300 bg-white shadow-lg">
                   {filteredMaterials.length === 0 ? (
-                    <div style={{ padding: '12px 14px', fontSize: '14px', color: '#94a3b8', textAlign: 'center' }}>
+                    <div className="px-3.5 py-3 text-center text-sm text-slate-400">
                       Không tìm thấy vật tư khớp với từ khóa
                     </div>
                   ) : (
@@ -406,24 +294,10 @@ export function InstallMaterialDialog({
                       return (
                         <div
                           key={item.code}
-                          style={{
-                            padding: '8px 12px',
-                            fontSize: '14px',
-                            cursor: 'pointer',
-                            background: isSelected ? '#eff6ff' : '#ffffff',
-                            color: isSelected ? '#1d4ed8' : '#1e293b',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            borderBottom: '1px solid #f1f5f9',
-                            transition: 'background 0.1s ease',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = '#f8fafc';
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!isSelected) e.currentTarget.style.background = '#ffffff';
-                          }}
+                          className={cn(
+                            'flex cursor-pointer items-center justify-between border-b border-slate-100 px-3 py-2 text-sm transition-colors',
+                            isSelected ? 'bg-blue-50 text-blue-700' : 'bg-white text-slate-900 hover:bg-slate-50',
+                          )}
                           onClick={() => {
                             handleSelectMaterial(item.code);
                             setMaterialSearchTerm(`${item.name} (${item.code})`);
@@ -431,12 +305,12 @@ export function InstallMaterialDialog({
                           }}
                         >
                           <div>
-                            <span style={{ fontWeight: 600 }}>{item.name}</span>
-                            <span style={{ marginLeft: '6px', color: '#2563eb', fontSize: '13px' }}>
+                            <span className="font-semibold">{item.name}</span>
+                            <span className="ml-1.5 text-[13px] text-blue-600">
                               ({item.code})
                             </span>
                           </div>
-                          <span style={{ fontSize: '12px', color: '#64748b' }}>ĐVT: {item.unit}</span>
+                          <span className="text-xs text-slate-500">ĐVT: {item.unit}</span>
                         </div>
                       );
                     })
@@ -446,21 +320,19 @@ export function InstallMaterialDialog({
             </div>
 
             {/* Input ẩn để đảm bảo form validation HTML5 required */}
-            <input
+            <Input
               type="text"
               required
               value={materialCode}
               onChange={() => undefined}
-              style={{ position: 'absolute', opacity: 0, pointerEvents: 'none', height: 0, width: 0 }}
+              className="pointer-events-none absolute size-0 border-0 p-0 opacity-0"
             />
           </div>
 
           {/* Hàng 2 cột: Kho xuất & Số lượng */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
-                Xuất từ kho <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+          <div className="grid grid-cols-2 gap-3.5">
+            <div className="flex flex-col gap-[5px]">
+              <Label required className="whitespace-nowrap">Xuất từ kho</Label>
               <SearchableSelect
                 options={warehouseOptions}
                 value={warehouseCode}
@@ -477,37 +349,27 @@ export function InstallMaterialDialog({
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '6px', minHeight: '20px' }}>
-                <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333', whiteSpace: 'nowrap' }}>
-                  Số lượng {picked?.unit ? `(${picked.unit})` : ''} <span style={{ color: '#dc2626' }}>*</span>
-                </label>
+            <div className="flex flex-col gap-[5px]">
+              <div className="flex min-h-5 items-center justify-between gap-1.5">
+                <Label required className="whitespace-nowrap">
+                  Số lượng {picked?.unit ? `(${picked.unit})` : ''}
+                </Label>
                 {available !== undefined ? (
                   <span
-                    style={{
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      color: short ? '#dc2626' : '#166534',
-                      whiteSpace: 'nowrap',
-                    }}
+                    className={cn(
+                      'whitespace-nowrap text-[13px] font-semibold',
+                      short ? 'text-red-600' : 'text-green-800',
+                    )}
                   >
                     (Khả dụng: {available} {picked?.unit ?? ''})
                   </span>
                 ) : null}
               </div>
-              <input
+              <Input
                 type="number"
                 min={unitConfig.min}
                 step={unitConfig.step}
-                style={{
-                  padding: '9px 12px',
-                  borderRadius: '4px',
-                  border: short ? '1px solid #ef4444' : '1px solid #e0e0e0',
-                  background: '#ffffff',
-                  fontSize: '14px',
-                  color: '#333333',
-                  outline: 'none',
-                }}
+                className={cn(short && 'border-red-500')}
                 required
                 value={quantity}
                 onChange={(event) => setQuantity(event.target.value)}
@@ -517,25 +379,17 @@ export function InstallMaterialDialog({
 
           {/* Serial hoặc lô xuất lắp: theo đúng sổ kho, như chứng từ xuất */}
           {materialCode && warehouseCode && valid ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-                {serialized ? (
-                  <>
-                    Serial lắp <span style={{ color: '#dc2626' }}>*</span>
-                  </>
-                ) : (
-                  'Lô xuất'
-                )}
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <button
+            <div className="flex flex-col gap-[5px]">
+              <Label required={serialized}>{serialized ? 'Serial lắp' : 'Lô xuất'}</Label>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Button
                   type="button"
-                  className={styles.btnSecondary}
+                  variant="outline"
                   onClick={() => setPicker(serialized ? 'serial' : 'lot')}
                 >
                   {serialized ? `Chọn serial (${serials.length}/${amount})` : 'Chọn lô'}
-                </button>
-                <span style={{ fontSize: '13px', color: serialsMissing ? '#b91c1c' : '#475569' }}>
+                </Button>
+                <span className={cn('text-[13px]', serialsMissing ? 'text-red-700' : 'text-slate-600')}>
                   {serialized
                     ? serials.length > 0
                       ? serials.join(', ')
@@ -550,20 +404,7 @@ export function InstallMaterialDialog({
 
           {/* Cảnh báo thiếu tồn (Chỉ hiện khi vượt quá khả dụng) */}
           {short ? (
-            <div
-              style={{
-                padding: '8px 12px',
-                borderRadius: '4px',
-                fontSize: '13px',
-                lineHeight: 1.4,
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                color: '#b91c1c',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
+            <div className="flex items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] leading-[1.4] text-red-700">
               <span></span>
               <span>
                 Kho <strong>{warehouseCode}</strong> chỉ còn khả dụng <strong>{available} {picked?.unit ?? ''}</strong> (Không đủ xuất {amount} {picked?.unit ?? ''}).
@@ -572,20 +413,9 @@ export function InstallMaterialDialog({
           ) : null}
 
           {/* Ghi chú */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: '#333333' }}>
-              Ghi chú lắp đặt
-            </label>
-            <input
-              style={{
-                padding: '9px 12px',
-                borderRadius: '4px',
-                border: '1px solid #e0e0e0',
-                background: '#ffffff',
-                fontSize: '14px',
-                color: '#333333',
-                outline: 'none',
-              }}
+          <div className="flex flex-col gap-[5px]">
+            <Label>Ghi chú lắp đặt</Label>
+            <Input
               value={note}
               placeholder="VD: Lắp vào ngăn xuất tuyến 110kV, bảo dưỡng thay mới định kỳ…"
               onChange={(event) => setNote(event.target.value)}
@@ -593,57 +423,19 @@ export function InstallMaterialDialog({
           </div>
 
           <FormError error={error} />
+          </DialogBody>
 
-          {/* Footer Actions theo đúng Spacing và Màu sắc chuẩn */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: '12px',
-              marginTop: '12px',
-              paddingTop: '16px',
-              borderTop: '1px solid #e5e7eb',
-            }}
-          >
+          <DialogFooter>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
-              <button
-                type="button"
-                style={{
-                  padding: '9px 16px',
-                  borderRadius: '4px',
-                  border: '1px solid #d1d5db',
-                  background: 'transparent',
-                  color: '#4b5563',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-                disabled={busy}
-              >
+              <Button type="button" variant="outline" disabled={busy}>
                 Huỷ
-              </button>
+              </Button>
             </CloseGuard>
-            <button
-              type="submit"
-              style={{
-                padding: '9px 20px',
-                borderRadius: '4px',
-                border: 'none',
-                background: busy || !ready ? '#93c5fd' : '#2563eb',
-                color: '#ffffff',
-                fontSize: '14px',
-                fontWeight: 700,
-                cursor: busy || !ready ? 'not-allowed' : 'pointer',
-                transition: 'background 0.15s',
-              }}
-              disabled={busy || !ready}
-            >
+            <Button type="submit" disabled={busy || !ready}>
               {busy ? 'Đang xuất kho…' : 'Xác nhận xuất kho & lắp'}
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
       {picker === 'serial' && picked ? (
         <div onClick={(event) => event.stopPropagation()}>
           <SerialPickerDrawer
@@ -681,6 +473,7 @@ export function InstallMaterialDialog({
           />
         </div>
       ) : null}
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

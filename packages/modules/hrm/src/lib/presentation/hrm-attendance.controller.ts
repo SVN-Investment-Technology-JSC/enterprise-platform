@@ -54,6 +54,7 @@ import {
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import { markOnBehalf } from '../infrastructure/hrm-request-proxy.js';
 import { HrmProcedureBridgeService } from '../infrastructure/hrm-procedure-bridge.service.js';
+import { readReplacement } from '../infrastructure/hrm-request-edit.js';
 
 @UseInterceptors(HrmMissingSchemaInterceptor)
 @Controller('v1')
@@ -417,6 +418,7 @@ export class HrmAttendanceController {
         tenantId,
         kind: 'correction',
         draft: submission.draft,
+        replaces: readReplacement(body),
         employeeId,
         initiatedBy: principal.userId,
         title: 'Đơn giải trình công',

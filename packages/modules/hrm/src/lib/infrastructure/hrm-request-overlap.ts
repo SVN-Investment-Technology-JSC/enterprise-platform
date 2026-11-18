@@ -1,5 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
+import { localMinutesOfDay } from './hrm-leave-day-preview.js';
+import { resolvePolicy, shiftForDate } from './hrm-time.js';
 import { addDays, enumerateDates, localHm, zonedMs } from './hrm-timesheet-board.js';
 
 export type OverlapRequestKind = 'leave' | 'business_trip' | 'ot';
@@ -34,8 +36,72 @@ export function tripBusyWindows(
   });
 }
 
+/** Khoảng giờ ca của nhân viên một ngày (mốc tuyệt đối, ms); null khi ngày đó không có ca (nghỉ, lễ, chưa phân ca). */
+export type ShiftWindowOf = (date: string) => Promise<{ from: number; to: number } | null>;
+
 export interface OverlapOptions {
   timeZone?: string;
+  /**
+   * Có thì công tác chỉ bận trong GIỜ CA của nhân viên từng ngày (cắt theo giờ bắt đầu và kết thúc của đơn ở ngày đầu và ngày
+   * cuối); ngày không có ca không bận, nên OT được nhận cả ngày. Không có thì dùng khoảng giờ ghi trên đơn công tác.
+   */
+  shiftOf?: ShiftWindowOf;
+}
+
+const hm = (minutes: number) =>
+  `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/**
+ * Bộ tra giờ ca hiệu lực của một nhân viên theo lịch phân ca (lịch từng ngày > ngoại lệ cá nhân > ca đơn vị). Múi giờ lấy từ
+ * chính sách chấm công của ngày đó. Dùng làm `shiftOf` cho kiểm tra công tác và OT.
+ */
+export function employeeShiftWindowOf(
+  db: Pick<PoolClient, 'query'>,
+  tenant: string,
+  employeeId: string,
+): ShiftWindowOf {
+  return async (date) => {
+    const attendance = await resolvePolicy(db as PoolClient, tenant, 'ATTENDANCE', date, employeeId);
+    const timeZone = String(attendance?.config_json?.timezone || DEFAULT_TIME_ZONE);
+    const shift = await shiftForDate(db as PoolClient, tenant, employeeId, date, timeZone);
+    if (!shift) return null;
+    const startMinutes = localMinutesOfDay(shift.window.start, timeZone);
+    const durationMs = Date.parse(shift.window.end) - Date.parse(shift.window.start);
+    const from = zonedMs(date, hm(startMinutes), timeZone);
+    return { from, to: from + durationMs };
+  };
+}
+
+/**
+ * Khoảng bận của công tác theo giờ ca: mỗi ngày công tác bận đúng giờ ca của nhân viên ngày đó, ngày đầu bắt đầu từ giờ bắt đầu
+ * của đơn và ngày cuối kết thúc ở giờ kết thúc của đơn (nếu đơn có giờ). Ngày không có ca (cuối tuần, nghỉ, lễ) không bận.
+ */
+export async function tripBusyWindowsByShift(
+  trip: { from_date: string; to_date: string; from_at?: string | null; to_at?: string | null },
+  shiftOf: ShiftWindowOf,
+): Promise<{ date: string; from: number; to: number }[]> {
+  const tripFrom = trip.from_at ? Date.parse(trip.from_at) : NaN;
+  const tripTo = trip.to_at ? Date.parse(trip.to_at) : NaN;
+  const out: { date: string; from: number; to: number }[] = [];
+  for (const date of enumerateDates(trip.from_date, trip.to_date)) {
+    const shift = await shiftOf(date);
+    if (!shift) continue;
+    const from = Number.isFinite(tripFrom) ? Math.max(shift.from, tripFrom) : shift.from;
+    const to = Number.isFinite(tripTo) ? Math.min(shift.to, tripTo) : shift.to;
+    if (from < to) out.push({ date, from, to });
+  }
+  return out;
+}
+
+/** Công tác có chặn OT không, tính theo giờ ca (xem `tripBusyWindowsByShift`). OT thiếu giờ cụ thể: chặn nếu có ngày chung có ca. */
+export async function tripBlocksOtByShift(
+  trip: { from_date: string; to_date: string; from_at?: string | null; to_at?: string | null },
+  ot: { fromDate: string; toDate: string; from: number; to: number },
+  shiftOf: ShiftWindowOf,
+): Promise<boolean> {
+  const busy = await tripBusyWindowsByShift(trip, shiftOf);
+  if (Number.isFinite(ot.from) && Number.isFinite(ot.to)) return busy.some((w) => windowsOverlap(w, { from: ot.from, to: ot.to }));
+  return busy.some((w) => w.date >= ot.fromDate && w.date <= ot.toDate);
 }
 
 /**
@@ -72,9 +138,10 @@ const vnDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.sl
  *
  * - Nghỉ phép <-> nghỉ phép, công tác, OT: luôn chặn.
  * - Công tác <-> công tác, nghỉ: chặn.
- * - Công tác <-> OT: được phép cùng ngày nếu khác giờ. Trùng giờ luôn bị chặn, kể cả Chủ nhật hay ngày nghỉ. Công tác nhiều ngày chỉ bận trong khoảng giờ của đơn ở từng ngày
- *   (xem `tripBusyWindows`), nên OT ngoài khoảng giờ đó (ví dụ buổi tối) vẫn được nhận; trùng giờ thì chặn. Đơn thiếu
- *   giờ cụ thể ở một trong hai bên thì cả ngày công tác đều bận. Trường `allow_ot` không còn miễn trừ.
+ * - Công tác <-> OT: được phép cùng ngày nếu khác giờ. Khi có `options.shiftOf`, công tác chỉ bận trong GIỜ CA của nhân viên từng ngày
+ *   (xem `tripBusyWindowsByShift`): OT bắt đầu sau khi hết ca vẫn được nhận, ngày không có ca (cuối tuần, nghỉ, lễ) không bận. Không có
+ *   `shiftOf` thì công tác bận theo khoảng giờ ghi trên đơn ở từng ngày (`tripBusyWindows`); đơn thiếu giờ cụ thể thì cả ngày
+ *   bận. Trường `allow_ot` không còn miễn trừ.
  * - OT <-> OT cùng ngày do kiểm tra trùng giờ ở `validateOt` đảm nhiệm (nhiều đơn OT một ngày được phép).
  * - Khi đơn mới và đơn cũ ĐỀU có giờ cụ thể (`fromAt`/`toAt`) thì chỉ chặn khi hai khoảng giờ thực sự chồng nhau
  *   (nghỉ sáng và nghỉ chiều cùng ngày không chồng); thiếu giờ ở một trong hai bên thì giữ quy tắc theo ngày.
@@ -149,7 +216,10 @@ export async function assertNoRequestOverlap(
         input.kind === 'business_trip'
           ? { from_date: input.fromDate, to_date: input.toDate, from_at: input.fromAt, to_at: input.toAt }
           : row;
-      if (!tripBlocksOt(trip, otRow, options)) continue;
+      const blocks = options.shiftOf
+        ? await tripBlocksOtByShift(trip, otRow, options.shiftOf)
+        : tripBlocksOt(trip, otRow, options);
+      if (!blocks) continue;
     } else {
       // Cả hai đơn đều có giờ cụ thể: chỉ chặn khi hai khoảng giờ chồng nhau.
       const oldFrom = row.from_at ? Date.parse(row.from_at) : NaN;

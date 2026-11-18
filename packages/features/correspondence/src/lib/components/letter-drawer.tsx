@@ -9,6 +9,7 @@ import {
   type LetterDetail,
   type LetterStep,
   ENVELOPE_STATUS_LABELS,
+  outgoingSender,
 } from '@enterprise-platform/contracts-correspondence';
 import { CloseGuard, formatDateTime, toast } from '@enterprise-platform/shared-ui';
 import { BellRing, CornerUpLeft, Pencil, X } from 'lucide-react';
@@ -253,8 +254,11 @@ export function LetterDrawer({
               ) : (
                 <>
                   <div>
-                    <span>Người soạn · Phòng ban</span>
-                    {[letter.authorName, letter.authorUnitName].filter(Boolean).join(' · ') || 'Không rõ'}
+                    <span>Người gửi</span>
+                    {outgoingSender(letter)}
+                    <span className={styles.hint}>
+                      {letter.sentAs === 'person' ? 'Gửi với danh nghĩa cá nhân' : `Cả phòng ban${letter.authorName ? ` · người soạn ${letter.authorName}` : ''}`}
+                    </span>
                   </div>
                   <div>
                     <span>Nơi nhận</span>

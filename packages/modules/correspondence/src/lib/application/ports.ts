@@ -20,6 +20,7 @@ import type {
   Register,
   ReturnTarget,
   RevokeKind,
+  SentAs,
   StepMode,
   StepType,
   Workflow,
@@ -116,6 +117,10 @@ export interface LetterRecord {
   readonly signerTitle?: string;
   /** Thư riêng gửi đích danh: chuyển thẳng người nhận, không vào quy trình. */
   readonly personal?: boolean;
+  /** Công văn đi: gửi với danh nghĩa cá nhân người soạn hay cả phòng ban. */
+  readonly sentAs?: SentAs;
+  /** Quy trình chọn riêng cho công văn; trống là tự chọn. */
+  readonly chosenWorkflowId?: string;
   /** Xoá mềm: công văn đã huỷ được xoá khỏi Văn thư. */
   readonly deletedAt?: string;
   readonly deletedBy?: string;
@@ -206,7 +211,7 @@ export interface CommentRecord {
 
 /** Một dòng danh sách: công văn kèm bước, phòng ban và người được nhắc tên (để tính quyền xem). */
 export interface LetterListRow extends LetterRecord {
-  readonly steps: readonly (Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo' | 'approvedBy'> & {
+  readonly steps: readonly (Pick<StepRecord, 'seq' | 'name' | 'kind' | 'status' | 'assigneeUserIds' | 'actedBy' | 'rejectTo' | 'approvedBy' | 'mode'> & {
     /** Bước văn thư kiểm tra giao người riêng (không phải người làm văn thư). */
     readonly ownActors?: boolean;
   })[];
@@ -232,6 +237,10 @@ export interface LetterListFilter {
   readonly year?: number;
   readonly search?: string;
   readonly registerId?: string;
+  /** Ngày vào sổ từ, đến (tính cả hai đầu). */
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly kind?: string;
   readonly limit: number;
 }
 
@@ -258,6 +267,8 @@ export interface LetterInsert {
   readonly authorUnitName?: string;
   readonly relatedLetterId?: string;
   readonly recipient?: string;
+  readonly sentAs?: SentAs;
+  readonly chosenWorkflowId?: string;
   readonly receivedBy: string;
 }
 

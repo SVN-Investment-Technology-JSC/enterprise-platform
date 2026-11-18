@@ -30,7 +30,8 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { formatNumber } from '../inventory-labels';
-import styles from '../inventory.module.scss';
+import { Button, Input, Label, Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui';
+import { cn } from '../ui/cn';
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -109,7 +110,7 @@ function AuditorPicker({
         role="option"
         aria-selected={isSelected}
         disabled={isLead}
-        className={styles.stocktakePickRow}
+        className="flex w-full cursor-pointer items-center gap-[10px] border-0 border-b border-slate-100 bg-transparent px-3 py-2 text-left font-[inherit] text-inherit transition-colors last:border-b-0 enabled:hover:bg-slate-50 disabled:cursor-default disabled:bg-slate-50 aria-selected:bg-blue-600/5 aria-selected:enabled:hover:bg-blue-600/10"
         onClick={() => {
           if (!isLead) onToggleName(c.name);
         }}
@@ -122,36 +123,34 @@ function AuditorPicker({
         }
       >
         <span
-          className={
-            isLead
-              ? `${styles.stocktakePickCheck} ${styles.stocktakePickCheckLead}`
-              : isSelected
-              ? `${styles.stocktakePickCheck} ${styles.stocktakePickCheckOn}`
-              : styles.stocktakePickCheck
-          }
+          className={cn(
+            'grid size-[18px] shrink-0 place-items-center rounded-[5px] border-[1.5px] border-slate-300 bg-white text-white transition-colors',
+            isLead && 'border-blue-300 bg-blue-100 text-blue-700',
+            !isLead && isSelected && 'border-blue-600 bg-blue-600',
+          )}
           aria-hidden="true"
         >
           {isLead ? <UserCheck size={12} /> : isSelected ? <Check size={12} /> : null}
         </span>
 
-        <span className={styles.stocktakePickAvatar}>{getInitials(c.name)}</span>
+        <span className="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-800">{getInitials(c.name)}</span>
 
-        <div className={styles.stocktakePickInfo}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <span className={styles.stocktakePickName}>{c.name}</span>
+        <div className="flex min-w-0 flex-1 flex-col leading-[1.35]">
+          <div className="flex items-center gap-1.5">
+            <span className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-semibold text-slate-800">{c.name}</span>
             {c.code ? (
-              <small style={{ color: '#94a3b8', fontFamily: 'monospace' }}>({c.code})</small>
+              <small className="font-mono text-slate-400">({c.code})</small>
             ) : null}
             {isLead ? (
-              <span className={styles.stocktakeLeadBadge}>Trưởng nhóm</span>
+              <span className="inline-flex items-center rounded-[10px] border border-blue-200 bg-blue-50 px-1.5 py-px text-[10.5px] font-bold text-blue-700">Trưởng nhóm</span>
             ) : null}
             {c.hasWarehouseAccess ? (
-              <span className={styles.stocktakeWhBadge}>
+              <span className="inline-flex items-center gap-[3px] rounded-[10px] border border-green-200 bg-green-50 px-1.5 py-px text-[10.5px] font-semibold text-green-800 [&_svg]:size-[11px] [&_svg]:text-green-600">
                 <ShieldCheck size={11} /> Có quyền kho
               </span>
             ) : null}
           </div>
-          <small className={styles.stocktakePickDetail}>
+          <small className="overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-500">
             {[
               c.position,
               c.department,
@@ -166,19 +165,19 @@ function AuditorPicker({
   };
 
   return (
-    <div className={styles.stocktakePickerSection}>
-      <div className={styles.stocktakeFieldHeader}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Users size={15} style={{ color: '#2563eb' }} />
-          <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Users size={15} className="text-blue-600" />
+          <span className="text-[13px] font-semibold text-slate-700">
             Thành viên tham gia kiểm kê
           </span>
         </div>
         <span
           className={
             selectedNames.length > 0
-              ? styles.stocktakePickerBadge
-              : styles.stocktakePickerHint
+              ? 'rounded-xl border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11.5px] font-semibold text-blue-600'
+              : 'text-xs text-slate-400'
           }
         >
           {selectedNames.length > 0
@@ -189,22 +188,22 @@ function AuditorPicker({
 
       {/* Danh sách thành viên đã chọn hiển thị dạng Chips (giống tạo nhóm chat) */}
       {selectedNames.length > 0 ? (
-        <div className={styles.stocktakeChips} aria-label="Thành viên đã chọn">
+        <div className="flex max-h-[84px] flex-wrap gap-1.5 overflow-y-auto pb-1 pt-0.5" aria-label="Thành viên đã chọn">
           {selectedNames.map((name) => {
             const candidate = candidates.find((c) => c.name === name);
             const isWh = candidate?.hasWarehouseAccess;
             return (
-              <span key={name} className={styles.stocktakeChip}>
-                <span className={styles.stocktakeChipAvatar}>{getInitials(name)}</span>
+              <span key={name} className="inline-flex h-7 items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 pl-1.5 pr-1 text-[12.5px] leading-none text-blue-800">
+                <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-blue-600 text-[9.5px] font-bold text-white">{getInitials(name)}</span>
                 <span
-                  className={styles.chipLabel}
+                  className="max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap font-medium"
                   title={candidate?.position ? `${name} (${candidate.position})` : name}
                 >
                   {name}
                 </span>
                 {isWh ? (
-                  <span title="Có quyền kho" style={{ display: 'inline-flex', alignItems: 'center' }}>
-                    <ShieldCheck size={12} style={{ color: '#16a34a', flexShrink: 0 }} />
+                  <span title="Có quyền kho" className="inline-flex items-center">
+                    <ShieldCheck size={12} className="shrink-0 text-green-600" />
                   </span>
                 ) : null}
                 <button
@@ -212,6 +211,7 @@ function AuditorPicker({
                   aria-label={`Bỏ ${name}`}
                   title={`Bỏ ${name}`}
                   onClick={() => onToggleName(name)}
+                  className="grid size-[18px] cursor-pointer place-items-center rounded-full border-0 bg-transparent p-0 text-blue-800 transition-colors hover:bg-blue-100"
                 >
                   <X size={12} aria-hidden="true" />
                 </button>
@@ -222,9 +222,10 @@ function AuditorPicker({
       ) : null}
 
       {/* Thanh tìm kiếm nhân sự */}
-      <div className={styles.stocktakePickerSearch}>
+      <div className="flex h-[38px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-[10px] text-slate-500 transition-[border-color,box-shadow] focus-within:border-blue-600 focus-within:ring-[3px] focus-within:ring-blue-600/10 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-slate-400">
         <Search size={16} aria-hidden="true" />
-        <input
+        <Input
+          className="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-[13px] text-slate-800 focus-visible:ring-0"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Tìm nhân sự theo tên, mã NV hoặc phòng ban..."
@@ -248,7 +249,7 @@ function AuditorPicker({
         {query ? (
           <button
             type="button"
-            className={styles.stocktakePickerSearchClear}
+            className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full border-0 bg-slate-200 p-0 text-slate-500 transition-colors hover:bg-slate-300 hover:text-slate-700 [&_svg]:size-3"
             onClick={() => setQuery('')}
             aria-label="Xoá tìm kiếm"
             title="Xoá tìm kiếm"
@@ -259,31 +260,15 @@ function AuditorPicker({
       </div>
 
       {/* Danh sách chọn nhân sự chia thành 2 khu vực rõ ràng */}
-      <div className={styles.stocktakePickList} role="listbox" aria-multiselectable="true">
+      <div className="max-h-[220px] overflow-y-auto rounded-lg border border-slate-200 bg-white" role="listbox" aria-multiselectable="true">
         {totalVisibleCount === 0 && !query.trim() ? (
-          <p
-            style={{
-              margin: 0,
-              padding: '16px',
-              textAlign: 'center',
-              color: '#94a3b8',
-              fontSize: '13px',
-            }}
-          >
+          <p className="m-0 p-4 text-center text-[13px] text-slate-400">
             Không có nhân sự nào trong danh sách.
           </p>
         ) : null}
 
         {totalVisibleCount === 0 && query.trim() ? (
-          <p
-            style={{
-              margin: 0,
-              padding: '12px 16px',
-              textAlign: 'center',
-              color: '#64748b',
-              fontSize: '12.5px',
-            }}
-          >
+          <p className="m-0 px-4 py-3 text-center text-[12.5px] text-slate-500">
             Không tìm thấy nhân sự phù hợp với từ khoá "{query}".
           </p>
         ) : null}
@@ -291,12 +276,12 @@ function AuditorPicker({
         {/* Khu 1: Nhân sự có nhiệm vụ trong kho hoặc có quyền inventory.* */}
         {warehouseGroup.length > 0 ? (
           <>
-            <div className={styles.stocktakeGroupHeader}>
-              <div className={styles.stocktakeGroupTitle}>
-                <ShieldCheck size={13} style={{ color: '#16a34a' }} />
+            <div className="sticky top-0 z-[2] flex items-center justify-between border-y border-slate-200 bg-slate-50 px-3 py-1.5 first:border-t-0">
+              <div className="flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.03em] text-slate-700">
+                <ShieldCheck size={13} className="text-green-600" />
                 <span>Khu 1: Có nhiệm vụ / quyền kho (inventory.*)</span>
               </div>
-              <span className={`${styles.stocktakeGroupBadge} ${styles.stocktakeGroupBadgeWh}`}>
+              <span className="rounded-[10px] border border-green-200 bg-green-100 px-[7px] py-px text-[11px] font-semibold text-green-700">
                 {warehouseGroup.length} nhân sự
               </span>
             </div>
@@ -307,12 +292,12 @@ function AuditorPicker({
         {/* Khu 2: Nhân sự ngoài thẩm quyền kho */}
         {externalGroup.length > 0 ? (
           <>
-            <div className={styles.stocktakeGroupHeader}>
-              <div className={styles.stocktakeGroupTitle}>
-                <Users size={13} style={{ color: '#64748b' }} />
+            <div className="sticky top-0 z-[2] flex items-center justify-between border-y border-slate-200 bg-slate-50 px-3 py-1.5 first:border-t-0">
+              <div className="flex items-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.03em] text-slate-700">
+                <Users size={13} className="text-slate-500" />
                 <span>Khu 2: Người ngoài thẩm quyền kho</span>
               </div>
-              <span className={styles.stocktakeGroupBadge}>
+              <span className="rounded-[10px] bg-slate-200 px-[7px] py-px text-[11px] font-semibold text-slate-600">
                 {externalGroup.length} nhân sự
               </span>
             </div>
@@ -324,13 +309,13 @@ function AuditorPicker({
         {query.trim() && !hasExactMatch ? (
           <button
             type="button"
-            className={styles.stocktakeAddCustomRow}
+            className="flex w-full cursor-pointer items-center gap-2 border-0 border-t border-dashed border-green-200 bg-green-50 px-3 py-[9px] text-left text-[12.5px] font-semibold text-green-800 transition-colors hover:bg-green-100"
             onClick={() => {
               onAddCustomName(query.trim());
               setQuery('');
             }}
           >
-            <Plus size={14} style={{ color: '#16a34a' }} />
+            <Plus size={14} className="text-green-600" />
             <span>
               Thêm nhân sự ngoài danh bạ: <strong>"{query.trim()}"</strong>
             </span>
@@ -608,91 +593,27 @@ export function CreateStocktakeDialog({
 
   return (
     <div
-      style={{
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0,
-        zIndex: 1060,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(15, 23, 42, 0.55)',
-        backdropFilter: 'blur(4px)',
-      }}
+      className="fixed inset-0 z-[1060] flex items-center justify-center bg-slate-900/55 backdrop-blur-[4px]"
       role="dialog"
       aria-modal="true"
     >
-      <div
-        style={{
-          width: '740px',
-          maxWidth: '95vw',
-          maxHeight: '92vh',
-          background: '#ffffff',
-          borderRadius: '10px',
-          boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.25)',
-          overflow: 'hidden',
-          display: 'flex',
-          flexDirection: 'column',
-          animation: 'scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-        }}
-      >
+      <div className="flex max-h-[92vh] w-[740px] max-w-[95vw] flex-col overflow-hidden rounded-[10px] bg-white shadow-[0_20px_40px_-10px_rgba(0,0,0,0.25)]">
         {/* Header */}
-        <div
-          style={{
-            padding: '16px 22px',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            background: '#f8fafc',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
-                background: '#eff6ff',
-                border: '1px solid #bfdbfe',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#2563eb',
-              }}
-            >
+        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-[22px] py-4">
+          <div className="flex items-center gap-[10px]">
+            <div className="flex size-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600">
               <ClipboardCheck size={20} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
-                Khởi tạo Đợt Kiểm kê Kho
-              </h3>
-              <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+              <h3 className="m-0 text-base font-bold text-slate-900">Khởi tạo Đợt Kiểm kê Kho</h3>
+              <p className="mb-0 mt-0.5 text-[13px] text-slate-500">
                 Thiết lập thông tin đợt kiểm đếm và chốt số liệu tồn sổ sách (snapshot) để tiến hành đếm thực tế.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              width: '32px',
-              height: '32px',
-              border: 'none',
-              borderRadius: '6px',
-              background: 'transparent',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#64748b',
-            }}
-            title="Đóng"
-          >
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} className="text-slate-500" title="Đóng">
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Form Body with scroll */}
@@ -701,39 +622,19 @@ export function CreateStocktakeDialog({
             e.preventDefault();
             void executeSubmit();
           }}
-          style={{
-            padding: '20px 22px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '14px',
-            overflowY: 'auto',
-          }}
+          className="flex flex-col gap-[14px] overflow-y-auto px-[22px] py-5"
         >
           {error ? (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 14px',
-                background: '#fee2e2',
-                border: '1px solid #fca5a5',
-                borderRadius: '6px',
-                color: '#b91c1c',
-                fontSize: '13px',
-              }}
-            >
-              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+            <div className="flex items-center gap-2 rounded-md border border-red-300 bg-red-100 px-[14px] py-[10px] text-[13px] text-red-700">
+              <AlertCircle size={16} className="shrink-0" />
               <span>{error}</span>
             </div>
           ) : null}
 
           {/* Hàng 1: Kho kiểm kê & Thời gian kiểm kê */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                Kho kiểm kê <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+          <div className="grid grid-cols-2 gap-[14px]">
+            <div className="flex flex-col gap-[5px]">
+              <Label required>Kho kiểm kê</Label>
               <SearchableSelect
                 options={warehouseOptions}
                 value={warehouseCode}
@@ -743,87 +644,51 @@ export function CreateStocktakeDialog({
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <Calendar size={14} style={{ color: '#2563eb' }} />
-                <span>Thời gian kiểm kê</span> <span style={{ color: '#dc2626' }}>*</span>
-              </label>
-              <input
+            <div className="flex flex-col gap-[5px]">
+              <Label required className="flex items-center gap-[5px]">
+                <Calendar size={14} className="text-blue-600" />
+                <span>Thời gian kiểm kê</span>
+              </Label>
+              <Input
                 type="date"
                 value={stocktakeDate}
                 onChange={(e) => setStocktakeDate(e.target.value)}
-                style={{
-                  height: '38px',
-                  padding: '8px 12px',
-                  fontSize: '13.5px',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  color: '#1e293b',
-                  fontFamily: 'inherit',
-                }}
                 required
               />
             </div>
           </div>
 
           {/* Hàng 2: Tên đợt kiểm kê (Bỏ mặc định, để trống) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-              Tên đợt kiểm kê <span style={{ color: '#dc2626' }}>*</span>
-            </label>
-            <input
+          <div className="flex flex-col gap-[5px]">
+            <Label required>Tên đợt kiểm kê</Label>
+            <Input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Nhập tên đợt kiểm kê (VD: Kiểm kê định kỳ Quý IV, Đối soát đột xuất kho phụ tùng...)"
-              style={{
-                height: '38px',
-                padding: '8px 12px',
-                fontSize: '13.5px',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
               required
             />
           </div>
 
           {/* Hàng 3: Thẻ lựa chọn Phạm vi kiểm kê linh hoạt */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-              Phạm vi kiểm đếm
-            </label>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
-                gap: '10px',
-              }}
-            >
+          <div className="flex flex-col gap-1.5">
+            <Label>Phạm vi kiểm đếm</Label>
+            <div className="grid grid-cols-3 gap-[10px]">
               <button
                 type="button"
                 onClick={() => setScopeType('ALL')}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  border: scopeType === 'ALL' ? '2px solid #2563eb' : '1px solid #cbd5e1',
-                  background: scopeType === 'ALL' ? '#eff6ff' : '#ffffff',
-                  color: scopeType === 'ALL' ? '#1d4ed8' : '#475569',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  transition: 'all 0.15s ease',
-                }}
+                className={cn(
+                  'cursor-pointer rounded-lg px-3 py-[10px] text-left text-[13px] font-semibold transition-all',
+                  scopeType === 'ALL'
+                    ? 'border-2 border-blue-600 bg-blue-50 text-blue-700'
+                    : 'border border-slate-300 bg-white text-slate-600',
+                )}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Layers size={15} style={{ color: scopeType === 'ALL' ? '#2563eb' : '#64748b' }} />
+                <div className="flex items-center gap-1.5">
+                  <Layers size={15} className={scopeType === 'ALL' ? 'text-blue-600' : 'text-slate-500'} />
                   <span>Toàn bộ kho</span>
                 </div>
-                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400, marginTop: '3px', display: 'block' }}>
+                <span className="mt-[3px] block text-xs font-normal text-slate-500">
                   Đối soát tất cả mặt hàng có tồn
                 </span>
               </button>
@@ -831,41 +696,25 @@ export function CreateStocktakeDialog({
               <button
                 type="button"
                 onClick={() => setScopeType('CATEGORY')}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  border:
-                    scopeType === 'CATEGORY' ? '2px solid #2563eb' : '1px solid #cbd5e1',
-                  background: scopeType === 'CATEGORY' ? '#eff6ff' : '#ffffff',
-                  color: scopeType === 'CATEGORY' ? '#1d4ed8' : '#475569',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  transition: 'all 0.15s ease',
-                }}
+                className={cn(
+                  'cursor-pointer rounded-lg px-3 py-[10px] text-left text-[13px] font-semibold transition-all',
+                  scopeType === 'CATEGORY'
+                    ? 'border-2 border-blue-600 bg-blue-50 text-blue-700'
+                    : 'border border-slate-300 bg-white text-slate-600',
+                )}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Package size={15} style={{ color: scopeType === 'CATEGORY' ? '#2563eb' : '#64748b' }} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Package size={15} className={scopeType === 'CATEGORY' ? 'text-blue-600' : 'text-slate-500'} />
                     <span>Theo nhóm vật tư</span>
                   </div>
                   {selectedCategories.length > 0 ? (
-                    <span
-                      style={{
-                        fontSize: '11px',
-                        background: '#2563eb',
-                        color: '#ffffff',
-                        padding: '1px 6px',
-                        borderRadius: '10px',
-                        fontWeight: 700,
-                      }}
-                    >
+                    <span className="rounded-[10px] bg-blue-600 px-1.5 py-px text-[11px] font-bold text-white">
                       {selectedCategories.length}
                     </span>
                   ) : null}
                 </div>
-                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400, marginTop: '3px', display: 'block' }}>
+                <span className="mt-[3px] block text-xs font-normal text-slate-500">
                   Chọn một hoặc nhiều phân loại
                 </span>
               </button>
@@ -873,43 +722,33 @@ export function CreateStocktakeDialog({
               <button
                 type="button"
                 onClick={() => setScopeType('SPECIFIC_ITEMS')}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  border:
-                    scopeType === 'SPECIFIC_ITEMS'
-                      ? '2px solid #2563eb'
-                      : '1px solid #cbd5e1',
-                  background: scopeType === 'SPECIFIC_ITEMS' ? '#eff6ff' : '#ffffff',
-                  color: scopeType === 'SPECIFIC_ITEMS' ? '#1d4ed8' : '#475569',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  transition: 'all 0.15s ease',
-                }}
+                className={cn(
+                  'cursor-pointer rounded-lg px-3 py-[10px] text-left text-[13px] font-semibold transition-all',
+                  scopeType === 'SPECIFIC_ITEMS'
+                    ? 'border-2 border-blue-600 bg-blue-50 text-blue-700'
+                    : 'border border-slate-300 bg-white text-slate-600',
+                )}
               >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <ClipboardCheck size={15} style={{ color: scopeType === 'SPECIFIC_ITEMS' ? '#2563eb' : '#64748b' }} />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ClipboardCheck
+                      size={15}
+                      className={scopeType === 'SPECIFIC_ITEMS' ? 'text-blue-600' : 'text-slate-500'}
+                    />
                     <span>Vật tư cụ thể</span>
                   </div>
                   {selectedItems.length > 0 ? (
                     <span
-                      style={{
-                        fontSize: '11px',
-                        background: scopeType === 'SPECIFIC_ITEMS' ? '#2563eb' : '#94a3b8',
-                        color: '#ffffff',
-                        padding: '1px 6px',
-                        borderRadius: '10px',
-                        fontWeight: 700,
-                      }}
+                      className={cn(
+                        'rounded-[10px] px-1.5 py-px text-[11px] font-bold text-white',
+                        scopeType === 'SPECIFIC_ITEMS' ? 'bg-blue-600' : 'bg-slate-400',
+                      )}
                     >
                       {selectedItems.length}
                     </span>
                   ) : null}
                 </div>
-                <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 400, marginTop: '3px', display: 'block' }}>
+                <span className="mt-[3px] block text-xs font-normal text-slate-500">
                   Chọn danh mục mặt hàng tuỳ ý
                 </span>
               </button>
@@ -918,20 +757,8 @@ export function CreateStocktakeDialog({
 
           {/* Chi tiết phạm vi: ALL */}
           {scopeType === 'ALL' ? (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '10px 14px',
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '12.5px',
-                color: '#475569',
-              }}
-            >
-              <Info size={16} style={{ color: '#2563eb', flexShrink: 0 }} />
+            <div className="flex items-center gap-[10px] rounded-lg border border-slate-200 bg-slate-50 px-[14px] py-[10px] text-[12.5px] text-slate-600">
+              <Info size={16} className="shrink-0 text-blue-600" />
               <span>
                 Hệ thống sẽ lấy toàn bộ mặt hàng có ghi nhận số dư tồn kho tại <strong>{warehouseCode}</strong> khi bắt đầu kiểm đếm.
               </span>
@@ -940,57 +767,35 @@ export function CreateStocktakeDialog({
 
           {/* Chi tiết phạm vi: CATEGORY (Chọn nhiều nhóm linh hoạt) */}
           {scopeType === 'CATEGORY' ? (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '8px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '12px 14px',
-                background: '#f8fafc',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+            <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-[14px] py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-semibold text-slate-700">
                   Chọn các nhóm vật tư cần kiểm ({selectedCategories.length}/{categoryOptions.length} nhóm)
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
+                <div className="flex items-center gap-2">
+                  <Button
                     type="button"
+                    variant="link"
+                    size="xs"
                     onClick={() => setSelectedCategories(categoryOptions.map((c) => c.value))}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#2563eb',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      padding: '2px 4px',
-                    }}
+                    className="font-semibold"
                   >
                     Chọn tất cả
-                  </button>
-                  <span style={{ color: '#cbd5e1' }}>•</span>
-                  <button
+                  </Button>
+                  <span className="text-slate-300">•</span>
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="xs"
                     onClick={() => setSelectedCategories([])}
-                    style={{
-                      border: 'none',
-                      background: 'transparent',
-                      color: '#64748b',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      padding: '2px 4px',
-                    }}
+                    className="text-slate-500"
                   >
                     Bỏ chọn
-                  </button>
+                  </Button>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '2px' }}>
+              <div className="mt-0.5 flex flex-wrap gap-2">
                 {categoryOptions.map((cat) => {
                   const isSelected = selectedCategories.includes(cat.value);
                   return (
@@ -998,22 +803,14 @@ export function CreateStocktakeDialog({
                       key={cat.value}
                       type="button"
                       onClick={() => handleToggleCategory(cat.value)}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '6px 12px',
-                        borderRadius: '20px',
-                        border: isSelected ? '1px solid #2563eb' : '1px solid #cbd5e1',
-                        background: isSelected ? '#eff6ff' : '#ffffff',
-                        color: isSelected ? '#1d4ed8' : '#334155',
-                        fontSize: '12.5px',
-                        fontWeight: isSelected ? 600 : 500,
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                      }}
+                      className={cn(
+                        'inline-flex cursor-pointer items-center gap-1.5 rounded-[20px] border px-3 py-1.5 text-[12.5px] transition-all',
+                        isSelected
+                          ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700'
+                          : 'border-slate-300 bg-white font-medium text-slate-700',
+                      )}
                     >
-                      {isSelected ? <Check size={13} style={{ color: '#2563eb' }} /> : null}
+                      {isSelected ? <Check size={13} className="text-blue-600" /> : null}
                       <span>{cat.label}</span>
                     </button>
                   );
@@ -1024,64 +821,42 @@ export function CreateStocktakeDialog({
 
           {/* Chi tiết phạm vi: SPECIFIC_ITEMS (Tìm kiếm, thêm bớt vật tư trực tiếp) */}
           {scopeType === 'SPECIFIC_ITEMS' ? (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '12px 14px',
-                background: '#f8fafc',
-              }}
-            >
+            <div className="flex flex-col gap-[10px] rounded-lg border border-slate-200 bg-slate-50 px-[14px] py-3">
               {/* Thanh tìm kiếm & thêm vật tư vào đợt kiểm */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <Plus size={14} style={{ color: '#2563eb' }} />
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-[5px]">
+                    <Plus size={14} className="text-blue-600" />
                     <span>Thêm vật tư vào đợt kiểm</span>
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <button
+                  </Label>
+                  <div className="flex items-center gap-[10px]">
+                    <Button
                       type="button"
+                      variant="link"
+                      size="xs"
                       onClick={handleAddAllItemsInWh}
-                      style={{
-                        border: 'none',
-                        background: 'transparent',
-                        color: '#2563eb',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        padding: '2px 4px',
-                      }}
+                      className="font-semibold"
                     >
                       + Thêm tất cả vật tư có tồn trong kho này
-                    </button>
+                    </Button>
                     {selectedItems.length > 0 ? (
                       <>
-                        <span style={{ color: '#cbd5e1' }}>•</span>
-                        <button
+                        <span className="text-slate-300">•</span>
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="xs"
                           onClick={() => setSelectedItems([])}
-                          style={{
-                            border: 'none',
-                            background: 'transparent',
-                            color: '#dc2626',
-                            fontSize: '12px',
-                            fontWeight: 500,
-                            cursor: 'pointer',
-                            padding: '2px 4px',
-                          }}
+                          className="text-red-600"
                         >
                           Xoá danh sách
-                        </button>
+                        </Button>
                       </>
                     ) : null}
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px' }}>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
                   <SearchableSelect
                     options={materialOptions}
                     value={materialToAdd}
@@ -1092,138 +867,91 @@ export function CreateStocktakeDialog({
                     placeholder="Tìm theo mã hoặc tên vật tư để thêm vào đợt kiểm..."
                     clearable
                   />
-                  <button
+                  <Button
                     type="button"
+                    size="lg"
                     onClick={() => handleAddMaterial(materialToAdd)}
                     disabled={!materialToAdd}
-                    style={{
-                      height: '38px',
-                      padding: '0 14px',
-                      fontSize: '13px',
-                      fontWeight: 600,
-                      background: materialToAdd ? '#2563eb' : '#e2e8f0',
-                      color: materialToAdd ? '#ffffff' : '#94a3b8',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: materialToAdd ? 'pointer' : 'not-allowed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
+                    className="px-3.5 text-[13px] font-semibold"
                   >
                     <Plus size={15} />
                     <span>Thêm</span>
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               {/* Bảng xem trước danh sách vật tư đã chọn */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  fontSize: '12.5px',
-                  color: '#475569',
-                }}
-              >
+              <div className="flex items-center justify-between text-[12.5px] text-slate-600">
                 <span>
                   Danh sách vật tư sẽ kiểm đếm (<strong>{selectedItems.length}</strong> mặt hàng)
                 </span>
                 <span>
-                  Tổng tồn sổ sách: <strong style={{ color: '#0f172a' }}>{formatNumber(totalSystemQtyInWh)}</strong>
+                  Tổng tồn sổ sách: <strong className="text-slate-900">{formatNumber(totalSystemQtyInWh)}</strong>
                 </span>
               </div>
 
-              <div
-                style={{
-                  maxHeight: '160px',
-                  overflowY: 'auto',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  background: '#ffffff',
-                }}
-              >
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
-                  <thead>
-                    <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1', textAlign: 'left', color: '#475569' }}>
-                      <th style={{ padding: '6px 8px', width: '35px', textAlign: 'center' }}>STT</th>
-                      <th style={{ padding: '6px 8px' }}>Mã &amp; Tên hàng</th>
-                      <th style={{ padding: '6px 8px', width: '60px', textAlign: 'center' }}>ĐVT</th>
-                      <th style={{ padding: '6px 8px', width: '110px', textAlign: 'right' }}>Tồn sổ sách</th>
-                      <th style={{ padding: '6px 8px', width: '40px', textAlign: 'center' }}>Xoá</th>
+              <TableWrap className="max-h-[160px] rounded-md border border-slate-300 bg-white">
+                <Table className="text-[12.5px]">
+                  <TableHead>
+                    <tr className="border-b border-slate-300 bg-slate-100 text-left text-slate-600">
+                      <TableHeaderCell className="w-[35px] px-2 py-1.5 text-center">STT</TableHeaderCell>
+                      <TableHeaderCell className="px-2 py-1.5">Mã &amp; Tên hàng</TableHeaderCell>
+                      <TableHeaderCell className="w-[60px] px-2 py-1.5 text-center">ĐVT</TableHeaderCell>
+                      <TableHeaderCell className="w-[110px] px-2 py-1.5 text-right">Tồn sổ sách</TableHeaderCell>
+                      <TableHeaderCell className="w-[40px] px-2 py-1.5 text-center">Xoá</TableHeaderCell>
                     </tr>
-                  </thead>
-                  <tbody>
+                  </TableHead>
+                  <TableBody>
                     {selectedItems.map((item, idx) => {
                       const bookQty = stockByCodeInSelectedWh.get(item.code) ?? 0;
                       return (
-                        <tr
-                          key={item.code}
-                          style={{
-                            borderBottom: '1px solid #f1f5f9',
-                          }}
-                        >
-                          <td style={{ padding: '6px 8px', textAlign: 'center', color: '#64748b' }}>
-                            {idx + 1}
-                          </td>
-                          <td style={{ padding: '6px 8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                              <span style={{ fontWeight: 700, color: '#2563eb', fontFamily: 'monospace' }}>
-                                {item.code}
-                              </span>
-                              <span style={{ color: '#cbd5e1' }}>—</span>
-                              <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                                {item.name}
-                              </span>
+                        <TableRow key={item.code}>
+                          <TableCell className="px-2 py-1.5 text-center text-slate-500">{idx + 1}</TableCell>
+                          <TableCell className="px-2 py-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono font-bold text-blue-600">{item.code}</span>
+                              <span className="text-slate-300">—</span>
+                              <span className="font-semibold text-slate-800">{item.name}</span>
                             </div>
-                          </td>
-                          <td style={{ padding: '6px 8px', textAlign: 'center', color: '#475569' }}>
-                            {item.unit || 'Cái'}
-                          </td>
-                          <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 600, color: '#0f172a' }}>
+                          </TableCell>
+                          <TableCell className="px-2 py-1.5 text-center text-slate-600">{item.unit || 'Cái'}</TableCell>
+                          <TableCell className="px-2 py-1.5 text-right font-semibold text-slate-900">
                             {formatNumber(bookQty)}
-                          </td>
-                          <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                            <button
+                          </TableCell>
+                          <TableCell className="px-2 py-1.5 text-center">
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="icon-xs"
                               onClick={() => handleRemoveItem(item.code)}
-                              style={{
-                                border: 'none',
-                                background: 'transparent',
-                                color: '#94a3b8',
-                                cursor: 'pointer',
-                                padding: '2px',
-                              }}
+                              className="text-slate-400"
                               title="Loại khỏi đợt kiểm"
                             >
                               <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
 
                     {selectedItems.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} style={{ padding: '22px', textAlign: 'center', color: '#94a3b8' }}>
-                          Chưa có vật tư nào được chọn. Hãy tìm kiếm và thêm ở ô phía trên.
-                        </td>
-                      </tr>
+                      <TableEmpty colSpan={5}>
+                        Chưa có vật tư nào được chọn. Hãy tìm kiếm và thêm ở ô phía trên.
+                      </TableEmpty>
                     ) : null}
-                  </tbody>
-                </table>
-              </div>
+                  </TableBody>
+                </Table>
+              </TableWrap>
             </div>
           ) : null}
 
           {/* Hàng 4: Người phụ trách & Ghi chú đợt kiểm kê */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <UserCheck size={14} style={{ color: '#2563eb' }} />
-                <span>Người phụ trách (Trưởng nhóm)</span> <span style={{ color: '#dc2626' }}>*</span>
-              </label>
+          <div className="grid grid-cols-2 gap-[14px]">
+            <div className="flex flex-col gap-[5px]">
+              <Label required className="flex items-center gap-[5px]">
+                <UserCheck size={14} className="text-blue-600" />
+                <span>Người phụ trách (Trưởng nhóm)</span>
+              </Label>
               <SearchableSelect
                 options={leadAuditorOptions}
                 value={leadAuditor}
@@ -1233,24 +961,13 @@ export function CreateStocktakeDialog({
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
-                Mục đích &amp; Ghi chú đợt kiểm kê
-              </label>
-              <input
+            <div className="flex flex-col gap-[5px]">
+              <Label>Mục đích &amp; Ghi chú đợt kiểm kê</Label>
+              <Input
                 type="text"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="VD: Kiểm kê định kỳ, đối soát đột xuất, hao hụt..."
-                style={{
-                  height: '38px',
-                  padding: '8px 12px',
-                  fontSize: '13.5px',
-                  border: '1px solid #cbd5e1',
-                  borderRadius: '6px',
-                  boxSizing: 'border-box',
-                  outline: 'none',
-                }}
               />
             </div>
           </div>
@@ -1265,77 +982,28 @@ export function CreateStocktakeDialog({
           />
 
           {/* Ghi chú thông báo về Snapshot và kiểm đếm ngay */}
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: '6px',
-              background: '#eff6ff',
-              border: '1px solid #bfdbfe',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              fontSize: '12.5px',
-              color: '#1e40af',
-              lineHeight: 1.5,
-            }}
-          >
-            <Info size={16} style={{ color: '#2563eb', flexShrink: 0 }} />
+          <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-[14px] py-[10px] text-[12.5px] leading-normal text-blue-800">
+            <Info size={16} className="shrink-0 text-blue-600" />
             <span>
               Hệ thống sẽ <strong>chốt tồn sổ sách (snapshot)</strong> tại kho ngay khi tạo và chuyển thẳng sang bảng nhập kết quả kiểm đếm thực tế.
             </span>
           </div>
 
           {/* Footer Actions */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginTop: '4px',
-              paddingTop: '16px',
-              borderTop: '1px solid #e2e8f0',
-            }}
-          >
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              style={{
-                padding: '8px 18px',
-                fontSize: '13.5px',
-                fontWeight: 600,
-                background: 'transparent',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                color: '#475569',
-                cursor: 'pointer',
-              }}
-            >
+          <div className="mt-1 flex items-center justify-between border-t border-slate-200 pt-4">
+            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               Huỷ
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="submit"
               disabled={busy}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '9px 24px',
-                fontSize: '13.5px',
-                fontWeight: 700,
-                background: '#2563eb',
-                border: 'none',
-                borderRadius: '6px',
-                color: '#ffffff',
-                cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.25)',
-              }}
+              className="font-bold"
               title="Chốt tồn sổ sách (snapshot) và chuyển sang bảng kiểm đếm thực tế ngay"
             >
               <Play size={15} />
               <span>{busy ? 'Đang khởi tạo...' : 'Bắt đầu kiểm đếm'}</span>
-            </button>
+            </Button>
           </div>
         </form>
       </div>

@@ -175,6 +175,7 @@ integration('HRM employee PostgreSQL integration', () => {
     await migrate('hrm/0071-hrm-attendance-location-settings.sql');
     await migrate('hrm/0072-hrm-attendance-site-unit-exclusions.sql');
     await migrate('hrm/0082-hrm-leave-request-groups.sql');
+    await migrate('hrm/0084-hrm-ot-request-groups.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       getProxyRequestContext: async function (this: any, req: any, requested?: string) {

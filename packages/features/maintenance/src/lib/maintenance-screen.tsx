@@ -21,6 +21,7 @@ import {
   type ModuleNavItem,
 } from '@enterprise-platform/feature-module-shell';
 import {
+  AppIcon,
   MinimalPopupForm,
   SearchableSelect,
   formatDateTime as formatSharedDateTime,
@@ -99,12 +100,12 @@ import styles from './maintenance.module.scss';
 type View = 'dashboard' | 'matrix' | 'schedules' | 'occurrences' | 'history' | 'settings';
 
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <LayoutDashboard style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành', icon: <Grid3X3 style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành', icon: <CalendarClock style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành', icon: <AlertTriangle style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'history', label: 'Lịch sử', group: 'Vận hành', icon: <LucideHistory style={{ width: '1rem', height: '1rem' }} /> },
-  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <Settings style={{ width: '1rem', height: '1rem' }} /> },
+  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} className="size-4" /> },
+  { id: 'matrix', label: 'Ma trận bảo trì', group: 'Vận hành', icon: <AppIcon slot="sidebar.maintenance.matrix" fallback={Grid3X3} className="size-4" /> },
+  { id: 'schedules', label: 'Lịch bảo trì', group: 'Vận hành', icon: <AppIcon slot="sidebar.maintenance.schedules" fallback={CalendarClock} className="size-4" /> },
+  { id: 'occurrences', label: 'Phiếu phát sinh', group: 'Vận hành', icon: <AppIcon slot="sidebar.maintenance.occurrences" fallback={AlertTriangle} className="size-4" /> },
+  { id: 'history', label: 'Lịch sử', group: 'Vận hành', icon: <AppIcon slot="sidebar.maintenance.history" fallback={LucideHistory} className="size-4" /> },
+  { id: 'settings', label: 'Cài đặt', group: 'Quản trị', icon: <AppIcon slot="nav.settings" fallback={Settings} className="size-4" /> },
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);

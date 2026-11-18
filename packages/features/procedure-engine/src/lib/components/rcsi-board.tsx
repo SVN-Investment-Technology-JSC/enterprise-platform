@@ -55,7 +55,7 @@ import {
   type HeaderNode,
   type MatrixColumn,
 } from './rcsi/columns';
-import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { AppIcon, MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import {
   Archive,
   Briefcase,
@@ -1040,7 +1040,7 @@ export function RcsiBoard({
                 title={orgPaneOpen ? 'Ẩn sơ đồ tổ chức' : 'Hiện sơ đồ tổ chức để gán việc'}
                 onClick={() => setOrgPaneOpen((open) => !open)}
               >
-                <Network size={15} aria-hidden="true" />
+                <AppIcon slot="nav.organization" fallback={Network} size={15} />
               </button>
             </div>
           </div>

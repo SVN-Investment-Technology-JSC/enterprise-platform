@@ -11,6 +11,9 @@ import { STORAGE_KEYS, localStore } from '../store/local-store';
 import { downloadTextFile } from './file-download';
 import { IconLibraryPage } from './icon-library-page';
 import { chooseTileAction, confirmDialog, openTileMenu } from './tile-actions.testing';
+import { lastToastText, resetToasts } from './toast.testing';
+
+jest.mock('@/components/ui/sonner', () => jest.requireActual('./toast.testing').toastMock);
 
 jest.mock('../export/export-dialog', () => {
   const { createElement } = jest.requireActual('react');
@@ -61,6 +64,7 @@ const filterCount = (name: RegExp) => {
 };
 
 beforeEach(() => {
+  resetToasts();
   window.localStorage.clear();
   window.sessionStorage.clear();
   jest.mocked(downloadTextFile).mockReset();
@@ -192,7 +196,7 @@ describe('IconLibraryPage: thao tác trên một icon', () => {
     await chooseTileAction(screen.getByRole('link', { name: 'Mở Gốc' }).closest('li') as HTMLElement, 'Nhân bản');
 
     await waitFor(() => expect(tiles()).toHaveLength(before + 1));
-    expect(screen.getByRole('status').textContent).toContain('Đã nhân bản thành "Gốc (bản sao)"');
+    expect(lastToastText()).toContain('Đã nhân bản thành "Gốc (bản sao)"');
     expect(tileNames()).toContain('Gốc (bản sao)');
   });
 
@@ -205,7 +209,7 @@ describe('IconLibraryPage: thao tác trên một icon', () => {
     await confirmDialog('Xoá');
 
     await waitFor(() => expect(screen.queryByRole('link', { name: 'Mở Sắp xoá' })).toBeNull());
-    expect(screen.getByRole('status').textContent).toContain('Đã xoá "Sắp xoá"');
+    expect(lastToastText()).toContain('Đã xoá "Sắp xoá"');
   });
 
   it('icon mẫu không có mục xoá mà có mục đặt lại về bản gốc', async () => {
@@ -219,7 +223,7 @@ describe('IconLibraryPage: thao tác trên một icon', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Đặt lại về bản gốc' }));
     await confirmDialog('Đặt lại');
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain(`Đã đặt lại "${name}" về bản gốc`));
+    await waitFor(() => expect(lastToastText()).toContain(`Đã đặt lại "${name}" về bản gốc`));
   });
 
   it('Xuất trên một icon mở hộp xuất với đúng icon đó', async () => {
@@ -281,11 +285,11 @@ describe('IconLibraryPage: chọn nhiều', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn SVNDTS Favicon Tab' }));
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Chuyển nháp/ }));
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Nháp"'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã chuyển 2 icon sang "Nháp"'));
     expect(filterCount(/^Nháp/)).toBe(2);
 
     fireEvent.click(within(screen.getByTestId('bulk-bar')).getByRole('button', { name: /Phát hành/ }));
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã chuyển 2 icon sang "Phát hành"'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã chuyển 2 icon sang "Phát hành"'));
     expect(filterCount(/^Nháp/)).toBe(0);
   });
 
@@ -301,7 +305,7 @@ describe('IconLibraryPage: chọn nhiều', () => {
     expect(popup.textContent).toContain('1 icon mẫu sẽ được giữ lại');
     fireEvent.click(within(popup).getByRole('button', { name: 'Xoá' }));
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã xoá 2 icon, giữ lại 1 icon mẫu.'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã xoá 2 icon, giữ lại 1 icon mẫu.'));
     expect(tiles()).toHaveLength(presetCount);
     expect(screen.queryByTestId('bulk-bar')).toBeNull();
   });
@@ -326,7 +330,7 @@ describe('IconLibraryPage: xuất, sao lưu', () => {
     const [fileName, content] = jest.mocked(downloadTextFile).mock.calls[0];
     expect(fileName).toMatch(/^svndts-brand-icons-\d{8}\.json$/);
     expect((JSON.parse(content) as unknown[]).length).toBe(presetCount);
-    expect(screen.getByRole('status').textContent).toContain(`Đã sao lưu ${presetCount} icon.`);
+    expect(lastToastText()).toContain(`Đã sao lưu ${presetCount} icon.`);
   });
 });
 
@@ -338,7 +342,7 @@ describe('IconLibraryPage: nhập tệp', () => {
     render(<IconLibraryPage />);
     pick([new File([SVG], 'dong-ho.svg', { type: 'image/svg+xml' }), new File([SVG], 'kinh_lup.svg', { type: 'image/svg+xml' })]);
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã nhập 2 icon.'));
+    await waitFor(() => expect(lastToastText()).toContain('Đã nhập 2 icon.'));
     expect(tileNames()).toEqual(expect.arrayContaining(['dong ho', 'kinh lup']));
     expect(tiles()).toHaveLength(presetCount + 2);
   });
@@ -350,7 +354,7 @@ describe('IconLibraryPage: nhập tệp', () => {
 
     pick([new File([backup], 'sao-luu.json', { type: 'application/json' })]);
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain(`${presetCount + 1} icon đã có sẵn`));
+    await waitFor(() => expect(lastToastText()).toContain(`${presetCount + 1} icon đã có sẵn`));
     expect(tiles()).toHaveLength(presetCount + 1);
   });
 
@@ -358,8 +362,8 @@ describe('IconLibraryPage: nhập tệp', () => {
     render(<IconLibraryPage />);
     pick([new File([SVG], 'tot.svg'), new File(['không phải gì cả'], 'hong.txt')]);
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Đã nhập 1 icon, 1 tệp lỗi.'));
-    expect(screen.getByRole('status').textContent).toContain('hong.txt');
+    await waitFor(() => expect(lastToastText()).toContain('Đã nhập 1 icon, 1 tệp lỗi.'));
+    expect(lastToastText()).toContain('hong.txt');
     expect(tiles()).toHaveLength(presetCount + 1);
   });
 
@@ -367,7 +371,7 @@ describe('IconLibraryPage: nhập tệp', () => {
     render(<IconLibraryPage />);
     pick([new File(['{ hỏng'], 'hong.json')]);
 
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('1 tệp lỗi.'));
+    await waitFor(() => expect(lastToastText()).toContain('1 tệp lỗi.'));
     expect(tiles()).toHaveLength(presetCount);
   });
 });

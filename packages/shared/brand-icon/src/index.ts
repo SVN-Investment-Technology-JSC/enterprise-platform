@@ -16,3 +16,4 @@ export * from './lib/zip';
 export * from './lib/ico';
 export * from './lib/bundle';
 export * from './lib/api-types';
+export * from './lib/slots';

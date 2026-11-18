@@ -179,6 +179,7 @@ describe('xác thực và phân quyền', () => {
     ['POST', '/icons/icon-a/publish'],
     ['POST', '/icons/icon-a/unpublish'],
     ['DELETE', '/icons/icon-a'],
+    ['DELETE', '/icons/icon-a/permanent'],
     ['POST', '/icons/icon-a/restore'],
     ['PUT', '/standards'],
   ])(
@@ -330,6 +331,21 @@ describe('luồng quản trị qua HTTP', () => {
     expect(
       (await call('POST', '/icons/icon-a/restore', { headers: asAdmin })).json,
     ).toMatchObject({ status: 'draft' });
+    expect(
+      (
+        await call('DELETE', '/icons/icon-a/permanent', {
+          headers: asAdmin,
+        })
+      ).status,
+    ).toBe(400);
+    await call('DELETE', '/icons/icon-a', { headers: asAdmin });
+    const purged = await call('DELETE', '/icons/icon-a/permanent', {
+      headers: asAdmin,
+    });
+    expect(purged.status).toBe(204);
+    expect(
+      (await call('GET', '/icons/icon-a', { headers: asAdmin })).status,
+    ).toBe(404);
     expect(
       (await call('GET', '/icons/khong-co', { headers: asAdmin })).status,
     ).toBe(404);
@@ -513,5 +529,429 @@ describe('GET icons/:id/svg', () => {
     const traversal = await call('GET', '/icons/..%2Ftenants%2Fx/svg');
     expect([400, 404]).toContain(traversal.status);
     expect(objects.gets.some((key) => key.includes('tenants'))).toBe(false);
+  });
+});
+
+describe('BrandController – vị trí sử dụng icon (slots)', () => {
+  beforeEach(async () => {
+    publicRead = true;
+    await call('POST', '/icons', {
+      headers: asAdmin,
+      body: { document: sampleDocument({ id: 'slot-icon', name: 'Slot Icon' }) },
+    });
+    await call('POST', '/icons/slot-icon/publish', { headers: asAdmin });
+  });
+
+  it('chặn GET/PUT/DELETE slots nếu không phải platform-admin hoặc thiếu CSRF', async () => {
+    expect((await call('GET', '/slots')).status).toBe(401);
+    expect(
+      (
+        await call('GET', '/slots', {
+          headers: { cookie: 'ep_access=user-token' },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call('PUT', '/slots/brand.logo', {
+          headers: { cookie: 'ep_access=admin-token' },
+          body: { iconId: 'slot-icon' },
+        })
+      ).json.code,
+    ).toBe('CSRF_INVALID');
+    expect(
+      (
+        await call('DELETE', '/slots/brand.logo', {
+          headers: { cookie: 'ep_access=admin-token' },
+        })
+      ).json.code,
+    ).toBe('CSRF_INVALID');
+  });
+
+  it('PUT, GET, DELETE slots và phát hành manifest + svg công khai kèm ETag 304', async () => {
+    const put = await call('PUT', '/slots/brand.logo', {
+      headers: asAdmin,
+      body: { iconId: 'slot-icon' },
+    });
+    expect(put.status).toBe(200);
+    expect(put.json).toMatchObject({
+      slot: 'brand.logo',
+      iconId: 'slot-icon',
+      iconStatus: 'published',
+      publishedVersion: 1,
+    });
+
+    const list = await call('GET', '/slots', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    expect(list.status).toBe(200);
+    expect((list.json.slots as unknown[]).length).toBeGreaterThanOrEqual(1);
+
+    // Manifest công khai (không cần cookie) và không bị nhầm với :slot
+    const manifest = await call('GET', '/slots/manifest');
+    expect(manifest.status).toBe(200);
+    expect(manifest.headers.get('cache-control')).toBe(
+      'public, no-cache, must-revalidate',
+    );
+    expect(
+      (manifest.json.slots as Record<string, unknown>)['brand.logo'],
+    ).toMatchObject({
+      slot: 'brand.logo',
+      iconId: 'slot-icon',
+      version: 1,
+      colorMode: 'brand',
+    });
+
+    const etag = manifest.headers.get('etag') ?? '';
+    const notModified = await call('GET', '/slots/manifest', {
+      headers: { 'if-none-match': etag },
+    });
+    expect(notModified.status).toBe(304);
+
+    // SVG của slot
+    const svg = await call('GET', '/slots/brand.logo/svg');
+    expect(svg.status).toBe(200);
+    expect(svg.headers.get('content-type')).toContain('image/svg+xml');
+    expect(svg.headers.get('content-security-policy')).toContain(
+      "default-src 'none'",
+    );
+    expect(svg.headers.get('x-content-type-options')).toBe('nosniff');
+
+    const svg304 = await call('GET', '/slots/brand.logo/svg', {
+      headers: { 'if-none-match': svg.headers.get('etag') ?? '' },
+    });
+    expect(svg304.status).toBe(304);
+
+    // Xoá slot
+    const del = await call('DELETE', '/slots/brand.logo', {
+      headers: asAdmin,
+    });
+    expect(del.status).toBe(200);
+    expect(del.json).toEqual({ slot: 'brand.logo', cleared: true });
+    expect((await call('GET', '/slots/brand.logo/svg')).status).toBe(404);
+  });
+
+  it('CRUD /slots/definitions cho custom slots qua HTTP', async () => {
+    // 1. Tạo custom slot
+    const createRes = await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: {
+        id: 'custom.report-chart',
+        label: 'Biểu đồ báo cáo',
+        description: 'Vị trí icon biểu đồ báo cáo',
+        groupKey: 'custom',
+        colorMode: 'mono',
+        recommendedSize: 32,
+      },
+    });
+    expect(createRes.status).toBe(201);
+    expect(createRes.json).toMatchObject({
+      id: 'custom.report-chart',
+      label: 'Biểu đồ báo cáo',
+      isCustom: true,
+    });
+
+    // 2. Danh sách definitions
+    const defsRes = await call('GET', '/slots/definitions', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    expect(defsRes.status).toBe(200);
+    expect(
+      (defsRes.json as unknown as Array<{ id: string }>).some(
+        (d) => d.id === 'custom.report-chart',
+      ),
+    ).toBe(true);
+
+    // 3. Cập nhật custom slot
+    const updateRes = await call('PUT', '/slots/definitions/custom.report-chart', {
+      headers: asAdmin,
+      body: { label: 'Biểu đồ báo cáo nâng cao' },
+    });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.json).toMatchObject({
+      label: 'Biểu đồ báo cáo nâng cao',
+    });
+
+    // 4. Xoá custom slot
+    const deleteRes = await call(
+      'DELETE',
+      '/slots/definitions/custom.report-chart',
+      {
+        headers: asAdmin,
+      },
+    );
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.json).toEqual({
+      id: 'custom.report-chart',
+      deleted: true,
+    });
+  });
+
+  it('tắt đọc công khai: manifest và slot svg trả 401 cho khách, 200 cho user', async () => {
+    await call('PUT', '/slots/nav.dashboard', {
+      headers: asAdmin,
+      body: { iconId: 'slot-icon' },
+    });
+    publicRead = false;
+    expect((await call('GET', '/slots/manifest')).status).toBe(401);
+    expect((await call('GET', '/slots/nav.dashboard/svg')).status).toBe(401);
+    const userManifest = await call('GET', '/slots/manifest', {
+      headers: { cookie: 'ep_access=user-token' },
+    });
+    expect(userManifest.status).toBe(200);
+    expect(userManifest.headers.get('cache-control')).toBe('private, no-cache');
+  });
+});
+
+describe('BrandController – nhóm vị trí (slots/groups)', () => {
+  it('GET /slots/groups không bị bắt nhầm bởi :slot; cần đăng nhập và đúng quyền', async () => {
+    expect((await call('GET', '/slots/groups')).status).toBe(401);
+    const forbidden = await call('GET', '/slots/groups', {
+      headers: { cookie: 'ep_access=user-token' },
+    });
+    expect(forbidden.status).toBe(403);
+    const ok = await call('GET', '/slots/groups', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    expect(ok.status).toBe(200);
+    const groups = (ok.json as unknown as { groups: Array<{ key: string }> })
+      .groups;
+    expect(groups.slice(0, 8).map((g) => g.key)).toContain('custom');
+  });
+
+  it('ghi cần CSRF và quản trị Platform', async () => {
+    const noCsrf = await call('POST', '/slots/groups', {
+      headers: { cookie: 'ep_access=admin-token' },
+      body: { label: 'X' },
+    });
+    expect(noCsrf.status).toBe(403);
+    const tenant = await call('POST', '/slots/groups', {
+      headers: {
+        cookie: `ep_access=user-token; ep_csrf=${CSRF}`,
+        'x-csrf-token': CSRF,
+      },
+      body: { label: 'X' },
+    });
+    expect(tenant.status).toBe(403);
+    expect(
+      (await call('PUT', '/slots/groups/x', { body: { label: 'X' } })).status,
+    ).toBe(401);
+    expect((await call('DELETE', '/slots/groups/x')).status).toBe(401);
+  });
+
+  it('CRUD nhóm qua HTTP và dùng nhóm cho vị trí tùy chỉnh', async () => {
+    const created = await call('POST', '/slots/groups', {
+      headers: asAdmin,
+      body: { label: 'Trung tâm trợ giúp' },
+    });
+    expect(created.status).toBe(201);
+    expect(created.json).toEqual({
+      key: 'trung-tam-tro-giup',
+      label: 'Trung tâm trợ giúp',
+      isBuiltIn: false,
+      slotCount: 0,
+    });
+
+    const dup = await call('POST', '/slots/groups', {
+      headers: asAdmin,
+      body: { label: 'Khác', key: 'trung-tam-tro-giup' },
+    });
+    expect(dup.status).toBe(409);
+    expect(dup.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_CONFLICT' });
+
+    const renamed = await call('PUT', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+      body: { label: 'Trợ giúp' },
+    });
+    expect(renamed.status).toBe(200);
+    expect(renamed.json).toMatchObject({
+      key: 'trung-tam-tro-giup',
+      label: 'Trợ giúp',
+    });
+
+    const builtIn = await call('PUT', '/slots/groups/brand', {
+      headers: asAdmin,
+      body: { label: 'X' },
+    });
+    expect(builtIn.status).toBe(409);
+    expect(builtIn.json).toMatchObject({
+      code: 'BRAND_SLOT_GROUP_BUILTIN_CANNOT_MODIFY',
+    });
+
+    const slot = await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: {
+        id: 'custom.help-center',
+        label: 'Trung tâm trợ giúp',
+        groupKey: 'trung-tam-tro-giup',
+      },
+    });
+    expect(slot.status).toBe(201);
+    const badSlot = await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: { id: 'custom.other', label: 'Khác', groupKey: 'khong-co' },
+    });
+    expect(badSlot.status).toBe(400);
+    expect(badSlot.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_NOT_FOUND' });
+
+    const list = await call('GET', '/slots', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    const listed = (
+      list.json as unknown as {
+        groups: Array<{ key: string; slotCount: number }>;
+      }
+    ).groups.find((g) => g.key === 'trung-tam-tro-giup');
+    expect(listed?.slotCount).toBe(1);
+
+    const inUse = await call('DELETE', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+    });
+    expect(inUse.status).toBe(409);
+    expect(inUse.json).toMatchObject({
+      code: 'BRAND_SLOT_GROUP_IN_USE',
+      slotCount: 1,
+    });
+
+    await call('DELETE', '/slots/definitions/custom.help-center', {
+      headers: asAdmin,
+    });
+    const deleted = await call('DELETE', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+    });
+    expect(deleted.status).toBe(200);
+    expect(deleted.json).toEqual({
+      key: 'trung-tam-tro-giup',
+      deleted: true,
+    });
+    const gone = await call('DELETE', '/slots/groups/trung-tam-tro-giup', {
+      headers: asAdmin,
+    });
+    expect(gone.status).toBe(404);
+    expect(gone.json).toMatchObject({ code: 'BRAND_SLOT_GROUP_NOT_FOUND' });
+  });
+});
+
+describe('sửa vị trí có sẵn qua HTTP', () => {
+  it('PUT ghi đè, GET definitions phản ánh, DELETE override khôi phục', async () => {
+    const put = await call('PUT', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+      body: { id: 'nav.khac', label: 'Tổng quan', colorMode: 'brand' },
+    });
+    expect(put.status).toBe(200);
+    expect(put.json).toMatchObject({
+      id: 'nav.dashboard',
+      label: 'Tổng quan',
+      colorMode: 'brand',
+      overriddenFields: ['label', 'colorMode'],
+      defaults: { label: 'Bảng điều khiển', colorMode: 'mono' },
+    });
+
+    const defs = await call('GET', '/slots/definitions', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    const list = defs.json as unknown as Array<Record<string, unknown>>;
+    expect(list.find((d) => d.id === 'nav.dashboard')).toMatchObject({
+      label: 'Tổng quan',
+      colorMode: 'brand',
+    });
+    expect(list.some((d) => d.id === 'nav.khac')).toBe(false);
+
+    const nullBody = await call('PUT', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+      body: { label: null },
+    });
+    expect(nullBody.status).toBe(200);
+    expect(nullBody.json).toMatchObject({
+      label: 'Bảng điều khiển',
+      overriddenFields: ['colorMode'],
+    });
+
+    const reset = await call(
+      'DELETE',
+      '/slots/definitions/nav.dashboard/override',
+      { headers: asAdmin },
+    );
+    expect(reset.status).toBe(200);
+    expect(reset.json).toMatchObject({
+      id: 'nav.dashboard',
+      colorMode: 'mono',
+    });
+    expect(reset.json.overriddenFields).toBeUndefined();
+  });
+
+  it('lỗi dữ liệu: nhóm lạ 400, vị trí lạ 404, tùy chỉnh 409 khi khôi phục, xoá vị trí có sẵn 400', async () => {
+    const badGroup = await call('PUT', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+      body: { group: 'khong-co' },
+    });
+    expect([badGroup.status, badGroup.json.code]).toEqual([
+      400,
+      'BRAND_SLOT_GROUP_NOT_FOUND',
+    ]);
+    const unknown = await call(
+      'DELETE',
+      '/slots/definitions/custom.khong-co/override',
+      { headers: asAdmin },
+    );
+    expect([unknown.status, unknown.json.code]).toEqual([
+      404,
+      'BRAND_SLOT_NOT_FOUND',
+    ]);
+    await call('POST', '/slots/definitions', {
+      headers: asAdmin,
+      body: { id: 'custom.override-test', label: 'Thử' },
+    });
+    const custom = await call(
+      'DELETE',
+      '/slots/definitions/custom.override-test/override',
+      { headers: asAdmin },
+    );
+    expect([custom.status, custom.json.code]).toEqual([
+      409,
+      'BRAND_SLOT_CONFLICT',
+    ]);
+    await call('DELETE', '/slots/definitions/custom.override-test', {
+      headers: asAdmin,
+    });
+    const del = await call('DELETE', '/slots/definitions/nav.dashboard', {
+      headers: asAdmin,
+    });
+    expect([del.status, del.json.code]).toEqual([
+      400,
+      'BRAND_SLOT_BUILTIN_CANNOT_MODIFY',
+    ]);
+  });
+
+  it('PUT và DELETE override: không phiên 401, tenant 403, thiếu CSRF 403', async () => {
+    const targets: Array<[string, string]> = [
+      ['PUT', '/slots/definitions/nav.dashboard'],
+      ['DELETE', '/slots/definitions/nav.dashboard/override'],
+    ];
+    for (const [method, path] of targets) {
+      const body = { label: 'X' };
+      const anonymous = await call(method, path, { body });
+      expect(anonymous.status).toBe(401);
+      const tenant = await call(method, path, {
+        body,
+        headers: {
+          cookie: `ep_access=user-token; ep_csrf=${CSRF}`,
+          'x-csrf-token': CSRF,
+        },
+      });
+      expect([tenant.status, tenant.json.code]).toEqual([403, 'FORBIDDEN']);
+      const noCsrf = await call(method, path, {
+        body,
+        headers: { cookie: 'ep_access=admin-token' },
+      });
+      expect([noCsrf.status, noCsrf.json.code]).toEqual([403, 'CSRF_INVALID']);
+    }
+    const check = await call('GET', '/slots/definitions', {
+      headers: { cookie: 'ep_access=admin-token' },
+    });
+    const list = check.json as unknown as Array<Record<string, unknown>>;
+    expect(
+      list.find((d) => d.id === 'nav.dashboard')?.overriddenFields,
+    ).toBeUndefined();
   });
 });

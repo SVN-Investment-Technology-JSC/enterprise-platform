@@ -35,6 +35,11 @@ import {
   type RequestProjectInput,
 } from './hrm-request-project-links.js';
 import type { RequestProjectDetail } from './hrm-trip-details.js';
+import {
+  linkReplacement,
+  supersedeRequest,
+  type RequestReplacement,
+} from './hrm-request-edit.js';
 
 /** Loại đơn có danh mục lý do (đơn nghỉ dùng loại nghỉ làm lý do nên xử lý riêng). */
 const REASON_CATALOG_KINDS: ReadonlySet<HrmRequestKind> = new Set([
@@ -46,6 +51,8 @@ const REASON_CATALOG_KINDS: ReadonlySet<HrmRequestKind> = new Set([
 
 type Submission = Omit<HrmSubmission, 'requestId' | 'revision'> & {
   draft?: HrmDraftRef;
+  /** Sửa đơn chưa duyệt: đơn cũ bị hủy và đơn mới thay chỗ trong cùng giao dịch (xem hrm-request-edit.ts). */
+  replaces?: RequestReplacement;
   /**
    * "Dự án liên kết" của đơn, nếu có. Đơn được gửi sang Workspace để nhận mã
    * DTxxx; hồ sơ quy trình (nếu có) chỉ mở sau khi có mã đó.
@@ -134,7 +141,21 @@ export async function submitHrmRequest(
         'Hồ sơ nhân viên đã ngừng hoạt động; không thể tạo đơn HRM mới.',
       );
     }
+    if (input.replaces)
+      await supersedeRequest(db, {
+        tenantId: input.tenantId,
+        kind: input.kind as HrmRequestKind,
+        employeeId: input.employeeId,
+        actorId: input.initiatedBy,
+      }, input.replaces);
     const row = await create(db);
+    if (input.replaces)
+      await linkReplacement(db, {
+        tenantId: input.tenantId,
+        kind: input.kind as HrmRequestKind,
+        actorId: input.initiatedBy,
+        newRequestId: row.id as string,
+      }, input.replaces);
     if (row.status !== 'DRAFT') assertRequestWithinMonth(input.kind as HrmRequestKind, row);
     if (row.status !== 'DRAFT') await assertQuotaOnCreate(db, input.tenantId, input.kind as HrmRequestKind, row);
     if (row.status !== 'DRAFT') await assertRequestTiming(db, input.tenantId, input.kind as HrmRequestKind, row);

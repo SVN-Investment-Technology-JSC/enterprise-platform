@@ -1,9 +1,22 @@
 'use client';
 
-import type { StockDocument, StockDocumentLine } from '@enterprise-platform/contracts-inventory';
+import type {
+  StockDocument,
+  StockDocumentLine,
+} from '@enterprise-platform/contracts-inventory';
 import { Popconfirm, formatDate, toast } from '@enterprise-platform/shared-ui';
-import { Drawer, Table, type TableColumnsType } from 'antd';
+import { Table, type TableColumnsType } from 'antd';
 import { useState } from 'react';
+import { Button } from '../ui/button';
+import { DialogCloseButton } from '../ui/dialog';
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '../ui/sheet';
 import {
   approveStockDocument,
   cancelStockDocument,
@@ -21,8 +34,11 @@ import {
   type StockDocumentAction,
   type StockDocumentCapabilities,
 } from '../stock-document.model';
-import { DocumentStatusBadge, RejectReasonDialog, errorMessage } from './stock-document-parts';
-import styles from '../inventory.module.scss';
+import {
+  DocumentStatusBadge,
+  RejectReasonDialog,
+  errorMessage,
+} from './stock-document-parts';
 import { useUserLabel } from '../user-names';
 
 /** Chạy một thao tác trạng thái trên server; trả chứng từ mới và câu thông báo. */
@@ -32,29 +48,51 @@ export async function runDocumentAction(
 ): Promise<{ document: StockDocument; message: string }> {
   switch (action) {
     case 'submit':
-      return { document: await submitStockDocument(document.id), message: `Đã gửi duyệt ${document.code}.` };
+      return {
+        document: await submitStockDocument(document.id),
+        message: `Đã gửi duyệt ${document.code}.`,
+      };
     case 'approve':
-      return { document: await approveStockDocument(document.id), message: `Đã duyệt ${document.code}.` };
+      return {
+        document: await approveStockDocument(document.id),
+        message: `Đã duyệt ${document.code}.`,
+      };
     case 'post':
-      return { document: (await postStockDocument(document.id)).document, message: `Đã ghi sổ ${document.code}.` };
+      return {
+        document: (await postStockDocument(document.id)).document,
+        message: `Đã ghi sổ ${document.code}.`,
+      };
     case 'cancel':
-      return { document: await cancelStockDocument(document.id), message: `Đã huỷ ${document.code}.` };
+      return {
+        document: await cancelStockDocument(document.id),
+        message: `Đã huỷ ${document.code}.`,
+      };
     case 'reverse': {
       const reversed = (await reverseStockDocument(document.id)).document;
-      return { document: reversed, message: `Đã tạo và ghi sổ chứng từ đảo ${reversed.code} cho ${document.code}.` };
+      return {
+        document: reversed,
+        message: `Đã tạo và ghi sổ chứng từ đảo ${reversed.code} cho ${document.code}.`,
+      };
     }
   }
 }
 
-const CONFIRM: Partial<Record<StockDocumentAction, { title: string; description: string }>> = {
+const CONFIRM: Partial<
+  Record<StockDocumentAction, { title: string; description: string }>
+> = {
   post: {
     title: 'Ghi sổ chứng từ?',
-    description: 'Tồn kho thay đổi ngay; chứng từ đã ghi sổ không sửa được, sai thì tạo chứng từ đảo.',
+    description:
+      'Tồn kho thay đổi ngay; chứng từ đã ghi sổ không sửa được, sai thì tạo chứng từ đảo.',
   },
-  cancel: { title: 'Huỷ chứng từ?', description: 'Chứng từ chuyển sang Đã huỷ và không dùng lại được.' },
+  cancel: {
+    title: 'Huỷ chứng từ?',
+    description: 'Chứng từ chuyển sang Đã huỷ và không dùng lại được.',
+  },
   reverse: {
     title: 'Tạo chứng từ đảo?',
-    description: 'Hệ thống tạo chứng từ ngược chiều tham chiếu chứng từ này và ghi sổ ngay; chứng từ gốc giữ nguyên.',
+    description:
+      'Hệ thống tạo chứng từ ngược chiều tham chiếu chứng từ này và ghi sổ ngay; chứng từ gốc giữ nguyên.',
   },
 };
 
@@ -79,7 +117,9 @@ export function DocumentActionBar({
     (action) => !exclude.includes(action) && (action !== 'edit' || onEdit),
   );
 
-  const run = async (action: Exclude<StockDocumentAction, 'edit' | 'reject'>) => {
+  const run = async (
+    action: Exclude<StockDocumentAction, 'edit' | 'reject'>,
+  ) => {
     setBusy(true);
     setError(undefined);
     try {
@@ -108,37 +148,55 @@ export function DocumentActionBar({
 
   if (actions.length === 0 && !error) return null;
   return (
-    <div className={styles.docActionBlock}>
-      <div className={styles.docActions}>
+    <div className="flex flex-col items-end">
+      <div className="flex flex-wrap items-center gap-2">
         {actions.map((action) => {
           const label = STOCK_DOCUMENT_ACTION_LABEL[action];
-          const primary = action === 'post' || action === 'approve' || action === 'submit';
-          const className = action === 'reject' || action === 'cancel' ? styles.btnDanger : primary ? styles.btnPrimary : styles.btnSecondary;
+          const primary =
+            action === 'post' || action === 'approve' || action === 'submit';
+          const variant =
+            action === 'reject' || action === 'cancel'
+              ? 'destructive'
+              : primary
+                ? 'default'
+                : 'outline';
           if (action === 'edit') {
             return (
-              <button key={action} type="button" className={className} disabled={busy} onClick={() => onEdit?.(document)}>
+              <Button
+                key={action}
+                type="button"
+                variant={variant}
+                disabled={busy}
+                onClick={() => onEdit?.(document)}
+              >
                 {label}
-              </button>
+              </Button>
             );
           }
           if (action === 'reject') {
             return (
-              <button key={action} type="button" className={className} disabled={busy} onClick={() => setRejecting(true)}>
+              <Button
+                key={action}
+                type="button"
+                variant={variant}
+                disabled={busy}
+                onClick={() => setRejecting(true)}
+              >
                 {label}
-              </button>
+              </Button>
             );
           }
           const confirm = CONFIRM[action];
           const button = (
-            <button
+            <Button
               key={action}
               type="button"
-              className={className}
+              variant={variant}
               disabled={busy}
               onClick={confirm ? undefined : () => void run(action)}
             >
               {label}
-            </button>
+            </Button>
           );
           return confirm ? (
             <Popconfirm
@@ -159,7 +217,7 @@ export function DocumentActionBar({
         })}
       </div>
       {error ? (
-        <p role="alert" className={styles.alert} style={{ marginTop: 8 }}>
+        <p role="alert" className="mb-4 mt-2 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">
           {error}
         </p>
       ) : null}
@@ -174,10 +232,15 @@ export function DocumentActionBar({
   );
 }
 
-function audit(userName: (id?: string) => string, label: string, who?: string, when?: string) {
+function audit(
+  userName: (id?: string) => string,
+  label: string,
+  who?: string,
+  when?: string,
+) {
   if (!who && !when) return null;
   return (
-    <div className={styles.docAuditItem}>
+    <div className="flex flex-col gap-[0.1rem] rounded-lg border border-slate-200 px-[0.65rem] py-2 text-[13px] [&_span]:text-xs [&_span]:font-bold [&_span]:text-slate-500 [&_small]:text-slate-500">
       <span>{label}</span>
       <strong>{formatDateTime(when)}</strong>
       {who ? <small title={who}>Người thực hiện: {userName(who)}</small> : null}
@@ -212,7 +275,7 @@ export function StockDocumentDetail({
       render: (_value, line) => (
         <>
           <strong>{line.materialCode}</strong>
-          <span className={styles.sub}>{line.materialName}</span>
+          <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">{line.materialName}</span>
         </>
       ),
     },
@@ -221,21 +284,24 @@ export function StockDocumentDetail({
       dataIndex: 'direction',
       key: 'direction',
       width: 70,
-      render: (value: StockDocumentLine['direction']) => (value === 'IN' ? 'Nhập' : 'Xuất'),
+      render: (value: StockDocumentLine['direction']) =>
+        value === 'IN' ? 'Nhập' : 'Xuất',
     },
     {
       title: 'Số lượng',
       key: 'quantity',
       width: 100,
       align: 'right',
-      render: (_value, line) => `${formatNumber(line.quantity)} ${line.unit ?? ''}`,
+      render: (_value, line) =>
+        `${formatNumber(line.quantity)} ${line.unit ?? ''}`,
     },
     {
       title: 'Đơn giá',
       key: 'unitCost',
       width: 120,
       align: 'right',
-      render: (_value, line) => (line.unitCost ? formatNumber(line.unitCost) : '—'),
+      render: (_value, line) =>
+        line.unitCost ? formatNumber(line.unitCost) : '—',
     },
     {
       title: 'Giá vốn dòng',
@@ -243,7 +309,11 @@ export function StockDocumentDetail({
       width: 130,
       align: 'right',
       render: (_value, line) =>
-        posted && line.costAmount !== undefined ? formatNumber(line.costAmount) : <span className={styles.docHint}>Sau ghi sổ</span>,
+        posted && line.costAmount !== undefined ? (
+          formatNumber(line.costAmount)
+        ) : (
+          <span className="my-[0.35rem] text-[13px] text-slate-500">Sau ghi sổ</span>
+        ),
     },
     {
       title: 'Lô / hạn dùng',
@@ -253,7 +323,11 @@ export function StockDocumentDetail({
         line.lotNo ? (
           <>
             <strong>{line.lotNo}</strong>
-            {line.lotExpiresOn ? <span className={styles.sub}>HSD {formatDate(line.lotExpiresOn)}</span> : null}
+            {line.lotExpiresOn ? (
+              <span className="mt-[0.2rem] block text-[13px] font-normal text-slate-500">
+                HSD {formatDate(line.lotExpiresOn)}
+              </span>
+            ) : null}
           </>
         ) : (
           '—'
@@ -263,83 +337,121 @@ export function StockDocumentDetail({
       title: 'Serial',
       key: 'serials',
       render: (_value, line) =>
-        line.serials?.length ? <span className={styles.docSerialText}>{line.serials.join(', ')}</span> : '—',
+        line.serials?.length ? (
+          <span className="break-words font-mono text-[13px]">
+            {line.serials.join(', ')}
+          </span>
+        ) : (
+          '—'
+        ),
     },
   ];
-  const totalCost = document.lines.reduce((sum, line) => sum + (line.costAmount ?? 0), 0);
+  const totalCost = document.lines.reduce(
+    (sum, line) => sum + (line.costAmount ?? 0),
+    0,
+  );
 
   return (
-    <Drawer
-      open
-      onClose={onClose}
-      size="min(1080px, 96vw)"
-      destroyOnHidden
-      title={
-        <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
-          Chứng từ {document.code} <DocumentStatusBadge status={document.status} />
-        </span>
-      }
-      footer={
-        <DocumentActionBar document={document} capabilities={capabilities} onEdit={onEdit} onChanged={onChanged} />
-      }
-    >
-      <div className={styles.docInfoGrid}>
-        <div>
-          <span>Loại</span>
-          <strong>{STOCK_DOCUMENT_TYPE_LABEL[document.docType]}</strong>
-        </div>
-        <div>
-          <span>{document.targetWarehouseCode ? 'Kho đi / kho đến' : 'Kho'}</span>
-          <strong>
-            {document.warehouseCode}
-            {document.targetWarehouseCode ? ` → ${document.targetWarehouseCode}` : ''}
-          </strong>
-        </div>
-        <div>
-          <span>Ngày chứng từ</span>
-          <strong>{formatDate(document.documentDate)}</strong>
-        </div>
-        <div>
-          <span>Nguồn</span>
-          <strong>{sourceTypeLabel(document.sourceType)}</strong>
-          {document.sourceId ? <small>{document.sourceId}</small> : null}
-        </div>
-        {document.reversesDocumentId ? (
-          <div>
-            <span>Đảo của chứng từ</span>
-            <strong>{document.reversesDocumentId.slice(0, 8)}</strong>
+    <Sheet onEscape={onClose} onBackdropClick={onClose}>
+      <SheetContent
+        className="max-w-[min(1080px,96vw)]"
+        aria-label={`Chứng từ ${document.code}`}
+      >
+        <SheetHeader>
+          <SheetTitle>
+            <span className="inline-flex items-center gap-2.5">
+              Chứng từ {document.code}{' '}
+              <DocumentStatusBadge status={document.status} />
+            </span>
+          </SheetTitle>
+          <DialogCloseButton onClick={onClose} />
+        </SheetHeader>
+        <SheetBody className="bg-white">
+          <div className="mb-[0.85rem] grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3 [&>div]:flex [&>div]:flex-col [&>div]:gap-[0.15rem] [&_span]:text-xs [&_span]:font-bold [&_span]:text-slate-500 [&_small]:break-all [&_small]:text-xs [&_small]:text-slate-500">
+            <div>
+              <span>Loại</span>
+              <strong>{STOCK_DOCUMENT_TYPE_LABEL[document.docType]}</strong>
+            </div>
+            <div>
+              <span>
+                {document.targetWarehouseCode ? 'Kho đi / kho đến' : 'Kho'}
+              </span>
+              <strong>
+                {document.warehouseCode}
+                {document.targetWarehouseCode
+                  ? ` → ${document.targetWarehouseCode}`
+                  : ''}
+              </strong>
+            </div>
+            <div>
+              <span>Ngày chứng từ</span>
+              <strong>{formatDate(document.documentDate)}</strong>
+            </div>
+            <div>
+              <span>Nguồn</span>
+              <strong>{sourceTypeLabel(document.sourceType)}</strong>
+              {document.sourceId ? <small>{document.sourceId}</small> : null}
+            </div>
+            {document.reversesDocumentId ? (
+              <div>
+                <span>Đảo của chứng từ</span>
+                <strong>{document.reversesDocumentId.slice(0, 8)}</strong>
+              </div>
+            ) : null}
+            {posted ? (
+              <div>
+                <span>Tổng giá vốn</span>
+                <strong>{formatNumber(totalCost)}</strong>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        {posted ? (
-          <div>
-            <span>Tổng giá vốn</span>
-            <strong>{formatNumber(totalCost)}</strong>
+          {document.note ? (
+            <p className="my-[0.35rem] text-[13px] text-slate-500">Ghi chú: {document.note}</p>
+          ) : null}
+          {document.rejectReason ? (
+            <p className="my-[0.6rem] rounded-[0.55rem] border border-amber-200 bg-amber-50 px-[0.8rem] py-[0.6rem] text-[13px] text-amber-800">
+              Lý do từ chối: {document.rejectReason}
+            </p>
+          ) : null}
+
+          <Table<StockDocumentLine>
+            rowKey="id"
+            size="small"
+            columns={columns}
+            dataSource={[...document.lines]}
+            pagination={false}
+            scroll={{ x: 900 }}
+          />
+
+          <h4 className="mb-2 mt-4 text-sm font-bold text-slate-900">Lịch sử</h4>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-[0.6rem]">
+            {audit(userName, 'Lập', document.createdBy, document.createdAt)}
+            {audit(
+              userName,
+              'Gửi duyệt',
+              document.submittedBy,
+              document.submittedAt,
+            )}
+            {audit(userName, 'Duyệt', document.approvedBy, document.approvedAt)}
+            {audit(
+              userName,
+              'Từ chối',
+              document.rejectedBy,
+              document.rejectedAt,
+            )}
+            {audit(userName, 'Ghi sổ', document.postedBy, document.postedAt)}
+            {audit(userName, 'Huỷ', document.cancelledBy, document.cancelledAt)}
           </div>
-        ) : null}
-      </div>
-      {document.note ? <p className={styles.docHint}>Ghi chú: {document.note}</p> : null}
-      {document.rejectReason ? (
-        <p className={styles.docWarn}>Lý do từ chối: {document.rejectReason}</p>
-      ) : null}
-
-      <Table<StockDocumentLine>
-        rowKey="id"
-        size="small"
-        columns={columns}
-        dataSource={[...document.lines]}
-        pagination={false}
-        scroll={{ x: 900 }}
-      />
-
-      <h4 className={styles.docSubTitle}>Lịch sử</h4>
-      <div className={styles.docAuditGrid}>
-        {audit(userName, 'Lập', document.createdBy, document.createdAt)}
-        {audit(userName, 'Gửi duyệt', document.submittedBy, document.submittedAt)}
-        {audit(userName, 'Duyệt', document.approvedBy, document.approvedAt)}
-        {audit(userName, 'Từ chối', document.rejectedBy, document.rejectedAt)}
-        {audit(userName, 'Ghi sổ', document.postedBy, document.postedAt)}
-        {audit(userName, 'Huỷ', document.cancelledBy, document.cancelledAt)}
-      </div>
-    </Drawer>
+        </SheetBody>
+        <SheetFooter className="[&>div]:w-full">
+          <DocumentActionBar
+            document={document}
+            capabilities={capabilities}
+            onEdit={onEdit}
+            onChanged={onChanged}
+          />
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }

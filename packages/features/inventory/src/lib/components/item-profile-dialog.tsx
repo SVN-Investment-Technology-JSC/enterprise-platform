@@ -1,11 +1,21 @@
 'use client';
 
-import type { Asset, InventoryCatalogSettings } from '@enterprise-platform/contracts-inventory';
+import type {
+  Asset,
+  InventoryCatalogSettings,
+} from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
+import {
+  Dialog,
+  DialogBody,
+  DialogCloseButton,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 import { loadItemProfile } from '../inventory-api';
 import { AssetDetail } from './asset-detail';
 import { AssetDocumentPanel } from './asset-document-panel';
-import styles from '../inventory.module.scss';
 
 /**
  * Hồ sơ đầy đủ của một mã, mở từ danh mục Kho.
@@ -40,7 +50,9 @@ export function ItemProfileDialog({
       setAsset(await loadItemProfile(code));
       setError(undefined);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không đọc được hồ sơ vật tư.');
+      setError(
+        cause instanceof Error ? cause.message : 'Không đọc được hồ sơ vật tư.',
+      );
     }
   }, [code]);
 
@@ -49,54 +61,43 @@ export function ItemProfileDialog({
     void reload();
   }, [reload]);
 
-  // Esc để đóng: hộp thoại này che gần hết màn hình, bắt người dùng đi tìm nút
-  // đóng ở góc là thêm một nhịp không cần thiết.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   return (
-    <div className={styles.profileDialog} role="dialog" aria-modal="true" aria-label={`Hồ sơ ${code}`}>
-      {/* Nền tối cũng là nút đóng — bấm ra ngoài để thoát là phản xạ sẵn có. */}
-      <div className={styles.profileBackdrop} onClick={onClose} />
-      <div className={styles.profileBox}>
-        <button
-          type="button"
-          className={styles.profileClose}
-          aria-label="Đóng hồ sơ"
-          onClick={onClose}
-        >
-          ×
-        </button>
+    <Dialog onEscape={onClose}>
+      <DialogContent className="max-w-[1200px]" aria-label={`Hồ sơ ${code}`}>
+        <DialogHeader>
+          <DialogTitle>{`Hồ sơ ${code}`}</DialogTitle>
+          <DialogCloseButton
+            aria-label="Đóng hồ sơ"
+            title="Đóng hồ sơ"
+            onClick={onClose}
+          />
+        </DialogHeader>
+        <DialogBody>
+          {error ? (
+            <p role="alert" className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-3 text-red-800">
+              {error}
+            </p>
+          ) : null}
 
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
-
-        {asset ? (
-          <>
-            <AssetDetail
-              asset={asset}
-              busy={busy}
-              catalog={catalog}
-              units={units}
-              onSaved={() => {
-                void reload();
-                onSaved();
-              }}
-            />
-            <AssetDocumentPanel assetCode={asset.code} busy={busy} />
-          </>
-        ) : error ? null : (
-          <p className={styles.empty}>Đang tải hồ sơ…</p>
-        )}
-      </div>
-    </div>
+          {asset ? (
+            <>
+              <AssetDetail
+                asset={asset}
+                busy={busy}
+                catalog={catalog}
+                units={units}
+                onSaved={() => {
+                  void reload();
+                  onSaved();
+                }}
+              />
+              <AssetDocumentPanel assetCode={asset.code} busy={busy} />
+            </>
+          ) : error ? null : (
+            <p className="m-0 py-8 text-center text-slate-500">Đang tải hồ sơ…</p>
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   );
 }

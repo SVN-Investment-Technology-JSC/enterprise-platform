@@ -1,9 +1,45 @@
 'use client';
 
-import { authFetch } from '@enterprise-platform/shared-ui';
-import { useEffect, useRef, useState } from 'react';
+import { AppIcon, authFetch, useBrandSlot } from '@enterprise-platform/shared-ui';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { isLauncherOnlyModule } from './launcher-only-modules';
+import { EmptyFallback, ModuleGridFallback } from './shell-icons';
 import styles from './module-shell-light.module.scss';
+
+type ModuleSlotId = Parameters<typeof useBrandSlot>[0];
+
+const MODULE_SLOT_MAP: Partial<Record<string, ModuleSlotId>> = {
+  workspace: 'module.workspace',
+  hrm: 'module.hrm',
+  inventory: 'module.inventory',
+  maintenance: 'module.maintenance',
+  finance: 'module.finance',
+  'procedure-engine': 'module.procedure',
+  procedure: 'module.procedure',
+  crm: 'module.crm',
+  shared: 'module.shared',
+  social: 'module.social',
+  assistant: 'module.assistant',
+  chat: 'module.chat',
+  correspondence: 'module.correspondence',
+};
+
+function SlotBadge({
+  slot,
+  fallbackText,
+}: {
+  readonly slot: ModuleSlotId;
+  readonly fallbackText: string;
+}) {
+  const { hasCustom } = useBrandSlot(slot);
+  const renderFallback = useCallback(() => <>{fallbackText}</>, [fallbackText]);
+
+  if (!hasCustom) {
+    return <>{fallbackText}</>;
+  }
+
+  return <AppIcon slot={slot} fallback={renderFallback} className="size-4" />;
+}
 
 /**
  * Phần của danh mục phân hệ mà ô chuyển cần.
@@ -89,12 +125,7 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <svg viewBox="0 0 24 24" className={styles.icon} aria-hidden>
-          <rect x="3" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="14" width="7" height="7" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" />
-        </svg>
+        <AppIcon slot="shell.module-switcher" fallback={ModuleGridFallback} className={styles.icon} />
       </button>
 
       {open ? (
@@ -106,6 +137,8 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
           ) : null}
           {modules?.map((module) => {
             const current = module.key === moduleKey;
+            const slot = MODULE_SLOT_MAP[module.key];
+            const fallbackText = module.icon || module.name.trim().charAt(0).toUpperCase();
             return (
               <a
                 key={module.key}
@@ -123,7 +156,7 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
                 }}
               >
                 <span className={styles.switcherBadge} aria-hidden>
-                  {module.icon || module.name.trim().charAt(0).toUpperCase()}
+                  {slot ? <SlotBadge slot={slot} fallbackText={fallbackText} /> : fallbackText}
                 </span>
                 <span className={styles.switcherText}>
                   <span className={styles.switcherName}>{module.name}</span>
@@ -133,6 +166,7 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
             );
           })}
           <a role="menuitem" href={homeHref} className={styles.switcherAll}>
+            <AppIcon slot="nav.applications" fallback={EmptyFallback} className="mr-1.5 inline-block size-4 align-text-bottom" />
             Tất cả ứng dụng
           </a>
         </div>

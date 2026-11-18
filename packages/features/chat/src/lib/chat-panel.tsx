@@ -1,6 +1,6 @@
 'use client';
 
-import { useRealtimeStatus } from '@enterprise-platform/shared-ui';
+import { AppIcon, useRealtimeStatus } from '@enterprise-platform/shared-ui';
 import { BellRing, CheckCircle2, Maximize2, MessageCircle, Minimize2, Settings, ShieldAlert, Wifi, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChat } from './chat-context';
@@ -147,7 +147,7 @@ export function ChatPanel({ hidden }: { hidden: boolean }) {
     >
       <header className={styles.header}>
         <span className={styles.headerIcon} aria-hidden="true">
-          <MessageCircle />
+          <AppIcon slot="module.chat" fallback={MessageCircle} />
         </span>
         <h2 className={styles.headerTitle}>Cổng chat nội bộ</h2>
         <span
@@ -190,7 +190,7 @@ export function ChatPanel({ hidden }: { hidden: boolean }) {
         ) : (
           <section className={styles.thread}>
             <div className={styles.empty}>
-              <MessageCircle aria-hidden="true" />
+              <AppIcon slot="module.chat" fallback={MessageCircle} />
               <strong>Chọn một cuộc trò chuyện</strong>
               Hoặc chọn một người ở cột bên trái để bắt đầu nhắn tin.
             </div>

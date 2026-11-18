@@ -37,10 +37,11 @@ describe('SyncBanner', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('chế độ máy chủ: báo đã kết nối, không có nút đồng bộ khi không còn icon cục bộ', () => {
-    render(<SyncBanner library={library()} />);
+  it('chế độ máy chủ bình thường: ẩn dải, chỉ hiện khi có việc cần chú ý', () => {
+    const { container } = render(<SyncBanner library={library()} />);
 
-    expect(screen.getByText('Đã kết nối máy chủ')).toBeTruthy();
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText('Đã kết nối máy chủ')).toBeNull();
     expect(screen.queryByRole('button', { name: /Đồng bộ lên máy chủ/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Thử lại' })).toBeNull();
   });

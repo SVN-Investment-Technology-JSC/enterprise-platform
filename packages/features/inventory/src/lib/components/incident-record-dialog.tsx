@@ -4,7 +4,12 @@ import type { Asset } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
 import { AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
-import styles from '../inventory.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 export interface IncidentLogRecord {
   id: string;
@@ -79,95 +84,29 @@ export function IncidentRecordDialog({
   const isDirty = dirtySnapshot !== initialSnapshot;
 
   return (
-    <div className={styles.modalOverlay}>
-      <div
-        className={styles.modalDialog}
-        style={{
-          maxWidth: '580px',
-          background: '#ffffff',
-          borderRadius: '12px',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-          border: '1px solid #e2e8f0',
-          padding: '24px',
-          position: 'relative',
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            marginBottom: '18px',
-            borderBottom: '1px solid #f1f5f9',
-            paddingBottom: '14px',
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <AlertTriangle size={20} color="#dc2626" />
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: '20px',
-                  fontWeight: 700,
-                  color: '#0f172a',
-                }}
-              >
+    <Dialog onEscape={isDirty ? undefined : onCancel}>
+      <DialogContent className="max-w-[580px]" aria-label="Ghi nhận sự cố thiết bị">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
+          <DialogHeader>
+            <div>
+              <DialogTitle>
+                <AlertTriangle size={20} color="#dc2626" />
                 Ghi nhận sự cố thiết bị
-              </h2>
+              </DialogTitle>
+              <p className="mt-1 mb-0 text-sm text-slate-500">
+                Thiết bị: <strong>{asset.name}</strong> ({asset.code})
+              </p>
             </div>
-            <p
-              style={{
-                margin: '4px 0 0',
-                fontSize: '14px',
-                color: '#64748b',
-              }}
-            >
-              Thiết bị: <strong>{asset.name}</strong> ({asset.code})
-            </p>
-          </div>
-          <CloseGuard dirty={isDirty} onClose={onCancel}>
-            <button
-              type="button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '28px',
-                height: '28px',
-                padding: 0,
-                border: 'none',
-                borderRadius: '6px',
-                background: '#f1f5f9',
-                color: '#64748b',
-                fontSize: '14px',
-                cursor: 'pointer',
-              }}
-              title="Đóng"
-            >
-              ✕
-            </button>
-          </CloseGuard>
-        </div>
+            <CloseGuard dirty={isDirty} onClose={onCancel}>
+              <DialogCloseButton />
+            </CloseGuard>
+          </DialogHeader>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '16px' }}>
+          <DialogBody className="grid gap-4">
           {/* Mức độ ưu tiên / Nghiêm trọng */}
           <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#334155',
-                marginBottom: '6px',
-              }}
-            >
-              Mức độ sự cố / Mức độ ưu tiên <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+            <Label className="mb-1.5 text-sm text-slate-700" required>Mức độ sự cố / Mức độ ưu tiên</Label>
+            <div className="grid grid-cols-4 gap-2">
               {(
                 [
                   { id: 'LOW', label: 'Thấp (P4)', color: '#64748b', bg: '#f8fafc', border: '#cbd5e1' },
@@ -182,18 +121,15 @@ export function IncidentRecordDialog({
                     key={lvl.id}
                     type="button"
                     onClick={() => setSeverity(lvl.id)}
-                    style={{
-                      padding: '8px 4px',
-                      borderRadius: '6px',
-                      fontSize: '13px',
-                      fontWeight: isSelected ? 700 : 500,
-                      textAlign: 'center',
-                      border: isSelected ? `2px solid ${lvl.color}` : `1px solid ${lvl.border}`,
-                      background: isSelected ? lvl.bg : '#ffffff',
-                      color: isSelected ? lvl.color : '#475569',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
+                    className={cn(
+                      'cursor-pointer rounded-md px-1 py-2 text-center text-[13px] transition-all',
+                      isSelected ? 'border-2 font-bold' : 'border bg-white font-medium text-slate-600',
+                    )}
+                    style={
+                      isSelected
+                        ? { borderColor: lvl.color, background: lvl.bg, color: lvl.color }
+                        : { borderColor: lvl.border }
+                    }
                   >
                     {lvl.label}
                   </button>
@@ -203,19 +139,9 @@ export function IncidentRecordDialog({
           </div>
 
           {/* Phân loại sự cố & Người báo cáo */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: '#334155',
-                  marginBottom: '6px',
-                }}
-              >
-                Phân loại sự cố
-              </label>
+              <Label className="mb-1.5 text-sm text-slate-700">Phân loại sự cố</Label>
               <SearchableSelect
                 options={[
                   { value: 'Hỏng hóc / Kẹt cơ khí', label: 'Hỏng hóc / Kẹt cơ khí' },
@@ -235,104 +161,49 @@ export function IncidentRecordDialog({
             </div>
 
             <div>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: '#334155',
-                  marginBottom: '6px',
-                }}
-              >
-                Người ghi nhận / Báo cáo
-              </label>
-              <input
+              <Label className="mb-1.5 text-sm text-slate-700">Người ghi nhận / Báo cáo</Label>
+              <Input
                 type="text"
                 value={reporter}
                 onChange={(e) => setReporter(e.target.value)}
                 placeholder="VD: KTV. Nguyễn Văn A"
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                }}
               />
             </div>
           </div>
 
           {/* Tiêu đề tóm tắt sự cố */}
           <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#334155',
-                marginBottom: '6px',
-              }}
-            >
-              Tiêu đề tóm tắt sự cố <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <input
+            <Label className="mb-1.5 text-sm text-slate-700" required>Tiêu đề tóm tắt sự cố</Label>
+            <Input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="VD: Phát hiện tiếng ồn lạ và nhiệt độ thân bơm tăng cao"
               required
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '14px',
-                boxSizing: 'border-box',
-              }}
             />
           </div>
 
           {/* Chi tiết mô tả */}
           <div>
-            <label
-              style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: 600,
-                color: '#334155',
-                marginBottom: '6px',
-              }}
-            >
-              Mô tả chi tiết hiện trường & Triệu chứng <span style={{ color: '#ef4444' }}>*</span>
-            </label>
-            <textarea
+            <Label className="mb-1.5 text-sm text-slate-700" required>Mô tả chi tiết hiện trường & Triệu chứng</Label>
+            <Textarea
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Mô tả cụ thể biểu hiện lúc xảy ra sự cố, tác động tới dây chuyền, các biện pháp sơ bộ đã thực hiện..."
               required
-              style={{
-                width: '100%',
-                padding: '8px 10px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '14px',
-                resize: 'vertical',
-                boxSizing: 'border-box',
-                fontFamily: 'inherit',
-              }}
+              className="resize-y"
             />
           </div>
 
           {/* Checkbox đồng bộ sang module Bảo trì nếu có */}
-          <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#334155', cursor: 'pointer', margin: 0 }}>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <label className="m-0 flex cursor-pointer items-center gap-2 text-[13px] text-slate-700">
               <input
                 type="checkbox"
                 checked={syncToMaintenance}
                 onChange={(e) => setSyncToMaintenance(e.target.checked)}
-                style={{ cursor: 'pointer' }}
+                className="cursor-pointer"
               />
               <span>
                 <strong>Đồng bộ sang Module Bảo trì (CMMS):</strong> Tự động tạo phiếu sự cố khẩn cấp (Incident Ticket) nếu đơn vị có kích hoạt module Bảo trì.
@@ -340,55 +211,20 @@ export function IncidentRecordDialog({
             </label>
           </div>
 
-          {/* Actions */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-              gap: '10px',
-              paddingTop: '12px',
-              borderTop: '1px solid #f1f5f9',
-              marginTop: '4px',
-            }}
-          >
+          </DialogBody>
+
+          <DialogFooter>
             <CloseGuard dirty={isDirty} onClose={onCancel}>
-              <button
-                type="button"
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  background: '#ffffff',
-                  color: '#475569',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
+              <Button type="button" variant="outline">
                 Đóng
-              </button>
+              </Button>
             </CloseGuard>
-            <button
-              type="submit"
-              disabled={!isFormValid}
-              style={{
-                padding: '8px 20px',
-                borderRadius: '6px',
-                border: 'none',
-                background: !isFormValid ? '#93c5fd' : '#2563eb',
-                color: '#ffffff',
-                fontSize: '14px',
-                fontWeight: 600,
-                cursor: !isFormValid ? 'not-allowed' : 'pointer',
-                transition: 'background 0.15s ease',
-              }}
-            >
+            <Button type="submit" disabled={!isFormValid}>
               Lưu &amp; Ghi nhận nhật ký
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

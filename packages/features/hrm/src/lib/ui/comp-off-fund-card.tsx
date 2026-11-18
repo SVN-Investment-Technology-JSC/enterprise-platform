@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, CalendarClock, Calculator, Clock, Hourglass, Layers, Scale } from 'lucide-react';
+import { CalendarCheck, CalendarClock, Calculator, Clock, Hourglass, Scale } from 'lucide-react';
 import type { HrmOvertimeCompSettings } from '@enterprise-platform/contracts-hrm';
 import { compOffApi } from '../hrm-comp-off-api';
 import { buildCompOffFundSummary } from '../comp-off-model';
@@ -85,7 +85,6 @@ export function CompOffFundCard() {
             </Notice>
           ) : null}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <Item icon={<Layers className="size-4" />} label="Cách phân loại làm thêm" value={summary.classify} />
             <Item icon={<Scale className="size-4" />} label="Trần làm thêm trả lương" value={summary.cap} />
             <Item icon={<Calculator className="size-4" />} label="Quy đổi giờ dư thành ngày" value={summary.conversion} />
             <Item icon={<CalendarClock className="size-4" />} label="Thời điểm cộng quỹ" value={summary.accrual} />

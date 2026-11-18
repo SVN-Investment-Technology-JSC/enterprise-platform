@@ -19,7 +19,7 @@ describe('calendarMonthOfPeriod', () => {
   });
 });
 
-const policy = { ...DEFAULT_OVERTIME_COMP_POLICY, enabled: true, ruleSet: 'NIGHT_REST' as const };
+const policy = { ...DEFAULT_OVERTIME_COMP_POLICY, enabled: true };
 const snapshot = (enabled: boolean): OvertimeCompSnapshot => ({
   version: 1,
   month: '2026-10',
@@ -72,7 +72,7 @@ describe('readOvertimeCompSnapshot', () => {
     const stored = JSON.parse(JSON.stringify(snapshot(true)));
     delete stored.policy.expiryMonths;
     const read = readOvertimeCompSnapshot(stored);
-    expect(read?.policy).toMatchObject({ enabled: true, ruleSet: 'NIGHT_REST', expiryMonths: 0, monthlyCapHours: 40 });
+    expect(read?.policy).toMatchObject({ enabled: true, expiryMonths: 0, monthlyCapHours: 40 });
     expect(read?.employees['emp-a']?.compDays).toBe(4.3);
   });
 

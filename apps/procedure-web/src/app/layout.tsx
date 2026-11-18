@@ -1,6 +1,6 @@
 import './global.css';
 import { Be_Vietnam_Pro } from 'next/font/google';
-import { Toaster } from '@enterprise-platform/shared-ui';
+import { BrandSlotProvider, Toaster } from '@enterprise-platform/shared-ui';
 
 /**
  * Font chung của hệ thống: Be Vietnam Pro (thiết kế riêng cho tiếng Việt, dấu thoáng và rõ ở cỡ nhỏ). Tải cùng ứng dụng
@@ -17,6 +17,9 @@ const fontSans = Be_Vietnam_Pro({
 export const metadata = {
   title: 'Quy trình · Enterprise Platform',
   description: 'Thiết kế và vận hành quy trình cho từng tenant.',
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({
@@ -27,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="vi" className={fontSans.variable}>
       <body>
-        {children}
+        <BrandSlotProvider>{children}</BrandSlotProvider>
         <Toaster />
       </body>
     </html>

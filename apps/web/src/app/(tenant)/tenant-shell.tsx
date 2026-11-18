@@ -7,7 +7,8 @@ import {
   type ModuleNavItem,
   type ModuleSidebarSection,
 } from '@enterprise-platform/feature-module-shell';
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { moduleSlotId } from '@enterprise-platform/shared-brand-icon';
+import { AppIcon, authFetch } from '@enterprise-platform/shared-ui';
 import {
   GitBranch,
   LayoutDashboard,
@@ -18,7 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { moduleAbbr, moduleTint } from './module-tint';
 import { TenantQuickSearch, type QuickSearchEntry } from './tenant-quick-search';
 
@@ -128,15 +129,12 @@ export function TenantShell({
     PAGES.find((page) => page.id !== 'dashboard' && pathname.startsWith(page.href))?.id ??
     'dashboard';
 
-  const nav: ModuleNavItem<TenantView>[] = pages.map((page) => {
-    const Icon = page.icon;
-    return {
-      id: page.id,
-      label: page.label,
-      group: page.group,
-      icon: <Icon size={16} aria-hidden />,
-    };
-  });
+  const nav: ModuleNavItem<TenantView>[] = pages.map((page) => ({
+    id: page.id,
+    label: page.label,
+    group: page.group,
+    icon: <AppIcon slot={`nav.${page.id}`} fallback={page.icon} className="size-4" />,
+  }));
 
   const openModule = (module: CatalogModule) => window.location.assign(module.launchUrl);
 
@@ -209,12 +207,25 @@ export function TenantShell({
 }
 
 function ModuleBadge({ module }: { module: CatalogModule }) {
+  const slot = moduleSlotId(module.key);
+  const abbr = moduleAbbr(module);
+  const tint = moduleTint(module.key);
+  // Ô chữ viết tắt là fallback: chưa gán icon thương hiệu cho phân hệ thì giữ nguyên như cũ.
+  const AbbrTile = useCallback(
+    () => (
+      <span
+        aria-hidden
+        className={`grid h-6 min-w-[34px] place-items-center rounded-md px-1 text-[12px] font-extrabold ${tint}`}
+      >
+        {abbr}
+      </span>
+    ),
+    [abbr, tint],
+  );
+  if (!slot) return <AbbrTile />;
   return (
-    <span
-      aria-hidden
-      className={`grid h-6 min-w-[34px] place-items-center rounded-md px-1 text-[12px] font-extrabold ${moduleTint(module.key)}`}
-    >
-      {moduleAbbr(module)}
+    <span aria-hidden className="grid h-6 min-w-[34px] place-items-center">
+      <AppIcon slot={slot} fallback={AbbrTile} className="size-6" />
     </span>
   );
 }

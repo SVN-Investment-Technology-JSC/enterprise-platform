@@ -18,6 +18,7 @@ export function Panel({
   hint,
   toolbar,
   actions,
+  controls,
   flush = false,
   fill = false,
   sectionRef,
@@ -36,6 +37,8 @@ export function Panel({
   toolbar?: ReactNode;
   /** Phần bên phải thanh tiêu đề (nút, bộ đếm...). */
   actions?: ReactNode;
+  /** Hàng công cụ (tìm, lọc, sắp xếp...) nằm ngay dưới tiêu đề, vẫn trong thanh tiêu đề của khối. */
+  controls?: ReactNode;
   /** Bỏ đệm quanh nội dung, dùng cho bảng sát mép khối. */
   flush?: boolean;
   /**
@@ -56,7 +59,7 @@ export function Panel({
       className={cn('min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm', fill && 'flex flex-col')}
       ref={sectionRef}
     >
-      <header className={cn('flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3.5', fill && 'shrink-0')}>
+      <header className={cn('flex items-center gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3.5', controls && 'flex-wrap gap-y-3', fill && 'shrink-0')}>
         <span className="grid size-8 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-600 ring-1 ring-inset ring-blue-100">
           <Icon aria-hidden className="size-4" />
         </span>
@@ -68,6 +71,7 @@ export function Panel({
         </div>
         {toolbar ? <div className="flex min-w-0 flex-1 items-center justify-end gap-1">{toolbar}</div> : null}
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+        {controls ? <div className="w-full basis-full">{controls}</div> : null}
       </header>
       <div className={cn(!flush && 'px-5 py-4', fill && 'min-h-0 flex-1 overflow-y-auto')} ref={bodyRef}>
         {children}

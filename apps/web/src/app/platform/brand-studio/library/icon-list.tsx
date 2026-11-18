@@ -15,6 +15,7 @@ export function IconList({
   palette,
   selected,
   isPreset,
+  archived = false,
   onSelect,
   onSelectAll,
   ...handlers
@@ -23,6 +24,7 @@ export function IconList({
   palette: BrandPalette;
   selected: ReadonlySet<string>;
   isPreset: (id: string) => boolean;
+  archived?: boolean;
   onSelect: (id: string, checked: boolean) => void;
   onSelectAll: (checked: boolean) => void;
 }) {
@@ -79,12 +81,12 @@ export function IconList({
                 </td>
                 <td className="hidden px-3 py-2 text-slate-600 sm:table-cell">{categoryLabel(doc.category)}</td>
                 <td className="px-3 py-2">
-                  <StatusChip status={doc.status} />
+                  <StatusChip archived={archived} status={doc.status} />
                 </td>
                 <td className="hidden px-3 py-2 text-right tabular-nums text-slate-600 md:table-cell">{doc.shapes.length}</td>
                 <td className="hidden px-3 py-2 tabular-nums text-slate-500 md:table-cell">{formatShortDate(doc.updatedAt)}</td>
                 <td className="px-3 py-2">
-                  <IconActions {...handlers} className="justify-end" doc={doc} placement="left" preset={isPreset(doc.id)} />
+                  <IconActions {...handlers} archived={archived} className="justify-end" doc={doc} placement="left" preset={isPreset(doc.id)} />
                 </td>
               </tr>
             );

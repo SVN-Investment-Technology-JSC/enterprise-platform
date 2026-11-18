@@ -1,6 +1,6 @@
 'use client';
 
-import { DELIVERY_STATUS_LABELS, type LetterSummary } from '@enterprise-platform/contracts-correspondence';
+import { DELIVERY_STATUS_LABELS, outgoingSender, type LetterSummary } from '@enterprise-platform/contracts-correspondence';
 import { dueText, formatDay, stageTone, urgencyTone } from '../correspondence.model';
 import styles from '../correspondence.module.scss';
 
@@ -76,13 +76,19 @@ export function LetterTable({
   const party = (letter: LetterSummary) =>
     letter.direction === 'incoming'
       ? `${letter.senderOrg}${letter.senderRef ? ` · ${letter.senderRef}` : ''}`
-      : `${letter.authorUnitName ?? letter.senderOrg} → ${letter.recipient ?? ''}`;
+      : `${outgoingSender(letter)} → ${letter.recipient ?? ''}`;
 
   return (
     <div className={styles.tableWrap}>
       <table className={styles.table}>
         {mode === 'archive' ? (
           <>
+            <colgroup>
+              <col style={{ width: 150 }} />
+              <col />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 130 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>Số hồ sơ</th>
@@ -109,6 +115,13 @@ export function LetterTable({
           </>
         ) : (
           <>
+            <colgroup>
+              <col style={{ width: 132 }} />
+              <col />
+              <col style={{ width: 128 }} />
+              <col style={{ width: 210 }} />
+              <col style={{ width: 132 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>{mode === 'incoming' ? 'Số đến' : mode === 'outgoing' ? 'Số' : 'Số'}</th>

@@ -1,6 +1,7 @@
 'use client';
 
-import { authFetch } from '@enterprise-platform/shared-ui';
+import { AppIcon, authFetch, useBrandSlot } from '@enterprise-platform/shared-ui';
+import { moduleSlotId } from '@enterprise-platform/shared-brand-icon';
 import type {
   ModuleActivationRequestResponse,
   TenantEntitlementStatus,
@@ -646,12 +647,18 @@ const STATUS_STYLES: Record<
 
 function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; className: string }) {
   const info = getModuleInfo(module.key, module.name, module.description);
+  const slot = moduleSlotId(module.key);
+  const { hasCustom } = useBrandSlot(slot ?? 'brand.logo');
   return (
     <span
       aria-hidden
       className={cn('grid shrink-0 place-items-center font-extrabold', info.accentColor.iconBg, className)}
     >
-      {(module.icon || module.key.slice(0, 2)).toUpperCase()}
+      {slot && hasCustom ? (
+        <AppIcon slot={slot} fallback={Package} className="size-6" />
+      ) : (
+        (module.icon || module.key.slice(0, 2)).toUpperCase()
+      )}
     </span>
   );
 }

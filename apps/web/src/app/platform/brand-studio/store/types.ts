@@ -33,6 +33,8 @@ export interface IconLibrary {
   /** false cho đến khi đọc xong kho (tránh nháy giao diện lúc hydrate hoặc lúc nạp từ máy chủ). */
   readonly ready: boolean;
   readonly docs: readonly IconDocument[];
+  /** Các icon đang ở trạng thái đã lưu trữ trên máy chủ (ở chế độ cục bộ là mảng rỗng). */
+  readonly archivedDocs?: readonly IconDocument[];
   readonly error: string | null;
   /** Nơi đang lưu thư viện. */
   readonly mode: StoreMode;
@@ -53,6 +55,14 @@ export interface IconLibrary {
   remove(id: string): Promise<void>;
   /** Xoá nhiều icon trong một lần lưu; icon mẫu được giữ lại. Trả về số icon đã xoá. */
   removeMany(ids: readonly string[]): Promise<number>;
+  /** Khôi phục icon đã lưu trữ về bản nháp. */
+  restore?(id: string): Promise<IconDocument | null>;
+  /** Khôi phục nhiều icon đã lưu trữ về bản nháp. Trả về số icon đã khôi phục. */
+  restoreMany?(ids: readonly string[]): Promise<number>;
+  /** Xoá vĩnh viễn icon đã lưu trữ khỏi máy chủ. */
+  purge?(id: string): Promise<void>;
+  /** Xoá vĩnh viễn nhiều icon đã lưu trữ khỏi máy chủ. Trả về số icon đã xoá vĩnh viễn. */
+  purgeMany?(ids: readonly string[]): Promise<number>;
   /** Nhân bản thành icon nháp mới (tên thêm " (bản sao)"). */
   duplicate(id: string): Promise<IconDocument | null>;
   /** Gộp icon nạp từ tệp: trùng mã thì được đổi mã mới. Trả về số icon đã thêm. */

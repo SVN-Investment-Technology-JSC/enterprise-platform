@@ -6,7 +6,7 @@ import {
 } from '@enterprise-platform/shared-brand-icon';
 
 export type CategoryFilter = 'all' | IconCategory;
-export type StatusFilter = 'all' | IconStatus;
+export type StatusFilter = 'all' | IconStatus | 'archived';
 export type SortKey = 'updated' | 'name';
 export type ViewMode = 'grid' | 'list';
 
@@ -20,6 +20,12 @@ export interface LibraryView {
 export const DEFAULT_VIEW: LibraryView = { query: '', category: 'all', status: 'all', sort: 'updated' };
 
 export const STATUS_LABELS: Record<IconStatus, string> = { draft: 'Nháp', published: 'Phát hành' };
+export const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
+  all: 'Mọi trạng thái',
+  draft: 'Nháp',
+  published: 'Phát hành',
+  archived: 'Đã lưu trữ',
+};
 export const STATUSES: readonly IconStatus[] = ['draft', 'published'];
 
 export const SORT_LABELS: Record<SortKey, string> = { updated: 'Mới sửa', name: 'Tên A-Z' };
@@ -67,7 +73,17 @@ export function sortIcons(docs: readonly IconDocument[], sort: SortKey): IconDoc
   return list.sort((a, b) => timeOf(b.updatedAt) - timeOf(a.updatedAt) || byName(a, b));
 }
 
-export function applyView(docs: readonly IconDocument[], view: LibraryView): IconDocument[] {
+export function applyView(
+  docs: readonly IconDocument[],
+  view: LibraryView,
+  archivedDocs: readonly IconDocument[] = [],
+): IconDocument[] {
+  if (view.status === 'archived') {
+    const filtered = archivedDocs.filter(
+      (doc) => matchesCategory(doc, view.category) && matchesQuery(doc, view.query),
+    );
+    return sortIcons(filtered, view.sort);
+  }
   return sortIcons(filterIcons(docs, view), view.sort);
 }
 
@@ -80,18 +96,32 @@ export interface FacetCounts {
  * Số icon cho từng nút lọc. Mỗi nhóm đếm theo các bộ lọc còn lại (ô tìm, và nhóm kia), nên con số trên nút
  * luôn khớp với số icon sẽ hiện ra khi bấm nút đó.
  */
-export function facetCounts(docs: readonly IconDocument[], view: Pick<LibraryView, 'query' | 'category' | 'status'>): FacetCounts {
+export function facetCounts(
+  docs: readonly IconDocument[],
+  view: Pick<LibraryView, 'query' | 'category' | 'status'>,
+  archivedDocs: readonly IconDocument[] = [],
+): FacetCounts {
   const category = { all: 0, brand: 0, module: 0, system: 0, custom: 0 } as Record<CategoryFilter, number>;
-  const status = { all: 0, draft: 0, published: 0 } as Record<StatusFilter, number>;
+  const status = { all: 0, draft: 0, published: 0, archived: 0 } as Record<StatusFilter, number>;
   for (const doc of docs) {
     if (!matchesQuery(doc, view.query)) continue;
-    if (matchesStatus(doc, view.status)) {
+    if (view.status !== 'archived' && matchesStatus(doc, view.status)) {
       category.all += 1;
       category[doc.category] += 1;
     }
     if (matchesCategory(doc, view.category)) {
       status.all += 1;
       status[doc.status] += 1;
+    }
+  }
+  for (const doc of archivedDocs) {
+    if (!matchesQuery(doc, view.query)) continue;
+    if (view.status === 'archived') {
+      category.all += 1;
+      category[doc.category] += 1;
+    }
+    if (matchesCategory(doc, view.category)) {
+      status.archived += 1;
     }
   }
   return { category, status };

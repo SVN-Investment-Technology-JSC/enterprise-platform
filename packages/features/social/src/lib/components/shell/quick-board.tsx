@@ -1,6 +1,7 @@
 'use client';
 
 import type { SocialPost, SocialUserRef } from '@enterprise-platform/contracts-social';
+import { AppIcon } from '@enterprise-platform/shared-ui';
 import { Bookmark, FileText, Megaphone, Pin } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { loadReactors, loadScopedFeed } from '../../social-api';
@@ -25,11 +26,14 @@ interface HeadlineListProps {
 }
 
 function HeadlinePanel({ label, items, icon, moreLabel }: HeadlineListProps) {
-  const Icon = icon === 'pin' ? Pin : Bookmark;
   return (
     <section className={`${styles.panel} ${styles.panelSaved}`} aria-label={label}>
       <header className={styles.panelHead}>
-        <Icon size={17} aria-hidden="true" />
+        {icon === 'pin' ? (
+          <Pin size={17} aria-hidden="true" />
+        ) : (
+          <AppIcon slot="sidebar.social.saved" fallback={Bookmark} size={17} />
+        )}
         <h2>{label}</h2>
         {moreLabel ? (
           <SocialLink className={styles.panelLink} to={{ name: 'saved' }}>
@@ -132,7 +136,7 @@ function CompanyNotices({ refreshKey }: { readonly refreshKey: number }) {
   return (
     <section className={`${styles.panel} ${styles.noticePanel}`} aria-label="Thông báo công ty">
       <header className={styles.noticeHead}>
-        <Megaphone size={18} aria-hidden="true" />
+        <AppIcon slot="sidebar.social.announcements" fallback={Megaphone} size={18} />
         <h2>Thông báo công ty</h2>
         <SocialLink className={styles.panelLink} to={{ name: 'wall', announcementsOnly: true }}>
           Xem tất cả

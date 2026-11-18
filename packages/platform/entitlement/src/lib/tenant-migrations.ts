@@ -126,6 +126,8 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0006-step-modes-info-role', path: 'tenant/correspondence/0006-step-modes-info-role.sql' },
     { version: '0007-registers-numbering-signer', path: 'tenant/correspondence/0007-registers-numbering-signer.sql' },
     { version: '0008-conditions-fixed-units-personal', path: 'tenant/correspondence/0008-conditions-fixed-units-personal.sql' },
+    { version: '0009-outgoing-sent-as', path: 'tenant/correspondence/0009-outgoing-sent-as.sql' },
+    { version: '0010-chosen-workflow', path: 'tenant/correspondence/0010-chosen-workflow.sql' },
   ],
   // Bán hàng: khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ, bảo hành.
   crm: [
@@ -543,6 +545,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     {
       version: '0082-hrm-leave-request-groups',
       path: 'tenant/hrm/0082-hrm-leave-request-groups.sql',
+    },
+    {
+      version: '0083-hrm-request-replacements',
+      path: 'tenant/hrm/0083-hrm-request-replacements.sql',
+    },
+    {
+      version: '0084-hrm-ot-request-groups',
+      path: 'tenant/hrm/0084-hrm-ot-request-groups.sql',
     },
   ],
   inventory: [

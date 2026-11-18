@@ -100,9 +100,8 @@ async function nightWindowOf(
   return {
     enabled: policy.enabled,
     policyVersionId,
-    night: policy.declaredNightWindow
-      ? { startMinute: policy.nightStartMinute, endMinute: policy.nightEndMinute }
-      : null,
+    // Giờ làm thêm của đơn công tác không còn tách "giờ đêm": mọi giờ ngoài ca là giờ làm thêm.
+    night: null,
   };
 }
 
