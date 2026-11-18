@@ -81,12 +81,12 @@ export function SharedScreen() {
     view === 'library' && sub === 'trash' && (capabilities.canDeleteDocuments || capabilities.isTenantAdmin);
 
   const nav: readonly ModuleNavItem<Tab>[] = [
-    { id: 'library', label: 'Tài liệu công ty', group: 'Tài liệu', icon: <AppIcon slot="sidebar.shared.library" fallback={FolderOpen} className="size-4" /> },
+    { id: 'library', label: 'Tài liệu công ty', group: 'Tài liệu', icon: <AppIcon slot="sidebar.shared.library" fallback={FolderOpen} size={16} /> },
     {
       id: 'storage',
       label: 'Dung lượng',
       group: 'Quản trị',
-      icon: <AppIcon slot="sidebar.shared.storage" fallback={HardDrive} className="size-4" />,
+      icon: <AppIcon slot="sidebar.shared.storage" fallback={HardDrive} size={16} />,
       badge: usage ? `${Math.round(usage.usedPercent)}%` : undefined,
       hidden: !capabilities.canManage,
     },

@@ -69,31 +69,31 @@ const NAV: readonly ModuleNavItem<Tab>[] = [
     id: 'my-work',
     label: 'Công việc của tôi',
     group: 'Công việc',
-    icon: <AppIcon slot="sidebar.workspace.my-work" fallback={ListChecks} className="size-4" />,
+    icon: <AppIcon slot="sidebar.workspace.my-work" fallback={ListChecks} size={16} />,
   },
   {
     id: 'tasks',
     label: 'Công việc khác',
     group: 'Công việc',
-    icon: <AppIcon slot="sidebar.workspace.tasks" fallback={ClipboardList} className="size-4" />,
+    icon: <AppIcon slot="sidebar.workspace.tasks" fallback={ClipboardList} size={16} />,
   },
   {
     id: 'projects',
     label: 'Dự án',
     group: 'Công việc',
-    icon: <AppIcon slot="sidebar.workspace.projects" fallback={FolderKanban} className="size-4" />,
+    icon: <AppIcon slot="sidebar.workspace.projects" fallback={FolderKanban} size={16} />,
   },
   {
     id: 'documents',
     label: 'Tài liệu',
     group: 'Công việc',
-    icon: <AppIcon slot="sidebar.workspace.documents" fallback={FileText} className="size-4" />,
+    icon: <AppIcon slot="sidebar.workspace.documents" fallback={FileText} size={16} />,
   },
-  { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <AppIcon slot="nav.reports" fallback={BarChart3} className="size-4" /> },
+  { id: 'reports', label: 'Báo cáo', group: 'Công việc', icon: <AppIcon slot="nav.reports" fallback={BarChart3} size={16} /> },
   // Tab "Khách hàng" nằm trong khu vực Dự án (dải hai tab ở đầu trang), không có dòng riêng.
-  { id: 'customers', label: 'Khách hàng', group: 'Công việc', icon: <AppIcon slot="nav.users" fallback={Users} className="size-4" />, hidden: true },
+  { id: 'customers', label: 'Khách hàng', group: 'Công việc', icon: <AppIcon slot="nav.users" fallback={Users} size={16} />, hidden: true },
   // Mở bằng nút bánh răng ở góc dưới thanh bên, không có dòng riêng.
-  { id: 'settings', label: 'Cài đặt', icon: <AppIcon slot="nav.settings" fallback={Settings} className="size-4" />, hidden: true },
+  { id: 'settings', label: 'Cài đặt', icon: <AppIcon slot="nav.settings" fallback={Settings} size={16} />, hidden: true },
 ];
 
 const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);

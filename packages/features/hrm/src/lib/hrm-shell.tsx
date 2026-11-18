@@ -132,7 +132,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
           label: item.label,
           group: section.title,
           icon: slot ? (
-            <AppIcon slot={slot} fallback={Icon} className="size-4" />
+            <AppIcon slot={slot} fallback={Icon} size={16} />
           ) : (
             <Icon className="size-4" aria-hidden />
           ),

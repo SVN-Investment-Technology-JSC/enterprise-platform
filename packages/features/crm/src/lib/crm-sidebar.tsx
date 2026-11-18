@@ -62,7 +62,7 @@ export function CrmInventoryButton({ state, collapsed }: { state: CrmInventoryBu
   if (state === 'hidden') return null;
   const content = (
     <>
-      <AppIcon slot="module.inventory" fallback={Warehouse} className="size-4" />
+      <AppIcon slot="module.inventory" fallback={Warehouse} size={16} />
       {collapsed ? null : <span>{CRM_INVENTORY_LABEL}</span>}
     </>
   );
