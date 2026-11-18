@@ -50,6 +50,7 @@ import {
   useAppointmentContext,
 } from '../hrm-personnel-decisions-api';
 import { toast } from './toast';
+import { useCloseGuard } from './use-close-guard';
 import { useHrmPermissions } from '../hrm-permissions';
 
 function formatVnDate(val?: string | null): string {
@@ -565,11 +566,44 @@ export function EmployeeDetailDialog({
     }
   };
 
+  // Chưa lưu: chỉ tính phần đang sửa (form, chức danh, lý do, thay đổi chờ ở các tab).
+  const editDirty =
+    isEditing &&
+    JSON.stringify([editForm, positionNodeId, positionReason, staged.length]) !==
+      JSON.stringify([toEditState(employee), currentPositionNodeId, '', 0]);
+  // X: đóng cả ngăn kéo; Hủy / Esc khi đang sửa: về chế độ xem. Cả hai hỏi xác nhận khi đã đổi.
+  const closeGuard = useCloseGuard({
+    dirty: editDirty && open,
+    busy: isSaving,
+    onClose: () => {
+      handleCancelEdit();
+      onOpenChange(false);
+    },
+  });
+  const cancelGuard = useCloseGuard({
+    dirty: editDirty && open,
+    busy: isSaving,
+    onClose: handleCancelEdit,
+  });
+
   const editableInputClass =
     'h-8 border-blue-300 bg-blue-50/20 ring-2 ring-blue-500/15 focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-500/35 text-[14px] rounded-lg transition-all shadow-2xs';
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet
+      open={open}
+      disablePointerDismissal
+      onOpenChange={(next) => {
+        if (next) {
+          onOpenChange(true);
+          return;
+        }
+        if (isSaving) return;
+        // Esc hai tầng: đang xem -> đóng; đang sửa -> về chế độ xem (hỏi nếu đã đổi).
+        if (isEditing) cancelGuard.requestClose();
+        else onOpenChange(false);
+      }}
+    >
       <SheetContent
         showCloseButton={false}
         className="flex h-full w-full max-w-[720px] sm:w-[720px] flex-col gap-0 overflow-hidden bg-white p-0 shadow-2xl border-l border-slate-200 [&_button]:text-[14px] [&_.ant-table-wrapper_.ant-table]:text-[14px] [&_.ant-table-wrapper_.ant-table-cell]:text-[14px]"
@@ -615,7 +649,7 @@ export function EmployeeDetailDialog({
                   <button
                     type="button"
                     aria-label="Đóng"
-                    onClick={() => onOpenChange(false)}
+                    onClick={closeGuard.requestClose}
                     className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-200/70 hover:text-slate-700 transition-colors"
                   >
                     <X className="size-4" />
@@ -703,7 +737,7 @@ export function EmployeeDetailDialog({
                         size="sm"
                         variant="outline"
                         disabled={isSaving}
-                        onClick={handleCancelEdit}
+                        onClick={cancelGuard.requestClose}
                         className="h-8 border-slate-300 bg-white px-3 text-[14px] text-slate-700 hover:bg-slate-100"
                       >
                         Hủy
@@ -1389,6 +1423,8 @@ export function EmployeeDetailDialog({
           </>
         )}
       </SheetContent>
+      {closeGuard.confirm}
+      {cancelGuard.confirm}
     </Sheet>
   );
 }

@@ -16,6 +16,7 @@ import { assistantActionKeys, useAssistantSaved } from '@enterprise-platform/fea
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent } from '../ui/dialog';
+import { useCloseGuard } from '../ui/use-close-guard';
 import {
   type EmployeeProfileHeroData,
 } from '../ui/employee-hero-card';
@@ -243,6 +244,12 @@ export default function RequestsPage() {
   } | null>(null);
   // Danh mục loại đơn cấu hình (GET /request-types).
   const [requestTypes, setRequestTypes] = useState<HrmRequestType[]>([]);
+  // Form tạo đơn đã bị sửa (theo `seq` của lần mở) -> đóng hộp thoại phải hỏi xác nhận.
+  const [createDirtySeq, setCreateDirtySeq] = useState<number | null>(null);
+  const createGuard = useCloseGuard({
+    dirty: isCreateModalOpen && createForm !== null && createDirtySeq === createForm.seq,
+    onClose: () => setIsCreateModalOpen(false),
+  });
 
   // Master Data
   const [leaveTypes, setLeaveTypes] = useState<LeaveTypeItem[]>([]);
@@ -1920,7 +1927,11 @@ export default function RequestsPage() {
       )}
 
       {/* POPUP MODAL: KHỞI TẠO ĐƠN THEO TỪNG LOẠI NGHIỆP VỤ */}
-      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+      <Dialog
+        open={isCreateModalOpen}
+        onOpenChange={(next) => (next ? setIsCreateModalOpen(true) : createGuard.requestClose())}
+        disablePointerDismissal
+      >
         <DialogContent className="max-w-3xl p-0 overflow-hidden bg-white">
           {createForm && (
             <CreateRequestForm
@@ -1938,13 +1949,15 @@ export default function RequestsPage() {
                 leaveBalances,
                 loading,
               }}
-              onCancel={() => setIsCreateModalOpen(false)}
+              onCancel={createGuard.requestClose}
+              onDirtyChange={() => setCreateDirtySeq(createForm.seq)}
               onSubmitted={handleRequestSubmitted}
               replaces={createForm.replaces}
               onAbandoned={handleRequestAbandoned}
             />
           )}
         </DialogContent>
+        {createGuard.confirm}
       </Dialog>
 
       {/* DRAWER / SLIDE-IN PANEL: XEM CHI TIẾT ĐƠN CHUẨN 5 KHỐI THEO PLAN */}

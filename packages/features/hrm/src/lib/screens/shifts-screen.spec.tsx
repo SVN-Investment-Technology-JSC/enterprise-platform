@@ -120,6 +120,26 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     expect(within(dialog).getByText('9,5 giờ')).toBeTruthy();
   });
 
+  it('đóng form: chưa đổi thì đóng ngay, đã đổi thì hỏi xác nhận', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hủy' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Thêm ca làm việc mới' })).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm ca' }));
+    dialog = await screen.findByRole('dialog', { name: 'Thêm ca làm việc mới' });
+    fireEvent.change(within(dialog).getByLabelText('Tên ca làm việc'), { target: { value: 'Ca thử' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hủy' }));
+    expect(await screen.findByText('Đóng và bỏ thay đổi?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Tiếp tục nhập' }));
+    expect(screen.getByRole('dialog', { name: 'Thêm ca làm việc mới' })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Thêm ca làm việc mới' })).getByRole('button', { name: 'Hủy' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Đóng và bỏ' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Thêm ca làm việc mới' })).toBeNull());
+  });
+
   it('shiftBarSegments: ca thường, ca qua đêm bị cắt làm hai đoạn, thiếu giờ thì rỗng', () => {
     const normal = shiftBarSegments({ startTime: '06:00:00', endTime: '18:00:00', breakMinutes: 60, breakStartTime: '12:00', breakEndTime: '13:00' });
     expect(normal.work).toEqual([[25, 75]]);

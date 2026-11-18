@@ -327,7 +327,11 @@ export function AssignInlineForm({
         </SettingsSection>
       ) : null}
 
-      <Dialog open={confirmOpen} onOpenChange={(open) => (open ? setConfirmOpen(true) : closeConfirm())}>
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => (open ? setConfirmOpen(true) : closeConfirm())}
+        disablePointerDismissal
+      >
         <DialogContent className="@container h-[min(88dvh,780px)] max-w-3xl" aria-label="Tổng quan phân ca">
           <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 pr-12 @lg:px-6">
             <DialogTitle className="flex items-center gap-2 text-lg">

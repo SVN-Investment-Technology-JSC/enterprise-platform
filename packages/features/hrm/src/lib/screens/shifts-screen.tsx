@@ -32,6 +32,7 @@ import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { PageTitle } from '../ui/page-title';
+import { useCloseGuard } from '../ui/use-close-guard';
 import { EmptyPanel, InfoNote, SettingsField, SettingsSection, SettingsSwitch, StatusPill } from '../ui/settings-kit';
 import { TimeTextInput } from '../ui/time-text-input';
 import { toast } from '../ui/toast';
@@ -207,6 +208,13 @@ export default function ShiftsPage() {
   const [form, setForm] = useState<ShiftForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
+  // Ảnh chụp form lúc mở hộp thoại, để biết người dùng đã sửa gì chưa.
+  const [formBase, setFormBase] = useState(() => JSON.stringify(EMPTY_FORM));
+  const guard = useCloseGuard({
+    dirty: dialogOpen && JSON.stringify(form) !== formBase,
+    busy: saving,
+    onClose: () => setDialogOpen(false),
+  });
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -240,6 +248,7 @@ export default function ShiftsPage() {
   function openCreate() {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setFormBase(JSON.stringify(EMPTY_FORM));
     setFormError('');
     setDialogOpen(true);
   }
@@ -247,6 +256,7 @@ export default function ShiftsPage() {
   function openEdit(shift: HrmShiftDefinition) {
     setEditing(shift);
     setForm(formFromShift(shift));
+    setFormBase(JSON.stringify(formFromShift(shift)));
     setFormError('');
     setDialogOpen(true);
   }
@@ -562,7 +572,14 @@ export default function ShiftsPage() {
         </div>
       </section>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        disablePointerDismissal
+        onOpenChange={(open) => {
+          if (open) setDialogOpen(true);
+          else guard.requestClose();
+        }}
+      >
         <DialogContent
           className="max-h-[90dvh] max-w-4xl gap-0 bg-white p-0"
           aria-label={editing ? 'Cập nhật ca làm việc' : 'Thêm ca làm việc'}
@@ -704,7 +721,7 @@ export default function ShiftsPage() {
           </div>
 
           <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
-            <Button variant="outline" className="h-9 px-4 text-xs" onClick={() => setDialogOpen(false)}>
+            <Button variant="outline" className="h-9 px-4 text-xs" onClick={guard.requestClose}>
               Hủy
             </Button>
             <Button className="h-9 gap-1.5 px-4 text-xs font-semibold" disabled={saving} onClick={() => void save()}>
@@ -713,6 +730,7 @@ export default function ShiftsPage() {
             </Button>
           </div>
         </DialogContent>
+        {guard.confirm}
       </Dialog>
 
       {canAudit ? (

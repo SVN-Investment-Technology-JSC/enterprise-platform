@@ -19,7 +19,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
 import type {
   HrmBusinessTripType,
@@ -412,6 +412,11 @@ export interface CreateRequestFormProps {
   /** Sửa đơn chưa duyệt: đơn này bị thay bằng nội dung vừa nhập (máy chủ kiểm tra lại như khi tạo mới). */
   readonly replaces?: { readonly id: string; readonly expectedUpdatedAt?: string };
   readonly onCancel: () => void;
+  /**
+   * Báo lên hộp thoại cha khi người dùng đã nhập hoặc đổi một ô (dùng để hỏi xác nhận trước khi đóng). Chỉ bắt các ô
+   * nhập thật (input, textarea, ô chọn); form có quá nhiều trạng thái để so snapshot.
+   */
+  readonly onDirtyChange?: (dirty: boolean) => void;
   /** Đơn đã gửi xong. */
   readonly onSubmitted: (result: RequestFormResult) => void | Promise<void>;
   /** Một phần khoảng thời gian đã thành đơn rồi gặp lỗi: form phải đóng để không gửi trùng. */
@@ -435,10 +440,17 @@ export function CreateRequestForm({
   update,
   replaces,
   onCancel,
+  onDirtyChange,
   onSubmitted,
   onAbandoned,
 }: CreateRequestFormProps) {
   const inline = useAssistantEmbed();
+  const dirtyReported = useRef(false);
+  const markDirty = useCallback(() => {
+    if (dirtyReported.current) return;
+    dirtyReported.current = true;
+    onDirtyChange?.(true);
+  }, [onDirtyChange]);
   const { employeeId, profile, leaveTypes, shifts, projects, leaveBalances, loading } = data;
   const onBehalf = data.onBehalf;
   const selectedCatalogId = kind;
@@ -2061,7 +2073,7 @@ export function CreateRequestForm({
   );
 
   return (
-    <>
+    <div className="contents" onChangeCapture={markDirty} onInputCapture={markDirty}>
       {inline ? (
         <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-900">
           <FilePlus className="size-4 shrink-0 text-[#021E73]" />
@@ -3598,6 +3610,6 @@ export function CreateRequestForm({
           <span>{isSubmitting ? 'Đang gửi...' : replaces ? 'Lưu chỉnh sửa' : 'Gửi duyệt đơn'}</span>
         </Button>
       </div>
-    </>
+    </div>
   );
 }

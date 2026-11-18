@@ -5,6 +5,7 @@ import type { HrmOrgUnitOption } from '@enterprise-platform/contracts-hrm';
 import type { SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { Button } from '../button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { useCloseGuard } from '../use-close-guard';
 import {
   ReleaseConfirmButton,
   ReleaseFields,
@@ -47,8 +48,18 @@ export function CancelScheduleDialog({
     // Chỉ khởi tạo lại khi mở hộp thoại.
   }, [open]);
 
+  const guard = useCloseGuard({
+    dirty: open && flow.dirty,
+    busy: flow.busy,
+    onClose: () => onOpenChange(false),
+  });
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+      disablePointerDismissal
+    >
       <DialogContent className="@container h-[min(88dvh,720px)] max-w-3xl" aria-label="Nhả ca">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 pr-12 @lg:px-6">
           <DialogTitle className="text-lg">Nhả ca</DialogTitle>
@@ -64,7 +75,7 @@ export function CancelScheduleDialog({
           <ReleaseStatus flow={flow} />
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 @lg:px-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={guard.requestClose}>
             Đóng
           </Button>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -75,6 +86,7 @@ export function CancelScheduleDialog({
           </div>
         </div>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }
