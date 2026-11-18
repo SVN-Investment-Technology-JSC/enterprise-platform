@@ -26,6 +26,7 @@ const DEFAULT_CATALOG: InventoryCatalogSettings = {
   types: [],
   priceFieldsEnabled: true,
   warrantyFieldsEnabled: true,
+  taxFieldsEnabled: true,
 };
 
 /**
@@ -102,6 +103,7 @@ function normalizeCatalog(value: unknown): InventoryCatalogSettings {
     // client cũ gửi thiếu trường sẽ vô tình ẩn mất cột của cả tenant.
     priceFieldsEnabled: raw.priceFieldsEnabled !== false,
     warrantyFieldsEnabled: raw.warrantyFieldsEnabled !== false,
+    taxFieldsEnabled: raw.taxFieldsEnabled !== false,
   };
 }
 

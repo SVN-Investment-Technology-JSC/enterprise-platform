@@ -134,6 +134,7 @@ function mapMaterial(row: Row): Material {
     isActive: Boolean(row.is_active),
     kind: row.kind === 'SERVICE' ? 'SERVICE' : 'STOCK',
     warrantyMonths: row.warranty_months == null ? undefined : Number(row.warranty_months),
+    taxRate: row.tax_rate == null ? undefined : Number(row.tax_rate),
     assignedEmployeeId: opt(row.assigned_employee_id),
     assignedAt: row.assigned_at ? iso(row.assigned_at) : undefined,
     assetCategory: opt(row.asset_category) as Material['assetCategory'],
@@ -166,6 +167,7 @@ function mapCatalogItem(row: Row): InternalMaterialCatalogItem {
     isSerialized: Boolean(row.is_serialized),
     isActive: Boolean(row.is_active),
     warrantyMonths: row.warranty_months == null ? null : Number(row.warranty_months),
+    taxRate: row.tax_rate == null ? null : Number(row.tax_rate),
     salePrice: row.sale_price == null ? null : Number(row.sale_price),
     tradeCategory: opt(row.trade_category) ?? null,
     avgCost: service ? null : num(row.avg_cost),
@@ -428,9 +430,9 @@ export class PostgresInventoryStore implements InventoryStore {
             serial_number, manufacture_year, supplier, manufacturer,
             purchase_price, currency, is_active, kind, warranty_months,
             assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
-            trade_category, description, created_at)
+            trade_category, description, created_at, tax_rate)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $16, $17, $18, $19,
-                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()))
+                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()), $28)
       RETURNING *`,
         [
           input.code,
@@ -460,6 +462,7 @@ export class PostgresInventoryStore implements InventoryStore {
           input.description?.trim() || null,
           history?.isActive ?? true,
           history?.createdAt ?? null,
+          input.taxRate ?? null,
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -503,7 +506,8 @@ export class PostgresInventoryStore implements InventoryStore {
                 description = CASE WHEN $27::boolean THEN $28::text ELSE description END,
                 -- Chỉ điền dấu vết khai báo cho mã chưa có người tạo; vế phải đọc giá trị trước khi cập nhật.
                 created_by = CASE WHEN created_by IS NULL THEN $29::text ELSE created_by END,
-                created_at = CASE WHEN created_by IS NULL AND $30::timestamptz IS NOT NULL THEN $30::timestamptz ELSE created_at END
+                created_at = CASE WHEN created_by IS NULL AND $30::timestamptz IS NOT NULL THEN $30::timestamptz ELSE created_at END,
+                tax_rate = CASE WHEN $31::boolean THEN $32::numeric ELSE tax_rate END
           WHERE code = $1 AND kind IN ('STOCK', 'SERVICE')
       RETURNING *`,
         [
@@ -539,6 +543,9 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.description?.trim() || null,
           history?.createdBy?.trim() || null,
           history?.createdAt ?? null,
+          // `undefined` giữ nguyên, `null` xoá thuế suất.
+          patch.taxRate !== undefined,
+          patch.taxRate ?? null,
         ],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -681,7 +688,7 @@ export class PostgresInventoryStore implements InventoryStore {
       // có hàng; hết hàng ở mọi kho thì lấy giá bình quân cuối cùng còn ghi.
       const result = await pool.query<Row>(
         `SELECT m.id, m.code, m.name, m.unit, m.kind, m.category, m.is_serialized, m.is_active,
-                m.warranty_months, m.sale_price, m.trade_category, stock.stocks,
+                m.warranty_months, m.tax_rate, m.sale_price, m.trade_category, stock.stocks,
                 COALESCE(round(stock.value / NULLIF(stock.quantity, 0), 4), stock.fallback_avg, 0)
                   AS avg_cost
            FROM inventory_schema.materials m

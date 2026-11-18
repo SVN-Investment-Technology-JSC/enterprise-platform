@@ -172,6 +172,33 @@ describe('InventoryApplication hình thức kinh doanh và giá bán', () => {
     expect(material.update).toHaveBeenCalledTimes(1);
   });
 
+  it('thuế suất: nhận 0 đến 100 tối đa 2 chữ số thập phân, truyền xuống kho dữ liệu', async () => {
+    const { app, material } = setup();
+    for (const taxRate of [0, 8, 10, 5.5, 7.25, 100]) {
+      await app.createMaterial(manager, { ...base, code: `vt-${taxRate}`, taxRate });
+    }
+    expect(material.create).toHaveBeenCalledTimes(6);
+    expect(material.create).toHaveBeenCalledWith('t1', expect.objectContaining({ taxRate: 0 }), 'Hải', undefined);
+    await app.createMaterial(manager, { ...base, code: 'vt-none' });
+    expect(material.create).toHaveBeenLastCalledWith('t1', expect.not.objectContaining({ taxRate: expect.anything() }), 'Hải', undefined);
+  });
+
+  it('thuế suất: từ chối số âm, trên 100, quá 2 chữ số thập phân, không phải số', async () => {
+    const { app, material } = setup();
+    for (const taxRate of [-1, 100.01, 8.123, Number.NaN, Number.POSITIVE_INFINITY, '10' as never]) {
+      await expect(app.createMaterial(manager, { ...base, taxRate })).rejects.toThrow('Thuế suất');
+    }
+    expect(material.create).not.toHaveBeenCalled();
+  });
+
+  it('thuế suất khi sửa: null để xoá, số sai bị chặn', async () => {
+    const { app, material } = setup();
+    material.findAnyByCode.mockResolvedValue({ code: 'VT-1', kind: 'STOCK', minStock: 0, maxStock: 0 } as unknown as Material);
+    await expect(app.updateMaterial(manager, 'VT-1', { taxRate: 101 })).rejects.toThrow('Thuế suất');
+    await app.updateMaterial(manager, 'VT-1', { taxRate: null });
+    expect(material.update).toHaveBeenCalledWith('t1', 'VT-1', { taxRate: null });
+  });
+
   it('sửa mã đã ngừng dùng: bị chặn, trừ khi chỉ để dùng lại', async () => {
     const { app, material } = setup();
     material.findAnyByCode.mockResolvedValue({ code: 'VT-1', kind: 'STOCK', isActive: false, minStock: 0, maxStock: 0 } as unknown as Material);

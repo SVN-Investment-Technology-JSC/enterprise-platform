@@ -1348,6 +1348,7 @@ export class InventoryApplication {
     this.requireStockBounds(input.minStock, input.maxStock);
     const kind = requireMaterialKind(input.kind) ?? 'STOCK';
     requireWarrantyMonths(input.warrantyMonths);
+    requireTaxRate(input.taxRate);
     if (kind === 'SERVICE' && input.isSerialized) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
     }
@@ -1403,6 +1404,7 @@ export class InventoryApplication {
     );
     const kind = requireMaterialKind(patch.kind) ?? current.kind;
     requireWarrantyMonths(patch.warrantyMonths);
+    requireTaxRate(patch.taxRate);
     if (kind !== current.kind && (await this.store.material.hasStockFootprint(actor.tenantId, code))) {
       throw new InventoryError(
         'VALIDATION',
@@ -1818,6 +1820,14 @@ function requireWarrantyMonths(value: unknown): void {
   if (value === undefined || value === null) return;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 1200) {
     throw new InventoryError('VALIDATION', 'Số tháng bảo hành phải là số nguyên từ 0 đến 1200.');
+  }
+}
+
+/** Thuế suất là phần trăm từ 0 đến 100, tối đa hai chữ số thập phân (khớp NUMERIC(5,2)). */
+function requireTaxRate(value: unknown): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100 || Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {
+    throw new InventoryError('VALIDATION', 'Thuế suất phải là số từ 0 đến 100, tối đa 2 chữ số thập phân.');
   }
 }
 

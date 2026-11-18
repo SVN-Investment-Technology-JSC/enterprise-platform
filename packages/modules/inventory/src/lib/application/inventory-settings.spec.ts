@@ -44,3 +44,21 @@ describe('cài đặt catalog.trade (phân loại và sử dụng hàng hóa)', 
     });
   });
 });
+
+describe('cài đặt catalog.asset: taxFieldsEnabled (thuế suất hàng hóa)', () => {
+  it('mặc định bật ô thuế suất', () => {
+    expect(INVENTORY_SETTINGS_DEFAULTS['catalog.asset']).toMatchObject({ taxFieldsEnabled: true });
+  });
+
+  it('payload cũ thiếu trường vẫn bật, không vô tình ẩn ô của cả tenant', () => {
+    expect(normalizeInventorySetting('catalog.asset', { priceFieldsEnabled: true })).toMatchObject({
+      taxFieldsEnabled: true,
+    });
+  });
+
+  it('tenant tắt thì giữ tắt', () => {
+    expect(normalizeInventorySetting('catalog.asset', { taxFieldsEnabled: false })).toMatchObject({
+      taxFieldsEnabled: false,
+    });
+  });
+});

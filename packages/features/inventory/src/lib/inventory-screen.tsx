@@ -1035,6 +1035,7 @@ export function InventoryScreen() {
               units={settings?.['catalog.unit'].value.units ?? []}
               types={settings?.['catalog.asset'].value.types ?? []}
               catalog={settings?.['catalog.trade']?.value}
+              taxFieldEnabled={settings?.['catalog.asset']?.value.taxFieldsEnabled !== false}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);

@@ -112,6 +112,8 @@ export interface CreateMaterialRequest {
   readonly kind?: MaterialKind;
   /** Số tháng bảo hành mặc định khi bán; bỏ trống là chưa khai. */
   readonly warrantyMonths?: number | null;
+  /** Thuế suất (%) từ 0 đến 100, tối đa 2 chữ số thập phân; bỏ trống là chưa khai, khác 0. Giá nhập và giá bán là giá chưa thuế. */
+  readonly taxRate?: number | null;
   readonly assignedEmployeeId?: string;
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
   /** Hình thức kinh doanh; bỏ trống là chưa khai. */
@@ -197,6 +199,8 @@ export interface UpdateMaterialRequest {
   readonly kind?: MaterialKind;
   /** `null` xoá số tháng bảo hành đã khai. */
   readonly warrantyMonths?: number | null;
+  /** `null` xoá thuế suất đã khai. */
+  readonly taxRate?: number | null;
   readonly assignedEmployeeId?: string;
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
 }
@@ -537,6 +541,8 @@ export interface Material {
   readonly kind: MaterialKind;
   /** Số tháng bảo hành mặc định; không có là chưa khai. */
   readonly warrantyMonths?: number;
+  /** Thuế suất (%); không có là chưa khai. Giá nhập và giá bán là giá chưa thuế. */
+  readonly taxRate?: number;
   readonly assignedEmployeeId?: string;
   readonly assignedAt?: string;
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
@@ -1181,6 +1187,8 @@ export interface InventoryCatalogSettings {
   readonly types: readonly string[];
   readonly priceFieldsEnabled: boolean;
   readonly warrantyFieldsEnabled: boolean;
+  /** Hiện ô Thuế suất ở form Hàng hóa; tenant nào không dùng thì tắt. */
+  readonly taxFieldsEnabled: boolean;
 }
 
 /**
@@ -1656,6 +1664,8 @@ export interface InternalMaterialCatalogItem {
   readonly isSerialized: boolean;
   readonly isActive: boolean;
   readonly warrantyMonths: number | null;
+  /** Thuế suất (%) khai trong danh mục hàng hoá; null là chưa khai. Giá bán là giá chưa thuế. */
+  readonly taxRate: number | null;
   /** Giá bán khai trong danh mục hàng hoá (cột Giá ở màn Hàng hóa của Kho); null là chưa khai. */
   readonly salePrice: number | null;
   /** Phân loại hàng hoá hoặc dịch vụ (cột Phân loại ở màn Hàng hóa của Kho); null là chưa khai. */

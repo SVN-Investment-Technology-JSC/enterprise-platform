@@ -87,6 +87,7 @@ export function MaterialForm({
   units = [],
   types = [],
   catalog,
+  taxFieldEnabled = true,
   busy,
   onCancel,
   onSubmit,
@@ -98,6 +99,8 @@ export function MaterialForm({
   types?: readonly string[];
   /** Danh mục phân loại khai trong Cài đặt: nguồn duy nhất của ô Phân loại (hàng hóa và dịch vụ có danh sách riêng). */
   catalog?: InventoryTradeCatalog;
+  /** Tenant bật ô Thuế suất trong Cài đặt; tắt thì ẩn ô, dữ liệu đã nhập vẫn giữ nguyên. */
+  taxFieldEnabled?: boolean;
   busy: boolean;
   onCancel: () => void;
   /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
@@ -114,6 +117,8 @@ export function MaterialForm({
   const [warrantyMonths, setWarrantyMonths] = useState(
     editing?.warrantyMonths === undefined ? '' : String(editing.warrantyMonths),
   );
+  // Chuỗi rỗng là chưa khai thuế suất, khác hẳn 0%.
+  const [taxRate, setTaxRate] = useState(editing?.taxRate === undefined ? '' : String(editing.taxRate));
   const isService = kind === 'SERVICE';
   // Chuỗi rỗng là chưa khai báo giá, khác hẳn với 0.
   const [purchasePrice, setPurchasePrice] = useState(
@@ -162,6 +167,8 @@ export function MaterialForm({
     const warranty = warrantyMonths.trim();
     const price = purchasePrice.trim() === '' ? undefined : Number(purchasePrice);
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) return;
+    const tax = taxRate.trim() === '' ? undefined : Number(taxRate.trim().replace(',', '.'));
+    if (tax !== undefined && (!Number.isFinite(tax) || tax < 0 || tax > 100)) return;
 
     void send(() => onSubmit({
       code: cleanCode,
@@ -177,12 +184,14 @@ export function MaterialForm({
       kind,
       // Ô trống khi sửa là xoá số tháng đã khai.
       warrantyMonths: warranty ? Math.max(Math.trunc(Number(warranty)) || 0, 0) : editing ? null : undefined,
+      // Ô thuế bị tắt thì không gửi, để không xoá thuế suất đã khai; ô trống khi sửa là xoá.
+      ...(taxFieldEnabled ? { taxRate: tax !== undefined ? Math.round(tax * 100) / 100 : editing ? null : undefined } : {}),
     }));
   };
 
   const isDisabled = busy;
 
-  const dirtySnapshot = JSON.stringify([code, name, tradeCategory, type, unit, minStock, maxStock, kind, warrantyMonths, purchasePrice, trackingMode]);
+  const dirtySnapshot = JSON.stringify([code, name, tradeCategory, type, unit, minStock, maxStock, kind, warrantyMonths, taxRate, purchasePrice, trackingMode]);
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
@@ -318,6 +327,22 @@ export function MaterialForm({
                   onChange={(event) => setWarrantyMonths(event.target.value)}
                 />
               </Label>
+
+              {taxFieldEnabled ? (
+                <Label className={FIELD_CLASS}>
+                  Thuế suất (%)
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    placeholder="Bỏ trống nếu chưa khai"
+                    value={taxRate}
+                    onChange={(event) => setTaxRate(event.target.value)}
+                  />
+                  <small className="text-xs font-normal text-slate-500">Giá nhập và giá bán là giá chưa thuế.</small>
+                </Label>
+              ) : null}
 
               {!isService ? (
                 <>

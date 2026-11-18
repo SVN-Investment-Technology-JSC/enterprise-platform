@@ -46,6 +46,16 @@ export function AssetCatalogEditor({
         Hiện hạn bảo hành
       </label>
 
+      <label className="inline-flex cursor-pointer select-none items-center gap-[0.65rem] text-sm font-medium text-slate-700 hover:text-slate-900 [&_input[type=checkbox]]:size-4 [&_input[type=checkbox]]:cursor-pointer [&_input[type=checkbox]]:accent-primary">
+        <input
+          type="checkbox"
+          checked={value.taxFieldsEnabled}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...value, taxFieldsEnabled: event.target.checked })}
+        />
+        Hiện thuế suất của hàng hóa
+      </label>
+
       <fieldset className="m-0 mt-1 flex min-w-0 flex-col gap-[0.65rem] rounded-xl border border-slate-200 bg-white px-5 py-[1.1rem] shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow-md [&>legend]:inline-flex [&>legend]:items-center [&>legend]:gap-1.5 [&>legend]:px-2 [&>legend]:text-sm [&>legend]:font-semibold [&>legend]:text-slate-800">
         <legend>Tình trạng vật tư</legend>
         {/* Danh sách MỞ, không phải bốn ô tích cố định. Bốn giá trị dựng sẵn chỉ
