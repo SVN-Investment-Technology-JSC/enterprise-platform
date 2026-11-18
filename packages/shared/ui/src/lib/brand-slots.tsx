@@ -253,6 +253,7 @@ export function AppIcon({
       <svg
         aria-hidden={ariaHidden}
         aria-label={ariaLabel}
+        data-brand-slot={slot}
         height={size}
         viewBox={model.viewBox}
         width={size}

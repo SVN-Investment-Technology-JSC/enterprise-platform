@@ -34,9 +34,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from 'react';
-import { AppIcon, type AppIconProps } from './brand-slots';
+import { AppIcon, useBrandSlot, type AppIconProps } from './brand-slots';
 import {
   BrowserNotificationClient,
   normalizeNotificationPreference,
@@ -752,13 +753,7 @@ function NotificationList() {
             className={`${styles.item} ${notification.readAt ? '' : styles.unreadItem}`.trim()}
             onClick={() => void realtime.openNotification(notification)}
           >
-            <span className={`${styles.avatar} ${styles[`module_${notification.module}`] ?? ''}`.trim()} aria-hidden="true">
-              {MODULE_SLOTS[notification.module] ? (
-                <AppIcon slot={MODULE_SLOTS[notification.module] as AppIconProps['slot']} fallback={ModuleIcon} size={17} />
-              ) : (
-                <ModuleIcon size={17} />
-              )}
-            </span>
+            <NotificationAvatar module={notification.module} fallback={ModuleIcon} />
             <span className={styles.itemContent}>
               <span className={styles.itemTop}>
                 <strong>{notification.title}</strong>
@@ -1081,6 +1076,33 @@ const MODULE_SLOTS: Readonly<Partial<Record<NotificationRecord['module'], AppIco
   correspondence: 'module.correspondence',
   chat: 'module.chat',
 };
+
+/** Nhóm có icon phân hệ (tự mang nền và bo góc) thì icon lấp đầy ô; còn lại là icon nhỏ trên nền màu theo nhóm. */
+const FILLED_MODULE_SLOTS: ReadonlySet<NotificationRecord['module']> = new Set(['correspondence', 'chat']);
+
+function NotificationAvatar({
+  module,
+  fallback: Fallback,
+}: {
+  module: NotificationRecord['module'];
+  fallback: ComponentType<{ size?: number | string }>;
+}) {
+  const slot = MODULE_SLOTS[module];
+  const { hasCustom } = useBrandSlot(slot ?? 'brand.logo');
+  const filled = Boolean(slot && hasCustom && FILLED_MODULE_SLOTS.has(module));
+  const className = filled
+    ? `${styles.avatar} ${styles.avatarFilled}`
+    : `${styles.avatar} ${styles[`module_${module}`] ?? ''}`.trim();
+  return (
+    <span className={className} aria-hidden="true">
+      {slot ? (
+        <AppIcon slot={slot as AppIconProps['slot']} fallback={Fallback} size={filled ? 36 : 17} />
+      ) : (
+        <Fallback size={17} />
+      )}
+    </span>
+  );
+}
 
 function moduleLabel(module: NotificationRecord['module']): string {
   return ({

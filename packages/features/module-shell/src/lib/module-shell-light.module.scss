@@ -244,6 +244,38 @@
   color: #374151;
 }
 
+// Nút vuông có icon thương hiệu: icon tự mang nền và bo góc nên lấp đầy cả nút, bỏ viền và nền bọc ngoài.
+// Icon dự phòng (lucide) không có `data-brand-slot` nên giữ nguyên giao diện cũ.
+.squareButton:has(> svg[data-brand-slot]),
+.squareButton:has(> svg[data-brand-slot]):hover,
+.squareButton:has(> svg[data-brand-slot]):focus-visible,
+.bell:has(> svg[data-brand-slot]),
+.bell:has(> svg[data-brand-slot]):hover,
+.bell:has(> svg[data-brand-slot]):focus-visible {
+  padding: 0;
+  border: 0;
+  background: transparent;
+
+  // Nút giữ vùng bấm 36px, icon thu về 30px căn giữa cho thoáng và đều với ô icon ở menu phân hệ.
+  > svg {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    transition: transform 0.12s ease, filter 0.12s ease;
+  }
+}
+
+.squareButton:has(> svg[data-brand-slot]):hover > svg,
+.bell:has(> svg[data-brand-slot]):hover > svg {
+  transform: scale(1.08);
+}
+
+.squareButton:has(> svg[data-brand-slot]):focus-visible,
+.bell:has(> svg[data-brand-slot]):focus-visible {
+  outline: 2px solid var(--ep-accent-strong);
+  outline-offset: 1px;
+}
+
 /* Ô chuyển phân hệ, mở từ nút lưới cạnh tên module. */
 .switcher {
   position: relative;
@@ -318,6 +350,20 @@
   color: var(--ep-text-sub);
   font-size: 12px;
   font-weight: 700;
+}
+
+// Ô chứa icon thương hiệu: icon tự mang nền và bo góc nên bỏ viền/nền của ô, kể cả khi dòng đang chọn.
+.switcherBadge.switcherBadgeFilled {
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  border-radius: var(--ep-radius);
+
+  svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
 }
 
 .switcherText {

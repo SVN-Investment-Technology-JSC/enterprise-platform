@@ -1,6 +1,6 @@
 'use client';
 
-import { AppIcon, useRealtimeStatus } from '@enterprise-platform/shared-ui';
+import { AppIcon, useBrandSlot, useRealtimeStatus } from '@enterprise-platform/shared-ui';
 import { BellRing, CheckCircle2, Maximize2, MessageCircle, Minimize2, Settings, ShieldAlert, Wifi, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChat } from './chat-context';
@@ -110,6 +110,7 @@ export function ChatPanel({ hidden }: { hidden: boolean }) {
   const { me, conversations, activeId, setActiveId, setOpen, upsert } = useChat();
   const { people, byId } = usePeople();
   const connected = useRealtimeStatus();
+  const chatBrand = useBrandSlot('module.chat');
   const [expanded, setExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -146,7 +147,7 @@ export function ChatPanel({ hidden }: { hidden: boolean }) {
       aria-label="Cổng chat nội bộ"
     >
       <header className={styles.header}>
-        <span className={styles.headerIcon} aria-hidden="true">
+        <span className={chatBrand.hasCustom ? `${styles.headerIcon} ${styles.headerIconFilled}` : styles.headerIcon} aria-hidden="true">
           <AppIcon slot="module.chat" fallback={MessageCircle} />
         </span>
         <h2 className={styles.headerTitle}>Cổng chat nội bộ</h2>
