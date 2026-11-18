@@ -35,7 +35,16 @@ import {
   type QuoteAction,
 } from '../crm-api';
 import { useCrm } from '../crm-context';
-import { formatPercent, parseNumber } from '../pricing/pricing.model';
+import {
+  CHANGE_PRICE_LIST_CONFIRM,
+  NO_PRICE_LISTS_TEXT,
+  PICK_PRICE_LIST_FIRST,
+  PriceListSelect,
+  priceListOptions,
+  todayInVietnam,
+  usePriceLists,
+} from '../pricing/price-list-select';
+import { formatPercent, parseNumber, priceListDisplayName } from '../pricing/pricing.model';
 import { buildQuoteLayoutData, emptyQuoteLayoutData, quoteExportFileName } from '../quote-layout/quote-layout.data';
 import local from '../pricing/pricing.module.scss';
 import { QUOTE_ACTION_LABELS, formatMoney, personName } from '../sales.model';
@@ -76,6 +85,7 @@ import {
   lineErrorsHint,
   lineErrorsOf,
   setPicked,
+  setPickedOverridePrice,
   setPickedQuantity,
   type PickedMap,
 } from './quote-line-picker.model';
@@ -189,6 +199,10 @@ export function QuoteEditor({
   const { organizations } = useSalesOrganizations();
   const [customer, setCustomer] = useState<CustomerDetail | null>(null);
   const lookups = useQuoteFormLookups();
+  const { lists: priceLists, loaded: priceListsLoaded } = usePriceLists();
+  /** Bảng giá vừa chọn đang chờ xác nhận (báo giá đã có dòng thì giá tính lại). */
+  const [pendingPriceList, setPendingPriceList] = useState<string | null>(null);
+  const [priceListError, setPriceListError] = useState<string>();
 
   const load = useCallback(
     (versionNo?: number) =>
@@ -221,11 +235,13 @@ export function QuoteEditor({
     if (loadedId && openPanel === 'business-plan') openBusinessPlanSection();
   }, [loadedId, openPanel]);
 
+  const hasPriceList = Boolean(detail?.version.priceListId);
   useEffect(() => {
-    if (!loadedId || pickerAfterOpen?.quoteId !== loadedId) return;
+    // Chưa chọn bảng giá thì chưa thêm dòng được: giữ yêu cầu mở chọn mặt hàng cho tới khi có bảng giá.
+    if (!loadedId || !hasPriceList || pickerAfterOpen?.quoteId !== loadedId) return;
     setPicking({ search: pickerAfterOpen.search });
     pickerAfterOpen = undefined;
-  }, [loadedId]);
+  }, [loadedId, hasPriceList]);
 
   // Chi tiết khách cho biến `customer.*` của bố cục in; đọc lỗi thì dùng mã, tên trên báo giá.
   const customerId = detail?.customerId;
@@ -353,6 +369,35 @@ export function QuoteEditor({
     }
   }
 
+  /** Chọn bảng giá: báo giá đã có dòng thì hỏi lại trước (đơn giá gốc của mọi dòng tính lại). */
+  function choosePriceList(next: string) {
+    if (!version || next === (version.priceListId ?? '')) return;
+    if (version.lines.length) setPendingPriceList(next);
+    else void applyPriceList(next);
+  }
+
+  /**
+   * Lưu bảng giá ngay (`PATCH` phiên bản chỉ gồm `priceListId`); ô chọn đọc theo bản đã lưu nên lỗi (ví dụ
+   * `PRICE_NOT_FOUND` kèm dòng) thì tự quay về bảng cũ.
+   */
+  async function applyPriceList(next: string) {
+    if (!detail || !version) return;
+    setBusy(true);
+    setPriceListError(undefined);
+    try {
+      const saved = await updateQuoteVersion(detail.id, version.versionNo, { revision: version.revision, priceListId: next || null });
+      setViewing(undefined);
+      setDetail(saved);
+      toast.success(version.lines.length ? 'Đã đổi bảng giá và tính lại giá các dòng.' : 'Đã chọn bảng giá.');
+    } catch (cause) {
+      const message = quoteFormErrorMessage(cause, 'Không đổi được bảng giá.');
+      setPriceListError(message);
+      toast.error(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Nút "Sửa % chiết khấu": mở khối thông tin báo giá và cuộn tới ô chiết khấu tổng đơn (theo mẫu đang chọn trên màn). */
   function openOrderDiscount() {
     setDetailsOpen(true);
@@ -422,6 +467,11 @@ export function QuoteEditor({
   /** Chế độ chiết khấu theo mẫu đang chọn trên màn; mẫu không còn trong danh sách thì theo bản đã lưu. */
   const shownDiscountMode = selectedTemplate?.discountMode ?? version.form.discountMode;
   const toolbarActions = actions.filter((action) => action !== 'submit' && action !== 'send');
+  /** Ngày tính giá để lọc bảng giá còn hiệu lực; chưa đặt thì hôm nay. */
+  const priceDate = version.priceDate ?? todayInVietnam();
+  const chosenPriceList = version.priceListId
+    ? { id: version.priceListId, code: version.priceListCode, name: version.priceListName, status: version.priceListStatus }
+    : null;
 
   const header = (
     <div className={styles.detailHead}>
@@ -521,6 +571,21 @@ export function QuoteEditor({
           )}
           <dt>Ngày tính giá</dt>
           <dd>{formatDate(version.priceDate ?? version.pricedOn) || 'Hôm nay'}</dd>
+          {editable ? null : (
+            <>
+              <dt>Bảng giá</dt>
+              <dd>
+                {version.priceListName ? (
+                  <>
+                    {priceListDisplayName(version.priceListName, version.priceListStatus)}{' '}
+                    {version.priceListCode ? <span className={styles.mono}>{version.priceListCode}</span> : null}
+                  </>
+                ) : (
+                  <span className={styles.muted}>Chưa chọn</span>
+                )}
+              </dd>
+            </>
+          )}
           {version.decisionReason ? (
             <>
               <dt>Lý do</dt>
@@ -528,6 +593,31 @@ export function QuoteEditor({
             </>
           ) : null}
         </dl>
+        {editable ? (
+          <div className={styles.fieldGrid}>
+            <Field
+              label="Bảng giá"
+              required
+              error={priceListError}
+              hint={
+                priceListsLoaded && !priceListOptions(priceLists, priceDate, chosenPriceList).length
+                  ? NO_PRICE_LISTS_TEXT
+                  : version.priceListId
+                    ? 'Đổi bảng giá thì đơn giá gốc của mọi dòng tính lại'
+                    : PICK_PRICE_LIST_FIRST
+              }
+            >
+              <PriceListSelect
+                lists={priceLists}
+                date={priceDate}
+                value={version.priceListId ?? ''}
+                current={chosenPriceList}
+                disabled={busy}
+                onChange={choosePriceList}
+              />
+            </Field>
+          </div>
+        ) : null}
         {editable ? (
           <>
             <GeneralFields
@@ -639,7 +729,8 @@ export function QuoteEditor({
         costHidden={Boolean(version.costHidden)}
         editable={editable}
         busy={busy}
-        emptyText={editable ? 'Chưa có dòng nào. Bấm + để chọn mặt hàng từ danh mục Kho.' : 'Không có dòng nào.'}
+        addBlockedText={editable && !version.priceListId ? PICK_PRICE_LIST_FIRST : undefined}
+        emptyText={editable ? 'Chưa có dòng nào. Bấm + để chọn mặt hàng trong bảng giá đã chọn.' : 'Không có dòng nào.'}
         discount={{
           // Theo mẫu đang chọn trên màn (đổi mẫu chưa lưu cũng tính): bấm khi còn thay đổi thì lưu trước rồi mới mở.
           enabled: shownDiscountMode === 'ORDER',
@@ -898,6 +989,22 @@ export function QuoteEditor({
           }}
         />
       ) : null}
+      {pendingPriceList !== null ? (
+        <CrmDialog
+          open
+          title="Đổi bảng giá?"
+          submitLabel="Đồng ý"
+          cancelLabel="Huỷ"
+          onClose={() => setPendingPriceList(null)}
+          onSubmit={() => {
+            const next = pendingPriceList;
+            setPendingPriceList(null);
+            void applyPriceList(next);
+          }}
+        >
+          <p className={styles.muted}>{CHANGE_PRICE_LIST_CONFIRM}</p>
+        </CrmDialog>
+      ) : null}
       {editingLine ? (
         <LineDialog
           line={editingLine}
@@ -1153,6 +1260,26 @@ function MaterialPicker({
         );
       },
     },
+    {
+      title: 'Đơn giá ghi đè',
+      key: 'overridePrice',
+      width: 140,
+      render: (_: unknown, row) => {
+        const entry = picked.get(row.id);
+        if (!entry) return null;
+        return (
+          <input
+            className={styles.input}
+            inputMode="decimal"
+            aria-label={`Đơn giá ghi đè ${row.code}`}
+            placeholder="Theo bảng giá"
+            value={entry.overridePrice ?? ''}
+            onClick={(event) => event.stopPropagation()}
+            onChange={(event) => update(setPickedOverridePrice(picked, row.id, event.target.value))}
+          />
+        );
+      },
+    },
   ];
 
   async function save() {
@@ -1183,7 +1310,7 @@ function MaterialPicker({
       open
       wide
       title={beforeLineNo ? `Chèn dòng trước dòng ${beforeLineNo}` : 'Thêm dòng báo giá'}
-      subtitle="Chọn một hoặc nhiều mặt hàng có giá bán trong bảng giá áp dụng cho khách hàng của báo giá"
+      subtitle="Chọn một hoặc nhiều mặt hàng trong bảng giá đã chọn của báo giá; mặt hàng chưa có giá thì nhập đơn giá ghi đè"
       submitLabel={addLinesLabel(picked.size, confirmingDuplicates)}
       submitting={saving}
       error={error ?? catalog.error}

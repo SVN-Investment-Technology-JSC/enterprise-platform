@@ -59,6 +59,7 @@ import { ReceivablesPage } from './receivables/receivables-page';
 import { WarrantyDetail } from './warranty/warranty-detail';
 import { WarrantyPage } from './warranty/warranty-page';
 import { ReportsPage } from './reports/reports-page';
+import { PriceListSyncBanner } from './pricing/price-list-sync-banner';
 import salesStyles from './sales.module.scss';
 import { AppIcon, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { TasksPage } from './tasks/tasks-page';
@@ -191,6 +192,7 @@ export function CrmScreen() {
           {provisioning ? (
             <p className={styles.notice}>Dữ liệu CRM của tenant đang được khởi tạo.</p>
           ) : null}
+          {tablesReady ? <PriceListSyncBanner canManage={capabilities.isTenantAdmin || capabilities.canManage} /> : null}
         </>
       }
     >

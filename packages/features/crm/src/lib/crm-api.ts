@@ -57,6 +57,8 @@ import type {
   DiscountPolicy,
   PriceListDetail,
   PriceListSummary,
+  PriceListSyncResult,
+  PriceListSyncStatus,
   PricingResult,
   PricingSettings,
   QuotePreviewRequest,
@@ -364,6 +366,18 @@ export const updatePriceListItem = (id: string, itemId: string, body: SavePriceL
   send<PriceListDetail>('PATCH', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`, body);
 export const deletePriceListItem = (id: string, itemId: string) =>
   send<PriceListDetail>('DELETE', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}`);
+/** Bảng theo tỷ lệ: nhập giá tay một dòng (`SetManualPriceRequest`). */
+export const setManualPrice = (id: string, itemId: string, price: number) =>
+  send<PriceListDetail>('PUT', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/manual-price`, { price });
+/** Bảng theo tỷ lệ: bỏ giá tay, dòng về giá theo tỷ lệ. */
+export const clearManualPrice = (id: string, itemId: string) =>
+  send<PriceListDetail>('DELETE', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/manual-price`);
+/** Bảng mặc định: sửa thuế suất một dòng (`SetVatRateRequest`). */
+export const setPriceListVatRate = (id: string, itemId: string, vatRate: number) =>
+  send<PriceListDetail>('PUT', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/vat-rate`, { vatRate });
+/** Trạng thái đồng bộ bảng giá mặc định với Kho (chỉ quản trị CRM; người khác nhận 403). */
+export const loadCatalogSyncStatus = () => request<PriceListSyncStatus>('/pricing/catalog-sync', { cache: 'no-store' });
+export const syncCatalog = () => send<PriceListSyncResult>('POST', '/pricing/catalog-sync');
 export const listDiscountPolicies = () => request<DiscountPolicy[]>('/discount-policies', { cache: 'no-store' });
 export const createDiscountPolicy = (body: SaveDiscountPolicyRequest) =>
   send<DiscountPolicy>('POST', '/discount-policies', body);
