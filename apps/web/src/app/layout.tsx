@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { StoreProvider } from '@/store/store-provider';
-import { BrandSlotProvider } from '@enterprise-platform/shared-ui';
+import { BrandSlotProvider, TitleTooltips } from '@enterprise-platform/shared-ui';
 
 /**
  * Font chung của hệ thống: Be Vietnam Pro (thiết kế riêng cho tiếng Việt, dấu thoáng và rõ ở cỡ nhỏ), cùng font với mọi
@@ -39,6 +39,7 @@ export default function RootLayout({
             <Toaster duration={5000} />
           </StoreProvider>
         </BrandSlotProvider>
+        <TitleTooltips />
       </body>
     </html>
   );

@@ -16,3 +16,4 @@ export * from './lib/currency-format';
 export * from './lib/vn-number-input';
 export * from './lib/close-guard';
 export * from './lib/brand-slots';
+export * from './lib/title-tooltips';
