@@ -9,6 +9,7 @@ import {
   formatTaxRate,
   paginate,
   parseTaxRateInput,
+  sanitizeTaxInput,
   parseImportRows,
   toExportRows,
   usageChoices,
@@ -165,6 +166,13 @@ describe('trade-items.model', () => {
     expect(formatTaxRate(0)).toBe('0%');
     expect(formatTaxRate(undefined)).toBe('—');
     expect(formatTaxRate(null)).toBe('—');
+    expect(sanitizeTaxInput('8%')).toBe('8');
+    expect(sanitizeTaxInput(' 10 % ')).toBe('10');
+    expect(sanitizeTaxInput('5,5')).toBe('5,5');
+    expect(sanitizeTaxInput('7.25')).toBe('7.25');
+    expect(sanitizeTaxInput('1,2.3')).toBe('1,23');
+    expect(sanitizeTaxInput('-3')).toBe('3');
+    expect(sanitizeTaxInput('abc')).toBe('');
     expect(parseTaxRateInput('')).toBeUndefined();
     expect(parseTaxRateInput('  ')).toBeUndefined();
     expect(parseTaxRateInput('0')).toBe(0);
@@ -430,7 +438,11 @@ describe('TradeItemsPage', () => {
     fireEvent.change(within(dialog).getByLabelText(/Thuế suất/), { target: { value: '150' } });
     expect(within(dialog).getByRole('alert').textContent).toContain('Thuế suất phải là số từ 0 đến 100');
     expect(submit.disabled).toBe(true);
-    fireEvent.change(within(dialog).getByLabelText(/Thuế suất/), { target: { value: '8,5' } });
+    // Ô chỉ nhận số: hậu tố % và chữ bị bỏ ngay khi gõ.
+    fireEvent.change(within(dialog).getByLabelText(/Thuế suất/), { target: { value: '8%' } });
+    expect((within(dialog).getByLabelText(/Thuế suất/) as HTMLInputElement).value).toBe('8');
+    fireEvent.change(within(dialog).getByLabelText(/Thuế suất/), { target: { value: '8,5%' } });
+    expect((within(dialog).getByLabelText(/Thuế suất/) as HTMLInputElement).value).toBe('8,5');
     expect(submit.disabled).toBe(false);
     fireEvent.click(submit);
     await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
@@ -478,7 +490,7 @@ describe('TradeItemsPage', () => {
     fireEvent.click(await screen.findByText('Hàng chịu 8%', { selector: 'td' }));
     let drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-T8' });
     fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
-    fireEvent.change(within(drawer).getByLabelText(/Thuế suất/), { target: { value: '-3' } });
+    fireEvent.change(within(drawer).getByLabelText(/Thuế suất/), { target: { value: '150' } });
     expect((within(drawer).getByRole('button', { name: 'Lưu thay đổi' }) as HTMLButtonElement).disabled).toBe(true);
     unmount();
     render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} taxFieldEnabled={false} />);

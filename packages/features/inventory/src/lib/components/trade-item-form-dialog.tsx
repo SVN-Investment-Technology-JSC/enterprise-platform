@@ -9,7 +9,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { TRADE_GROUP_LABEL, categoriesOf, parseTaxRateInput, withCurrent, type TradeGroup } from '../trade-items.model';
+import { TRADE_GROUP_LABEL, categoriesOf, parseTaxRateInput, sanitizeTaxInput, withCurrent, type TradeGroup } from '../trade-items.model';
 
 /** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
 const NUMBER_INPUT_CLASS =
@@ -231,10 +231,10 @@ export function TradeItemFormDialog({
                   <Input
                     id="trade-tax"
                     inputMode="decimal"
-                    placeholder="VD: 8, 10 hoặc 5,5. Bỏ trống nếu chưa khai"
+                    placeholder="VD: 8, 10 hoặc 5,5 (không nhập dấu %)"
                     value={tax}
                     aria-invalid={taxInvalid}
-                    onChange={(event) => setTax(event.target.value)}
+                    onChange={(event) => setTax(sanitizeTaxInput(event.target.value))}
                   />
                   {taxInvalid ? (
                     <span role="alert" className="text-[13px] text-red-600">

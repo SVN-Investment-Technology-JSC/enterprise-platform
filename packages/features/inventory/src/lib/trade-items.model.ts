@@ -157,6 +157,23 @@ export function formatTaxRate(rate?: number | null): string {
 }
 
 /**
+ * Lọc ký tự khi gõ vào ô thuế suất: chỉ giữ chữ số và một dấu thập phân (chấm hoặc phẩy), nên không nhận
+ * hậu tố % hay chữ. Chỉ lọc ký tự; khoảng 0 đến 100 và số chữ số thập phân do `parseTaxRateInput` kiểm.
+ */
+export function sanitizeTaxInput(input: string): string {
+  let seenSeparator = false;
+  let out = '';
+  for (const char of input) {
+    if (char >= '0' && char <= '9') out += char;
+    else if ((char === '.' || char === ',') && !seenSeparator) {
+      seenSeparator = true;
+      out += char;
+    }
+  }
+  return out;
+}
+
+/**
  * Đọc ô thuế suất người dùng gõ: trống là chưa khai (`undefined`), số từ 0 đến 100 tối đa hai chữ số thập phân
  * là hợp lệ (nhận cả dấu phẩy và hậu tố %), còn lại là `'invalid'`.
  */

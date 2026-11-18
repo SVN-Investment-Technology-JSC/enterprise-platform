@@ -18,6 +18,7 @@ export {
   paginate,
   parseImportRows,
   parseTaxRateInput,
+  sanitizeTaxInput,
   toExportRows,
   tradeTemplateGuide,
   tradeTemplateRows,

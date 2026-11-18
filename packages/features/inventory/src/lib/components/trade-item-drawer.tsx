@@ -16,6 +16,7 @@ import {
   formatSalePrice,
   formatTaxRate,
   parseTaxRateInput,
+  sanitizeTaxInput,
   tradeGroupOf,
   usageLabel,
   withCurrent,
@@ -390,7 +391,7 @@ export function TradeItemDrawer({
                         placeholder="Bỏ trống nếu chưa khai báo"
                         value={draft.tax}
                         aria-invalid={taxInvalid}
-                        onChange={(event) => change({ tax: event.target.value })}
+                        onChange={(event) => change({ tax: sanitizeTaxInput(event.target.value) })}
                       />
                       {taxInvalid ? (
                         <span role="alert" className="text-[13px] text-red-600">
