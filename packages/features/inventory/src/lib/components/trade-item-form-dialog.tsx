@@ -9,7 +9,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { TRADE_GROUP_LABEL, categoriesOf, withCurrent, type TradeGroup } from '../trade-items.model';
+import { TRADE_GROUP_LABEL, categoriesOf, parseTaxRateInput, withCurrent, type TradeGroup } from '../trade-items.model';
 
 /** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
 const NUMBER_INPUT_CLASS =
@@ -22,6 +22,7 @@ const NUMBER_INPUT_CLASS =
 export function TradeItemFormDialog({
   catalog,
   units = [],
+  taxFieldEnabled = true,
   busy,
   onCancel,
   onCreate,
@@ -29,6 +30,8 @@ export function TradeItemFormDialog({
   catalog?: InventoryTradeCatalog;
   /** Danh mục đơn vị tính khai ở Cài đặt; rỗng thì cho gõ tự do để không chặn việc tạo mã. */
   units?: readonly string[];
+  /** Tenant bật ô Thuế suất trong Cài đặt; tắt thì ẩn ô. */
+  taxFieldEnabled?: boolean;
   busy?: boolean;
   onCancel: () => void;
   /** Gửi lên Kho; từ chối (reject) khi thất bại để form giữ lại dữ liệu và hiện lý do. */
@@ -42,6 +45,7 @@ export function TradeItemFormDialog({
   const [unit, setUnit] = useState('');
   const [usage, setUsage] = useState('');
   const [price, setPrice] = useState('');
+  const [tax, setTax] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string>();
 
@@ -63,7 +67,9 @@ export function TradeItemFormDialog({
 
   const priceValue = price.trim() === '' ? undefined : Number(price);
   const priceInvalid = priceValue !== undefined && (!Number.isFinite(priceValue) || priceValue < 0);
-  const ready = code.trim() !== '' && name.trim() !== '' && unit.trim() !== '' && !priceInvalid;
+  const taxValue = parseTaxRateInput(tax);
+  const taxInvalid = taxFieldEnabled && taxValue === 'invalid';
+  const ready = code.trim() !== '' && name.trim() !== '' && unit.trim() !== '' && !priceInvalid && !taxInvalid;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -80,6 +86,7 @@ export function TradeItemFormDialog({
         tradeCategory: category || undefined,
         tradeMode: usage || undefined,
         salePrice: priceValue,
+        ...(taxFieldEnabled && taxValue !== 'invalid' ? { taxRate: taxValue } : {}),
         currency: priceValue === undefined ? undefined : 'VND',
         description: description.trim() || undefined,
       });
@@ -90,7 +97,7 @@ export function TradeItemFormDialog({
 
   const title = 'Tạo hàng hóa';
 
-  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, price, description]);
+  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, price, tax, description]);
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
@@ -218,6 +225,26 @@ export function TradeItemFormDialog({
                   </span>
                 ) : null}
               </div>
+              {taxFieldEnabled ? (
+                <div className="flex flex-col gap-[0.4rem]">
+                  <Label htmlFor="trade-tax">Thuế suất (%)</Label>
+                  <Input
+                    id="trade-tax"
+                    inputMode="decimal"
+                    placeholder="VD: 8, 10 hoặc 5,5. Bỏ trống nếu chưa khai"
+                    value={tax}
+                    aria-invalid={taxInvalid}
+                    onChange={(event) => setTax(event.target.value)}
+                  />
+                  {taxInvalid ? (
+                    <span role="alert" className="text-[13px] text-red-600">
+                      Thuế suất phải là số từ 0 đến 100, tối đa 2 chữ số thập phân.
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-500">Giá bán là giá chưa thuế.</span>
+                  )}
+                </div>
+              ) : null}
             </div>
             <div className="flex flex-col gap-[0.4rem]">
               <Label htmlFor="trade-description">Mô tả</Label>

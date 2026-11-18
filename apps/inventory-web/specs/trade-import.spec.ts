@@ -197,7 +197,7 @@ describe('Nhập hàng hóa: tệp mẫu', () => {
     const rows = tradeTemplateRows(catalog);
     const sheet = sheetFromRecords(rows);
     const options = baseOptions(sheet);
-    expect(Object.keys(options.mapping)).toHaveLength(14);
+    expect(Object.keys(options.mapping)).toHaveLength(15);
     const built = buildImportRows(sheet, options);
     expect(built.map((row) => row.error)).toEqual([undefined, undefined]);
     expect(built[0].input).toMatchObject({ kind: 'STOCK', tradeCategory: 'HH_1', manufacturer: 'Cadivi', purchasePrice: 32000, isActive: true });

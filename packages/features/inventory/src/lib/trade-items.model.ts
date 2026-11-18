@@ -150,6 +150,25 @@ export function paginate<T>(rows: readonly T[], page: number, pageSize: number):
   };
 }
 
+/** Thuế suất hiển thị, ví dụ "8%" hay "5,5%"; chưa khai là "—", khác 0%. */
+export function formatTaxRate(rate?: number | null): string {
+  if (rate === undefined || rate === null) return '—';
+  return `${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(rate)}%`;
+}
+
+/**
+ * Đọc ô thuế suất người dùng gõ: trống là chưa khai (`undefined`), số từ 0 đến 100 tối đa hai chữ số thập phân
+ * là hợp lệ (nhận cả dấu phẩy và hậu tố %), còn lại là `'invalid'`.
+ */
+export function parseTaxRateInput(input: string): number | undefined | 'invalid' {
+  const text = input.trim().replace(/%$/, '').trim().replace(',', '.');
+  if (text === '') return undefined;
+  if (!/^\d+(\.\d+)?$/.test(text)) return 'invalid';
+  const value = Number(text);
+  if (!Number.isFinite(value) || value > 100) return 'invalid';
+  return Math.abs(value * 100 - Math.round(value * 100)) > 1e-6 ? 'invalid' : value;
+}
+
 /** Giá bán hiển thị; chưa khai khác 0. */
 export function formatSalePrice(price?: number): string {
   return formatCurrencyVn(price, { showUnit: true });
@@ -168,6 +187,7 @@ const EXPORT_HEADERS = {
   unit: 'Đơn vị',
   usage: 'Sử dụng',
   price: 'Giá bán',
+  tax: 'Thuế suất (%)',
 } as const;
 
 export function toExportRows(items: readonly Material[]): Record<string, string | number>[] {
@@ -180,12 +200,13 @@ export function toExportRows(items: readonly Material[]): Record<string, string 
     [EXPORT_HEADERS.unit]: item.unit,
     [EXPORT_HEADERS.usage]: usageLabel(item.tradeMode),
     [EXPORT_HEADERS.price]: item.salePrice ?? '',
+    [EXPORT_HEADERS.tax]: item.taxRate ?? '',
   }));
 }
 
 export function exportTradeItems(items: readonly Material[]): void {
   const ws = XLSX.utils.json_to_sheet(toExportRows(items));
-  ws['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 40 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 18 }, { wch: 14 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'HangHoa');
   const d = new Date();
@@ -203,6 +224,7 @@ const TEMPLATE_HEADERS = [
   'Đơn vị',
   'Sử dụng',
   'Giá bán',
+  'Thuế suất (%)',
   'Giá vốn',
   'Nhà sản xuất',
   'Mô tả',
@@ -229,6 +251,7 @@ export function tradeTemplateRows(catalog?: InventoryTradeCatalog): Record<strin
       'Đơn vị': 'Mét',
       'Sử dụng': u,
       'Giá bán': 45000,
+      'Thuế suất (%)': 8,
       'Giá vốn': 32000,
       'Nhà sản xuất': 'Cadivi',
       'Mô tả': 'Cáp đồng bọc PVC, 3 lõi',
@@ -245,6 +268,7 @@ export function tradeTemplateRows(catalog?: InventoryTradeCatalog): Record<strin
       'Đơn vị': 'Gói',
       'Sử dụng': u,
       'Giá bán': 5250000,
+      'Thuế suất (%)': 10,
       'Giá vốn': '',
       'Nhà sản xuất': '',
       'Mô tả': 'Theo định mức ban hành',
@@ -267,6 +291,7 @@ export function tradeTemplateGuide(): Record<string, string>[] {
     g('Đơn vị', 'Có', 'Đơn vị tính, ví dụ Cái, Bộ, Gói, Mét.'),
     g('Sử dụng', 'Không', 'Chỉ bán, Có thể bán và quà tặng, Chỉ tặng... theo danh mục Cài đặt.'),
     g('Giá bán', 'Không', 'Số không âm (VND). Bỏ trống là chưa khai báo, khác với 0.'),
+    g('Thuế suất (%)', 'Không', 'Số từ 0 đến 100, tối đa 2 chữ số thập phân (ví dụ 8, 10, 5,5). Bỏ trống là chưa khai báo, khác với 0. Giá bán và giá vốn là giá chưa thuế.'),
     g('Giá vốn', 'Không', 'Giá nhập (VND). Bỏ trống là chưa khai báo, khác với 0.'),
     g('Nhà sản xuất', 'Không', 'Hãng sản xuất.'),
     g('Mô tả', 'Không', 'Ghi chú, thông tin thêm (tối đa 2000 ký tự).'),
@@ -279,7 +304,7 @@ export function tradeTemplateGuide(): Record<string, string>[] {
 /** Tệp mẫu để người dùng điền rồi nhập lại. */
 export function downloadTradeTemplate(catalog?: InventoryTradeCatalog): void {
   const ws = XLSX.utils.json_to_sheet(tradeTemplateRows(catalog), { header: [...TEMPLATE_HEADERS] });
-  ws['!cols'] = [16, 34, 16, 12, 18, 10, 24, 14, 14, 16, 34, 18, 12, 18].map((wch) => ({ wch }));
+  ws['!cols'] = [16, 34, 16, 12, 18, 10, 24, 14, 14, 14, 16, 34, 18, 12, 18].map((wch) => ({ wch }));
   const guide = XLSX.utils.json_to_sheet(tradeTemplateGuide());
   guide['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 100 }];
   const wb = XLSX.utils.book_new();
@@ -352,6 +377,10 @@ export function parseImportRows(
       salePrice = parsedPrice;
     }
 
+    const taxText = cell(row, EXPORT_HEADERS.tax);
+    const taxRate = parseTaxRateInput(taxText);
+    if (taxRate === 'invalid') return { line, error: 'Thuế suất phải là số từ 0 đến 100, tối đa 2 chữ số thập phân.' };
+
     return {
       line,
       input: {
@@ -364,6 +393,7 @@ export function parseImportRows(
         tradeCategory: categoryText || undefined,
         tradeMode: usageText || undefined,
         salePrice,
+        taxRate,
         currency: salePrice === undefined ? undefined : 'VND',
       },
     };

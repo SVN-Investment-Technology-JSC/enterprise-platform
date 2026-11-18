@@ -14,6 +14,8 @@ import {
   TRADE_GROUP_LABEL,
   categoriesOf,
   formatSalePrice,
+  formatTaxRate,
+  parseTaxRateInput,
   tradeGroupOf,
   usageLabel,
   withCurrent,
@@ -67,6 +69,7 @@ interface Draft {
   unit: string;
   usage: string;
   price: string;
+  tax: string;
   description: string;
 }
 
@@ -78,6 +81,7 @@ function draftOf(item: Material): Draft {
     unit: item.unit,
     usage: usageLabel(item.tradeMode),
     price: item.salePrice === undefined ? '' : String(item.salePrice),
+    tax: item.taxRate === undefined ? '' : String(item.taxRate),
     description: item.description ?? '',
   };
 }
@@ -96,6 +100,7 @@ export function TradeItemDrawer({
   busy,
   catalog,
   units = [],
+  taxFieldEnabled = true,
   onSave,
   onRetire,
   onReactivate,
@@ -110,6 +115,8 @@ export function TradeItemDrawer({
   catalog?: InventoryTradeCatalog;
   /** Danh mục đơn vị tính khai ở Cài đặt; rỗng thì cho gõ tự do. */
   units?: readonly string[];
+  /** Tenant bật ô Thuế suất trong Cài đặt; tắt thì ẩn ô, thuế đã khai vẫn giữ nguyên. */
+  taxFieldEnabled?: boolean;
   /** Lưu phần sửa; từ chối (reject) khi Kho báo lỗi để drawer hiện lý do và giữ dữ liệu đã nhập. */
   onSave: (patch: UpdateMaterialRequest) => Promise<void> | void;
   /** Ngừng dùng mã; không có đường xoá vì sổ cái trỏ vào mã. Từ chối (reject) khi Kho báo lỗi. */
@@ -162,7 +169,9 @@ export function TradeItemDrawer({
   const dirty = editing && JSON.stringify(draft) !== JSON.stringify(draftOf(item));
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const priceInvalid = priceValue !== undefined && (!Number.isFinite(priceValue) || priceValue < 0);
-  const ready = draft.name.trim() !== '' && draft.unit.trim() !== '' && !priceInvalid;
+  const taxValue = parseTaxRateInput(draft.tax);
+  const taxInvalid = taxFieldEnabled && taxValue === 'invalid';
+  const ready = draft.name.trim() !== '' && draft.unit.trim() !== '' && !priceInvalid && !taxInvalid;
 
   const startEdit = () => {
     setDraft(draftOf(item));
@@ -185,6 +194,8 @@ export function TradeItemDrawer({
         tradeCategory: draft.category || undefined,
         tradeMode: draft.usage || undefined,
         salePrice: priceValue,
+        // Ô trống là xoá thuế suất đã khai; ô bị tắt thì không gửi để giữ nguyên.
+        ...(taxFieldEnabled && taxValue !== 'invalid' ? { taxRate: taxValue ?? null } : {}),
         currency: priceValue === undefined ? undefined : 'VND',
         // Chuỗi rỗng là xoá mô tả.
         description: draft.description.trim(),
@@ -370,6 +381,27 @@ export function TradeItemDrawer({
                 ) : (
                   <DrawerField label="Giá bán">{formatSalePrice(item.salePrice)}</DrawerField>
                 )}
+                {taxFieldEnabled ? (
+                  editing ? (
+                    <EditField label="Thuế suất (%)" htmlFor="trade-edit-tax">
+                      <Input
+                        id="trade-edit-tax"
+                        inputMode="decimal"
+                        placeholder="Bỏ trống nếu chưa khai báo"
+                        value={draft.tax}
+                        aria-invalid={taxInvalid}
+                        onChange={(event) => change({ tax: event.target.value })}
+                      />
+                      {taxInvalid ? (
+                        <span role="alert" className="text-[13px] text-red-600">
+                          Thuế suất phải là số từ 0 đến 100, tối đa 2 chữ số thập phân.
+                        </span>
+                      ) : null}
+                    </EditField>
+                  ) : (
+                    <DrawerField label="Thuế suất">{formatTaxRate(item.taxRate)}</DrawerField>
+                  )
+                ) : null}
                 <DrawerField label="Trạng thái">
                   <TradeStatusBadge active={item.isActive} />
                 </DrawerField>

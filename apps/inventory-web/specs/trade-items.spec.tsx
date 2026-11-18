@@ -6,7 +6,9 @@ import {
   TradeItemsPage,
   categoryChoices,
   filterTradeItems,
+  formatTaxRate,
   paginate,
+  parseTaxRateInput,
   parseImportRows,
   toExportRows,
   usageChoices,
@@ -149,12 +151,47 @@ describe('trade-items.model', () => {
     expect(paginate([], 1, 15)).toMatchObject({ pageCount: 1, from: 0, to: 0, total: 0 });
   });
 
-  it('xuất đủ tám cột, mã sử dụng cũ thành nhãn', () => {
+  it('xuất đủ chín cột, mã sử dụng cũ thành nhãn', () => {
     const [row] = toExportRows([ITEMS[0]] as never);
-    expect(Object.keys(row)).toEqual(['Mã', 'Tên', 'Barcode', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá bán']);
+    expect(Object.keys(row)).toEqual(['Mã', 'Tên', 'Barcode', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá bán', 'Thuế suất (%)']);
     expect(row['Sử dụng']).toBe('Chỉ bán');
     expect(row['Nhóm']).toBe('Hàng hóa');
     expect(row['Phân loại']).toBe('Dây dẫn');
+  });
+
+  it('thuế suất: hiển thị, đọc ô nhập, xuất và nhập Excel', () => {
+    expect(formatTaxRate(8)).toBe('8%');
+    expect(formatTaxRate(5.5)).toBe('5,5%');
+    expect(formatTaxRate(0)).toBe('0%');
+    expect(formatTaxRate(undefined)).toBe('—');
+    expect(formatTaxRate(null)).toBe('—');
+    expect(parseTaxRateInput('')).toBeUndefined();
+    expect(parseTaxRateInput('  ')).toBeUndefined();
+    expect(parseTaxRateInput('0')).toBe(0);
+    expect(parseTaxRateInput('8')).toBe(8);
+    expect(parseTaxRateInput('10%')).toBe(10);
+    expect(parseTaxRateInput('5,5')).toBe(5.5);
+    expect(parseTaxRateInput('7.25')).toBe(7.25);
+    expect(parseTaxRateInput('100')).toBe(100);
+    for (const bad of ['-1', '100.01', '8.123', 'abc', '1e2', '1,2,3']) expect(parseTaxRateInput(bad)).toBe('invalid');
+
+    const [row] = toExportRows([item({ code: 'VT-T', name: 'Có thuế', taxRate: 8 })] as never);
+    expect(row['Thuế suất (%)']).toBe(8);
+    expect(toExportRows([item({ code: 'VT-N', name: 'Chưa khai' })] as never)[0]['Thuế suất (%)']).toBe('');
+
+    const rows = parseImportRows(
+      [
+        { Mã: 'T-1', Tên: 'Một', 'Đơn vị': 'Cái', 'Thuế suất (%)': '8' },
+        { Mã: 'T-2', Tên: 'Hai', 'Đơn vị': 'Cái', 'Thuế suất (%)': '0' },
+        { Mã: 'T-3', Tên: 'Ba', 'Đơn vị': 'Cái' },
+        { Mã: 'T-4', Tên: 'Bốn', 'Đơn vị': 'Cái', 'Thuế suất (%)': '150' },
+      ],
+      CATALOG,
+    );
+    expect(rows[0].input?.taxRate).toBe(8);
+    expect(rows[1].input?.taxRate).toBe(0);
+    expect(rows[2].input?.taxRate).toBeUndefined();
+    expect(rows[3].error).toBe('Thuế suất phải là số từ 0 đến 100, tối đa 2 chữ số thập phân.');
   });
 
   it('nhập: đọc đúng dòng hợp lệ và báo từng dòng sai kèm lý do', () => {
@@ -233,11 +270,11 @@ describe('TradeItemsPage', () => {
     { id: 's1', warehouseId: 'w1', materialId: 'VT-001', quantity: 10, quantityReserved: 2, quantityBlocked: 0, available: 8 },
   ] as never;
 
-  it('hiện bảng tám cột theo thứ tự, mã đã ngừng bị ẩn, có nhập xuất và tạo mới', async () => {
+  it('hiện bảng chín cột theo thứ tự, mã đã ngừng bị ẩn, có nhập xuất và tạo mới', async () => {
     render(<TradeItemsPage canManage warehouses={warehouses} stock={stock} catalog={CATALOG} />);
     await screen.findByText('Cáp điện', { selector: 'td' });
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
-    expect(headers).toEqual(['Mã', 'Tên', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá', 'Trạng thái']);
+    expect(headers).toEqual(['Mã', 'Tên', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá', 'Thuế', 'Trạng thái']);
     expect(screen.queryByText('Mã cũ')).toBeNull();
     expect(screen.getByRole('button', { name: /Nhập Excel/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Xuất Excel/ })).toBeTruthy();
@@ -357,6 +394,102 @@ describe('TradeItemsPage', () => {
       salePrice: 99000,
     });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Đã tạo VT-NEW.'));
+  });
+
+  it('thuế suất: bảng có cột Thuế, dấu gạch khi chưa khai; tắt trong Cài đặt thì ẩn cột', async () => {
+    mockLoadItems.mockResolvedValue([
+      item({ code: 'VT-T8', name: 'Hàng chịu 8%', taxRate: 8 }),
+      item({ code: 'VT-T0', name: 'Hàng thuế 0', taxRate: 0 }),
+      item({ code: 'VT-TN', name: 'Hàng chưa khai' }),
+    ]);
+    const { unmount } = render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    await screen.findByText('Hàng chịu 8%', { selector: 'td' });
+    expect(screen.getByRole('columnheader', { name: 'Thuế' })).toBeTruthy();
+    const cells = (name: string) =>
+      within(screen.getByText(name, { selector: 'td' }).closest('tr') as HTMLElement)
+        .getAllByRole('cell')
+        .map((c) => c.textContent);
+    expect(cells('Hàng chịu 8%')).toContain('8%');
+    expect(cells('Hàng thuế 0')).toContain('0%');
+    expect(cells('Hàng chưa khai')).toContain('—');
+    unmount();
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} taxFieldEnabled={false} />);
+    await screen.findByText('Hàng chịu 8%', { selector: 'td' });
+    expect(screen.queryByRole('columnheader', { name: 'Thuế' })).toBeNull();
+  });
+
+  it('thuế suất: form tạo gửi taxRate, báo lỗi khi sai', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    await screen.findByText('Cáp điện', { selector: 'td' });
+    fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Tạo hàng hóa' });
+    fireEvent.change(within(dialog).getByLabelText(/^Mã/), { target: { value: 'vt-tax' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Tên/), { target: { value: 'Có thuế' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Đơn vị/), { target: { value: 'Bộ' } });
+    const submit = within(dialog).getByRole('button', { name: 'Tạo mới' }) as HTMLButtonElement;
+    fireEvent.change(within(dialog).getByLabelText(/Thuế suất/), { target: { value: '150' } });
+    expect(within(dialog).getByRole('alert').textContent).toContain('Thuế suất phải là số từ 0 đến 100');
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByLabelText(/Thuế suất/), { target: { value: '8,5' } });
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({ code: 'VT-TAX', taxRate: 8.5 });
+  });
+
+  it('thuế suất: tenant tắt thì form tạo không có ô và không gửi taxRate', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} taxFieldEnabled={false} />);
+    await screen.findByText('Cáp điện', { selector: 'td' });
+    fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Tạo hàng hóa' });
+    expect(within(dialog).queryByLabelText(/Thuế suất/)).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText(/^Mã/), { target: { value: 'vt-ntx' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Tên/), { target: { value: 'Không thuế' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Đơn vị/), { target: { value: 'Bộ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Tạo mới' }));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0]).not.toHaveProperty('taxRate');
+  });
+
+  it('thuế suất: drawer xem hiện thuế, sửa được, ô trống là xoá (null)', async () => {
+    mockLoadItems.mockResolvedValue([item({ code: 'VT-T8', name: 'Hàng chịu 8%', taxRate: 8 })]);
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Hàng chịu 8%', { selector: 'td' }));
+    const drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-T8' });
+    expect(within(drawer).getByText('Thuế suất')).toBeTruthy();
+    expect(within(drawer).getByText('8%')).toBeTruthy();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    expect((within(drawer).getByLabelText(/Thuế suất/) as HTMLInputElement).value).toBe('8');
+    fireEvent.change(within(drawer).getByLabelText(/Thuế suất/), { target: { value: '10' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
+    expect(mockUpdate.mock.calls[0][1]).toMatchObject({ taxRate: 10 });
+    await waitFor(() => expect(within(drawer).queryByRole('button', { name: 'Lưu thay đổi' })).toBeNull());
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    fireEvent.change(within(drawer).getByLabelText(/Thuế suất/), { target: { value: '' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(2));
+    expect(mockUpdate.mock.calls[1][1]).toMatchObject({ taxRate: null });
+  });
+
+  it('thuế suất: drawer chặn giá trị sai; tenant tắt thì ẩn ô và không gửi taxRate để giữ thuế đã khai', async () => {
+    mockLoadItems.mockResolvedValue([item({ code: 'VT-T8', name: 'Hàng chịu 8%', taxRate: 8 })]);
+    const { unmount } = render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Hàng chịu 8%', { selector: 'td' }));
+    let drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-T8' });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    fireEvent.change(within(drawer).getByLabelText(/Thuế suất/), { target: { value: '-3' } });
+    expect((within(drawer).getByRole('button', { name: 'Lưu thay đổi' }) as HTMLButtonElement).disabled).toBe(true);
+    unmount();
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} taxFieldEnabled={false} />);
+    fireEvent.click(await screen.findByText('Hàng chịu 8%', { selector: 'td' }));
+    drawer = screen.getByRole('dialog', { name: 'Chi tiết VT-T8' });
+    expect(within(drawer).queryByText('Thuế suất')).toBeNull();
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Sửa' }));
+    fireEvent.change(within(drawer).getByLabelText(/^Tên/), { target: { value: 'Đổi tên' } });
+    fireEvent.click(within(drawer).getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalled());
+    expect(mockUpdate.mock.calls.at(-1)?.[1]).not.toHaveProperty('taxRate');
   });
 
   it('tạo mới: đổi nhóm thì bỏ phân loại đã chọn', async () => {

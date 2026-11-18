@@ -91,6 +91,20 @@ describe('InventoryApplication hình thức kinh doanh và giá bán', () => {
       expect(material.update).not.toHaveBeenCalled();
     });
 
+    it('cập nhật: thuế suất trong tệp được ghi đè, ô không có thì giữ nguyên; tạo mới cũng nhận thuế suất', async () => {
+      const { app, material } = setup();
+      material.findAnyByCode.mockImplementation(async (_t?: string, code?: string) => (code === 'DV-1' ? existing() : null));
+      await app.importMaterials(manager, {
+        rows: [{ ...row, taxRate: 8 }, { ...base, line: 3, code: 'DV-NEW', taxRate: 0 }],
+        onConflict: 'UPDATE',
+      });
+      expect(material.update.mock.calls[0]).toEqual(expect.arrayContaining([expect.objectContaining({ taxRate: 8 })]));
+      expect(material.create).toHaveBeenCalledWith('t1', expect.objectContaining({ code: 'DV-NEW', taxRate: 0 }), undefined, expect.anything());
+      material.update.mockClear();
+      await app.importMaterials(manager, { rows: [row], onConflict: 'UPDATE' });
+      expect(material.update.mock.calls[0][2]).not.toHaveProperty('taxRate');
+    });
+
     it('bỏ qua: giữ bản cũ, báo rõ dòng nào bị bỏ qua, không tính là lỗi', async () => {
       const { app, material } = setup();
       material.findAnyByCode.mockResolvedValue(existing());

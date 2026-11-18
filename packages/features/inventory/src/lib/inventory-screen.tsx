@@ -1287,6 +1287,7 @@ export function InventoryScreen() {
                   stock={workspace.stock}
                   catalog={settings?.['catalog.trade']?.value}
                   units={settings?.['catalog.unit']?.value.units}
+                  taxFieldEnabled={settings?.['catalog.asset']?.value.taxFieldsEnabled !== false}
                   onChanged={() => void reload()}
                   onCatalogChanged={() => void loadInventorySettings().then(setSettings).catch(() => undefined)}
                 />

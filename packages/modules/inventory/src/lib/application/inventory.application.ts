@@ -1809,6 +1809,7 @@ function importPatch(row: ImportMaterialRow): UpdateMaterialRequest {
     tradeMode: row.tradeMode?.trim() || undefined,
     salePrice: row.salePrice,
     purchasePrice: row.purchasePrice,
+    taxRate: row.taxRate,
     currency: row.currency?.trim() || undefined,
     description: row.description?.trim() || undefined,
   };

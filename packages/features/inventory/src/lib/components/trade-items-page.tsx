@@ -33,6 +33,7 @@ import {
   exportTradeItems,
   filterTradeItems,
   formatSalePrice,
+  formatTaxRate,
   paginate,
   tradeGroupOf,
   usageChoices,
@@ -71,6 +72,7 @@ export function TradeItemsPage({
   stock = [],
   catalog,
   units,
+  taxFieldEnabled = true,
   onChanged,
   onCatalogChanged,
 }: {
@@ -82,6 +84,8 @@ export function TradeItemsPage({
   catalog?: InventoryTradeCatalog;
   /** Danh mục đơn vị tính khai ở Cài đặt, làm lựa chọn cho ô Đơn vị của form. */
   units?: readonly string[];
+  /** Tenant bật ô Thuế suất trong Cài đặt: hiện cột Thuế ở bảng và ô thuế ở form, drawer. */
+  taxFieldEnabled?: boolean;
   /** Gọi sau khi tạo, sửa hoặc nhập xong, để tab Nhà kho nạp lại danh mục. */
   onChanged?: () => void;
   /** Gọi sau khi nhập Excel thêm mục vào danh mục Cài đặt, để màn hình tải lại danh mục. */
@@ -315,6 +319,7 @@ export function TradeItemsPage({
                 <TableHeaderCell>Đơn vị</TableHeaderCell>
                 <TableHeaderCell>Sử dụng</TableHeaderCell>
                 <TableHeaderCell className="text-right">Giá</TableHeaderCell>
+                {taxFieldEnabled ? <TableHeaderCell className="text-right">Thuế</TableHeaderCell> : null}
                 <TableHeaderCell>Trạng thái</TableHeaderCell>
               </TableRow>
             </TableHead>
@@ -336,6 +341,7 @@ export function TradeItemsPage({
                   <TableCell>{item.unit}</TableCell>
                   <TableCell>{usageLabel(item.tradeMode) || '—'}</TableCell>
                   <TableCell className="text-right">{formatSalePrice(item.salePrice)}</TableCell>
+                  {taxFieldEnabled ? <TableCell className="text-right">{formatTaxRate(item.taxRate)}</TableCell> : null}
                   <TableCell>
                     <TradeStatusBadge active={item.isActive} />
                   </TableCell>
@@ -391,6 +397,7 @@ export function TradeItemsPage({
           onClose={() => setSelectedCode(undefined)}
           catalog={catalog}
           units={units}
+          taxFieldEnabled={taxFieldEnabled}
           onSave={(patch: UpdateMaterialRequest) =>
             save(async () => `Đã cập nhật ${(await updateMaterial(selected.code, patch)).code}.`)
           }
@@ -401,6 +408,7 @@ export function TradeItemsPage({
         <TradeItemFormDialog
           catalog={catalog}
           units={units}
+          taxFieldEnabled={taxFieldEnabled}
           busy={saving}
           onCancel={() => setDialog(undefined)}
           onCreate={(input: CreateMaterialRequest) =>

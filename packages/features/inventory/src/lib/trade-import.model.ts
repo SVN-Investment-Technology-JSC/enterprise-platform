@@ -1,6 +1,6 @@
 import type { ImportMaterialRow, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
 import * as XLSX from 'xlsx';
-import { categoriesOf, fold, type TradeGroup } from './trade-items.model';
+import { categoriesOf, fold, parseTaxRateInput, type TradeGroup } from './trade-items.model';
 
 /**
  * Nhập hàng hóa, dịch vụ từ tệp Excel bất kỳ (kể cả tệp xuất từ hệ cũ): đọc tiêu đề, tự đoán cột nào là trường nào
@@ -16,6 +16,7 @@ export type ImportFieldKey =
   | 'category'
   | 'usage'
   | 'price'
+  | 'tax'
   | 'cost'
   | 'barcode'
   | 'manufacturer'
@@ -41,6 +42,7 @@ export const IMPORT_FIELDS: readonly ImportFieldSpec[] = [
   { key: 'category', label: 'Phân loại', exact: ['phan loai', 'nhom', 'nhom dich vu', 'nhom san pham', 'nhom hang', 'nhom hang hoa'] },
   { key: 'usage', label: 'Sử dụng', exact: ['su dung', 'su dung cho', 'loai dich vu', 'hinh thuc', 'hinh thuc kinh doanh'] },
   { key: 'price', label: 'Giá bán', exact: ['gia ban', 'gia ban mac dinh'] },
+  { key: 'tax', label: 'Thuế suất (%)', exact: ['thue suat', 'thue suat (%)', 'thue', 'vat', 'thue gtgt', '% thue'] },
   { key: 'cost', label: 'Giá vốn (giá nhập)', exact: ['gia von', 'gia von mac dinh', 'gia nhap'] },
   { key: 'barcode', label: 'Barcode', exact: ['barcode', 'ma vach'] },
   { key: 'manufacturer', label: 'Nhà sản xuất', exact: ['nha san xuat', 'hang san xuat', 'hang sx', 'thuong hieu'] },
@@ -266,6 +268,9 @@ export function buildImportRows(sheet: ImportSheet, options: ImportOptions): Bui
     const purchasePrice = amount('cost');
     if (purchasePrice === 'invalid') return { line, error: 'Giá vốn phải là số không âm.' };
 
+    const taxRate = parseTaxRateInput(cell(row, 'tax'));
+    if (taxRate === 'invalid') return { line, error: 'Thuế suất phải là số từ 0 đến 100, tối đa 2 chữ số thập phân.' };
+
     const createdAtText = cell(row, 'createdAt');
     const createdAt = parseImportDate(row.cells[mapping.createdAt ?? '']);
     if (createdAtText && !createdAt) return { line, error: `Ngày tạo "${createdAtText}" không đọc được (dd/mm/yyyy).` };
@@ -288,6 +293,7 @@ export function buildImportRows(sheet: ImportSheet, options: ImportOptions): Bui
         tradeMode: usage.value,
         salePrice,
         purchasePrice,
+        taxRate,
         currency: salePrice === undefined && purchasePrice === undefined ? undefined : 'VND',
         description: cell(row, 'description') || undefined,
         createdAt,
