@@ -5,17 +5,16 @@ import { CRM_NO_CAPABILITIES, type QuoteSeller, type SaveSalesOrganizationReques
 import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import type { ApprovalLinks } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import { SalesOrganizationService } from './application/sales-organization.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
-import { PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
+import { PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
 import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
@@ -67,6 +66,7 @@ const organization = (name: string, extra: Partial<SaveSalesOrganizationRequest>
 
 integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
   let handle: CrmTestDatabaseHandle;
+  let priceListId: string;
   const tenantId = randomUUID();
   const actor = (userId: string, extra: Partial<CrmActor> = {}): CrmActor => ({
     ...CRM_NO_CAPABILITIES,
@@ -122,9 +122,10 @@ integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
       organizationStore,
     );
     organizations = new SalesOrganizationService(organizationStore);
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-ORG', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-ORG',
+      name: 'Bảng giá chuẩn',
+      validFrom: '2026-01-01',
       items: [{ materialId: CAP, materialCode: 'QA-ORG-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     customerId = (await new CustomerService(customerStore, scopes).create(nv1, { name: 'Khách tổ chức báo giá', ownerUserId: NV1 })).id;
@@ -135,7 +136,7 @@ integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
   }, 60_000);
 
   async function draft(extra: Record<string, unknown> = {}) {
-    const created = await quotes.create(nv1, { customerId, ...extra });
+    const created = await quotes.create(nv1, { customerId, priceListId, ...extra });
     return quotes.addLine(nv1, created.id, created.currentVersion, { revision: created.version.revision, materialId: CAP, quantity: 1 });
   }
 
@@ -189,7 +190,7 @@ integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
       [customerId, NV1],
     );
     const id = old.rows[0].id;
-    await handle.pool.query(`INSERT INTO crm_schema.quote_versions (quote_id, version_no) VALUES ($1, 1)`, [id]);
+    await handle.pool.query(`INSERT INTO crm_schema.quote_versions (quote_id, version_no, price_list_id) VALUES ($1, 1, $2)`, [id, priceListId]);
     const loaded = await quotes.get(nv1, id);
     expect(loaded.version.form).toMatchObject({ organizationId: null, organizationName: null, seller: null });
     expect(loaded.version.sellerLogo).toBeNull();
@@ -300,7 +301,7 @@ integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
     });
 
     it('TC-ORG-08: lập không gửi tổ chức: A; với B: B; với tổ chức tắt: 400; seller sửa tay giữ chữ; null: không chọn', async () => {
-      const byDefault = await quotes.create(nv1, { customerId });
+      const byDefault = await quotes.create(nv1, { customerId, priceListId });
       expect(byDefault.version.form).toMatchObject({
         organizationId: a,
         organizationName: 'Công ty A',
@@ -308,16 +309,16 @@ integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
       });
       expect(byDefault.version.sellerLogo).toBe(logoA1);
 
-      const withB = await quotes.create(nv1, { customerId, organizationId: b });
+      const withB = await quotes.create(nv1, { customerId, priceListId, organizationId: b });
       expect(withB.version.form).toMatchObject({ organizationId: b, organizationName: 'Công ty B', seller: { name: 'Công ty B', phone: '028 3333 4444' } });
       expect(withB.version.sellerLogo).toBeNull();
 
       const inactive = await organizations.create(admin, organization('Công ty đã tắt', { active: false }));
-      await expect(quotes.create(nv1, { customerId, organizationId: inactive.id })).rejects.toMatchObject({
+      await expect(quotes.create(nv1, { customerId, priceListId, organizationId: inactive.id })).rejects.toMatchObject({
         statusCode: 400,
         code: 'SALES_ORGANIZATION_INACTIVE',
       });
-      await expect(quotes.create(nv1, { customerId, organizationId: randomUUID() })).rejects.toMatchObject({
+      await expect(quotes.create(nv1, { customerId, priceListId, organizationId: randomUUID() })).rejects.toMatchObject({
         statusCode: 404,
         code: 'SALES_ORGANIZATION_NOT_FOUND',
       });
@@ -329,12 +330,12 @@ integration('Bán hàng phase 3: tổ chức báo giá (PostgreSQL)', () => {
       });
       expect(manual.version.form).toMatchObject({ organizationId: b, seller: { name: 'Công ty B', phone: '0909 000 111' } });
 
-      const none = await quotes.create(nv1, { customerId, organizationId: null });
+      const none = await quotes.create(nv1, { customerId, priceListId, organizationId: null });
       expect(none.version.form).toMatchObject({ organizationId: null, organizationName: null, seller: null });
       expect(none.version.sellerLogo).toBeNull();
 
       await expect(
-        quotes.create(nv1, { customerId, seller: { name: 'x'.repeat(201) } as never }),
+        quotes.create(nv1, { customerId, priceListId, seller: { name: 'x'.repeat(201) } as never }),
       ).rejects.toMatchObject({ statusCode: 400, code: 'SALES_ORGANIZATION_INVALID', details: { fieldErrors: [expect.objectContaining({ field: 'name' })] } });
     });
 

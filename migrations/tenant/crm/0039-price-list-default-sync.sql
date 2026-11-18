@@ -50,10 +50,15 @@ CREATE INDEX IF NOT EXISTS ix_crm_sales_orders_price_list
     ON crm_schema.sales_orders (price_list_id) WHERE price_list_id IS NOT NULL;
 
 -- Gán sẵn cho phiên bản báo giá cũ: bảng riêng của khách nếu đang bật và còn hiệu lực tại ngày tính giá, không thì bảng
--- chuẩn đang bật hiệu lực tại ngày đó (bảng bắt đầu muộn nhất). Chỉ gán khi đang rỗng.
+-- chuẩn đang bật hiệu lực tại ngày đó (bảng bắt đầu muộn nhất). Chỉ gán khi đang rỗng. Ngày tính giá rỗng thì lấy như
+-- engine cũ: bản nháp là hôm nay (giờ Việt Nam), bản đã chốt là `priced_on`, không có thì ngày tạo phiên bản.
 WITH targets AS (
     SELECT v.id, c.price_list_id AS customer_list,
-           COALESCE(v.price_date, (v.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS d
+           -- Ngày tính giá rỗng: bản nháp được tính lại theo hôm nay, bản đã chốt theo ngày tính gần nhất.
+           COALESCE(v.price_date,
+                    CASE WHEN v.status = 'DRAFT' THEN (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date END,
+                    v.priced_on,
+                    (v.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date) AS d
       FROM crm_schema.quote_versions v
       JOIN crm_schema.quotes q ON q.id = v.quote_id
       JOIN crm_schema.customers c ON c.id = q.customer_id
@@ -75,8 +80,8 @@ UPDATE crm_schema.quote_versions v
   FROM picks p
  WHERE v.id = p.id AND p.list_id IS NOT NULL;
 
--- Đơn từ báo giá: theo phiên bản báo giá (khách đã nhận, không thì phiên bản mới nhất). Đơn khác: như báo giá, ngày tính
--- giá rỗng thì ngày lập đơn.
+-- Đơn từ báo giá: theo phiên bản báo giá (khách đã nhận, không thì phiên bản mới nhất). Đơn khác: như báo giá; ngày tính
+-- giá rỗng thì đơn nháp lấy hôm nay (engine cũ tính lại theo hôm nay), đơn khác lấy ngày lập đơn.
 UPDATE crm_schema.sales_orders o
    SET price_list_id = (SELECT v.price_list_id FROM crm_schema.quote_versions v
                          WHERE v.quote_id = o.quote_id
@@ -87,12 +92,12 @@ UPDATE crm_schema.sales_orders o
    SET price_list_id = COALESCE(
          (SELECT l.id FROM crm_schema.price_lists l
            WHERE l.id = c.price_list_id AND NOT l.is_standard AND l.status = 'ACTIVE'
-             AND l.valid_from <= COALESCE(o.price_date, o.order_date)
-             AND (l.valid_to IS NULL OR l.valid_to >= COALESCE(o.price_date, o.order_date))),
+             AND l.valid_from <= COALESCE(o.price_date, CASE WHEN o.status = 'DRAFT' THEN (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date END, o.order_date)
+             AND (l.valid_to IS NULL OR l.valid_to >= COALESCE(o.price_date, CASE WHEN o.status = 'DRAFT' THEN (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date END, o.order_date))),
          (SELECT l.id FROM crm_schema.price_lists l
            WHERE l.is_standard AND l.status = 'ACTIVE'
-             AND l.valid_from <= COALESCE(o.price_date, o.order_date)
-             AND (l.valid_to IS NULL OR l.valid_to >= COALESCE(o.price_date, o.order_date))
+             AND l.valid_from <= COALESCE(o.price_date, CASE WHEN o.status = 'DRAFT' THEN (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date END, o.order_date)
+             AND (l.valid_to IS NULL OR l.valid_to >= COALESCE(o.price_date, CASE WHEN o.status = 'DRAFT' THEN (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date END, o.order_date))
            ORDER BY l.valid_from DESC, l.code LIMIT 1))
   FROM crm_schema.customers c
  WHERE c.id = o.customer_id AND o.source <> 'QUOTE' AND o.price_list_id IS NULL;

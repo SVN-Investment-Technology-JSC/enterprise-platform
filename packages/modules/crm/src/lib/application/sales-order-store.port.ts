@@ -77,6 +77,8 @@ export interface OrderHeaderRecord {
   readonly deliveryAddress: string | null;
   readonly note: string | null;
   readonly priceDate: string | null;
+  /** Bảng giá (bắt buộc khi đơn có dòng); đơn từ báo giá lấy theo phiên bản báo giá. */
+  readonly priceListId: string | null;
   readonly shipping: { readonly amount: number; readonly vatRate: number };
   readonly totals: SalesOrderTotals;
 }

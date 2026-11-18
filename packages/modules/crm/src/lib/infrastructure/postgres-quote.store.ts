@@ -16,6 +16,7 @@ import {
   type QuotePromotionSnapshot,
   type DiscountStacking,
   type PriceSource,
+  type PricingStatus,
   type ProcedureLinkStatus,
   type QuoteApprovalReason,
   type QuoteAdjustmentMode,
@@ -86,7 +87,6 @@ interface HeadRow {
   customer_code: string;
   customer_name: string;
   customer_group_id: string | null;
-  customer_price_list_id?: string | null;
   owner_user_id: string;
   status: QuoteStatus;
   current_version: number;
@@ -108,6 +108,10 @@ interface VersionRow {
   valid_until: string | null;
   price_date: string | null;
   priced_on: string | null;
+  price_list_id: string | null;
+  price_list_code: string | null;
+  price_list_name: string | null;
+  price_list_status: PricingStatus | null;
   note: string | null;
   shipping_amount: string;
   shipping_vat_rate: string;
@@ -202,7 +206,7 @@ interface PolicyRow {
 
 const HEAD_COLUMNS = `
   q.id, q.code, q.opportunity_id, o.name AS opportunity_name, q.customer_id, c.code AS customer_code,
-  c.name AS customer_name, c.group_id AS customer_group_id, c.price_list_id AS customer_price_list_id, q.owner_user_id, q.status, q.current_version,
+  c.name AS customer_name, c.group_id AS customer_group_id, q.owner_user_id, q.status, q.current_version,
   v.quote_name, q.valid_until::text AS valid_until, q.accepted_version, q.converted_at, v.total_amount, q.created_at, q.updated_at,
   ${cursorAt('q.updated_at')} AS cursor_at`;
 
@@ -214,7 +218,8 @@ const HEAD_FROM = `
 
 const VERSION_COLUMNS = `
   v.id, v.version_no, v.status, v.revision, v.valid_until::text AS valid_until, v.price_date::text AS price_date,
-  v.priced_on::text AS priced_on, v.note, v.shipping_amount, v.shipping_vat_rate, v.shipping_cost, v.gross_amount,
+  v.priced_on::text AS priced_on, v.price_list_id, pl.code AS price_list_code, pl.name AS price_list_name,
+  pl.status AS price_list_status, v.note, v.shipping_amount, v.shipping_vat_rate, v.shipping_cost, v.gross_amount,
   v.discount_amount, v.net_amount, v.vat_amount, v.total_amount, v.est_cost, v.profit, v.margin_percent,
   v.discount_percent, v.requires_approval, v.approval_reasons, v.submitted_at, v.submitted_by, v.approved_at,
   v.approved_by, v.rejected_at, v.rejected_by, v.decision_reason, v.sent_at, v.responded_at, v.superseded_at,
@@ -368,7 +373,6 @@ export class PostgresQuoteStore implements QuoteStore {
       customerId: head.customer_id,
       customerName: head.customer_name,
       customerGroupId: head.customer_group_id,
-      customerPriceListId: head.customer_price_list_id ?? null,
       ownerUserId: head.owner_user_id,
       status: head.status,
       currentVersion: head.current_version,
@@ -392,7 +396,7 @@ export class PostgresQuoteStore implements QuoteStore {
       await lockVersion(client, quoteId, base);
       if (plan === 'IN_PLACE') {
         await client.query(
-          `UPDATE crm_schema.quote_versions SET ${VERSION_WRITE_SET}, revision = revision + 1, updated_at = now(), updated_by = $36
+          `UPDATE crm_schema.quote_versions SET ${VERSION_WRITE_SET}, revision = revision + 1, updated_at = now(), updated_by = $37
             WHERE id = $1`,
           [base.versionId, ...versionWriteValues(write), actorId],
         );
@@ -747,8 +751,8 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
   await client.query(
     `INSERT INTO crm_schema.quote_versions
        (quote_id, version_no, valid_until, note, quote_name, quote_date, template_id, quote_type_id, discount_mode, tax_mode,
-        custom_fields, created_by, updated_by, organization_id, seller)
-     VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11, $12, $13::jsonb)`,
+        custom_fields, created_by, updated_by, organization_id, seller, price_list_id)
+     VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $11, $12, $13::jsonb, $14)`,
     [
       id,
       record.validUntil,
@@ -763,6 +767,7 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
       actorId,
       organization.organizationId,
       sellerJson(organization.seller),
+      record.priceListId ?? null,
     ],
   );
   await writeAuditLog(client, {
@@ -779,6 +784,7 @@ export async function insertQuote(client: CrmSqlClient, record: NewQuoteRecord, 
       ...(form.templateId ? { templateId: form.templateId } : {}),
       ...(form.quoteTypeId ? { quoteTypeId: form.quoteTypeId } : {}),
       ...(organization.organizationId ? { organizationId: organization.organizationId } : {}),
+      ...(record.priceListId ? { priceListId: record.priceListId } : {}),
     },
   });
   return id;
@@ -1232,7 +1238,7 @@ const VERSION_WRITE_SET = `
   approval_reasons = $19::jsonb, quote_name = $20, quote_date = $21, template_id = $22, quote_type_id = $23,
   discount_mode = $24, tax_mode = $25, order_discount_percent = $26, order_discount_amount = $27,
   order_tax_percent = $28, order_tax_amount = $29, order_discount_total = $30, order_tax_total = $31, fees_amount = $32,
-  custom_fields = $33::jsonb, organization_id = $34, seller = $35::jsonb`;
+  custom_fields = $33::jsonb, organization_id = $34, seller = $35::jsonb, price_list_id = $36`;
 
 function versionWriteValues(write: QuoteVersionWrite): unknown[] {
   const totals = write.totals;
@@ -1272,6 +1278,7 @@ function versionWriteValues(write: QuoteVersionWrite): unknown[] {
     JSON.stringify(form.customFields),
     form.organizationId,
     sellerJson(form.seller),
+    write.priceListId,
   ];
 }
 
@@ -1393,6 +1400,7 @@ async function readVersion(
        LEFT JOIN crm_schema.quote_templates t ON t.id = v.template_id
        LEFT JOIN crm_schema.quote_types qt ON qt.id = v.quote_type_id
        LEFT JOIN crm_schema.sales_organizations so ON so.id = v.organization_id
+       LEFT JOIN crm_schema.price_lists pl ON pl.id = v.price_list_id
       WHERE v.quote_id = $1 AND v.version_no = $2`,
     [quoteId, versionNo],
   );
@@ -1495,6 +1503,10 @@ function toVersion(row: VersionRow, lines: QuoteLine[], fees: readonly { feeType
     validUntil: toDateOnly(row.valid_until),
     priceDate: toDateOnly(row.price_date),
     pricedOn: toDateOnly(row.priced_on),
+    priceListId: row.price_list_id,
+    priceListCode: row.price_list_code,
+    priceListName: row.price_list_name,
+    priceListStatus: row.price_list_status,
     note: row.note,
     shipping: { amount: num(row.shipping_amount), vatRate: num(row.shipping_vat_rate), cost: num(row.shipping_cost) },
     totals: {
