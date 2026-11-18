@@ -625,6 +625,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       path: 'tenant/inventory/0022-trade-category-usage.sql',
     },
     { version: '0023-material-description', path: 'tenant/inventory/0023-material-description.sql' },
+    { version: '0024-stocktake-server', path: 'tenant/inventory/0024-stocktake-server.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

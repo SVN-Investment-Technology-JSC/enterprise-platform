@@ -1365,6 +1365,8 @@ export interface StocktakeLine {
   readonly isSerialized?: boolean;
   readonly isLotTracked?: boolean;
   readonly systemQuantity: number;
+  /** Tồn thực tế hiện tại của kho (chỉ có khi đợt chưa ghi sổ), để thấy biến động sau snapshot. */
+  readonly currentQuantity?: number;
   readonly countRound1?: number;
   readonly countRound2?: number;
   readonly actualQuantity?: number;
@@ -1404,7 +1406,52 @@ export interface StocktakeSession {
   readonly totalVarianceValue: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly createdBy?: string;
+  readonly submittedBy?: string;
+  readonly submittedAt?: string;
+  readonly postedAt?: string;
+  /** Lý do khi quản lý trả đợt về đếm lại (lần trả gần nhất). */
+  readonly rejectReason?: string;
+  readonly cancelReason?: string;
+  /** Chứng từ điều chỉnh sinh ra khi ghi sổ; trống nếu chưa ghi sổ hoặc đợt không có chênh lệch. */
+  readonly documentId?: string;
+  readonly documentCode?: string;
   readonly lines?: readonly StocktakeLine[];
+}
+
+export interface StocktakeListQuery {
+  readonly warehouseCode?: string;
+  readonly status?: StocktakeStatus;
+  readonly search?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface StocktakePage {
+  readonly items: readonly StocktakeSession[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface UpdateStocktakeLinesRequest {
+  readonly lines: readonly UpdateStocktakeLineInput[];
+}
+
+/** Trả về đếm lại, huỷ đợt: bắt buộc có lý do. */
+export interface StocktakeReasonRequest {
+  readonly reason: string;
+}
+
+export interface StocktakeLinesResult {
+  readonly session: StocktakeSession;
+  readonly lines: readonly StocktakeLine[];
+}
+
+export interface StocktakePostResult {
+  readonly session: StocktakeSession;
+  /** Chứng từ điều chỉnh đã ghi sổ; trống khi đợt không có dòng chênh lệch. */
+  readonly document?: StockDocument;
 }
 
 export interface CreateStocktakeRequest {
@@ -2107,4 +2154,71 @@ export interface AuditorCandidate {
   readonly position?: string;
   readonly email?: string;
   readonly hasWarehouseAccess: boolean;
+}
+
+// ============================================================================
+// Xuất/nhập kho: danh sách gộp chứng từ và bút toán cũ (`GET /v1/stock-movements`)
+// ============================================================================
+
+/** `document`: một chứng từ kho. `legacy`: bút toán sổ kho từ trước khi có chứng từ. */
+export const STOCK_MOVEMENT_KINDS = ['document', 'legacy'] as const;
+
+export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number];
+
+/** Nguồn phát sinh khi chứng từ hoặc bút toán không ghi nguồn. */
+export const STOCK_MOVEMENT_MANUAL_SOURCE = 'manual';
+
+export interface StockMovementEntry {
+  readonly kind: StockMovementKind;
+  /** Id chứng từ (`document`) hoặc id bút toán (`legacy`). */
+  readonly id: string;
+  /** Số chứng từ hoặc mã bút toán. */
+  readonly code: string;
+  /** Loại chứng từ (`StockDocumentType`) hoặc loại bút toán (`TransactionType`). */
+  readonly type: string;
+  readonly status: StockDocumentStatus;
+  readonly warehouseCode: string;
+  /** Kho đích của chứng từ điều chuyển. */
+  readonly targetWarehouseCode?: string;
+  /** Thời điểm ghi sổ; chứng từ chưa ghi sổ lấy thời điểm lập. */
+  readonly occurredAt: string;
+  /** Ngày chứng từ hoặc ngày ghi bút toán (giờ Việt Nam), dạng YYYY-MM-DD. */
+  readonly movementDate: string;
+  /** Nguồn phát sinh đã chuẩn hoá: chữ thường, trống thành `manual`. */
+  readonly sourceType: string;
+  readonly sourceId?: string;
+  readonly lineCount: number;
+  readonly quantityTotal: number;
+  /** Mặt hàng của dòng đầu tiên, để nhận diện nhanh trên danh sách. */
+  readonly materialCode?: string;
+  readonly materialName?: string;
+  readonly createdBy: string;
+  readonly note?: string;
+}
+
+export interface StockMovementListQuery {
+  /** Số chứng từ, mã bút toán, mã hoặc tên mặt hàng. */
+  readonly search?: string;
+  /** Bỏ trống lấy cả chứng từ lẫn bút toán cũ. */
+  readonly kind?: StockMovementKind;
+  /** Lọc theo loại chứng từ; khi có thì không trả bút toán cũ. */
+  readonly docType?: StockDocumentType;
+  readonly status?: StockDocumentStatus;
+  /** Khớp kho đi hoặc kho đích của chứng từ điều chuyển. */
+  readonly warehouseCode?: string;
+  readonly sourceType?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface StockMovementPage {
+  readonly rows: readonly StockMovementEntry[];
+  /** Tổng số dòng khớp bộ lọc, không phụ thuộc trang. */
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  /** Số chứng từ đang Chờ duyệt (theo kho nếu có lọc kho), để hiện trên nhãn tab. */
+  readonly pendingCount: number;
 }
