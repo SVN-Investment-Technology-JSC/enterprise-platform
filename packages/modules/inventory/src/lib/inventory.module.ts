@@ -34,11 +34,13 @@ import { StockDocumentController } from './presentation/stock-document.controlle
 
 @Module({
   controllers: [
+    // Trước InventoryController: route tĩnh `internal/materials/fingerprint` phải
+    // khớp trước `internal/materials/:code` (Express khớp theo thứ tự đăng ký).
+    InternalCatalogController,
     InventoryController,
     StockDocumentController,
     LotController,
     SerialController,
-    InternalCatalogController,
     InternalDocumentsController,
     InventoryReportsController,
   ],
