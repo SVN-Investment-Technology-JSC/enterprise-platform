@@ -161,6 +161,22 @@ describe('TimeSettingsScreen: Địa điểm GPS gộp quy định chấm công'
     await waitFor(() => expect(bodyOf('/time-settings/sites/new-site/assignments', 'PUT').assignments).toEqual([{ scopeType: 'COMPANY', scopeId: '' }]));
   });
 
+  it('hộp thoại địa điểm: chưa sửa thì Hủy đóng ngay, đã sửa thì hỏi xác nhận rồi mới bỏ', async () => {
+    render(<TimeSettingsScreen />);
+    fireEvent.click((await screen.findAllByRole('button', { name: /Thêm địa điểm/ }))[0]);
+    let dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hủy' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.click((await screen.findAllByRole('button', { name: /Thêm địa điểm/ }))[0]);
+    dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Tên địa điểm/), { target: { value: 'Kho' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Hủy' }));
+    expect(await screen.findByText('Đóng và bỏ thay đổi?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Đóng và bỏ' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   it('sửa địa điểm: nạp sẵn IP và phòng ban, gửi kèm lý do và phiên bản, giữ phân công chức danh/nhân viên', async () => {
     settingsData = {
       ...settingsData,
