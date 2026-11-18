@@ -22,6 +22,15 @@
 
 .bell:focus-visible { box-shadow: 0 0 0 2px rgb(37 99 235 / 22%); }
 
+/* Có icon thương hiệu: icon tự mang nền nên không tô nền/vòng quanh nút khi rê chuột hay focus, icon 30px căn giữa. */
+.bell:has(> svg[data-brand-slot]),
+.bell:has(> svg[data-brand-slot]):hover,
+.bell:has(> svg[data-brand-slot]):focus-visible {
+  background: transparent;
+  box-shadow: none;
+}
+.bell:has(> svg[data-brand-slot]) > svg { width: 30px; height: 30px; border-radius: 8px; }
+
 .badge {
   position: absolute;
   /* Gọn và nhô ra góc phải trên của nút để không che icon chuông. */

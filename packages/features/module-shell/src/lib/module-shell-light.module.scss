@@ -65,6 +65,12 @@
   stroke-linejoin: round;
 }
 
+// Icon thương hiệu tự vẽ nét ở từng hình; nét `currentcolor` của lớp .icon (dành cho icon lucide) mà thừa hưởng xuống
+// hình nền của icon sẽ thành viền xám đậm quanh icon.
+.icon[data-brand-slot]:not([stroke]) {
+  stroke: none;
+}
+
 /* ------------------------------------------------------------ Thanh bên */
 
 .sidebar {
@@ -270,10 +276,18 @@
   transform: scale(1.08);
 }
 
+// Không vẽ vòng viền quanh nút: focus bàn phím được báo bằng chính icon (phóng nhẹ và đổ bóng).
+.squareButton:has(> svg[data-brand-slot]):focus,
 .squareButton:has(> svg[data-brand-slot]):focus-visible,
+.bell:has(> svg[data-brand-slot]):focus,
 .bell:has(> svg[data-brand-slot]):focus-visible {
-  outline: 2px solid var(--ep-accent-strong);
-  outline-offset: 1px;
+  outline: none;
+}
+
+.squareButton:has(> svg[data-brand-slot]):focus-visible > svg,
+.bell:has(> svg[data-brand-slot]):focus-visible > svg {
+  transform: scale(1.1);
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 35%));
 }
 
 /* Ô chuyển phân hệ, mở từ nút lưới cạnh tên module. */
