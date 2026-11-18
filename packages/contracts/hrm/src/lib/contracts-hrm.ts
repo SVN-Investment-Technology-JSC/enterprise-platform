@@ -594,6 +594,10 @@ export interface HrmShiftDefinition {
   readonly crossMidnight: boolean;
   readonly graceLateMinutes: number;
   readonly graceEarlyMinutes: number;
+  /** Cho phép chấm vào sớm tối đa bao nhiêu phút trước giờ bắt đầu ca. */
+  readonly checkInBeforeMinutes: number;
+  /** Cho phép chấm ra muộn tối đa bao nhiêu phút sau giờ kết thúc ca. */
+  readonly checkOutAfterMinutes: number;
   readonly status: 'ACTIVE' | 'INACTIVE';
   readonly deletedAt?: string | null;
   readonly createdAt: string;
@@ -611,6 +615,8 @@ export interface CreateShiftDefinitionRequest {
   readonly crossMidnight?: boolean;
   readonly graceLateMinutes?: number;
   readonly graceEarlyMinutes?: number;
+  readonly checkInBeforeMinutes?: number;
+  readonly checkOutAfterMinutes?: number;
   readonly status?: 'ACTIVE' | 'INACTIVE';
 }
 
@@ -625,6 +631,8 @@ export interface UpdateShiftDefinitionRequest {
   readonly crossMidnight?: boolean;
   readonly graceLateMinutes?: number;
   readonly graceEarlyMinutes?: number;
+  readonly checkInBeforeMinutes?: number;
+  readonly checkOutAfterMinutes?: number;
   readonly status?: 'ACTIVE' | 'INACTIVE';
 }
 

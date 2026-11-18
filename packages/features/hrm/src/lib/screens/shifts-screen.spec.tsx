@@ -33,6 +33,8 @@ const shift = {
   crossMidnight: false,
   graceLateMinutes: 10,
   graceEarlyMinutes: 5,
+  checkInBeforeMinutes: 120,
+  checkOutAfterMinutes: 240,
   status: 'ACTIVE',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-03-04T05:06:07.890Z',
@@ -166,6 +168,25 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     expect(body.breakMinutes).toBe(90);
     expect(body.breakStartTime).toBe('12:00');
     expect(body.breakEndTime).toBe('13:30');
+  });
+
+  it('sửa khung chấm công trước/sau ca và gửi lên máy chủ; giá trị âm bị chặn', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    expect(screen.getAllByText('Chấm: -120p / +240p').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sửa' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Cập nhật ca: HC/ });
+    const before = within(dialog).getByLabelText('Cho chấm vào trước ca (phút)') as HTMLInputElement;
+    const after = within(dialog).getByLabelText('Cho chấm ra sau ca (phút)') as HTMLInputElement;
+    expect(before.value).toBe('120');
+    expect(after.value).toBe('240');
+    fireEvent.change(before, { target: { value: '90' } });
+    fireEvent.change(after, { target: { value: '180' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật thay đổi' }));
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    const body = JSON.parse(String(patches()[0].init?.body));
+    expect(body.checkInBeforeMinutes).toBe(90);
+    expect(body.checkOutAfterMinutes).toBe(180);
   });
 
   it('creates a shift with POST and without expectedUpdatedAt', async () => {

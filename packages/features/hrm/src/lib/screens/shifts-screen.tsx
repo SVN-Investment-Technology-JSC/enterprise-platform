@@ -50,6 +50,8 @@ interface ShiftForm {
   crossMidnight: boolean;
   graceLateMinutes: number;
   graceEarlyMinutes: number;
+  checkInBeforeMinutes: number;
+  checkOutAfterMinutes: number;
   status: 'ACTIVE' | 'INACTIVE';
 }
 
@@ -65,6 +67,8 @@ const EMPTY_FORM: ShiftForm = {
   crossMidnight: false,
   graceLateMinutes: 10,
   graceEarlyMinutes: 5,
+  checkInBeforeMinutes: 120,
+  checkOutAfterMinutes: 240,
   status: 'ACTIVE',
 };
 
@@ -85,6 +89,8 @@ function formFromShift(shift: HrmShiftDefinition): ShiftForm {
     crossMidnight: shift.crossMidnight ?? false,
     graceLateMinutes: shift.graceLateMinutes ?? 10,
     graceEarlyMinutes: shift.graceEarlyMinutes ?? 5,
+    checkInBeforeMinutes: shift.checkInBeforeMinutes ?? 120,
+    checkOutAfterMinutes: shift.checkOutAfterMinutes ?? 240,
     status: shift.status ?? 'ACTIVE',
   };
 }
@@ -267,6 +273,12 @@ export default function ShiftsPage() {
       return;
     }
     const { hasBreak, ...fields } = form;
+    for (const n of [form.checkInBeforeMinutes, form.checkOutAfterMinutes]) {
+      if (!Number.isInteger(n) || n < 0 || n > 1440) {
+        setFormError('Khung chấm công trước/sau ca phải là số phút nguyên từ 0 đến 1440.');
+        return;
+      }
+    }
     if (hasBreak) {
       const start = toMinutes(form.startTime) ?? 0;
       const end = (toMinutes(form.endTime) ?? 0) + (form.crossMidnight ? 1440 : 0);
@@ -353,7 +365,9 @@ export default function ShiftsPage() {
     await load();
   }
 
-  const numberField = (key: 'graceLateMinutes' | 'graceEarlyMinutes') => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const numberField = (
+    key: 'graceLateMinutes' | 'graceEarlyMinutes' | 'checkInBeforeMinutes' | 'checkOutAfterMinutes',
+  ) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [key]: Number(e.target.value) || 0 });
 
   const previewHours = computeShiftStandardHours({
@@ -500,6 +514,9 @@ export default function ShiftsPage() {
                       <span className="font-mono text-xs text-slate-700">
                         {shift.graceLateMinutes}p / {shift.graceEarlyMinutes}p
                       </span>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        Chấm: -{shift.checkInBeforeMinutes ?? 120}p / +{shift.checkOutAfterMinutes ?? 240}p
+                      </p>
                     </div>
 
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 @3xl:justify-end">
@@ -698,7 +715,16 @@ export default function ShiftsPage() {
                   <SettingsField label="Dung sai về sớm (phút)" htmlFor="shift-grace-early">
                     <Input id="shift-grace-early" aria-label="Dung sai về sớm (phút)" type="number" min={0} value={form.graceEarlyMinutes} onChange={numberField('graceEarlyMinutes')} className="h-9 font-mono text-xs" />
                   </SettingsField>
+                  <SettingsField label="Cho chấm vào trước ca (phút)" htmlFor="shift-checkin-before">
+                    <Input id="shift-checkin-before" aria-label="Cho chấm vào trước ca (phút)" type="number" min={0} max={1440} value={form.checkInBeforeMinutes} onChange={numberField('checkInBeforeMinutes')} className="h-9 font-mono text-xs" />
+                  </SettingsField>
+                  <SettingsField label="Cho chấm ra sau ca (phút)" htmlFor="shift-checkout-after">
+                    <Input id="shift-checkout-after" aria-label="Cho chấm ra sau ca (phút)" type="number" min={0} max={1440} value={form.checkOutAfterMinutes} onChange={numberField('checkOutAfterMinutes')} className="h-9 font-mono text-xs" />
+                  </SettingsField>
                 </div>
+                <p className="text-[11px] text-slate-500">
+                  Lượt chấm nằm ngoài khung này (từ {form.checkInBeforeMinutes} phút trước giờ vào đến {form.checkOutAfterMinutes} phút sau giờ ra) không được gán vào ca.
+                </p>
                 <SettingsField label="Trạng thái áp dụng">
                   <Segmented
                     label="Trạng thái áp dụng"
