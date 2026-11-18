@@ -476,10 +476,17 @@ export class PostgresQuoteStore implements QuoteStore {
             SET status = $2::varchar, requires_approval = $3, approval_reasons = $4::jsonb, submitted_at = now(),
                 submitted_by = $5,
                 approved_at = CASE WHEN $2::varchar = 'APPROVED' THEN now() ELSE NULL END,
-                decision_reason = CASE WHEN $2::varchar = 'APPROVED' THEN 'Không vượt ngưỡng duyệt' ELSE NULL END,
+                decision_reason = $6,
                 revision = revision + 1, updated_at = now(), updated_by = $5
           WHERE id = $1`,
-        [base.versionId, status, submission.outcome === 'PENDING', JSON.stringify(submission.reasons), actorId],
+        [
+          base.versionId,
+          status,
+          submission.outcome === 'PENDING',
+          JSON.stringify(submission.reasons),
+          actorId,
+          submission.outcome === 'APPROVED' ? (submission.approvedNote ?? 'Không vượt ngưỡng duyệt') : null,
+        ],
       );
       await client.query(
         `UPDATE crm_schema.quotes SET status = $2, updated_at = now(), updated_by = $3 WHERE id = $1`,
@@ -502,7 +509,7 @@ export class PostgresQuoteStore implements QuoteStore {
         toStatus: status,
         action: 'submit',
         actorId,
-        reason: submission.outcome === 'APPROVED' ? 'Không vượt ngưỡng duyệt, duyệt thẳng' : null,
+        reason: submission.outcome === 'APPROVED' ? (submission.approvedNote ?? 'Không vượt ngưỡng duyệt, duyệt thẳng') : null,
         metadata: {
           versionNo: base.versionNo,
           reasons: submission.reasons.map((reason) => reason.message),

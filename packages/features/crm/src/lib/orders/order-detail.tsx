@@ -598,13 +598,14 @@ export function OrderDetail({
       {picking ? (
         <MaterialPickerDialog
           title="Thêm dòng đơn"
+          withOverridePrice
           onClose={() => setPicking(false)}
           onPick={async (picked) => {
             const done = await run(
               () =>
                 updateOrder(detail.id, {
                   revision: detail.revision,
-                  lines: [...detail.lines.map(lineRequest), { materialId: picked.material.id, quantity: picked.quantity ?? 1 }],
+                  lines: [...detail.lines.map(lineRequest), { materialId: picked.material.id, quantity: picked.quantity ?? 1, overrideUnitPrice: picked.unitPrice }],
                 }),
               'Đã thêm dòng; giá tính theo bảng giá, chính sách như báo giá.',
             );

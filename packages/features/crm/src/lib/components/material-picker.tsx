@@ -15,7 +15,7 @@ export interface PickedMaterial {
   readonly material: CrmCatalogMaterial;
   /** Rỗng khi cho phép bỏ trống (giá khung không số lượng). */
   readonly quantity: number | null;
-  /** Có khi hộp thoại hỏi giá (dòng hợp đồng). */
+  /** Có khi hộp thoại hỏi giá: giá khung (dòng hợp đồng) hoặc đơn giá ghi đè (dòng đơn bán). */
   readonly unitPrice: number | null;
   readonly vatRate: number | null;
 }
@@ -27,12 +27,15 @@ export interface PickedMaterial {
 export function MaterialPickerDialog({
   title,
   withPrice = false,
+  withOverridePrice = false,
   quantityOptional = false,
   onClose,
   onPick,
 }: {
   title: string;
   withPrice?: boolean;
+  /** Ô "Đơn giá ghi đè" tuỳ chọn (dòng đơn bán): bỏ trống là theo giá hợp đồng hoặc bảng giá. */
+  withOverridePrice?: boolean;
   quantityOptional?: boolean;
   onClose: () => void;
   onPick: (picked: PickedMaterial) => Promise<void>;
@@ -41,6 +44,7 @@ export function MaterialPickerDialog({
   const [selected, setSelected] = useState<CrmCatalogMaterial>();
   const [quantity, setQuantity] = useState(quantityOptional ? '' : '1');
   const [price, setPrice] = useState('');
+  const [overridePrice, setOverridePrice] = useState('');
   const [vat, setVat] = useState('10');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -68,12 +72,16 @@ export function MaterialPickerDialog({
     }
     const unitPrice = withPrice ? parseNumber(price) : undefined;
     if (withPrice && (unitPrice === undefined || unitPrice < 0)) return setError('Vui lòng nhập giá khung không âm.');
+    const override = withOverridePrice && overridePrice.trim() ? parseNumber(overridePrice) : undefined;
+    if (withOverridePrice && overridePrice.trim() && (override === undefined || override < 0)) {
+      return setError('Đơn giá ghi đè phải là số không âm.');
+    }
     setSaving(true);
     try {
       await onPick({
         material: selected,
         quantity: amount ?? null,
-        unitPrice: unitPrice ?? null,
+        unitPrice: unitPrice ?? override ?? null,
         vatRate: withPrice ? (parseNumber(vat) ?? null) : null,
       });
     } finally {
@@ -114,6 +122,17 @@ export function MaterialPickerDialog({
               <input className={styles.input} inputMode="decimal" value={vat} onChange={(event) => setVat(event.target.value)} />
             </Field>
           </>
+        ) : null}
+        {withOverridePrice ? (
+          <Field label="Đơn giá ghi đè (VND)" hint="Bỏ trống: theo giá hợp đồng hoặc bảng giá. Mặt hàng chưa nhập giá ở Kho cần nhập ô này.">
+            <input
+              className={styles.input}
+              inputMode="decimal"
+              aria-label="Đơn giá ghi đè"
+              value={overridePrice}
+              onChange={(event) => setOverridePrice(event.target.value)}
+            />
+          </Field>
         ) : null}
       </div>
     </CrmDialog>

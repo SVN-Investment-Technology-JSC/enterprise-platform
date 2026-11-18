@@ -162,6 +162,8 @@ export interface QuoteVersionRef {
 export interface QuoteSubmission {
   readonly outcome: 'APPROVED' | 'PENDING';
   readonly reasons: readonly QuoteApprovalReason[];
+  /** Ghi chú vào lịch sử khi duyệt thẳng (`APPROVED`); rỗng: "Không vượt ngưỡng duyệt, duyệt thẳng". */
+  readonly approvedNote?: string | null;
   /** Có khi duyệt qua Quy trình: tạo liên kết chờ worker tạo phiên. */
   readonly procedure: { readonly definitionId: string; readonly title: string } | null;
   /** Sự kiện báo cần duyệt (khi `PENDING`). */

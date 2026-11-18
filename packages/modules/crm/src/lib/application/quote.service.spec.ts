@@ -461,6 +461,23 @@ describe('QuoteService', () => {
     expect(links.start).not.toHaveBeenCalled();
   });
 
+  it('vượt ngưỡng, quản trị viên tenant gửi duyệt: duyệt thẳng, vẫn lưu lý do, không báo cấp trên', async () => {
+    const { service, quotes, links } = setup(
+      version('DRAFT', 1, [quoteLine({ overridden: true })]),
+      { binding: { mode: 'PROCEDURE', procedureDefinitionId: 'def-1' } },
+    );
+    await service.submit({ ...seller, isTenantAdmin: true }, QUOTE_ID, '1', { revision: 3 });
+    const submission = quotes.submit.mock.calls[0][3];
+    expect(submission).toMatchObject({
+      outcome: 'APPROVED',
+      procedure: null,
+      approvalRequested: null,
+      approvedNote: 'Quản trị viên gửi duyệt, duyệt thẳng',
+    });
+    expect(submission.reasons.length).toBeGreaterThan(0);
+    expect(links.start).not.toHaveBeenCalled();
+  });
+
   it('gửi duyệt báo giá trống hoặc đã gửi: lỗi', async () => {
     await expect(setup(version('DRAFT', 1, [])).service.submit(seller, QUOTE_ID, '1', { revision: 3 })).rejects.toMatchObject({
       code: 'QUOTE_EMPTY',

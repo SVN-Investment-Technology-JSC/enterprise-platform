@@ -749,12 +749,19 @@ export class QuoteService {
       throw new CrmConflictError('QUOTE_EXPIRED', 'Báo giá đã quá hạn hiệu lực; vui lòng đổi hạn trước khi gửi duyệt.');
     }
     const { reasons, attachment } = await this.evaluate(actor, id, quote.version, true);
-    if (!reasons.length) {
+    // Không vượt ngưỡng, hoặc quản trị viên tenant gửi duyệt: duyệt thẳng, vẫn lưu lý do cần duyệt để đối chiếu.
+    if (!reasons.length || actor.isTenantAdmin) {
       await this.quotes.submit(
         actor.tenantId,
         id,
         base,
-        { outcome: 'APPROVED', reasons, procedure: null, approvalRequested: null },
+        {
+          outcome: 'APPROVED',
+          reasons,
+          procedure: null,
+          approvalRequested: null,
+          approvedNote: reasons.length ? 'Quản trị viên gửi duyệt, duyệt thẳng' : null,
+        },
         actor.userId,
       );
       return this.get(actor, id);
