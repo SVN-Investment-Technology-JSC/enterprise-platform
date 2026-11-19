@@ -578,6 +578,72 @@ describe('engine giá: ghi đè (PRC-04)', () => {
   });
 });
 
+describe('engine giá: thuế suất sửa tay ở dòng', () => {
+  it('dùng thuế suất sửa tay thay thuế suất bảng giá; không tính là ghi đè giá', () => {
+    const [priced] = priceQuote(input({ lines: [{ ...line(10), override: { vatRate: 8 } }], policies: [quantityTiers()] })).lines;
+    expect(priced).toMatchObject({
+      overridden: false,
+      vatOverridden: true,
+      discountPercent: 5,
+      lineAmount: 9_500_000,
+      vatRate: 8,
+      vatAmount: 760_000,
+      lineTotal: 10_260_000,
+    });
+  });
+
+  it('thuế suất sửa tay 0% vẫn được dùng; rỗng thì theo bảng giá', () => {
+    const result = priceQuote(
+      input({
+        lines: [
+          { ...line(1), override: { vatRate: 0 } },
+          { ...line(1), override: { vatRate: null } },
+          line(1),
+        ],
+      }),
+    );
+    expect(result.lines.map((entry) => [entry.vatRate, entry.vatOverridden, entry.vatAmount])).toEqual([
+      [0, true, 0],
+      [10, false, 100_000],
+      [10, false, 100_000],
+    ]);
+    expect(result.totals.vatAmount).toBe(200_000);
+  });
+
+  it('thay cả thuế suất hợp đồng, kèm ghi đè đơn giá (chỉ đơn giá tính là ghi đè)', () => {
+    const contract = {
+      contractId: 'c-1',
+      contractCode: 'HD-01',
+      materialId: CAP,
+      unit: 'Cái',
+      price: 900_000,
+      vatRate: 10,
+      validFrom: '2026-01-01',
+      validTo: null,
+    };
+    const [priced] = priceQuote(
+      input({ contractPrices: [contract], lines: [{ ...line(1), override: { unitPrice: 800_000, vatRate: 5 } }] }),
+    ).lines;
+    expect(priced).toMatchObject({ priceSource: 'CONTRACT', overridden: true, vatOverridden: true, vatRate: 5, vatAmount: 40_000 });
+  });
+
+  it('mẫu thuế theo tổng đơn: thuế dòng là 0, bỏ qua thuế suất sửa tay', () => {
+    const [priced] = priceQuote(input({ taxMode: 'ORDER', lines: [{ ...line(1), override: { vatRate: 8 } }] })).lines;
+    expect(priced).toMatchObject({ vatRate: 0, vatAmount: 0, vatOverridden: false, overridden: false });
+  });
+
+  it.each([-1, 100.01, Number.NaN, Number.POSITIVE_INFINITY])('thuế suất sửa tay %p trả INVALID_VAT kèm số dòng', (vatRate) => {
+    expect(() => priceQuote(input({ lines: [line(1), { ...line(1), override: { vatRate } }] }))).toThrow(
+      expect.objectContaining({
+        code: 'INVALID_VAT',
+        statusCode: 400,
+        message: 'Thuế suất sửa tay phải từ 0 đến 100%.',
+        details: { line: 2 },
+      }),
+    );
+  });
+});
+
 describe('computeMargin (TC-PRC-23)', () => {
   it('dòng 10 cái, sau CK 950.000, giá vốn 800.000: biên 15,79%', () => {
     expect(computeMargin(9_500_000, 8_000_000)).toBe(15.79);

@@ -1,4 +1,4 @@
--- Migration: 0024-material-vat-rate.sql
+-- Migration: 0025-material-vat-rate.sql
 -- Description: Thuế suất VAT bán ra (%) cho mặt hàng, tùy chọn; báo giá, đơn bán bên CRM lấy làm mặc định.
 -- Cột mới cho phép NULL nên bản app cũ vẫn ghi bình thường; dòng cũ để NULL (chưa khai, bên bán coi là 10%).
 SET LOCAL lock_timeout = '3s';

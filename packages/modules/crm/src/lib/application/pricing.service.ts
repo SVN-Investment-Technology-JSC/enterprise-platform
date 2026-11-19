@@ -132,6 +132,7 @@ function lineInput(line: QuotePreviewLine, index: number): PricingLineInput {
       override: {
         unitPrice: optionalNumber(line.overrideUnitPrice, AMOUNT_MAX, 'đơn giá ghi đè', 2),
         discountPercent: optionalNumber(line.overrideDiscountPercent, 100, 'chiết khấu ghi đè', 4),
+        vatRate: optionalNumber(line.overrideVatRate, 100, 'thuế suất sửa tay', 2),
       },
     };
   } catch (error) {

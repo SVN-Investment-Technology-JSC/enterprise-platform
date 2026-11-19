@@ -182,6 +182,7 @@ interface LineRow {
   overridden: boolean;
   override_unit_price: string | null;
   override_discount_percent: string | null;
+  override_vat_rate: string | null;
   unit_price: string;
   gross_amount: string;
   discount_amount: string;
@@ -1327,9 +1328,9 @@ async function insertLines(client: CrmSqlClient, versionId: string, lines: reado
          (id, version_id, line_no, material_id, material_code, material_name, unit, material_kind, category, quantity,
           list_price, price_source, price_reference_id, price_reference_code, policy_percent, discount_percent, capped_at,
           overridden, override_unit_price, override_discount_percent, unit_price, gross_amount, discount_amount, vat_rate,
-          line_amount, vat_amount, line_total, est_unit_cost, est_cost, margin, created_by)
+          line_amount, vat_amount, line_total, est_unit_cost, est_cost, margin, created_by, override_vat_rate)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-               $24, $25, $26, $27, $28, $29, $30, $31)`,
+               $24, $25, $26, $27, $28, $29, $30, $31, $32)`,
       [
         line.id,
         versionId,
@@ -1362,6 +1363,7 @@ async function insertLines(client: CrmSqlClient, versionId: string, lines: reado
         line.estCost,
         line.margin,
         actorId,
+        line.overrideVatRate,
       ],
     );
     for (const policy of line.appliedPolicies) {
@@ -1570,6 +1572,7 @@ function toLine(row: LineRow, policies: AppliedDiscountPolicy[]): QuoteLine {
     overridden: row.overridden,
     overrideUnitPrice: toNumber(row.override_unit_price),
     overrideDiscountPercent: toNumber(row.override_discount_percent),
+    overrideVatRate: toNumber(row.override_vat_rate),
     unitPrice: num(row.unit_price),
     grossAmount: num(row.gross_amount),
     discountAmount: num(row.discount_amount),

@@ -66,6 +66,7 @@ function line(materialId: string, quantity: number, unitPrice: number, extra: Pa
     overridden: false,
     overrideUnitPrice: null,
     overrideDiscountPercent: null,
+    overrideVatRate: null,
     unitPrice,
     grossAmount: lineAmount,
     discountAmount: 0,

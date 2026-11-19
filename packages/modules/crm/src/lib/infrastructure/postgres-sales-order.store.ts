@@ -683,9 +683,9 @@ export async function insertOrderLines(client: CrmSqlClient, orderId: string, li
          (id, order_id, line_no, material_id, material_code, material_name, unit, material_kind, category, quantity,
           list_price, price_source, price_reference_id, price_reference_code, applied_policies, discount_percent,
           overridden, override_unit_price, override_discount_percent, unit_price, gross_amount, discount_amount, vat_rate,
-          line_amount, vat_amount, line_total, est_unit_cost, warehouse_code)
+          line_amount, vat_amount, line_total, est_unit_cost, warehouse_code, override_vat_rate)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, $16, $17, $18, $19, $20, $21, $22,
-               $23, $24, $25, $26, $27, $28)`,
+               $23, $24, $25, $26, $27, $28, $29)`,
       [
         line.id,
         orderId,
@@ -715,6 +715,7 @@ export async function insertOrderLines(client: CrmSqlClient, orderId: string, li
         line.lineTotal,
         line.estUnitCost,
         line.warehouseCode ?? null,
+        line.overrideVatRate,
       ],
     );
   }
@@ -895,6 +896,7 @@ interface LineRow {
   overridden: boolean;
   override_unit_price: string | null;
   override_discount_percent: string | null;
+  override_vat_rate: string | null;
   unit_price: string;
   gross_amount: string;
   discount_amount: string;
@@ -987,6 +989,7 @@ function toLine(row: LineRow, plannedQuantity: number): SalesOrderLine {
     overridden: row.overridden,
     overrideUnitPrice: toNumber(row.override_unit_price),
     overrideDiscountPercent: toNumber(row.override_discount_percent),
+    overrideVatRate: toNumber(row.override_vat_rate),
     unitPrice: num(row.unit_price),
     grossAmount: num(row.gross_amount),
     discountAmount: num(row.discount_amount),

@@ -62,6 +62,7 @@ function line(id: string, materialId: string, code: string, kind: string, quanti
     overridden: false,
     overrideUnitPrice: null,
     overrideDiscountPercent: null,
+    overrideVatRate: null,
     unitPrice: 1,
     grossAmount: 1,
     discountAmount: 0,
@@ -501,6 +502,58 @@ describe('SalesOrderService: bảng giá của đơn (A7)', () => {
       code: 'ORDER_NOT_EDITABLE',
     });
     expect(store.updateDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe('SalesOrderService: thuế suất sửa tay ở dòng', () => {
+  const contract = {
+    id: CONTRACT,
+    code: 'HD1',
+    status: 'ACTIVE',
+    validFrom: '2026-01-01',
+    validTo: null,
+    customerId: CUSTOMER,
+    ownerUserId: USER,
+    warehouseCode: null,
+  } as unknown as ContractDetail;
+
+  it('đơn trực tiếp: lưu thuế suất sửa tay, thuế dòng theo thuế suất đó, không đánh dấu ghi đè giá', async () => {
+    const { store, service } = setup();
+    await service.create(actor(), {
+      customerId: CUSTOMER,
+      priceListId: PL2,
+      lines: [
+        { materialId: CAP, quantity: 1, overrideVatRate: 5 },
+        { materialId: CAP, quantity: 1, overrideVatRate: null },
+      ],
+    });
+    const [first, second] = store.createOrder.mock.calls[0][1].lines;
+    expect(first).toMatchObject({ overrideVatRate: 5, vatRate: 5, vatAmount: 55_000, overridden: false });
+    expect(second).toMatchObject({ overrideVatRate: null, overridden: false });
+    expect(second.vatRate).not.toBe(5);
+  });
+
+  it('đơn từ hợp đồng: thuế suất sửa tay thay thuế suất hợp đồng', async () => {
+    const { store, service } = setup(order(), contract);
+    await service.create(actor(), { contractId: CONTRACT, priceListId: PL2, lines: [{ materialId: CAP, quantity: 1, overrideVatRate: 0 }] });
+    expect(store.createOrder.mock.calls[0][1].lines[0]).toMatchObject({ priceSource: 'CONTRACT', overrideVatRate: 0, vatRate: 0, vatAmount: 0 });
+  });
+
+  it('sửa đơn nháp: dòng gửi lại mang thuế suất sửa tay; đổi bảng giá giữ thuế suất sửa tay của dòng cũ', async () => {
+    const { store, service } = setup(order({ lines: [line('l1', CAP, 'QA-KHO-CAP', 'STOCK', 2, { overrideVatRate: 8 })] }));
+    await service.update(actor(), ORDER, { revision: 5, lines: [{ materialId: CAP, quantity: 2, overrideVatRate: 8 }] });
+    expect(store.updateDraft.mock.calls[0][4]?.[0]).toMatchObject({ overrideVatRate: 8, vatRate: 8 });
+    await service.update(actor(), ORDER, { revision: 5, priceListId: PL2 });
+    // Không gửi dòng: tổng tính lại theo bảng mới với thuế suất sửa tay 8% của dòng cũ.
+    expect(store.updateDraft.mock.calls[1][3]).toMatchObject({ totals: { netAmount: 2_200_000, vatAmount: 176_000 } });
+  });
+
+  it.each([-1, 101, 8.125])('thuế suất sửa tay %p: 400 kèm số dòng, không ghi', async (overrideVatRate) => {
+    const { store, service } = setup();
+    await expect(
+      service.create(actor(), { customerId: CUSTOMER, priceListId: PL2, lines: [{ materialId: CAP, quantity: 1, overrideVatRate }] }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_LINE', details: { line: 1 } });
+    expect(store.createOrder).not.toHaveBeenCalled();
   });
 });
 

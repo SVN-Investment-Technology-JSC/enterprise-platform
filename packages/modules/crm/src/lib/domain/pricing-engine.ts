@@ -90,6 +90,8 @@ export interface PricingLineInput {
   readonly override?: {
     readonly unitPrice?: number | null;
     readonly discountPercent?: number | null;
+    /** Thuế suất sửa tay (%); không tính là ghi đè giá, không làm báo giá phải duyệt. */
+    readonly vatRate?: number | null;
   } | null;
 }
 
@@ -345,6 +347,7 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
   }
   const overridePrice = line.override?.unitPrice ?? null;
   const overridePercent = line.override?.discountPercent ?? null;
+  const overrideVat = line.override?.vatRate ?? null;
   const discountByOrder = input.discountMode === 'ORDER';
   if (discountByOrder && overridePercent !== null) {
     throw lineError(
@@ -361,6 +364,9 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
   }
   if (overridePercent !== null && !validPercent(overridePercent)) {
     throw lineError(index, 'INVALID_PERCENT', 'Chiết khấu ghi đè phải từ 0 đến 100%.');
+  }
+  if (overrideVat !== null && !validPercent(overrideVat)) {
+    throw lineError(index, 'INVALID_VAT', 'Thuế suất sửa tay phải từ 0 đến 100%.');
   }
 
   const found = resolvePrice(input, line);
@@ -416,7 +422,10 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
     lineAmount = divideRounded(listCents * quantity * (HUNDRED_PERCENT - discount), amountDenominator * HUNDRED_PERCENT);
   }
 
-  const vatRate = scaled(input.taxMode === 'ORDER' ? 0 : price.vatRate, 2);
+  // Thuế theo tổng đơn: thuế dòng luôn 0, bỏ qua thuế suất sửa tay.
+  const taxByOrder = input.taxMode === 'ORDER';
+  const vatOverridden = overrideVat !== null && !taxByOrder;
+  const vatRate = scaled(taxByOrder ? 0 : (overrideVat ?? price.vatRate), 2);
   const vatAmount = divideRounded(lineAmount * vatRate, 10_000n);
   const applied: AppliedDiscountPolicy[] = selected.map(({ policy, percent }) => ({
     policyId: policy.id,
@@ -449,6 +458,7 @@ function priceLine(input: PricingInput, line: PricingLineInput, index: number, c
     discountAmount: Number(grossAmount - lineAmount),
     lineAmount: Number(lineAmount),
     vatRate: unscaled(vatRate, 2),
+    vatOverridden,
     vatAmount: Number(vatAmount),
     lineTotal: Number(lineAmount + vatAmount),
   };

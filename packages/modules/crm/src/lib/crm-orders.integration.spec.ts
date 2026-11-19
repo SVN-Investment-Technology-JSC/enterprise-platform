@@ -276,6 +276,58 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect(kinds).toEqual(new Set(['quote', 'contract', 'order']));
   });
 
+  it('thuế suất sửa tay: lưu ở dòng báo giá, sang phiên bản mới, sang đơn từ báo giá; đơn trực tiếp lưu và đọc lại', async () => {
+    const created = await quotes.create(nv, { customerId, priceListId });
+    let detail = await quotes.addLine(nv, created.id, 1, {
+      revision: created.version.revision,
+      materialId: CAP,
+      quantity: 2,
+      overrideVatRate: 5,
+    });
+    detail = await quotes.addLine(nv, created.id, 1, { revision: detail.version.revision, materialId: BT, quantity: 1 });
+    expect(detail.version.lines.map((line) => [line.overrideVatRate, line.vatRate, line.overridden, line.vatAmount])).toEqual([
+      [5, 5, false, 100_000],
+      [null, 10, false, 50_000],
+    ]);
+    detail = await quotes.submit(nv, created.id, 1, { revision: detail.version.revision });
+    expect(detail.version.status).toBe('APPROVED');
+    const v2 = await quotes.revise(nv, created.id, 1, { revision: detail.version.revision });
+    expect(v2.version.versionNo).toBe(2);
+    expect(v2.version.lines[0]).toMatchObject({ overrideVatRate: 5, vatRate: 5 });
+    detail = await quotes.updateLine(nv, created.id, 2, v2.version.lines[0].id, {
+      revision: v2.version.revision,
+      materialId: CAP,
+      quantity: 2,
+      overrideVatRate: 8,
+    });
+    expect(detail.version.lines[0]).toMatchObject({ overrideVatRate: 8, vatRate: 8, vatAmount: 160_000 });
+    detail = await quotes.submit(nv, created.id, 2, { revision: detail.version.revision });
+    detail = await quotes.send(nv, created.id, 2, { revision: detail.version.revision });
+    const accepted = await quotes.accept(nv, created.id, 2, { revision: detail.version.revision });
+    const result = await conversion.convert(nv, accepted.id);
+    const order = await orders.get(nv, result.orderId);
+    // Đơn từ báo giá giữ thuế suất của báo giá.
+    expect(order.lines.map((line) => [line.materialCode, line.overrideVatRate, line.vatRate, line.vatAmount])).toEqual([
+      ['QA-KHO-CAP', 8, 8, 160_000],
+      ['QA-KHO-BT', null, 10, 50_000],
+    ]);
+    expect(order.totals.vatAmount).toBe(accepted.version.totals.vatAmount);
+
+    const direct = await orders.create(nv, {
+      customerId,
+      priceListId,
+      lines: [{ materialId: CAP, quantity: 1, overrideVatRate: 0 }, { materialId: BT, quantity: 1 }],
+    });
+    expect(direct.lines.map((line) => [line.overrideVatRate, line.vatRate, line.vatAmount])).toEqual([
+      [0, 0, 0],
+      [null, 10, 50_000],
+    ]);
+    expect((await orders.get(nv, direct.id)).totals.vatAmount).toBe(50_000);
+    await expect(
+      orders.create(nv, { customerId, priceListId, lines: [{ materialId: CAP, quantity: 1, overrideVatRate: 120 }] }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it('TC-QUO-12: báo giá chưa khách chấp nhận không chuyển được', async () => {
     const created = await quotes.create(nv, { customerId });
     await expect(conversion.convert(nv, created.id)).rejects.toMatchObject({ statusCode: 409, code: 'QUOTE_NOT_ACCEPTED' });

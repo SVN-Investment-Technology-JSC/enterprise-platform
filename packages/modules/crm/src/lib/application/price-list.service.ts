@@ -34,13 +34,13 @@ const PRICING_CODE_PATTERN = /^[A-Z0-9._-]+$/;
 /** Đơn giá tối đa: đủ cho VND, vẫn chính xác khi tính bằng số thực. */
 const PRICE_MAX = PRICE_LIST_PRICE_MAX;
 
-/** Thao tác không áp cho loại bảng này (bảng mặc định chỉ sửa thuế suất; bảng theo tỷ lệ chỉ sửa giá tay, tỷ lệ). */
+/** Thao tác không áp cho loại bảng này (bảng mặc định lấy hết theo Kho; bảng theo tỷ lệ chỉ sửa giá tay, thuế suất tay, tỷ lệ). */
 export function priceListReadOnly(listType: PriceListType): CrmConflictError {
   const message =
     listType === 'DEFAULT'
-      ? 'Bảng giá mặc định lấy theo Kho, chỉ sửa được thuế suất.'
+      ? 'Bảng giá mặc định lấy mặt hàng, giá và thuế suất theo Kho, không sửa trong CRM.'
       : listType === 'DERIVED'
-        ? 'Bảng giá theo tỷ lệ không thêm, xoá dòng hay sửa thuế suất; chỉ nhập hoặc bỏ giá tay.'
+        ? 'Bảng giá theo tỷ lệ không thêm, xoá dòng; chỉ nhập hoặc bỏ giá tay, thuế suất tay.'
         : 'Bảng giá này không hỗ trợ thao tác đã chọn.';
   return new CrmConflictError('PRICE_LIST_READ_ONLY', message);
 }
@@ -49,8 +49,9 @@ export function priceListReadOnly(listType: PriceListType): CrmConflictError {
  * Bảng giá (`docs/crm_price_list_logic/plan.md` 4.4). Ai có `crm.read` cũng đọc được (để chọn khi báo giá); tạo, sửa,
  * xoá cần quản trị bán hàng.
  *
- * - Bảng mặc định (`DEFAULT`): lấy theo Kho qua "Đồng bộ"; chỉ sửa thuế suất.
- * - Bảng theo tỷ lệ (`DERIVED`): bảng tạo mới luôn thuộc loại này; dòng theo tỷ lệ, từng dòng nhập hoặc bỏ giá tay.
+ * - Bảng mặc định (`DEFAULT`): mặt hàng, giá, thuế suất lấy theo Kho qua "Đồng bộ"; không sửa trong CRM.
+ * - Bảng theo tỷ lệ (`DERIVED`): bảng tạo mới luôn thuộc loại này; dòng theo tỷ lệ, từng dòng nhập hoặc bỏ giá tay,
+ *   nhập hoặc bỏ thuế suất tay.
  * - Bảng nhập tay (`MANUAL`): bảng cũ, giữ thêm, sửa, xoá, dán nhiều dòng.
  */
 export class PriceListService {
@@ -118,12 +119,21 @@ export class PriceListService {
     return this.require(actor.tenantId, ref.id);
   }
 
-  /** Bảng mặc định: sửa thuế suất một dòng; bảng theo tỷ lệ nhận theo ngay. */
+  /** Bảng theo tỷ lệ: nhập thuế suất tay cho một dòng (giữ khi đồng bộ). Bảng mặc định lấy thuế suất theo Kho. */
   async setVatRate(actor: CrmActor, priceListId: string, itemId: string, request: SetVatRateRequest): Promise<PriceListDetail> {
     requireSalesManager(actor);
-    const ref = await this.requireType(actor.tenantId, priceListId, 'DEFAULT');
+    const ref = await this.requireType(actor.tenantId, priceListId, 'DERIVED');
     const vatRate = boundedNumber(request?.vatRate, 0, 100, 'thuế suất', 2);
     const saved = isUuid(itemId) && (await this.lists.setVatRate(actor.tenantId, ref.id, itemId, vatRate, actor.userId));
+    if (!saved) throw itemNotFound();
+    return this.require(actor.tenantId, ref.id);
+  }
+
+  /** Bảng theo tỷ lệ: bỏ thuế suất tay, dòng về thuế suất của bảng mặc định. */
+  async clearVatRate(actor: CrmActor, priceListId: string, itemId: string): Promise<PriceListDetail> {
+    requireSalesManager(actor);
+    const ref = await this.requireType(actor.tenantId, priceListId, 'DERIVED');
+    const saved = isUuid(itemId) && (await this.lists.clearVatRate(actor.tenantId, ref.id, itemId, actor.userId));
     if (!saved) throw itemNotFound();
     return this.require(actor.tenantId, ref.id);
   }

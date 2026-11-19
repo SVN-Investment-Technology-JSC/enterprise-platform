@@ -123,6 +123,31 @@ describe('PriceListSyncService (A4)', () => {
     expect(input.materials.find((entry) => entry.code === 'M6')).toMatchObject({ isActive: false });
   });
 
+  it('thuế suất theo Kho: rỗng hoặc sai thì 10%, làm tròn 2 chữ số thập phân', async () => {
+    const { store, catalog, service } = setup();
+    catalog.pages = [
+      [
+        { ...material(1, 'Cái', 1_000), vatRate: 8 },
+        { ...material(2, 'Cái', 1_000), vatRate: null },
+        material(3, 'Cái', 1_000),
+        { ...material(4, 'Cái', 1_000), vatRate: 0 },
+        { ...material(5, 'Cái', 1_000), vatRate: 5.256 },
+        { ...material(6, 'Cái', 1_000), vatRate: 150 },
+        { ...material(7, 'Cái', 1_000), vatRate: -1 },
+      ],
+    ];
+    await service.sync(manager);
+    expect(store.inputs[0].materials.map((entry) => [entry.code, entry.vatRate])).toEqual([
+      ['M1', 8],
+      ['M2', 10],
+      ['M3', 10],
+      ['M4', 0],
+      ['M5', 5.26],
+      ['M6', 10],
+      ['M7', 10],
+    ]);
+  });
+
   it('A4.4: dấu vân tay trùng lần trước thì không cần đồng bộ; khác thì CATALOG_CHANGED', async () => {
     const { store, catalog, service } = setup();
     await service.sync(manager);
