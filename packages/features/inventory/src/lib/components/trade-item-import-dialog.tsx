@@ -6,7 +6,7 @@ import type {
   ImportMaterialRow,
   InventoryTradeCatalog,
 } from '@enterprise-platform/contracts-inventory';
-import { SearchableSelect, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, CloseGuard, SpreadsheetFileTooLargeError } from '@enterprise-platform/shared-ui';
 import { useMemo, useState } from 'react';
 import {
   buildImportRows,
@@ -134,9 +134,13 @@ export function TradeItemImportDialog({
       setSheet(read);
       setMapping(detectMapping(read));
       setDefaultKind(guessDefaultKind(read));
-    } catch {
+    } catch (cause) {
       setSheet(undefined);
-      setReadError('Không đọc được tệp hoặc tệp không có dòng dữ liệu. Hãy dùng tệp Excel (.xlsx, .xls, .csv).');
+      setReadError(
+        cause instanceof SpreadsheetFileTooLargeError
+          ? cause.message
+          : 'Không đọc được tệp hoặc tệp không có dòng dữ liệu. Hãy dùng tệp Excel (.xlsx, .xls, .csv).',
+      );
     }
   };
 

@@ -39,6 +39,27 @@ export interface SocialApiError {
   readonly message?: string;
 }
 
+const DEFAULT_REQUEST_ERROR_MESSAGE = 'Không thực hiện được yêu cầu. Vui lòng thử lại.';
+
+/**
+ * Lỗi khi API Mạng nội bộ trả mã lỗi. `serverMessage` là lời nhắn server gửi (nếu có);
+ * `message` luôn có chữ tiếng Việt để ném như một `Error` bình thường.
+ */
+export class SocialRequestError extends Error implements SocialApiError {
+  readonly code?: string;
+  readonly status: number;
+  readonly serverMessage?: string;
+
+  constructor(status: number, body: SocialApiError) {
+    const serverMessage = typeof body.message === 'string' && body.message ? body.message : undefined;
+    super(serverMessage ?? DEFAULT_REQUEST_ERROR_MESSAGE);
+    this.name = 'SocialRequestError';
+    this.status = status;
+    this.code = typeof body.code === 'string' ? body.code : undefined;
+    this.serverMessage = serverMessage;
+  }
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // `authFetch` tự gắn cookie phiên, `x-csrf-token` và làm mới phiên một lần khi gặp 401.
   const response = await authFetch(`${API}${path}`, {
@@ -47,12 +68,21 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (response.status === 401) {
     window.location.assign('/');
-    throw { code: 'UNAUTHENTICATED', message: 'Phiên đăng nhập đã hết.' } satisfies SocialApiError;
+    throw new SocialRequestError(401, { code: 'UNAUTHENTICATED', message: 'Phiên đăng nhập đã hết.' });
   }
   if (response.status === 204) return undefined as T;
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw body as SocialApiError;
+  const body: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new SocialRequestError(response.status, (body ?? {}) as SocialApiError);
+  }
   return body as T;
+}
+
+/** Lời nhắn từ lỗi: lỗi API chỉ lấy lời nhắn server gửi, để người gọi tự chọn lời nhắn dự phòng. */
+function causeMessage(cause: unknown): string | undefined {
+  if (cause instanceof SocialRequestError) return cause.serverMessage;
+  const message = (cause as SocialApiError | undefined)?.message;
+  return typeof message === 'string' && message ? message : undefined;
 }
 
 export const json = (method: string, body?: unknown): RequestInit => ({
@@ -62,8 +92,7 @@ export const json = (method: string, body?: unknown): RequestInit => ({
 
 /** Lời nhắn lỗi để hiện thẳng cho người dùng. */
 export function errorMessage(cause: unknown, fallback: string): string {
-  const message = (cause as SocialApiError | undefined)?.message;
-  return typeof message === 'string' && message ? message : fallback;
+  return causeMessage(cause) ?? fallback;
 }
 
 const ATTACHMENT_ERROR_FALLBACKS: Readonly<Record<string, string>> = {
@@ -76,8 +105,9 @@ const ATTACHMENT_ERROR_FALLBACKS: Readonly<Record<string, string>> = {
 
 /** Như `errorMessage`, nhưng có lời nhắn tiếng Việt riêng cho các mã lỗi tệp và video khi server không kèm lời nhắn. */
 export function attachmentErrorMessage(cause: unknown, fallback: string): string {
-  const { code, message } = (cause as SocialApiError | undefined) ?? {};
-  if (typeof message === 'string' && message) return message;
+  const message = causeMessage(cause);
+  if (message) return message;
+  const code = (cause as SocialApiError | undefined)?.code;
   return (code !== undefined ? ATTACHMENT_ERROR_FALLBACKS[code] : undefined) ?? fallback;
 }
 

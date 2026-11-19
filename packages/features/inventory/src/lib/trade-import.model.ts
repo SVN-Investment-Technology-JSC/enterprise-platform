@@ -1,4 +1,5 @@
 import type { ImportMaterialRow, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
+import { assertSpreadsheetFileSize } from '@enterprise-platform/shared-ui';
 import * as XLSX from 'xlsx';
 import { VAT_RATE_INVALID_MESSAGE, categoriesOf, fold, isValidVatRate, type TradeGroup } from './trade-items.model';
 
@@ -65,6 +66,7 @@ export interface ImportSheet {
 }
 
 export async function readImportSheet(file: File): Promise<ImportSheet> {
+  assertSpreadsheetFileSize(file);
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   if (!sheet) return { headers: [], rows: [] };
@@ -197,6 +199,12 @@ export function parseVatRateCell(value: unknown): number | undefined {
 
 /** "dd/mm/yyyy" hoặc "yyyy-mm-dd" (hoặc ô ngày của Excel) thành ISO theo múi giờ Việt Nam; sai thì `undefined`. */
 export function parseImportDate(value: unknown): string | undefined {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (value instanceof Date) {
+    // Ô ngày đọc với `cellDates` là giờ máy (0 giờ ngày đó); lấy ngày theo giờ máy, không qua giờ UTC để khỏi lùi một ngày.
+    if (Number.isNaN(value.getTime())) return undefined;
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T00:00:00+07:00`;
+  }
   const raw = text(value);
   if (!raw) return undefined;
   let year: number;
@@ -212,7 +220,6 @@ export function parseImportDate(value: unknown): string | undefined {
     return undefined;
   }
   if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
-  const pad = (n: number) => String(n).padStart(2, '0');
   const result = `${year}-${pad(month)}-${pad(day)}T00:00:00+07:00`;
   return Number.isNaN(Date.parse(result)) ? undefined : result;
 }

@@ -14,6 +14,12 @@ jest.mock('../correspondence-api', () => ({
   downloadAttachment: jest.fn(),
 }));
 
+// Bọc thư viện bảng tính để giả lập tệp hỏng (dữ liệu từ realm khác của jsdom làm thư viện đọc như chữ thay vì ném lỗi).
+jest.mock('xlsx', () => {
+  const actual = jest.requireActual('xlsx');
+  return { ...actual, read: jest.fn(actual.read) };
+});
+
 const ticket = attachmentTicket as jest.MockedFunction<typeof attachmentTicket>;
 
 function file(fileName: string, contentType: string): LetterAttachment {
@@ -83,6 +89,26 @@ describe('Xem trước tệp ngay trong trang', () => {
     expect(await screen.findByText(/chưa xem trực tiếp được/)).toBeTruthy();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('bảng tính quá 10 MB không tải về, không đọc, báo tiếng Việt', async () => {
+    respond('Mã,Tên\nVT01,Xi măng');
+    const big = { ...file('lon.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'), sizeBytes: 10 * 1024 * 1024 + 1 };
+    render(<FilePreview target={{ letterId: 'l1', file: big }} onClose={jest.fn()} />);
+    expect(await screen.findByText('Tệp quá lớn để xem trước (tối đa 10 MB). Tải xuống để mở.')).toBeTruthy();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('bảng tính hỏng báo lỗi tiếng Việt', async () => {
+    // Tệp zip hỏng: thư viện ném lỗi tiếng Anh (vd "Unsupported ZIP encryption").
+    const read = jest.requireMock<{ read: jest.Mock }>('xlsx').read;
+    read.mockImplementationOnce(() => {
+      throw new Error('Unsupported ZIP encryption');
+    });
+    respond('PK\u0003\u0004' + '\u0007'.repeat(200));
+    const broken = file('hong.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    render(<FilePreview target={{ letterId: 'l1', file: broken }} onClose={jest.fn()} />);
+    expect(await screen.findByText(/Không đọc được tệp\. Tệp có thể bị hỏng/)).toBeTruthy();
   });
 });
 

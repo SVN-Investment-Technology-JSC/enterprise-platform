@@ -47,7 +47,7 @@
     "@enterprise-platform/contracts-tenancy": "workspace:*",
     "@enterprise-platform/platform-entitlement": "workspace:*",
     "@enterprise-platform/platform-tenancy": "workspace:*",
-    "@nestjs/common": "^11.2.1",
+    "@nestjs/common": "^11.2.10",
     "jose": "^6.2.9"
   },
   "devDependencies": {

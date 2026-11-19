@@ -5,13 +5,13 @@ const createJestConfig = nextJest({
 });
 
 const config = {
-  displayName: 'maintenance-web',
+  displayName: 'inventory-web',
   preset: '../../jest.preset.js',
   transform: {
     '^(?!.*\\.(js|jsx|ts|tsx|css|json)$)': '@nx/react/plugins/jest',
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
-  coverageDirectory: '../../coverage/apps/maintenance-web',
+  coverageDirectory: '../../coverage/apps/inventory-web',
   testEnvironment: 'jsdom',
 };
 

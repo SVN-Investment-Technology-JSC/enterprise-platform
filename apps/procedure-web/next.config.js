@@ -10,6 +10,8 @@ const nextConfig = {
     .filter(Boolean),
   basePath: '/modules/procedure',
   outputFileTracingRoot: path.join(__dirname, '../..'),
+  // Mã không dùng next/image; tắt bộ tối ưu ảnh để đóng endpoint /_next/image (ISS-OPS-002).
+  images: { unoptimized: true },
   output: process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   poweredByHeader: false,
   async rewrites() {

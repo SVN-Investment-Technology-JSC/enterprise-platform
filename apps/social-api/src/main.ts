@@ -1,10 +1,12 @@
 import { Logger } from '@nestjs/common';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access';
 import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import { SocialApiModule } from './app/social-api.module';
 
 async function bootstrap() {
   try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
+  assertServiceEnvironment('social-api');
   const app = await NestFactory.create(SocialApiModule);
   app.use(cookieParser());
   app.enableShutdownHooks();

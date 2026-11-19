@@ -10,6 +10,7 @@ import {
   formatQuantityVn,
   parseVnNumber,
   CloseGuard,
+  spreadsheetFileSizeError,
 } from '@enterprise-platform/shared-ui';
 import {
   ArrowLeft,
@@ -786,6 +787,11 @@ export function ExcelImportDialog({
   // Đọc file Excel khi người dùng kéo thả hoặc chọn
   const handleFileChange = (file: File) => {
     if (!file) return;
+    const sizeError = spreadsheetFileSizeError(file);
+    if (sizeError) {
+      alert(sizeError);
+      return;
+    }
     setFileName(file.name);
     setFileSize(
       file.size > 1024 * 1024
@@ -1518,7 +1524,7 @@ export function ExcelImportDialog({
                 </h3>
                 <p className="m-0 text-[14px] text-[#64748b]">
                   Hỗ trợ định dạng .xlsx, .xls hoặc .csv (dung lượng tối đa
-                  20MB)
+                  10 MB)
                 </p>
                 {fileName ? (
                   <Button

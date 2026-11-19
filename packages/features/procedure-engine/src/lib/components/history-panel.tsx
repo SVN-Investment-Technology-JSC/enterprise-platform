@@ -36,10 +36,10 @@ export function HistoryPanel({ instance }: { instance: ProcedureInstance }) {
     return { total: round, entries: numbered.reverse() };
   }, [instance.activity]);
 
-  const shown = rounds.entries.slice(0, visible);
+  const shown = useMemo(() => rounds.entries.slice(0, visible), [rounds, visible]);
 
   const groupedRounds = useMemo(() => {
-    const groups: { round: number; entries: (typeof rounds.entries)[number][] }[] = [];
+    const groups: { round: number; entries: (typeof shown)[number][] }[] = [];
     for (const item of shown) {
       const lastGroup = groups[groups.length - 1];
       if (lastGroup && lastGroup.round === item.round) {

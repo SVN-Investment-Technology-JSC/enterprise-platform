@@ -104,22 +104,22 @@ function usePostResults(query: string, filters: SearchFilters, enabled: boolean)
   const [more, setMore] = useState(false);
   const [moreError, setMoreError] = useState<string>();
   const token = useRef(0);
+  // Bộ lọc mới nhưng cùng giá trị (tạo lại object khi dựng lại) không làm tải lại; chỉ tải khi giá trị lọc đổi.
   const filterKey = JSON.stringify(filters);
-  const filtersRef = useRef(filters);
-  filtersRef.current = filters;
+  const stableFilters = useMemo(() => JSON.parse(filterKey) as SearchFilters, [filterKey]);
 
   const load = useCallback(() => {
     const mine = ++token.current;
     setState({ status: 'loading' });
     setMoreError(undefined);
-    searchPosts(toSearchPostsQuery(query, filtersRef.current))
+    searchPosts(toSearchPostsQuery(query, stableFilters))
       .then((page) => mine === token.current && setState({ status: 'ready', data: page }))
       .catch(
         (cause: unknown) =>
           mine === token.current &&
           setState({ status: 'error', error: errorMessage(cause, 'Không tìm được bài viết. Vui lòng thử lại.') }),
       );
-  }, [query, filterKey]);
+  }, [query, stableFilters]);
 
   useEffect(() => {
     if (!enabled) {
@@ -136,7 +136,7 @@ function usePostResults(query: string, filters: SearchFilters, enabled: boolean)
     const mine = token.current;
     setMore(true);
     setMoreError(undefined);
-    searchPosts(toSearchPostsQuery(query, filtersRef.current, cursor))
+    searchPosts(toSearchPostsQuery(query, stableFilters, cursor))
       .then((page) => {
         if (mine !== token.current) return;
         setState((current) => {

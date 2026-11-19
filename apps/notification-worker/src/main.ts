@@ -10,6 +10,7 @@ import {
   DEFAULT_NOTIFICATION_POLICIES,
   NotificationPolicyRegistry,
 } from '@enterprise-platform/module-notifications';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access/runtime';
 import { NotificationProcessor } from './app/notification-processor';
 import { NotificationMaintenanceLoop } from './app/notification-maintenance';
 import { PostgresNotificationTenantRuntimeRegistry } from './app/notification-runtime';
@@ -26,6 +27,7 @@ try {
 } catch {
   // Runtime environments may inject configuration directly.
 }
+assertServiceEnvironment('notification-worker');
 
 const rabbitUrl =
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672';

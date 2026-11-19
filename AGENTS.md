@@ -40,7 +40,7 @@ sao sinh tự động.
   - `packages/platform`, `packages/adapters`, `packages/shared`: phần dùng chung.
 - Mỗi tenant có DB riêng; mỗi phân hệ một schema `<m>_schema`. Migration ở `migrations/`.
 - Phân hệ hiện có: `hrm`, `workspace`, `procedure-engine` (tiền tố quyền `procedure`), `maintenance`, `inventory`,
-  `finance`, `shared`, `assistant`.
+  `finance`, `shared`, `assistant`, `crm`, `social`, `correspondence`.
 
 ## Luật cứng
 

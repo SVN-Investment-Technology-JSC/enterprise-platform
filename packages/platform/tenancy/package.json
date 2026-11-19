@@ -30,7 +30,7 @@
     "@enterprise-platform/adapter-storage": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-tenancy": "workspace:*",
-    "@nestjs/common": "^11.2.1"
+    "@nestjs/common": "^11.2.10"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1111.0",

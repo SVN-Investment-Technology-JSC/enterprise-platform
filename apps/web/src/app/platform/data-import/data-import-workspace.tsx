@@ -58,7 +58,16 @@ function csrfToken(): string {
   return encoded ? decodeURIComponent(encoded) : '';
 }
 
-function apiErrorMessage(payload: ApiErrorPayload, fallback: string): string {
+const DATA_IMPORT_FILE_TOO_LARGE_MESSAGE =
+  'Tệp quá lớn: mỗi tệp tối đa 10 MB, mỗi lần tối đa 16 tệp. Hãy chia nhỏ tệp rồi thử lại.';
+
+function apiErrorMessage(
+  status: number,
+  payload: ApiErrorPayload,
+  fallback: string,
+): string {
+  // 413 có thể do gateway nginx trả (thân HTML) hoặc do API trả (thông điệp tiếng Anh).
+  if (status === 413) return DATA_IMPORT_FILE_TOO_LARGE_MESSAGE;
   if (Array.isArray(payload.message)) return payload.message.join(' ');
   return typeof payload.message === 'string' ? payload.message : fallback;
 }
@@ -122,7 +131,11 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
         | ApiErrorPayload;
       if (!response.ok) {
         throw new Error(
-          apiErrorMessage(payload as ApiErrorPayload, 'Không thể kiểm tra file.'),
+          apiErrorMessage(
+            response.status,
+            payload as ApiErrorPayload,
+            'Không thể kiểm tra file.',
+          ),
         );
       }
       const nextPreview = payload as DataImportPreviewResponse;
@@ -162,7 +175,9 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
       if (!response.ok) {
         const failed = payload as ApiErrorPayload;
         if (failed.preview) setPreview(failed.preview);
-        throw new Error(apiErrorMessage(failed, 'Không thể import dữ liệu.'));
+        throw new Error(
+          apiErrorMessage(response.status, failed, 'Không thể import dữ liệu.'),
+        );
       }
       setResult(payload as DataImportExecutionResponse);
       toast.success({
