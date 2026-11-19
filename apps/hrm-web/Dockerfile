@@ -27,5 +27,5 @@ COPY --from=build --chown=node:node /workspace/apps/hrm-web/public ./apps/hrm-we
 COPY --from=build --chown=node:node /workspace/apps/hrm-web/.next/static ./apps/hrm-web/.next/static
 USER node
 EXPOSE 3008
-HEALTHCHECK --interval=15s --timeout=3s CMD node -e "fetch('http://127.0.0.1:3008/modules/hrm').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=60s --timeout=3s --start-period=120s --start-interval=5s CMD node -e "fetch('http://127.0.0.1:3008/modules/hrm').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 CMD ["node", "apps/hrm-web/server.js"]
