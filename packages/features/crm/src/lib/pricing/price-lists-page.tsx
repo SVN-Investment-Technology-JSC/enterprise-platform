@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CrmDialog, Field, StatusPill } from '../components/crm-ui';
 import {
   clearManualPrice,
+  clearPriceListVatRate,
   createPriceList,
   deletePriceList,
   deletePriceListItem,
@@ -48,12 +49,14 @@ import {
 
 /** Lời nhắc khi chưa có bảng giá mặc định (nút "Thêm bảng giá" khoá). */
 export const NO_DEFAULT_LIST_HINT = 'Chưa có bảng giá mặc định. Bấm "Đồng bộ" ở thông báo trên cùng để tạo từ danh mục Kho, rồi mới thêm bảng giá.';
+/** Nhãn cạnh thuế suất của dòng nhập thuế suất tay (bảng theo tỷ lệ). */
+export const VAT_MANUAL_TAG = 'Thuế suất tay';
 /** Hỏi lại khi đổi tỷ lệ của bảng theo tỷ lệ. */
 export const RATIO_CHANGE_CONFIRM = 'Giá theo tỷ lệ sẽ được tính lại; giá tay giữ nguyên.';
 
 /**
- * Bảng giá (PRC-01). Bảng mặc định (một bảng) lấy mặt hàng, đơn vị, giá từ Kho qua "Đồng bộ", chỉ sửa được thuế suất.
- * Bảng mới luôn theo tỷ lệ của bảng mặc định, từng dòng nhập được giá tay. Bảng tự nhập cũ giữ thao tác như trước (thêm,
+ * Bảng giá (PRC-01). Bảng mặc định (một bảng) lấy mặt hàng, đơn vị, giá, thuế suất từ Kho qua "Đồng bộ", không sửa trong
+ * CRM. Bảng mới luôn theo tỷ lệ của bảng mặc định, từng dòng nhập được giá tay và thuế suất tay. Bảng tự nhập cũ giữ thao tác như trước (thêm,
  * sửa, xoá dòng, dán từ bảng tính). Chỉ quản trị bán hàng có nút ghi; server kiểm `crm.manage` cho mọi thao tác ghi.
  */
 export function PriceListsPage() {
@@ -182,8 +185,8 @@ export function PriceListsPage() {
         ) : null}
         <p className={styles.muted}>
           Giá gốc khi báo giá lấy theo thứ tự: giá hợp đồng, bảng giá người lập chọn ở báo giá hoặc đơn. Bảng giá mặc định
-          lấy mặt hàng, đơn vị tính, giá bán từ Kho; bảng giá mới tính theo tỷ lệ của bảng mặc định và nhập được giá tay
-          từng dòng.
+          lấy mặt hàng, đơn vị tính, giá bán, thuế suất từ Kho; bảng giá mới tính theo tỷ lệ của bảng mặc định, nhập được giá
+          tay và thuế suất tay từng dòng.
         </p>
         {error ? <p className={styles.alert}>{error}</p> : null}
         <Table<PriceListSummary>
@@ -434,20 +437,29 @@ function PriceListItems({ priceListId, canManage, onChanged }: { priceListId: st
         render: (value: PriceMode) => <StatusPill tone={value === 'MANUAL' ? 'info' : 'neutral'}>{PRICE_MODE_LABELS[value]}</StatusPill>,
       });
     }
-    columns.push({ title: 'Thuế suất', dataIndex: 'vatRate', width: 100, align: 'right', render: (value: number) => formatPercent(value) });
-    if (!canManage || !listType) return columns;
+    columns.push({
+      title: 'Thuế suất',
+      dataIndex: 'vatRate',
+      width: listType === 'DERIVED' ? 170 : 100,
+      align: 'right',
+      render: (value: number, row) =>
+        listType === 'DERIVED' && row.vatManual ? (
+          <span className={styles.cellWithPill}>
+            <StatusPill tone="info">{VAT_MANUAL_TAG}</StatusPill>
+            {formatPercent(value)}
+          </span>
+        ) : (
+          formatPercent(value)
+        ),
+    });
+    // Bảng mặc định lấy hết từ Kho, không có thao tác ghi trên dòng.
+    if (!canManage || !listType || listType === 'DEFAULT') return columns;
     columns.push({
       title: '',
       key: 'actions',
-      width: listType === 'DERIVED' ? 190 : 130,
+      width: listType === 'DERIVED' ? 360 : 130,
       render: (_: unknown, row) =>
-        listType === 'DEFAULT' ? (
-          <span className={styles.rowActions}>
-            <button type="button" className={styles.rowAction} aria-label={`Sửa thuế suất ${row.materialCode}`} onClick={() => setDialog({ kind: 'vat', item: row })}>
-              Sửa thuế suất
-            </button>
-          </span>
-        ) : listType === 'DERIVED' ? (
+        listType === 'DERIVED' ? (
           <span className={styles.rowActions}>
             <button type="button" className={styles.rowAction} aria-label={`Nhập giá tay ${row.materialCode}`} onClick={() => setDialog({ kind: 'manual', item: row })}>
               Nhập giá tay
@@ -470,6 +482,30 @@ function PriceListItems({ priceListId, canManage, onChanged }: { priceListId: st
               >
                 <button type="button" className={styles.rowAction} aria-label={`Bỏ giá tay ${row.materialCode}`}>
                   Bỏ giá tay
+                </button>
+              </Popconfirm>
+            ) : null}
+            <button type="button" className={styles.rowAction} aria-label={`Nhập thuế suất tay ${row.materialCode}`} onClick={() => setDialog({ kind: 'vat', item: row })}>
+              Nhập thuế suất tay
+            </button>
+            {row.vatManual ? (
+              <Popconfirm
+                placement="left"
+                title="Bỏ thuế suất tay?"
+                description="Dòng quay về thuế suất của bảng giá mặc định (theo Kho)."
+                okText="Bỏ thuế suất tay"
+                cancelText="Huỷ"
+                onConfirm={async () => {
+                  try {
+                    applyChange(await clearPriceListVatRate(priceListId, row.id));
+                    toast.success('Đã bỏ thuế suất tay.');
+                  } catch (cause) {
+                    toast.error(errorMessage(cause, 'Không bỏ được thuế suất tay.'));
+                  }
+                }}
+              >
+                <button type="button" className={styles.rowAction} aria-label={`Bỏ thuế suất tay ${row.materialCode}`}>
+                  Bỏ thuế suất tay
                 </button>
               </Popconfirm>
             ) : null}
@@ -524,11 +560,14 @@ function PriceListItems({ priceListId, canManage, onChanged }: { priceListId: st
         ) : null}
       </div>
       {listType === 'DEFAULT' ? (
-        <p className={local.typeHint}>Mặt hàng, đơn vị tính, giá bán lấy từ Kho qua "Đồng bộ"; chỉ sửa được thuế suất.</p>
+        <p className={local.typeHint}>
+          Mặt hàng, đơn vị tính, giá bán và thuế suất lấy từ Kho qua "Đồng bộ"; không sửa trong CRM. Muốn đổi thuế suất, sửa
+          ở danh mục hàng hóa của Kho rồi đồng bộ lại.
+        </p>
       ) : listType === 'DERIVED' ? (
         <p className={local.typeHint}>
           Giá theo tỷ lệ {formatPercent(detail?.ratioPercent)} của bảng giá mặc định, làm tròn đến đồng. Dòng nhập giá tay giữ giá khi
-          đồng bộ hoặc đổi tỷ lệ.
+          đồng bộ hoặc đổi tỷ lệ. Thuế suất theo bảng mặc định (Kho), trừ dòng nhập thuế suất tay.
         </p>
       ) : null}
       {error ? <p className={styles.alert}>{error}</p> : null}

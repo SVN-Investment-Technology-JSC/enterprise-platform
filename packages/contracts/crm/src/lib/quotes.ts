@@ -153,6 +153,8 @@ export interface QuoteLine {
   readonly overridden: boolean;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay của dòng (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   readonly unitPrice: number;
   readonly grossAmount: number;
   readonly discountAmount: number;
@@ -403,6 +405,8 @@ export interface SaveQuoteLineRequest {
   readonly unit?: string | null;
   readonly overrideUnitPrice?: number | null;
   readonly overrideDiscountPercent?: number | null;
+  /** Thuế suất sửa tay (0–100%, 2 chữ số thập phân); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate?: number | null;
 }
 
 /** Một mặt hàng trong lô thêm dòng; `revision` chung nằm ở `AddQuoteLinesRequest`. */
@@ -485,6 +489,8 @@ export interface CrmCatalogMaterial {
   readonly tradeCategory?: string | null;
   /** Giá bán khai ở Kho (cột Giá của màn Hàng hóa); rỗng là chưa khai. */
   readonly salePrice?: number | null;
+  /** Thuế suất khai ở Kho (%); rỗng là chưa khai (tính 10%). */
+  readonly vatRate?: number | null;
   /** Giá vốn bình quân hiện tại (ước tính); rỗng với dịch vụ. */
   readonly avgCost: number | null;
   /** Tồn khả dụng gộp các kho; rỗng với dịch vụ. */

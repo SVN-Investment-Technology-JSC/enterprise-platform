@@ -22,6 +22,8 @@ import styles from './quote-workspace.module.scss';
 const quantityText = (value: number | null) => (value === null ? '' : value.toLocaleString('vi-VN', { maximumFractionDigits: 3 }));
 
 export const LINES_LOCKED_TEXT = 'Lưu báo giá để thêm dòng hàng';
+/** Nhãn ở cột VAT khi dòng có thuế suất sửa tay. */
+export const VAT_OVERRIDDEN_TAG = 'Sửa tay';
 
 /** Thao tác trên một dòng; bảng chỉ báo, màn cha làm. */
 export type QuoteLineCommand = 'add' | 'edit' | 'insert' | 'remove' | 'view';
@@ -128,7 +130,21 @@ function lineColumns(
     },
     { title: 'Đơn giá sau CK', dataIndex: 'unitPrice', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
     { title: 'Thành tiền', dataIndex: 'lineAmount', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
-    { title: 'VAT', key: 'vat', width: 120, align: 'right', render: (_: unknown, row) => `${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})` },
+    {
+      title: 'VAT',
+      key: 'vat',
+      width: 120,
+      align: 'right',
+      render: (_: unknown, row) =>
+        row.overrideVatRate != null ? (
+          <span className={salesStyles.cellWithPill} title="Thuế suất sửa tay ở dòng này">
+            {`${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})`}
+            <StatusPill tone="info">{VAT_OVERRIDDEN_TAG}</StatusPill>
+          </span>
+        ) : (
+          `${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})`
+        ),
+    },
     {
       title: 'Giá vốn ước tính',
       key: 'cost',

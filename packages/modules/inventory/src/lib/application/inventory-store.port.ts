@@ -128,7 +128,7 @@ export interface InventoryStore {
       query: InternalMaterialCatalogQuery,
     ): Promise<InternalMaterialCatalogItem[]>;
     /**
-     * Số mặt hàng và md5 của `id, code, name, unit, sale_price, is_active` mọi mặt
+     * Số mặt hàng và md5 của `id, code, name, unit, sale_price, vat_rate, is_active` mọi mặt
      * hàng (kể cả ngừng dùng) thuộc `kinds`, xếp theo id, tính trong một câu SQL.
      */
     catalogFingerprint(

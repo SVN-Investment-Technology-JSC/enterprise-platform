@@ -1,6 +1,6 @@
 import type { ImportMaterialRow, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
 import * as XLSX from 'xlsx';
-import { categoriesOf, fold, type TradeGroup } from './trade-items.model';
+import { VAT_RATE_INVALID_MESSAGE, categoriesOf, fold, isValidVatRate, type TradeGroup } from './trade-items.model';
 
 /**
  * Nhập hàng hóa, dịch vụ từ tệp Excel bất kỳ (kể cả tệp xuất từ hệ cũ): đọc tiêu đề, tự đoán cột nào là trường nào
@@ -16,6 +16,7 @@ export type ImportFieldKey =
   | 'category'
   | 'usage'
   | 'price'
+  | 'vat'
   | 'cost'
   | 'barcode'
   | 'manufacturer'
@@ -41,6 +42,11 @@ export const IMPORT_FIELDS: readonly ImportFieldSpec[] = [
   { key: 'category', label: 'Phân loại', exact: ['phan loai', 'nhom', 'nhom dich vu', 'nhom san pham', 'nhom hang', 'nhom hang hoa'] },
   { key: 'usage', label: 'Sử dụng', exact: ['su dung', 'su dung cho', 'loai dich vu', 'hinh thuc', 'hinh thuc kinh doanh'] },
   { key: 'price', label: 'Giá bán', exact: ['gia ban', 'gia ban mac dinh'] },
+  {
+    key: 'vat',
+    label: 'Thuế suất VAT (%)',
+    exact: ['thue suat vat', 'thue suat vat (%)', 'thue suat', 'thue suat (%)', 'thue suat gtgt', 'thue gtgt', 'thue vat', 'vat', 'vat (%)', '% vat'],
+  },
   { key: 'cost', label: 'Giá vốn (giá nhập)', exact: ['gia von', 'gia von mac dinh', 'gia nhap'] },
   { key: 'barcode', label: 'Barcode', exact: ['barcode', 'ma vach'] },
   { key: 'manufacturer', label: 'Nhà sản xuất', exact: ['nha san xuat', 'hang san xuat', 'hang sx', 'thuong hieu'] },
@@ -175,6 +181,20 @@ export function parseAmount(value: unknown): number {
   return Number(raw);
 }
 
+/**
+ * Thuế suất VAT theo điểm phần trăm: `8`, `8,5`, `"10%"`. Ô số Excel định dạng phần trăm cho giá trị 0..1
+ * (8% thành 0,08) nên số lẻ dưới 1 bị coi là sai thay vì lặng lẽ lưu 0,08%. Rỗng là `undefined`, sai là `NaN`.
+ */
+export function parseVatRateCell(value: unknown): number | undefined {
+  if (typeof value === 'number') {
+    return value > 0 && value < 1 ? NaN : isValidVatRate(value) ? value : NaN;
+  }
+  const raw = text(value).replace(/\s/g, '');
+  if (!raw) return undefined;
+  const parsed = parseAmount(raw.endsWith('%') ? raw.slice(0, -1) : raw);
+  return isValidVatRate(parsed) ? parsed : NaN;
+}
+
 /** "dd/mm/yyyy" hoặc "yyyy-mm-dd" (hoặc ô ngày của Excel) thành ISO theo múi giờ Việt Nam; sai thì `undefined`. */
 export function parseImportDate(value: unknown): string | undefined {
   const raw = text(value);
@@ -263,6 +283,8 @@ export function buildImportRows(sheet: ImportSheet, options: ImportOptions): Bui
     };
     const salePrice = amount('price');
     if (salePrice === 'invalid') return { line, error: 'Giá bán phải là số không âm.' };
+    const vatRate = mapping.vat ? parseVatRateCell(row.cells[mapping.vat]) : undefined;
+    if (vatRate !== undefined && Number.isNaN(vatRate)) return { line, error: VAT_RATE_INVALID_MESSAGE };
     const purchasePrice = amount('cost');
     if (purchasePrice === 'invalid') return { line, error: 'Giá vốn phải là số không âm.' };
 
@@ -289,6 +311,7 @@ export function buildImportRows(sheet: ImportSheet, options: ImportOptions): Bui
         salePrice,
         purchasePrice,
         currency: salePrice === undefined && purchasePrice === undefined ? undefined : 'VND',
+        vatRate,
         description: cell(row, 'description') || undefined,
         createdAt,
         // Chuỗi rỗng là "không ghi người tạo": khác với bỏ trống ở tạo thường (lấy người đang đăng nhập).

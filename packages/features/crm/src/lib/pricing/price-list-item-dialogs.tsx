@@ -11,7 +11,7 @@ import { CatalogPager, CatalogSearchBar, catalogKindLabel, useCatalogSearch } fr
 import { errorMessage, setManualPrice, setPriceListVatRate, updatePriceListItem, upsertPriceListItems } from '../crm-api';
 import styles from '../sales.module.scss';
 import { formatMoney } from '../sales.model';
-import { buildPriceListItems, newPriceRow, parseNumber, parseUnitPrice, parseVatRate, priceText, type PriceRowDraft } from './pricing.model';
+import { buildPriceListItems, formatPercent, newPriceRow, parseNumber, parseUnitPrice, parseVatRate, priceText, type PriceRowDraft } from './pricing.model';
 
 /**
  * Thêm dòng giá: chọn một hoặc nhiều mặt hàng từ danh mục Kho (id, mã, tên, đơn vị lấy theo Kho,
@@ -344,7 +344,7 @@ export function ManualPriceDialog({
   );
 }
 
-/** Bảng mặc định: sửa thuế suất một dòng (cột duy nhất sửa được); bảng theo tỷ lệ nhận theo. */
+/** Bảng theo tỷ lệ: nhập thuế suất tay một dòng; dòng giữ thuế suất này khi đồng bộ Kho. */
 export function VatRateDialog({
   priceListId,
   item,
@@ -369,7 +369,7 @@ export function VatRateDialog({
     setError(undefined);
     try {
       const detail = await setPriceListVatRate(priceListId, item.id, parsed.value);
-      toast.success('Đã lưu thuế suất.');
+      toast.success('Đã nhập thuế suất tay.');
       onSaved(detail);
     } catch (cause) {
       setError(errorMessage(cause, 'Không lưu được thuế suất.'));
@@ -380,15 +380,15 @@ export function VatRateDialog({
   return (
     <CrmDialog
       open
-      title="Sửa thuế suất"
-      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Mặt hàng, đơn vị, giá lấy từ Kho; chỉ sửa được thuế suất.`}
+      title="Nhập thuế suất tay"
+      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Thuế suất hiện tại: ${formatPercent(item.vatRate)}.`}
       submitting={submitting}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
       <div className={styles.fieldGrid}>
-        <Field label="Thuế suất (%)" required error={fieldError} hint="Từ 0 đến 100, tối đa 2 chữ số thập phân">
+        <Field label="Thuế suất (%)" required error={fieldError} hint="Từ 0 đến 100, tối đa 2 chữ số thập phân; giữ nguyên khi đồng bộ Kho">
           <input
             className={styles.input}
             inputMode="decimal"

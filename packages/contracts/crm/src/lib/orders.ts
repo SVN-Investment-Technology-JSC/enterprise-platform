@@ -142,6 +142,8 @@ export interface SalesOrderLine {
   readonly overridden: boolean;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay của dòng (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   readonly unitPrice: number;
   readonly grossAmount: number;
   readonly discountAmount: number;
@@ -286,6 +288,8 @@ export interface SaveSalesOrderLineRequest {
   readonly unit?: string | null;
   readonly overrideUnitPrice?: number | null;
   readonly overrideDiscountPercent?: number | null;
+  /** Thuế suất sửa tay (0–100%, 2 chữ số thập phân); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate?: number | null;
   /**
    * Kho giữ hàng của dòng (D3-37); rỗng là theo kho mặc định của đơn. Dịch vụ không dùng.
    */

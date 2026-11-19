@@ -2,7 +2,6 @@ import {
   DEFAULT_DISCOUNT_CAP_PERCENT,
   DEFAULT_PRICE_LIST_CODE,
   DEFAULT_PRICE_LIST_NAME,
-  DEFAULT_VAT_RATE,
   PRICE_LIST_RATIO_DEFAULT,
   type DiscountPolicy,
   type DiscountPolicyRule,
@@ -78,6 +77,7 @@ interface PriceListItemRow {
   vat_rate: string;
   price_mode: PriceMode;
   source_active: boolean;
+  vat_manual: boolean;
 }
 
 /** Số phiên bản báo giá và đơn bán dùng bảng giá `listId` (biểu thức SQL). */
@@ -128,7 +128,7 @@ export class PostgresPriceListStore implements PriceListStore {
     );
     if (!header.rows[0]) return undefined;
     const items = await pool.query<PriceListItemRow>(
-      `SELECT id, material_id, material_code, material_name, unit, price, vat_rate, price_mode, source_active
+      `SELECT id, material_id, material_code, material_name, unit, price, vat_rate, price_mode, source_active, vat_manual
          FROM crm_schema.price_list_items
         WHERE price_list_id = $1
         ORDER BY material_code, unit`,
@@ -150,7 +150,13 @@ export class PostgresPriceListStore implements PriceListStore {
         const ratio = record.ratioPercent ?? PRICE_LIST_RATIO_DEFAULT;
         const base = await loadItems(client, [defaultId]);
         // Tính trước khi ghi: giá vượt giới hạn thì không ghi gì.
-        const rows = base.map((row) => ({ ...row, listId: '', price: ratioPrice(row.price, ratio), mode: 'RATIO' as const }));
+        const rows = base.map((row) => ({
+          ...row,
+          listId: '',
+          price: ratioPrice(row.price, ratio),
+          mode: 'RATIO' as const,
+          vatManual: false,
+        }));
         const result = await client.query<{ id: string }>(
           `INSERT INTO crm_schema.price_lists
              (code, name, is_standard, list_type, ratio_percent, valid_from, valid_to, status, note, created_by, updated_by)
@@ -263,23 +269,45 @@ export class PostgresPriceListStore implements PriceListStore {
   async setVatRate(tenantId: string, priceListId: string, itemId: string, vatRate: number, actorId: string): Promise<boolean> {
     return this.database.transaction(tenantId, async (client) => {
       await lockPriceLists(client);
-      const updated = await client.query<{ material_id: string }>(
+      const result = await client.query(
         `UPDATE crm_schema.price_list_items i
-            SET vat_rate = $3, updated_at = now(), updated_by = $4
+            SET vat_rate = $3, vat_manual = TRUE, updated_at = now(), updated_by = $4
            FROM crm_schema.price_lists l
-          WHERE i.id = $2 AND i.price_list_id = $1 AND l.id = i.price_list_id AND l.list_type = 'DEFAULT'
-          RETURNING i.material_id`,
+          WHERE i.id = $2 AND i.price_list_id = $1 AND l.id = i.price_list_id AND l.list_type = 'DERIVED'`,
         [priceListId, itemId, vatRate, actorId],
       );
-      const materialId = updated.rows[0]?.material_id;
-      if (!materialId) return false;
-      // Bảng theo tỷ lệ lấy thuế suất theo bảng mặc định (D8).
+      const saved = (result.rowCount ?? 0) > 0;
+      if (saved) await touch(client, priceListId, actorId);
+      return saved;
+    });
+  }
+
+  async clearVatRate(tenantId: string, priceListId: string, itemId: string, actorId: string): Promise<boolean> {
+    return this.database.transaction(tenantId, async (client) => {
+      await lockPriceLists(client);
+      const found = await client.query<{ material_id: string; vat_manual: boolean; vat_rate: string }>(
+        `SELECT i.material_id, i.vat_manual, i.vat_rate
+           FROM crm_schema.price_list_items i
+           JOIN crm_schema.price_lists l ON l.id = i.price_list_id
+          WHERE i.id = $2 AND i.price_list_id = $1 AND l.list_type = 'DERIVED'
+          FOR UPDATE OF i`,
+        [priceListId, itemId],
+      );
+      const row = found.rows[0];
+      if (!row) return false;
+      if (!row.vat_manual) return true;
+      // Về theo bảng mặc định; mặt hàng không còn ở bảng mặc định (chưa đồng bộ lại) thì giữ thuế suất đang có.
+      const base = await client.query<{ vat_rate: string }>(
+        `SELECT d.vat_rate FROM crm_schema.price_list_items d
+           JOIN crm_schema.price_lists dl ON dl.id = d.price_list_id AND dl.list_type = 'DEFAULT'
+          WHERE d.material_id = $1 LIMIT 1`,
+        [row.material_id],
+      );
       await client.query(
-        `UPDATE crm_schema.price_list_items i
-            SET vat_rate = $2, updated_at = now(), updated_by = $3
-           FROM crm_schema.price_lists l
-          WHERE l.id = i.price_list_id AND l.list_type = 'DERIVED' AND i.material_id = $1 AND i.vat_rate <> $2`,
-        [materialId, vatRate, actorId],
+        `UPDATE crm_schema.price_list_items
+            SET vat_rate = $2, vat_manual = FALSE, updated_at = now(), updated_by = $3
+          WHERE id = $1`,
+        [itemId, base.rows[0]?.vat_rate ?? row.vat_rate, actorId],
       );
       await touch(client, priceListId, actorId);
       return true;
@@ -436,6 +464,8 @@ interface ItemState {
   readonly vatRate: number;
   readonly mode: PriceMode;
   readonly sourceActive: boolean;
+  /** Bảng `DERIVED`: thuế suất nhập tay, đồng bộ không ghi đè. Ghi riêng (`setVatRate`, `clearVatRate`). */
+  readonly vatManual: boolean;
 }
 
 type ItemWrite = Omit<ItemState, 'id'>;
@@ -447,7 +477,8 @@ function toPrice(value: string | number | null): number | null {
 async function loadItems(client: PoolClient, listIds: readonly string[]): Promise<ItemState[]> {
   if (!listIds.length) return [];
   const result = await client.query<PriceListItemRow & { price_list_id: string }>(
-    `SELECT id, price_list_id, material_id, material_code, material_name, unit, price, vat_rate, price_mode, source_active
+    `SELECT id, price_list_id, material_id, material_code, material_name, unit, price, vat_rate, price_mode, source_active,
+            vat_manual
        FROM crm_schema.price_list_items
       WHERE price_list_id = ANY($1::uuid[])
       ORDER BY price_list_id, material_id, created_at, id`,
@@ -464,6 +495,7 @@ async function loadItems(client: PoolClient, listIds: readonly string[]): Promis
     vatRate: Number(row.vat_rate),
     mode: row.price_mode,
     sourceActive: row.source_active,
+    vatManual: row.vat_manual,
   }));
 }
 
@@ -548,7 +580,8 @@ async function recomputeRatioRows(client: PoolClient, listId: string, ratio: num
 
 /**
  * Khớp dòng của một bảng `DERIVED` 1-1 với dòng bảng mặc định theo `material_id`: dòng `RATIO` tính lại giá; dòng
- * `MANUAL` giữ giá; cả hai lấy mã, tên, đơn vị, thuế suất, trạng thái Kho theo bảng mặc định. Trả các dòng cần ghi.
+ * `MANUAL` giữ giá; cả hai lấy mã, tên, đơn vị, trạng thái Kho theo bảng mặc định, thuế suất theo bảng mặc định trừ dòng
+ * nhập thuế suất tay (`vat_manual`). Trả các dòng cần ghi.
  */
 function planDerived(
   listId: string,
@@ -569,14 +602,24 @@ function planDerived(
   for (const row of base) {
     baseMaterials.add(row.materialId);
     const current = byMaterial.get(row.materialId);
-    const shared = { code: row.code, name: row.name, unit: row.unit, vatRate: row.vatRate, sourceActive: row.sourceActive };
+    const shared = { code: row.code, name: row.name, unit: row.unit, sourceActive: row.sourceActive };
     if (!current) {
-      inserts.push({ ...shared, listId, materialId: row.materialId, price: ratioPrice(row.price, ratio), mode: 'RATIO' });
+      inserts.push({
+        ...shared,
+        vatRate: row.vatRate,
+        vatManual: false,
+        listId,
+        materialId: row.materialId,
+        price: ratioPrice(row.price, ratio),
+        mode: 'RATIO',
+      });
       continue;
     }
     const next: ItemState = {
       ...current,
       ...shared,
+      // Thuế suất nhập tay giữ nguyên; không thì theo bảng mặc định.
+      vatRate: current.vatManual ? current.vatRate : row.vatRate,
       price: current.mode === 'MANUAL' ? current.price : ratioPrice(row.price, ratio),
       mode: current.mode === 'MANUAL' ? 'MANUAL' : 'RATIO',
     };
@@ -630,6 +673,7 @@ function toItem(row: PriceListItemRow): PriceListItem {
     price: toPrice(row.price),
     vatRate: Number(row.vat_rate),
     priceMode: row.price_mode,
+    vatManual: row.vat_manual,
     sourceActive: row.source_active,
   };
 }
@@ -1077,7 +1121,7 @@ export class PostgresPriceListSyncStore implements PriceListSyncStore {
         defaultId = created.rows[0].id;
       }
 
-      // Bảng mặc định: một dòng mỗi mặt hàng, khoá theo material_id; giữ thuế suất đã sửa.
+      // Bảng mặc định: một dòng mỗi mặt hàng, khoá theo material_id; giá và thuế suất theo Kho (ghi đè mỗi lần).
       const existing = new Map<string, ItemState>();
       const defaultDeletes: string[] = [];
       for (const row of await loadItems(client, [defaultId])) {
@@ -1095,12 +1139,13 @@ export class PostgresPriceListSyncStore implements PriceListSyncStore {
           name: material.name,
           unit: material.unit,
           price: material.salePrice,
+          vatRate: material.vatRate,
           sourceActive: material.isActive,
           mode: 'SYNCED' as const,
         };
         const current = existing.get(material.id);
         if (!current) {
-          inserts.push({ ...synced, listId: defaultId, materialId: material.id, vatRate: DEFAULT_VAT_RATE });
+          inserts.push({ ...synced, listId: defaultId, materialId: material.id, vatManual: false });
           continue;
         }
         const next: ItemState = { ...current, ...synced };

@@ -468,6 +468,7 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
         ['name', 'Tên khác', 'Mặt hàng vân tay'],
         ['unit', 'Hộp', 'Cái'],
         ['sale_price', 1001, 1000],
+        ['vat_rate', 8, null],
         ['is_active', false, true],
       ];
       for (const [column, changed, original] of changes) {
@@ -491,6 +492,13 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
       expect(nullPrice.fingerprint).not.toBe(base.fingerprint);
       await setColumn('QA-FP-1', 'sale_price', 1000);
 
+      // Thuế suất VAT rỗng (chưa khai) khác 0%.
+      await setColumn('QA-FP-1', 'vat_rate', 0);
+      const zeroVat = await fingerprint();
+      expect(zeroVat.fingerprint).not.toBe(base.fingerprint);
+      await setColumn('QA-FP-1', 'vat_rate', null);
+      expect(await fingerprint()).toEqual(base);
+
       // A9.2: thêm, xoá mặt hàng.
       await app.createMaterial(admin, { code: 'QA-FP-2', name: 'Dịch vụ vân tay', category: 'SPARE_PART', unit: 'Lần', kind: 'SERVICE' });
       const added = await fingerprint();
@@ -499,6 +507,33 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
       expect((await fingerprint(['STOCK'])).count).toBe((await fingerprint()).count - (await fingerprint(['SERVICE'])).count);
       await pool.query(`DELETE FROM inventory_schema.materials WHERE code = 'QA-FP-2'`);
       expect(await fingerprint()).toEqual(base);
+    });
+
+    it('thuế suất VAT: lưu khi tạo, bỏ qua là giữ, null là xoá, có trong danh mục nội bộ và đổi dấu vân tay', async () => {
+      const created = await app.createMaterial(admin, {
+        code: 'QA-VAT-1', name: 'Mặt hàng VAT', category: 'CONSUMABLE', unit: 'Cái', salePrice: 1000, vatRate: 8.5,
+      });
+      expect(created.vatRate).toBe(8.5);
+      const catalogVat = async () =>
+        (await app.listMaterialCatalog(service, { codes: ['QA-VAT-1'], includeInactive: true })).materials[0]?.vatRate;
+      expect(await catalogVat()).toBe(8.5);
+      const before = await fingerprint();
+
+      const kept = await app.updateMaterial(admin, 'QA-VAT-1', { name: 'Mặt hàng VAT đổi tên' });
+      expect(kept.vatRate).toBe(8.5);
+      await app.updateMaterial(admin, 'QA-VAT-1', { name: 'Mặt hàng VAT' });
+      expect(await fingerprint()).toEqual(before);
+
+      const changed = await app.updateMaterial(admin, 'QA-VAT-1', { vatRate: 5 });
+      expect(changed.vatRate).toBe(5);
+      expect((await fingerprint()).fingerprint).not.toBe(before.fingerprint);
+
+      const cleared = await app.updateMaterial(admin, 'QA-VAT-1', { vatRate: null });
+      expect(cleared.vatRate).toBeUndefined();
+      expect(await catalogVat()).toBeNull();
+
+      await expect(app.updateMaterial(admin, 'QA-VAT-1', { vatRate: 100.01 })).rejects.toThrow('Thuế suất VAT');
+      await pool.query(`DELETE FROM inventory_schema.materials WHERE code = 'QA-VAT-1'`);
     });
 
     it('danh mục rỗng trả md5 của chuỗi rỗng và count 0', async () => {

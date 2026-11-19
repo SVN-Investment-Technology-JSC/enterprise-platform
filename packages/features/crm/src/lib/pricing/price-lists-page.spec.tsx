@@ -11,7 +11,7 @@ import {
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { PRICE_LISTS_CHANGED_EVENT } from './price-list-sync-banner';
-import { NO_DEFAULT_LIST_HINT, PriceListsPage } from './price-lists-page';
+import { NO_DEFAULT_LIST_HINT, PriceListsPage, VAT_MANUAL_TAG } from './price-lists-page';
 
 jest.mock('../sales.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
 jest.mock('./pricing.module.scss', () => ({ __esModule: true, default: new Proxy({}, { get: (_t, key) => String(key) }) }));
@@ -85,6 +85,7 @@ const mockApi = {
   setManualPrice: jest.fn(),
   clearManualPrice: jest.fn(),
   setPriceListVatRate: jest.fn(),
+  clearPriceListVatRate: jest.fn(),
   createPriceList: jest.fn(),
   updatePriceList: jest.fn(),
   upsertPriceListItems: jest.fn(),
@@ -96,7 +97,7 @@ jest.mock('../crm-api', () => ({
   errorMessage: (cause: { message?: string } | undefined, fallback: string) => cause?.message || fallback,
   ...Object.fromEntries(
     [
-      'listPriceLists', 'getPriceList', 'deletePriceList', 'deletePriceListItem', 'setManualPrice', 'clearManualPrice', 'setPriceListVatRate',
+      'listPriceLists', 'getPriceList', 'deletePriceList', 'deletePriceListItem', 'setManualPrice', 'clearManualPrice', 'setPriceListVatRate', 'clearPriceListVatRate',
       'createPriceList', 'updatePriceList', 'upsertPriceListItems', 'updatePriceListItem', 'searchCatalog', 'listCatalogTradeCategories',
     ].map((name) => [name, (...args: unknown[]) => mockApi[name as keyof typeof mockApi](...args)]),
   ),
@@ -136,6 +137,7 @@ const item = (id: string, patch: Partial<PriceListItem> = {}): PriceListItem => 
   price: 12_345,
   vatRate: 10,
   priceMode: 'SYNCED',
+  vatManual: false,
   sourceActive: true,
   ...patch,
 });
@@ -151,7 +153,10 @@ const DEFAULT_ITEMS = [
   item('5', { price: 0 }),
   item('6', { price: 5_000, sourceActive: false }),
 ];
-const DERIVED_ITEMS = [item('1', { price: 12_962, priceMode: 'RATIO' }), item('2', { price: 9_999, priceMode: 'MANUAL' })];
+const DERIVED_ITEMS = [
+  item('1', { price: 12_962, priceMode: 'RATIO' }),
+  item('2', { price: 9_999, priceMode: 'MANUAL', vatRate: 8, vatManual: true }),
+];
 const MANUAL_ITEMS = [item('9', { price: 1_000, priceMode: 'MANUAL' })];
 
 function stub(lists: PriceListSummary[] = [MANUAL, DERIVED, DEFAULT]) {
@@ -213,47 +218,66 @@ describe('Trang bảng giá (C2)', () => {
     expect(screen.queryByRole('button', { name: /^Sửa/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Xoá/ })).toBeNull();
     await openList('BG-105');
-    expect(within(itemsTable()).queryByRole('button', { name: /Nhập giá tay|Bỏ giá tay|Sửa thuế suất/ })).toBeNull();
+    expect(within(itemsTable()).queryByRole('button', { name: /Nhập giá tay|Bỏ giá tay|thuế suất/ })).toBeNull();
   });
 
-  it('C2.4, C2.5, C2.6, C2.7: bảng mặc định chỉ sửa thuế suất; giá rỗng "Chưa nhập giá ở Kho", giá 0 là "0 đ"; nhãn "Ngừng dùng ở Kho"', async () => {
+  it('C2.4, C2.5, C2.6, C2.7: bảng mặc định không sửa được gì (thuế suất theo Kho); giá rỗng "Chưa nhập giá ở Kho", giá 0 là "0 đ"; nhãn "Ngừng dùng ở Kho"', async () => {
     render(<PriceListsPage />);
     await within(listTable()).findByText('BG-MAC-DINH');
     // Không sửa, xoá bảng mặc định.
     expect(within(listRow('BG-MAC-DINH')).queryByRole('button')).toBeNull();
     await openList('BG-MAC-DINH');
     const table = itemsTable();
-    expect(within(table).queryByRole('button', { name: /Dán từ bảng tính|Thêm dòng giá|Nhập giá tay/ })).toBeNull();
-    expect(within(table).queryByRole('button', { name: /^Xoá|^Sửa$/ })).toBeNull();
-    expect(within(table).getAllByRole('button', { name: /^Sửa thuế suất/ })).toHaveLength(DEFAULT_ITEMS.length);
+    expect(within(table).queryByRole('button')).toBeNull();
+    expect(within(table).queryByText(VAT_MANUAL_TAG)).toBeNull();
+    expect(table.textContent).toContain('thuế suất lấy từ Kho');
     expect(itemRow('M4').textContent).toContain('Chưa nhập giá ở Kho');
     expect(itemRow('M5').textContent).toContain('0 đ');
     expect(itemRow('M5').textContent).not.toContain('Chưa nhập giá ở Kho');
     expect(itemRow('M1').textContent).toContain('12.345 đ');
     expect(itemRow('M6').textContent).toContain('Ngừng dùng ở Kho');
     expect(itemRow('M1').textContent).not.toContain('Ngừng dùng ở Kho');
+    expect(mockApi.setPriceListVatRate).not.toHaveBeenCalled();
   });
 
-  it('C2.8: sửa thuế suất "8,5" gửi 8.5; "abc" hoặc 101 báo lỗi tại ô, không gửi', async () => {
-    mockApi.setPriceListVatRate.mockResolvedValue(detail(DEFAULT, [item('1', { vatRate: 8.5 }), ...DEFAULT_ITEMS.slice(1)]));
+  it('C2.8: bảng theo tỷ lệ "Nhập thuế suất tay" "8,5" gửi 8.5; "abc", 101, "8,555" báo lỗi tại ô, không gửi; dòng có nhãn "Thuế suất tay"', async () => {
+    mockApi.setPriceListVatRate.mockResolvedValue(
+      detail(DERIVED, [item('1', { price: 12_962, priceMode: 'RATIO', vatRate: 8.5, vatManual: true }), DERIVED_ITEMS[1]]),
+    );
     render(<PriceListsPage />);
-    await within(listTable()).findByText('BG-MAC-DINH');
-    await openList('BG-MAC-DINH');
-    fireEvent.click(within(itemRow('M1')).getByRole('button', { name: 'Sửa thuế suất M1' }));
-    const dialog = screen.getByRole('dialog', { name: 'Sửa thuế suất' });
+    await openList('BG-105');
+    expect(itemRow('M1').textContent).not.toContain(VAT_MANUAL_TAG);
+    fireEvent.click(within(itemRow('M1')).getByRole('button', { name: 'Nhập thuế suất tay M1' }));
+    const dialog = screen.getByRole('dialog', { name: 'Nhập thuế suất tay' });
     const input = within(dialog).getByLabelText(/Thuế suất \(%\)/) as HTMLInputElement;
-    for (const bad of ['abc', '101']) {
+    for (const bad of ['abc', '101', '8,555']) {
       fireEvent.change(input, { target: { value: bad } });
       fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu' }));
       expect(input.getAttribute('aria-invalid')).toBe('true');
-      expect(input.closest('label')?.textContent).toMatch(/Thuế suất (phải là số|phải từ 0 đến 100)/);
+      expect(input.closest('label')?.textContent).toMatch(/Thuế suất (phải là số|phải từ 0 đến 100|chỉ được tối đa 2)/);
     }
     expect(mockApi.setPriceListVatRate).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: '8,5' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu' }));
-    await waitFor(() => expect(mockApi.setPriceListVatRate).toHaveBeenCalledWith('md', '1', 8.5));
+    await waitFor(() => expect(mockApi.setPriceListVatRate).toHaveBeenCalledWith('105', '1', 8.5));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(itemRow('M1').textContent).toContain('8,5%');
+    expect(itemRow('M1').textContent).toContain(VAT_MANUAL_TAG);
+  });
+
+  it('"Bỏ thuế suất tay" chỉ ở dòng có thuế suất tay; xong dòng về thuế suất bảng mặc định, mất nhãn', async () => {
+    mockApi.clearPriceListVatRate.mockResolvedValue(
+      detail(DERIVED, [DERIVED_ITEMS[0], item('2', { price: 9_999, priceMode: 'MANUAL', vatRate: 10, vatManual: false })]),
+    );
+    render(<PriceListsPage />);
+    await openList('BG-105');
+    expect(within(itemRow('M1')).queryByRole('button', { name: /Bỏ thuế suất tay/ })).toBeNull();
+    expect(itemRow('M2').textContent).toContain(VAT_MANUAL_TAG);
+    expect(within(itemRow('M2')).getByRole('button', { name: 'Bỏ thuế suất tay M2' })).toBeTruthy();
+    fireEvent.click(within(itemRow('M2')).getByRole('button', { name: 'Xác nhận Bỏ thuế suất tay' }));
+    await waitFor(() => expect(mockApi.clearPriceListVatRate).toHaveBeenCalledWith('105', '2'));
+    await waitFor(() => expect(itemRow('M2').textContent).not.toContain(VAT_MANUAL_TAG));
+    expect(itemRow('M2').textContent).toContain('10%');
   });
 
   it('C2.9: bảng theo tỷ lệ có cột "Cách tính"; không thêm, xoá dòng, dán nhiều dòng', async () => {
@@ -264,6 +288,7 @@ describe('Trang bảng giá (C2)', () => {
     expect(itemRow('M1').textContent).toContain('Theo tỷ lệ');
     expect(itemRow('M2').textContent).toContain('Giá tay');
     expect(within(table).queryByRole('button', { name: /Dán từ bảng tính|Thêm dòng giá|Sửa thuế suất/ })).toBeNull();
+    expect(within(table).getAllByRole('button', { name: /^Nhập thuế suất tay/ })).toHaveLength(DERIVED_ITEMS.length);
     expect(within(table).queryByRole('button', { name: /^Xoá/ })).toBeNull();
   });
 

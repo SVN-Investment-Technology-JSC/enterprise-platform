@@ -1,4 +1,4 @@
-import type { PriceListSyncResult, PriceListSyncStatus } from '@enterprise-platform/contracts-crm';
+import { DEFAULT_VAT_RATE, type PriceListSyncResult, type PriceListSyncStatus } from '@enterprise-platform/contracts-crm';
 import { CrmError } from '../domain/crm.error.js';
 import { requireSalesManager } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
@@ -118,6 +118,7 @@ export class PriceListSyncService {
           name: (material.name?.trim() || material.code).slice(0, 300),
           unit: unit.slice(0, 50),
           salePrice: normalizePrice(material.salePrice),
+          vatRate: normalizeVatRate(material.vatRate),
           isActive: material.isActive !== false,
         });
       }
@@ -135,5 +136,11 @@ export class PriceListSyncService {
 /** Giá bán Kho về 2 chữ số thập phân như cột `price`; giá âm hoặc không phải số coi như chưa nhập. */
 function normalizePrice(value: number | null | undefined): number | null {
   if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return null;
+  return Math.round(value * 100) / 100;
+}
+
+/** Thuế suất Kho về 2 chữ số thập phân như cột `vat_rate`; rỗng hoặc ngoài 0–100% thì mặc định 10%. */
+function normalizeVatRate(value: number | null | undefined): number {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0 || value > 100) return DEFAULT_VAT_RATE;
   return Math.round(value * 100) / 100;
 }

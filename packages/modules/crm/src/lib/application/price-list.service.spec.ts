@@ -1,5 +1,5 @@
 import { CRM_NO_CAPABILITIES, type PriceListType } from '@enterprise-platform/contracts-crm';
-import { CrmNotFoundError } from '../domain/crm.error.js';
+import { CrmForbiddenError, CrmNotFoundError } from '../domain/crm.error.js';
 import type { CrmActor } from './crm-actor.js';
 import { PriceListService, priceListRecord, ratioPercent } from './price-list.service.js';
 import type { CatalogMaterial, CatalogReader, PriceListStore } from './pricing-store.port.js';
@@ -41,6 +41,7 @@ function priceListStore(listType: PriceListType = 'MANUAL'): jest.Mocked<PriceLi
     setManualPrice: jest.fn().mockResolvedValue(true),
     clearManualPrice: jest.fn().mockResolvedValue(true),
     setVatRate: jest.fn().mockResolvedValue(true),
+    clearVatRate: jest.fn().mockResolvedValue(true),
     addItem: jest.fn().mockResolvedValue('item-1'),
     updateItem: jest.fn().mockResolvedValue(true),
     deleteItem: jest.fn().mockResolvedValue(true),
@@ -137,7 +138,7 @@ describe('PriceListService (A5)', () => {
     await expect(service.setManualPrice(manager, LIST, ITEM, { price: 1 })).rejects.toBeInstanceOf(CrmNotFoundError);
   });
 
-  it('A5.13: bảng theo tỷ lệ không thêm, sửa, xoá, dán dòng, không sửa thuế suất (PRICE_LIST_READ_ONLY)', async () => {
+  it('A5.13: bảng theo tỷ lệ không thêm, sửa, xoá, dán dòng (PRICE_LIST_READ_ONLY)', async () => {
     const store = priceListStore('DERIVED');
     const service = new PriceListService(store, new FakeCatalogReader());
     const readOnly = { statusCode: 409, code: 'PRICE_LIST_READ_ONLY' };
@@ -145,20 +146,33 @@ describe('PriceListService (A5)', () => {
     await expect(service.updateItem(manager, LIST, ITEM, item)).rejects.toMatchObject(readOnly);
     await expect(service.removeItem(manager, LIST, ITEM)).rejects.toMatchObject(readOnly);
     await expect(service.upsertItems(manager, LIST, { items: [item] })).rejects.toMatchObject(readOnly);
-    await expect(service.setVatRate(manager, LIST, ITEM, { vatRate: 8 })).rejects.toMatchObject(readOnly);
     expect(store.addItem).not.toHaveBeenCalled();
-    expect(store.setVatRate).not.toHaveBeenCalled();
   });
 
-  it('A5.14–A5.16: bảng mặc định chỉ sửa thuế suất', async () => {
-    const store = priceListStore('DEFAULT');
+  it('bảng theo tỷ lệ: nhập và bỏ thuế suất tay một dòng (0–100%, 2 chữ số thập phân)', async () => {
+    const store = priceListStore('DERIVED');
     const service = new PriceListService(store, new FakeCatalogReader());
     await service.setVatRate(manager, LIST, ITEM, { vatRate: 8 });
     expect(store.setVatRate).toHaveBeenCalledWith(TENANT, LIST, ITEM, 8, 'u-2');
-    for (const vatRate of [-1, 101, 8.125]) {
-      await expect(service.setVatRate(manager, LIST, ITEM, { vatRate })).rejects.toMatchObject({ code: 'INVALID_NUMBER' });
+    for (const vatRate of [-1, 101, 8.125, 'abc']) {
+      await expect(service.setVatRate(manager, LIST, ITEM, { vatRate } as never)).rejects.toMatchObject({ code: 'INVALID_NUMBER' });
     }
+    await service.clearVatRate(manager, LIST, ITEM);
+    expect(store.clearVatRate).toHaveBeenCalledWith(TENANT, LIST, ITEM, 'u-2');
+    store.setVatRate.mockResolvedValueOnce(false);
+    await expect(service.setVatRate(manager, LIST, ITEM, { vatRate: 5 })).rejects.toBeInstanceOf(CrmNotFoundError);
+    store.clearVatRate.mockResolvedValueOnce(false);
+    await expect(service.clearVatRate(manager, LIST, ITEM)).rejects.toBeInstanceOf(CrmNotFoundError);
+    await expect(service.setVatRate(seller, LIST, ITEM, { vatRate: 5 })).rejects.toBeInstanceOf(CrmForbiddenError);
+    await expect(service.clearVatRate(seller, LIST, ITEM)).rejects.toBeInstanceOf(CrmForbiddenError);
+  });
+
+  it('A5.14–A5.16: bảng mặc định lấy hết theo Kho, không sửa kể cả thuế suất', async () => {
+    const store = priceListStore('DEFAULT');
+    const service = new PriceListService(store, new FakeCatalogReader());
     const readOnly = { statusCode: 409, code: 'PRICE_LIST_READ_ONLY' };
+    await expect(service.setVatRate(manager, LIST, ITEM, { vatRate: 8 })).rejects.toMatchObject(readOnly);
+    await expect(service.clearVatRate(manager, LIST, ITEM)).rejects.toMatchObject(readOnly);
     const header = { code: 'BG-MAC-DINH', name: 'Đổi tên', validFrom: '2026-01-01', status: 'INACTIVE' as const };
     await expect(service.update(manager, LIST, header)).rejects.toMatchObject(readOnly);
     await expect(service.remove(manager, LIST)).rejects.toMatchObject(readOnly);
@@ -167,8 +181,18 @@ describe('PriceListService (A5)', () => {
     await expect(service.removeItem(manager, LIST, ITEM)).rejects.toMatchObject(readOnly);
     await expect(service.upsertItems(manager, LIST, { items: [item] })).rejects.toMatchObject(readOnly);
     await expect(service.setManualPrice(manager, LIST, ITEM, { price: 1 })).rejects.toMatchObject(readOnly);
+    expect(store.setVatRate).not.toHaveBeenCalled();
+    expect(store.clearVatRate).not.toHaveBeenCalled();
     expect(store.updatePriceList).not.toHaveBeenCalled();
     expect(store.deletePriceList).not.toHaveBeenCalled();
+  });
+
+  it('bảng nhập tay cũ không dùng đường thuế suất tay (sửa qua dòng giá)', async () => {
+    const store = priceListStore('MANUAL');
+    const service = new PriceListService(store, new FakeCatalogReader());
+    const readOnly = { statusCode: 409, code: 'PRICE_LIST_READ_ONLY' };
+    await expect(service.setVatRate(manager, LIST, ITEM, { vatRate: 8 })).rejects.toMatchObject(readOnly);
+    await expect(service.clearVatRate(manager, LIST, ITEM)).rejects.toMatchObject(readOnly);
   });
 
   it('A5.19: bảng nhập tay cũ: dòng giá kiểm đơn giá, thuế suất; mã, tên theo danh mục Kho', async () => {

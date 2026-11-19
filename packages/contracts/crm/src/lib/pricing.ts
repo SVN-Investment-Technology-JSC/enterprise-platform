@@ -34,7 +34,7 @@ export const DISCOUNT_POLICY_RULES_MAX = 100;
 // ---------------------------------------------------------------------------
 
 /**
- * Loại bảng giá. `DEFAULT`: một bảng, lấy mặt hàng, đơn vị, giá từ Kho, chỉ sửa được thuế suất. `DERIVED`: theo tỷ lệ
+ * Loại bảng giá. `DEFAULT`: một bảng, lấy mặt hàng, đơn vị, giá, thuế suất từ Kho, không sửa trong CRM. `DERIVED`: theo tỷ lệ
  * của bảng mặc định, từng dòng được nhập giá tay. `MANUAL`: bảng cũ nhập tay (không tạo mới được loại này).
  */
 export const PRICE_LIST_TYPES = ['DEFAULT', 'DERIVED', 'MANUAL'] as const;
@@ -96,6 +96,8 @@ export interface PriceListItem {
   readonly price: number | null;
   readonly vatRate: number;
   readonly priceMode: PriceMode;
+  /** Thuế suất nhập tay ở bảng theo tỷ lệ (giữ khi đồng bộ); bảng mặc định luôn `false` (thuế suất theo Kho). */
+  readonly vatManual: boolean;
   /** Mặt hàng còn dùng ở Kho (chỉ để hiển thị; ngừng dùng vẫn chọn được khi báo giá). */
   readonly sourceActive: boolean;
 }
@@ -136,7 +138,10 @@ export interface SetManualPriceRequest {
   readonly price: number;
 }
 
-/** `PUT price-lists/:id/items/:itemId/vat-rate` (chỉ bảng mặc định): sửa thuế suất; bảng theo tỷ lệ nhận theo. */
+/**
+ * `PUT price-lists/:id/items/:itemId/vat-rate` (chỉ bảng `DERIVED`): nhập thuế suất tay, giữ khi đồng bộ. `DELETE` cùng
+ * đường: bỏ thuế suất tay, về theo bảng mặc định. Bảng mặc định lấy thuế suất từ Kho, không sửa trong CRM.
+ */
 export interface SetVatRateRequest {
   readonly vatRate: number;
 }
@@ -298,6 +303,8 @@ export interface QuotePreviewLine {
   readonly overrideUnitPrice?: number | null;
   /** Ghi đè phần trăm chiết khấu (thay cho chính sách); dòng được đánh dấu `overridden`. */
   readonly overrideDiscountPercent?: number | null;
+  /** Thuế suất sửa tay (%); không tính là ghi đè giá. Mẫu thuế theo tổng đơn thì bỏ qua (thuế dòng là 0). */
+  readonly overrideVatRate?: number | null;
 }
 
 export interface QuotePreviewRequest {
@@ -354,6 +361,8 @@ export interface PricedLine {
   /** Thành tiền sau chiết khấu, trước VAT, làm tròn đến đồng. */
   readonly lineAmount: number;
   readonly vatRate: number;
+  /** Thuế suất của dòng do người dùng sửa tay. */
+  readonly vatOverridden: boolean;
   readonly vatAmount: number;
   readonly lineTotal: number;
 }

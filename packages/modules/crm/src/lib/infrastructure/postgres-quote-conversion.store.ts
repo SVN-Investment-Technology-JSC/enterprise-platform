@@ -31,6 +31,7 @@ interface QuoteLineRow {
   overridden: boolean;
   override_unit_price: string | null;
   override_discount_percent: string | null;
+  override_vat_rate: string | null;
   unit_price: string;
   gross_amount: string;
   discount_amount: string;
@@ -171,6 +172,7 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
         overridden: line.overridden,
         overrideUnitPrice: line.override_unit_price === null ? null : num(line.override_unit_price),
         overrideDiscountPercent: line.override_discount_percent === null ? null : num(line.override_discount_percent),
+        overrideVatRate: line.override_vat_rate === null ? null : num(line.override_vat_rate),
         unitPrice: num(line.unit_price),
         grossAmount: num(line.gross_amount),
         discountAmount: num(line.discount_amount),

@@ -25,6 +25,7 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
               availableByWarehouse: [{ warehouseId: 'w1', warehouseCode: 'KHO-1', available: 70, avgCost: 800000 }],
               warrantyMonths: 12,
               salePrice: '1500000.00',
+              vatRate: '8.00',
               tradeCategory: 'Mạng',
             },
             { id: 'x', code: '' },
@@ -51,6 +52,7 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
       availableByWarehouse: [{ warehouseId: 'w1', warehouseCode: 'KHO-1', available: 70 }],
       warrantyMonths: 12,
       salePrice: 1_500_000,
+      vatRate: 8,
       tradeCategory: 'Mạng',
     });
     expect(known.size).toBe(1);
@@ -106,7 +108,7 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
         new Response(
           JSON.stringify({
             materials: [
-              { id: CAP, code: 'M1', name: 'Cáp', unit: 'Cái', kind: 'STOCK', salePrice: null, isActive: false },
+              { id: CAP, code: 'M1', name: 'Cáp', unit: 'Cái', kind: 'STOCK', salePrice: null, vatRate: 5, isActive: false },
               { id: '22222222-2222-4222-8222-222222222222', code: 'M7', name: 'Không ĐVT', unit: null, isActive: true },
             ],
             nextCursor: 'M7',
@@ -125,8 +127,8 @@ describe('HttpInventoryCatalogReader (TC-QUO-01)', () => {
     const page = await reader.catalogPage('t1', { kinds: ['STOCK', 'SERVICE'], cursor: 'M0', limit: 500, includeInactive: true });
     expect(page.nextCursor).toBe('M7');
     expect(page.materials).toEqual([
-      expect.objectContaining({ id: CAP, code: 'M1', unit: 'Cái', salePrice: null, isActive: false }),
-      expect.objectContaining({ code: 'M7', unit: null, isActive: true }),
+      expect.objectContaining({ id: CAP, code: 'M1', unit: 'Cái', salePrice: null, vatRate: 5, isActive: false }),
+      expect.objectContaining({ code: 'M7', unit: null, vatRate: null, isActive: true }),
     ]);
     const pageUrl = new URL((fetchMock.mock.calls[1] as [string])[0]);
     expect(Object.fromEntries(pageUrl.searchParams)).toEqual({

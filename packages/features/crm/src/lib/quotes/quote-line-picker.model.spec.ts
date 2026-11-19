@@ -8,6 +8,8 @@ import {
   lineErrorsOf,
   setPicked,
   setPickedOverridePrice,
+  setPickedOverrideVat,
+  vatPlaceholder,
   setPickedQuantity,
   type PickedMap,
 } from './quote-line-picker.model';
@@ -66,6 +68,33 @@ describe('chọn nhiều mặt hàng (TC-FB-01..04)', () => {
       ],
     });
     expect(buildLines(setPickedOverridePrice(picked, 'b', '-1'))).toEqual({ ok: false, error: 'Đơn giá ghi đè phải là số không âm.', invalidIds: ['b'] });
+  });
+
+  it('thuế suất sửa tay "8,5" gửi overrideVatRate 8.5; sai thì báo lỗi; mẫu thuế theo tổng đơn thì không gửi', () => {
+    const picked = setPickedOverrideVat(setPicked(empty, [a, b], true), 'b', '8,5');
+    expect(buildLines(picked)).toEqual({
+      ok: true,
+      lines: [
+        { materialId: 'a', quantity: 1 },
+        { materialId: 'b', quantity: 1, overrideVatRate: 8.5 },
+      ],
+    });
+    for (const bad of ['abc', '101', '8,555']) {
+      expect(buildLines(setPickedOverrideVat(picked, 'b', bad))).toMatchObject({ ok: false, invalidIds: ['b'] });
+    }
+    expect(buildLines(picked, { taxByOrder: true })).toEqual({
+      ok: true,
+      lines: [
+        { materialId: 'a', quantity: 1 },
+        { materialId: 'b', quantity: 1 },
+      ],
+    });
+  });
+
+  it('gợi ý ô thuế suất: thuế suất Kho (rỗng là 10%), chưa có thông tin thì "Theo bảng giá"', () => {
+    expect(vatPlaceholder({ vatRate: 8 })).toBe('Kho: 8%');
+    expect(vatPlaceholder({ vatRate: null })).toBe('Kho: 10%');
+    expect(vatPlaceholder({})).toBe('Theo bảng giá');
   });
 
   it('chưa chọn gì thì báo chọn ít nhất một mặt hàng', () => {

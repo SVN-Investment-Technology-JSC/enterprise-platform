@@ -223,6 +223,24 @@ describe('PricingService.preview', () => {
     await expect(service.preview(seller, { priceListId: LIST, lines: [] })).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it('thử tính giá nhận thuế suất sửa tay của dòng; sai thì 400 kèm số dòng', async () => {
+    const { service } = setup();
+    const result = await service.preview(seller, {
+      priceListId: LIST,
+      lines: [
+        { materialId: CAP, quantity: 1, unit: 'Cái', overrideVatRate: 8 },
+        { materialId: CAP, quantity: 1, unit: 'Cái' },
+      ],
+    });
+    expect(result.lines.map((line) => [line.vatRate, line.vatOverridden, line.overridden, line.vatAmount])).toEqual([
+      [8, true, false, 80_000],
+      [10, false, false, 100_000],
+    ]);
+    await expect(
+      service.preview(seller, { priceListId: LIST, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái', overrideVatRate: 8.125 }] }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_LINE', details: { line: 1 } });
+  });
+
   it('trần chiết khấu: ai cũng đọc, chỉ crm.manage sửa', async () => {
     const { store, service } = setup();
     await expect(service.settings(seller)).resolves.toEqual({ discountCapPercent: 10 });

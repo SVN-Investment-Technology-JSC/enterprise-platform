@@ -170,6 +170,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0037-line-warehouses', path: 'tenant/crm/0037-line-warehouses.sql' },
     { version: '0038-customer-price-list', path: 'tenant/crm/0038-customer-price-list.sql' },
     { version: '0039-price-list-default-sync', path: 'tenant/crm/0039-price-list-default-sync.sql' },
+    { version: '0040-vat-overrides', path: 'tenant/crm/0040-vat-overrides.sql' },
   ],
   finance: [
     { version: '0001-finance', path: 'tenant/finance/0001-finance.sql' },
@@ -626,6 +627,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     },
     { version: '0023-material-description', path: 'tenant/inventory/0023-material-description.sql' },
     { version: '0024-stocktake-server', path: 'tenant/inventory/0024-stocktake-server.sql' },
+    { version: '0025-material-vat-rate', path: 'tenant/inventory/0025-material-vat-rate.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

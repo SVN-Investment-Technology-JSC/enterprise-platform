@@ -40,7 +40,9 @@ class FakeInventoryCatalog implements CatalogReader, CatalogSyncReader {
   async catalogFingerprint(): Promise<{ count: number; fingerprint: string }> {
     if (this.failing) throw new Error('Kho lỗi');
     const sorted = [...this.items].sort((left, right) => left.id.localeCompare(right.id));
-    const text = sorted.map((item) => [item.id, item.code, item.name, item.unit, item.salePrice, item.isActive].join('|')).join('\n');
+    const text = sorted
+      .map((item) => [item.id, item.code, item.name, item.unit, item.salePrice, item.vatRate, item.isActive].join('|'))
+      .join('\n');
     return { count: sorted.length, fingerprint: createHash('md5').update(text).digest('hex') };
   }
   async catalogPage(_tenantId: string, query: { cursor: string | null }) {
@@ -213,26 +215,43 @@ integration('Bảng giá mặc định đồng bộ Kho, bảng theo tỷ lệ, 
     await lists.update(admin, bg90, { code: 'BG-90', name: 'Bảng 90', validFrom: '2026-01-01', ratioPercent: 90 });
   });
 
-  it('A5.13–A5.16: bảng mặc định chỉ sửa thuế suất (bảng theo tỷ lệ nhận theo); bảng theo tỷ lệ chỉ sửa giá tay', async () => {
+  it('A5.13–A5.16: bảng mặc định không sửa trong CRM (kể cả thuế suất); bảng theo tỷ lệ sửa giá tay, thuế suất tay', async () => {
     const m1 = byCode(await lists.get(admin, defaultId), 'M1') as PriceListItem;
-    const after = await lists.setVatRate(admin, defaultId, m1.id, { vatRate: 8 });
-    expect(byCode(after, 'M1')?.vatRate).toBe(8);
-    expect(byCode(await lists.get(admin, bg105), 'M1')?.vatRate).toBe(8);
-    expect(byCode(await lists.get(admin, bg90), 'M1')).toMatchObject({ vatRate: 8, price: 11_000 });
-
+    expect(m1).toMatchObject({ vatRate: 10, vatManual: false });
     const readOnly = { statusCode: 409, code: 'PRICE_LIST_READ_ONLY' };
+    await expect(lists.setVatRate(admin, defaultId, m1.id, { vatRate: 8 })).rejects.toMatchObject(readOnly);
+    await expect(lists.clearVatRate(admin, defaultId, m1.id)).rejects.toMatchObject(readOnly);
+
+    // Bảng theo tỷ lệ: thuế suất tay chỉ ở dòng của bảng đó, bảng mặc định và bảng khác giữ nguyên.
+    const derivedItem = byCode(await lists.get(admin, bg105), 'M1') as PriceListItem;
+    const manual = await lists.setVatRate(admin, bg105, derivedItem.id, { vatRate: 5 });
+    expect(byCode(manual, 'M1')).toMatchObject({ vatRate: 5, vatManual: true, price: 12_962, priceMode: 'RATIO' });
+    expect(byCode(await lists.get(admin, defaultId), 'M1')).toMatchObject({ vatRate: 10, vatManual: false });
+    expect(byCode(await lists.get(admin, bg90), 'M1')).toMatchObject({ vatRate: 10, vatManual: false, price: 11_000 });
+    const cleared = await lists.clearVatRate(admin, bg105, derivedItem.id);
+    expect(byCode(cleared, 'M1')).toMatchObject({ vatRate: 10, vatManual: false });
+    // Bỏ khi chưa nhập tay: không đổi gì.
+    expect(byCode(await lists.clearVatRate(admin, bg105, derivedItem.id), 'M1')).toMatchObject({ vatRate: 10, vatManual: false });
+    expect(byCode(await lists.setVatRate(admin, bg105, derivedItem.id, { vatRate: 8 }), 'M1')).toMatchObject({ vatRate: 8, vatManual: true });
+    await expect(lists.setVatRate(admin, bg105, derivedItem.id, { vatRate: 101 })).rejects.toMatchObject({ code: 'INVALID_NUMBER' });
+    await expect(lists.setVatRate(admin, bg105, derivedItem.id, { vatRate: 8.125 })).rejects.toMatchObject({ code: 'INVALID_NUMBER' });
+    await expect(lists.setVatRate(admin, bg105, m1.id, { vatRate: 5 })).rejects.toMatchObject({ statusCode: 404 });
+    await expect(lists.setVatRate(seller, bg105, derivedItem.id, { vatRate: 5 })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(lists.clearVatRate(seller, bg105, derivedItem.id)).rejects.toMatchObject({ statusCode: 403 });
+
     const line = { materialId: randomUUID(), materialCode: 'X', materialName: 'X', unit: 'Cái', price: 1 };
     await expect(lists.update(admin, defaultId, { code: 'BG-MAC-DINH-1', name: 'Đổi', validFrom: '2026-01-01' })).rejects.toMatchObject(readOnly);
     await expect(lists.remove(admin, defaultId)).rejects.toMatchObject(readOnly);
     await expect(lists.addItem(admin, defaultId, line)).rejects.toMatchObject(readOnly);
     await expect(lists.removeItem(admin, defaultId, m1.id)).rejects.toMatchObject(readOnly);
     await expect(lists.setManualPrice(admin, defaultId, m1.id, { price: 1 })).rejects.toMatchObject(readOnly);
-    const derivedItem = byCode(await lists.get(admin, bg105), 'M1') as PriceListItem;
     await expect(lists.addItem(admin, bg105, line)).rejects.toMatchObject(readOnly);
     await expect(lists.upsertItems(admin, bg105, { items: [line] })).rejects.toMatchObject(readOnly);
     await expect(lists.removeItem(admin, bg105, derivedItem.id)).rejects.toMatchObject(readOnly);
-    await expect(lists.setVatRate(admin, bg105, derivedItem.id, { vatRate: 5 })).rejects.toMatchObject(readOnly);
-    await expect(lists.setVatRate(seller, defaultId, m1.id, { vatRate: 5 })).rejects.toMatchObject({ statusCode: 403 });
+
+    // Bảng nhập tay cũ sửa thuế suất qua dòng giá, không qua đường thuế suất tay.
+    const legacy = (await lists.list(admin)).find((list) => list.listType === 'MANUAL') as { id: string };
+    await expect(lists.setVatRate(admin, legacy.id, derivedItem.id, { vatRate: 5 })).rejects.toMatchObject(readOnly);
   });
 
   it('A4.5: đồng bộ lại khi Kho không đổi: 0 thêm, sửa, xoá; dòng không bị ghi lại', async () => {
@@ -247,7 +266,9 @@ integration('Bảng giá mặc định đồng bộ Kho, bảng theo tỷ lệ, 
     await lists.update(admin, bg105, { code: 'BG-105', name: 'Bảng 105', validFrom: '2026-01-01', status: 'INACTIVE' });
 
     catalog.items.push(material('M9', 'Bộ', 2_000));
-    catalog.set('M1', { salePrice: 20_000 });
+    catalog.set('M1', { salePrice: 20_000, vatRate: 5 });
+    // Chỉ đổi thuế suất ở Kho cũng là một dòng sửa.
+    catalog.set('M8', { vatRate: 0 });
     catalog.set('M2', { unit: 'Thùng' });
     catalog.set('M3', { code: 'M3-MOI', name: 'Giờ công mới' });
     catalog.set('M4', { salePrice: 4_000 });
@@ -255,22 +276,26 @@ integration('Bảng giá mặc định đồng bộ Kho, bảng theo tỷ lệ, 
     await expect(sync.status(admin)).resolves.toMatchObject({ needsSync: true, reason: 'CATALOG_CHANGED' });
 
     const result = await sync.sync(admin);
-    expect(result).toMatchObject({ added: 1, updated: 5, removed: 0, derivedListsUpdated: 2, manualPricesRemoved: 0 });
+    expect(result).toMatchObject({ added: 1, updated: 6, removed: 0, derivedListsUpdated: 2, manualPricesRemoved: 0 });
     const base = await lists.get(admin, defaultId);
     expect(byCode(base, 'M9')).toMatchObject({ vatRate: 10, price: 2_000, priceMode: 'SYNCED' });
-    expect(byCode(base, 'M1')).toMatchObject({ price: 20_000, vatRate: 8 });
+    // Thuế suất theo Kho; rỗng thì 10%.
+    expect(byCode(base, 'M1')).toMatchObject({ price: 20_000, vatRate: 5, vatManual: false });
+    expect(byCode(base, 'M8')).toMatchObject({ vatRate: 0 });
     expect(byCode(base, 'M2')?.unit).toBe('Thùng');
     expect(byCode(base, 'M3-MOI')?.materialName).toBe('Giờ công mới');
     expect(byCode(base, 'M5')?.sourceActive).toBe(false);
 
     const derived = await lists.get(admin, bg105);
     expect(derived.status).toBe('INACTIVE');
-    expect(byCode(derived, 'M1')).toMatchObject({ price: 21_000, vatRate: 8, priceMode: 'RATIO' });
+    // Thuế suất tay ở bảng theo tỷ lệ giữ khi đồng bộ; dòng không nhập tay theo bảng mặc định.
+    expect(byCode(derived, 'M1')).toMatchObject({ price: 21_000, vatRate: 8, vatManual: true, priceMode: 'RATIO' });
+    expect(byCode(derived, 'M8')).toMatchObject({ vatRate: 0, vatManual: false });
     expect(byCode(derived, 'M9')).toMatchObject({ price: 2_100, priceMode: 'RATIO' });
     expect(byCode(derived, 'M4')?.price).toBe(4_200);
     expect(byCode(derived, 'M3-MOI')).toBeDefined();
     const ninety = await lists.get(admin, bg90);
-    expect(byCode(ninety, 'M1')).toMatchObject({ price: 11_000, priceMode: 'MANUAL' });
+    expect(byCode(ninety, 'M1')).toMatchObject({ price: 11_000, priceMode: 'MANUAL', vatRate: 5, vatManual: false });
     expect(byCode(ninety, 'M2')).toMatchObject({ price: 7_777, priceMode: 'MANUAL', unit: 'Thùng' });
     expect(byCode(ninety, 'M5')?.sourceActive).toBe(false);
 

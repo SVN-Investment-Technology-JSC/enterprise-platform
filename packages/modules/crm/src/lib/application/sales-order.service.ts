@@ -95,6 +95,8 @@ interface LineDraft {
   readonly quantity: number;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   readonly previousUnitCost: number | null;
   /** Kho riêng của dòng (D3-37); rỗng là theo kho mặc định của đơn. */
   readonly warehouseCode: string | null;
@@ -896,6 +898,7 @@ export class SalesOrderService {
           value === undefined || value === null || value === '' ? null : boundedNumber(value, 0, max, label, decimals);
         const overrideUnitPrice = read(line.overrideUnitPrice, AMOUNT_MAX, 'đơn giá ghi đè', 2);
         const overrideDiscountPercent = read(line.overrideDiscountPercent, 100, 'chiết khấu ghi đè', 4);
+        const overrideVatRate = read(line.overrideVatRate, 100, 'thuế suất sửa tay', 2);
         const before = previous.find((entry) => entry.materialId === material.id);
         const kind = material.kind ?? 'STOCK';
         return {
@@ -917,6 +920,7 @@ export class SalesOrderService {
           quantity,
           overrideUnitPrice,
           overrideDiscountPercent,
+          overrideVatRate,
           previousUnitCost: before?.estUnitCost ?? null,
         };
       } catch (error) {
@@ -968,7 +972,11 @@ export class SalesOrderService {
       category: line.category,
       quantity: line.quantity,
       unit: line.unit,
-      override: { unitPrice: line.overrideUnitPrice, discountPercent: line.overrideDiscountPercent },
+      override: {
+        unitPrice: line.overrideUnitPrice,
+        discountPercent: line.overrideDiscountPercent,
+        vatRate: line.overrideVatRate,
+      },
     }));
     const priced = priceQuote({
       date: input.date,
@@ -1004,6 +1012,7 @@ export class SalesOrderService {
         overridden: pricedLine.overridden,
         overrideUnitPrice: line.overrideUnitPrice,
         overrideDiscountPercent: line.overrideDiscountPercent,
+        overrideVatRate: line.overrideVatRate,
         unitPrice: pricedLine.unitPriceAfterDiscount,
         grossAmount: pricedLine.grossAmount,
         discountAmount: pricedLine.discountAmount,
@@ -1037,6 +1046,7 @@ function lineDraftOf(line: SalesOrderLine): LineDraft {
     quantity: line.quantity,
     overrideUnitPrice: line.overrideUnitPrice,
     overrideDiscountPercent: line.overrideDiscountPercent,
+    overrideVatRate: line.overrideVatRate,
     previousUnitCost: line.estUnitCost,
     warehouseCode: line.warehouseCode ?? null,
   };

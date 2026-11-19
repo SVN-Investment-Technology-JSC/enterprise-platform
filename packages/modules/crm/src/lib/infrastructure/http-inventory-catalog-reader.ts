@@ -36,6 +36,7 @@ interface WireMaterial {
   availableByWarehouse?: unknown;
   warrantyMonths?: unknown;
   salePrice?: unknown;
+  vatRate?: unknown;
   tradeCategory?: unknown;
   isActive?: unknown;
 }
@@ -74,6 +75,7 @@ function toMaterial(row: WireMaterial): CatalogMaterial | null {
     availableByWarehouse: stocks,
     warrantyMonths: number(row.warrantyMonths),
     salePrice: number(row.salePrice),
+    vatRate: number(row.vatRate),
     tradeCategory: text(row.tradeCategory),
     ...(typeof row.isActive === 'boolean' ? { isActive: row.isActive } : {}),
   };

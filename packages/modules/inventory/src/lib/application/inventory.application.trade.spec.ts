@@ -182,6 +182,49 @@ describe('InventoryApplication hình thức kinh doanh và giá bán', () => {
   });
 });
 
+describe('InventoryApplication thuế suất VAT', () => {
+  it('tạo: nhận rỗng, 0, 8,5 và 100; truyền xuống kho dữ liệu', async () => {
+    const { app, material } = setup();
+    await app.createMaterial(manager, { ...base, vatRate: 8.5 });
+    expect(material.create).toHaveBeenLastCalledWith('t1', expect.objectContaining({ vatRate: 8.5 }), 'Hải', undefined);
+    await app.createMaterial(manager, { ...base, vatRate: 0 });
+    await app.createMaterial(manager, { ...base, vatRate: 100 });
+    await app.createMaterial(manager, { ...base, vatRate: 12.25 });
+    await app.createMaterial(manager, { ...base, vatRate: null });
+    await app.createMaterial(manager, base);
+    expect(material.create).toHaveBeenCalledTimes(6);
+  });
+
+  it('tạo: từ chối âm, quá 100, quá 2 chữ số thập phân và không phải số', async () => {
+    const { app, material } = setup();
+    for (const vatRate of [-1, 100.01, 8.555, Number.NaN, Number.POSITIVE_INFINITY, '10' as never]) {
+      await expect(app.createMaterial(manager, { ...base, vatRate })).rejects.toThrow(
+        'Thuế suất VAT phải từ 0 đến 100, tối đa 2 chữ số thập phân.',
+      );
+    }
+    expect(material.create).not.toHaveBeenCalled();
+  });
+
+  it('sửa: kiểm như khi tạo; null (xoá) và bỏ qua (giữ nguyên) đều hợp lệ', async () => {
+    const { app, material } = setup();
+    material.findAnyByCode.mockResolvedValue({ code: 'VT-1', kind: 'STOCK', minStock: 0, maxStock: 0 } as unknown as Material);
+    await expect(app.updateMaterial(manager, 'VT-1', { vatRate: 101 })).rejects.toThrow('Thuế suất VAT');
+    await app.updateMaterial(manager, 'VT-1', { vatRate: null });
+    expect(material.update).toHaveBeenLastCalledWith('t1', 'VT-1', { vatRate: null });
+    await app.updateMaterial(manager, 'VT-1', { vatRate: 5 });
+    expect(material.update).toHaveBeenLastCalledWith('t1', 'VT-1', { vatRate: 5 });
+  });
+
+  it('nhập cập nhật mã có sẵn: ô VAT trống không xoá thuế suất đang có', async () => {
+    const { app, material } = setup();
+    material.findAnyByCode.mockResolvedValue({ code: 'DV-1', kind: 'STOCK', isActive: true, minStock: 0, maxStock: 0 } as unknown as Material);
+    await app.importMaterials(manager, { rows: [{ ...base, line: 2, code: 'DV-1', vatRate: 8 }], onConflict: 'UPDATE' });
+    expect(material.update).toHaveBeenLastCalledWith('t1', 'DV-1', expect.objectContaining({ vatRate: 8 }), expect.anything());
+    await app.importMaterials(manager, { rows: [{ ...base, line: 3, code: 'DV-1' }], onConflict: 'UPDATE' });
+    expect((material.update.mock.calls.at(-1) as unknown[] | undefined)?.[2]).not.toHaveProperty('vatRate');
+  });
+});
+
 describe('InventoryApplication xoá mã chưa có liên kết', () => {
   const found = { code: 'VT-1', kind: 'STOCK' } as unknown as Material;
 

@@ -20,7 +20,7 @@ import { crmActor, runCrm, type CrmRequest } from './crm-http.js';
 
 /**
  * Bảng giá: đọc với `crm.read`, ghi với quản trị bán hàng (kiểm ở service). Thêm, sửa, xoá dòng chỉ cho bảng nhập tay
- * cũ; bảng theo tỷ lệ nhập hoặc bỏ giá tay; bảng mặc định chỉ sửa thuế suất.
+ * cũ; bảng theo tỷ lệ nhập hoặc bỏ giá tay, thuế suất tay; bảng mặc định lấy hết theo Kho, không sửa.
  */
 @Controller('v1')
 export class PriceListsController {
@@ -108,7 +108,7 @@ export class PriceListsController {
     return runCrm(() => this.lists.clearManualPrice(crmActor(request), id, itemId));
   }
 
-  /** Bảng mặc định: sửa thuế suất; bảng theo tỷ lệ nhận theo. */
+  /** Bảng theo tỷ lệ: nhập thuế suất tay cho dòng (giữ khi đồng bộ). */
   @Put('price-lists/:id/items/:itemId/vat-rate')
   setVatRate(
     @Req() request: CrmRequest,
@@ -117,6 +117,16 @@ export class PriceListsController {
     @Body() body: SetVatRateRequest,
   ): Promise<PriceListDetail> {
     return runCrm(() => this.lists.setVatRate(crmActor(request), id, itemId, body ?? ({} as never)));
+  }
+
+  /** Bảng theo tỷ lệ: bỏ thuế suất tay, dòng về thuế suất của bảng mặc định. */
+  @Delete('price-lists/:id/items/:itemId/vat-rate')
+  clearVatRate(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ): Promise<PriceListDetail> {
+    return runCrm(() => this.lists.clearVatRate(crmActor(request), id, itemId));
   }
 }
 

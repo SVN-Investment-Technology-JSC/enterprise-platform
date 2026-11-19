@@ -1,5 +1,5 @@
 import type { CrmCatalogMaterial, QuoteLineError, QuoteLineInput } from '@enterprise-platform/contracts-crm';
-import { parseNumber } from '../pricing/pricing.model';
+import { formatPercent, parseNumber, parseVatRate } from '../pricing/pricing.model';
 
 /**
  * Logic thuần của hộp thoại "Thêm dòng báo giá" chọn nhiều mặt hàng: tập đã chọn
@@ -12,6 +12,8 @@ export interface PickedMaterial {
   readonly quantity: string;
   /** Đơn giá ghi đè đang gõ; rỗng là lấy theo bảng giá (bắt buộc với mặt hàng "Chưa nhập giá ở Kho"). */
   readonly overridePrice?: string;
+  /** Thuế suất sửa tay đang gõ (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVat?: string;
 }
 
 /** Tập đã chọn theo id mặt hàng; Map giữ thứ tự chọn. */
@@ -41,6 +43,17 @@ export function setPickedOverridePrice(picked: PickedMap, id: string, overridePr
   return new Map(picked).set(id, { ...current, overridePrice });
 }
 
+export function setPickedOverrideVat(picked: PickedMap, id: string, overrideVat: string): PickedMap {
+  const current = picked.get(id);
+  if (!current) return picked;
+  return new Map(picked).set(id, { ...current, overrideVat });
+}
+
+/** Chữ gợi ý ở ô thuế suất: thuế suất khai ở Kho (rỗng là 10%), hoặc "Theo bảng giá" khi Kho chưa trả. */
+export function vatPlaceholder(material: Pick<CrmCatalogMaterial, 'vatRate'>): string {
+  return material.vatRate === undefined ? 'Theo bảng giá' : `Kho: ${formatPercent(material.vatRate ?? 10)}`;
+}
+
 /** Nhãn nút chính: "Thêm N dòng"; "Vẫn thêm N dòng" khi đang xác nhận trùng. */
 export function addLinesLabel(count: number, confirmingDuplicates = false): string {
   if (count <= 0) return 'Thêm dòng';
@@ -61,8 +74,11 @@ export type BuildLinesResult =
   | { readonly ok: true; readonly lines: QuoteLineInput[] }
   | { readonly ok: false; readonly error: string; readonly invalidIds: readonly string[] };
 
-/** Dựng thân yêu cầu; một số lượng không hợp lệ thì không dựng dòng nào. */
-export function buildLines(picked: PickedMap): BuildLinesResult {
+/**
+ * Dựng thân yêu cầu; một số lượng không hợp lệ thì không dựng dòng nào. `taxByOrder` (mẫu tính thuế theo tổng đơn):
+ * không gửi thuế suất sửa tay.
+ */
+export function buildLines(picked: PickedMap, options: { readonly taxByOrder?: boolean } = {}): BuildLinesResult {
   if (picked.size === 0) return { ok: false, error: 'Vui lòng chọn ít nhất một mặt hàng.', invalidIds: [] };
   const lines: QuoteLineInput[] = [];
   const invalidIds: string[] = [];
@@ -71,14 +87,24 @@ export function buildLines(picked: PickedMap): BuildLinesResult {
     const quantity = parseNumber(entry.quantity);
     const priceText = entry.overridePrice?.trim() ?? '';
     const overrideUnitPrice = priceText ? parseNumber(priceText) : undefined;
+    const vatText = options.taxByOrder ? '' : (entry.overrideVat?.trim() ?? '');
+    const vat = vatText ? parseVatRate(vatText) : undefined;
     if (quantity === undefined || quantity <= 0) {
       invalidIds.push(id);
       error ||= 'Số lượng phải lớn hơn 0.';
     } else if (priceText && (overrideUnitPrice === undefined || overrideUnitPrice < 0)) {
       invalidIds.push(id);
       error ||= 'Đơn giá ghi đè phải là số không âm.';
+    } else if (vat && !vat.ok) {
+      invalidIds.push(id);
+      error ||= vat.error;
     } else {
-      lines.push(overrideUnitPrice === undefined ? { materialId: id, quantity } : { materialId: id, quantity, overrideUnitPrice });
+      lines.push({
+        materialId: id,
+        quantity,
+        ...(overrideUnitPrice === undefined ? {} : { overrideUnitPrice }),
+        ...(vat?.ok ? { overrideVatRate: vat.value } : {}),
+      });
     }
   }
   if (invalidIds.length) return { ok: false, error, invalidIds };

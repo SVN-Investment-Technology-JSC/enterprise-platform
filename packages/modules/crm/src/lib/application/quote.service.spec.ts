@@ -139,6 +139,7 @@ function quoteLine(extra: Partial<QuoteLine>): QuoteLine {
     overridden: false,
     overrideUnitPrice: null,
     overrideDiscountPercent: null,
+    overrideVatRate: null,
     unitPrice: 1_000_000,
     grossAmount: 10_000_000,
     discountAmount: 0,
@@ -714,6 +715,57 @@ describe('QuoteService: bảng giá chọn theo phiên bản (A6)', () => {
     (pricing.pricedMaterials as jest.Mock).mockClear();
     await expect(service.catalogMaterials(seller, { quoteId: QUOTE_ID, versionNo: '1' })).resolves.toEqual({ items: [], nextCursor: null });
     expect(pricing.pricedMaterials).not.toHaveBeenCalled();
+  });
+});
+
+describe('QuoteService: thuế suất sửa tay ở dòng', () => {
+  it('thêm dòng có thuế suất sửa tay: lưu và tính thuế theo thuế suất đó, không đánh dấu ghi đè giá', async () => {
+    const { service, quotes } = setup(version('DRAFT', 1, []));
+    await service.addLine(seller, QUOTE_ID, '1', { revision: 3, materialId: CAP, quantity: 1, overrideVatRate: 5 });
+    expect(quotes.saveVersion.mock.calls[0][4].lines[0]).toMatchObject({ overrideVatRate: 5, vatRate: 5, overridden: false });
+    await service.addLines(seller, QUOTE_ID, '1', { revision: 3, lines: [{ materialId: CAP, quantity: 1, overrideVatRate: 0 }] });
+    expect(quotes.saveVersion.mock.calls[1][4].lines[0]).toMatchObject({ overrideVatRate: 0, vatRate: 0, vatAmount: 0 });
+  });
+
+  it('sửa dòng: gửi số thì đặt, gửi rỗng thì bỏ, không gửi thì giữ', async () => {
+    const lines = [quoteLine({ id: 'line-1', lineNo: 1, overrideVatRate: 8 })];
+    const kept = setup(version('DRAFT', 1, lines));
+    await kept.service.updateLine(seller, QUOTE_ID, '1', 'line-1', { revision: 3, materialId: CAP, quantity: 3 });
+    expect(kept.quotes.saveVersion.mock.calls[0][4].lines[0]).toMatchObject({ quantity: 3, overrideVatRate: 8, vatRate: 8 });
+
+    const cleared = setup(version('DRAFT', 1, lines));
+    await cleared.service.updateLine(seller, QUOTE_ID, '1', 'line-1', { revision: 3, materialId: CAP, quantity: 10, overrideVatRate: null });
+    expect(cleared.quotes.saveVersion.mock.calls[0][4].lines[0]).toMatchObject({ overrideVatRate: null, vatRate: 10 });
+
+    const changed = setup(version('DRAFT', 1, lines));
+    await changed.service.updateLine(seller, QUOTE_ID, '1', 'line-1', { revision: 3, materialId: CAP, quantity: 10, overrideVatRate: '5.5' as never });
+    expect(changed.quotes.saveVersion.mock.calls[0][4].lines[0]).toMatchObject({ overrideVatRate: 5.5, vatRate: 5.5 });
+  });
+
+  it.each([-1, 101, 8.125, 'abc'])('thuế suất sửa tay %p: 400 INVALID_NUMBER, không lưu', async (overrideVatRate) => {
+    const { service, quotes } = setup(version('DRAFT', 1, [quoteLine({ id: 'line-1', lineNo: 1 })]));
+    await expect(
+      service.updateLine(seller, QUOTE_ID, '1', 'line-1', { revision: 3, overrideVatRate } as never),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_NUMBER' });
+    expect(quotes.saveVersion).not.toHaveBeenCalled();
+  });
+
+  it('phiên bản mới, tính lại, đổi bảng giá đều giữ thuế suất sửa tay', async () => {
+    const lines = [quoteLine({ id: 'line-1', lineNo: 1, overrideVatRate: 5 })];
+    const revised = setup(version('APPROVED', 1, lines));
+    await revised.service.revise(seller, QUOTE_ID, '1', { revision: 3 });
+    expect(revised.quotes.saveVersion.mock.calls[0][3]).toBe('NEW_VERSION');
+    const newLine = revised.quotes.saveVersion.mock.calls[0][4].lines[0];
+    expect(newLine).toMatchObject({ overrideVatRate: 5, vatRate: 5 });
+    expect(newLine.id).not.toBe('line-1');
+
+    const recalculated = setup(version('DRAFT', 1, lines));
+    await recalculated.service.recalculate(seller, QUOTE_ID, '1', { revision: 3 });
+    expect(recalculated.quotes.saveVersion.mock.calls[0][4].lines[0]).toMatchObject({ overrideVatRate: 5, vatRate: 5 });
+
+    const switched = setup(version('DRAFT', 1, lines));
+    await switched.service.updateVersion(seller, QUOTE_ID, '1', { revision: 3, priceListId: PL2 });
+    expect(switched.quotes.saveVersion.mock.calls[0][4].lines[0]).toMatchObject({ listPrice: 1_200_000, overrideVatRate: 5, vatRate: 5 });
   });
 });
 

@@ -70,7 +70,7 @@ const LIST: PriceListSummary = {
 };
 const DETAIL: PriceListDetail = {
   ...LIST,
-  items: [{ id: 'i1', materialId: 'm1', materialCode: 'M1', materialName: 'Máy bơm', unit: 'Cái', price: 12_962, vatRate: 8, priceMode: 'RATIO', sourceActive: true }],
+  items: [{ id: 'i1', materialId: 'm1', materialCode: 'M1', materialName: 'Máy bơm', unit: 'Cái', price: 12_962, vatRate: 8, priceMode: 'RATIO', vatManual: false, sourceActive: true }],
 };
 
 const priceSelect = () =>
@@ -116,6 +116,26 @@ describe('Thử tính giá (C5.3, C5.4)', () => {
       expect(mockApi.previewQuote).toHaveBeenCalledWith(
         expect.objectContaining({ customerId: 'c1', priceListId: 'pl-105', lines: [expect.objectContaining({ materialId: 'm1', unit: 'Cái' })] }),
       ),
+    );
+  });
+
+  it('"Ghi đè VAT (%)" "8,5" gửi overrideVatRate 8.5; bỏ trống gửi rỗng; sai thì báo lỗi, không gửi', async () => {
+    render(<QuotePreviewPanel />);
+    fireEvent.click(await screen.findByText('chọn Bảng giá 105'));
+    fireEvent.click(await screen.findByText('chọn Máy bơm'));
+    fireEvent.click(runButton());
+    await waitFor(() =>
+      expect(mockApi.previewQuote).toHaveBeenLastCalledWith(expect.objectContaining({ lines: [expect.objectContaining({ materialId: 'm1', overrideVatRate: null })] })),
+    );
+    const vat = screen.getByLabelText('Ghi đè VAT (%)');
+    fireEvent.change(vat, { target: { value: '101' } });
+    fireEvent.click(runButton());
+    expect((await screen.findByRole('alert')).textContent).toBe('Dòng 1: Thuế suất phải từ 0 đến 100.');
+    expect(mockApi.previewQuote).toHaveBeenCalledTimes(1);
+    fireEvent.change(vat, { target: { value: '8,5' } });
+    fireEvent.click(runButton());
+    await waitFor(() =>
+      expect(mockApi.previewQuote).toHaveBeenLastCalledWith(expect.objectContaining({ lines: [expect.objectContaining({ materialId: 'm1', overrideVatRate: 8.5 })] })),
     );
   });
 

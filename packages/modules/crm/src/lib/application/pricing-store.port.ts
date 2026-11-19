@@ -82,8 +82,13 @@ export interface PriceListStore {
   setManualPrice(tenantId: string, priceListId: string, itemId: string, price: number, actorId: string): Promise<boolean>;
   /** Bảng `DERIVED`: dòng về `RATIO`, giá tính lại theo bảng mặc định; dòng đang `RATIO` thì giữ nguyên. */
   clearManualPrice(tenantId: string, priceListId: string, itemId: string, actorId: string): Promise<boolean>;
-  /** Bảng mặc định: sửa thuế suất của dòng; dòng cùng mặt hàng ở mọi bảng `DERIVED` nhận theo. */
+  /** Bảng `DERIVED`: nhập thuế suất tay (`vat_manual`, giữ khi đồng bộ). `false` khi dòng không thuộc bảng. */
   setVatRate(tenantId: string, priceListId: string, itemId: string, vatRate: number, actorId: string): Promise<boolean>;
+  /**
+   * Bảng `DERIVED`: bỏ thuế suất tay, về thuế suất của dòng cùng mặt hàng ở bảng mặc định; dòng không nhập tay thì giữ
+   * nguyên. `false` khi dòng không thuộc bảng.
+   */
+  clearVatRate(tenantId: string, priceListId: string, itemId: string, actorId: string): Promise<boolean>;
   /** Trùng mặt hàng và đơn vị trong bảng: 409. Trả id; `undefined` khi bảng không có. */
   addItem(tenantId: string, priceListId: string, record: PriceListItemRecord, actorId: string): Promise<string | undefined>;
   /** `false` khi dòng không thuộc bảng. Trùng mặt hàng và đơn vị: 409. */
@@ -210,6 +215,8 @@ export interface CatalogMaterial {
   readonly warrantyMonths?: number | null;
   /** Giá bán khai trong danh mục hàng hoá của Kho; rỗng là chưa khai. */
   readonly salePrice?: number | null;
+  /** Thuế suất khai ở Kho (%); rỗng là chưa khai (tính 10%). */
+  readonly vatRate?: number | null;
   /** Phân loại hàng hoá hoặc dịch vụ của Kho. */
   readonly tradeCategory?: string | null;
   /** Mặt hàng còn dùng ở Kho; rỗng là không biết (coi như còn dùng). */
@@ -291,6 +298,8 @@ export interface SyncCatalogMaterial {
   readonly name: string;
   readonly unit: string;
   readonly salePrice: number | null;
+  /** Thuế suất Kho (%), đã chuẩn hoá; rỗng hoặc ngoài 0–100 thì `DEFAULT_VAT_RATE`. */
+  readonly vatRate: number;
   readonly isActive: boolean;
 }
 

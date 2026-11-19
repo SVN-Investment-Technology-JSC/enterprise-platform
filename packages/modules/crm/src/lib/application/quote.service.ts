@@ -95,6 +95,8 @@ interface LineDraft {
   readonly quantity: number;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   /** Giá vốn đã biết ở lần tính trước, dùng khi danh mục không còn mặt hàng. */
   readonly previousUnitCost: number | null;
 }
@@ -660,6 +662,7 @@ export class QuoteService {
         category: material.category,
         tradeCategory: material.tradeCategory ?? null,
         salePrice: material.salePrice ?? null,
+        vatRate: material.vatRate ?? null,
         avgCost: material.avgCost ?? null,
         totalAvailable: material.totalAvailable ?? null,
         availableByWarehouse: material.availableByWarehouse ?? null,
@@ -976,6 +979,7 @@ export class QuoteService {
         quantity: line.quantity,
         overrideUnitPrice: line.overrideUnitPrice,
         overrideDiscountPercent: line.overrideDiscountPercent,
+        overrideVatRate: line.overrideVatRate,
         previousUnitCost: line.estUnitCost,
       }),
     );
@@ -1030,7 +1034,11 @@ export class QuoteService {
       category: line.category,
       quantity: line.quantity,
       unit: line.unit,
-      override: { unitPrice: line.overrideUnitPrice, discountPercent: line.overrideDiscountPercent },
+      override: {
+        unitPrice: line.overrideUnitPrice,
+        discountPercent: line.overrideDiscountPercent,
+        vatRate: line.overrideVatRate,
+      },
     }));
     const shipping = next.shipping;
     const priced = priceQuote({
@@ -1084,6 +1092,7 @@ export class QuoteService {
         overridden: pricedLine.overridden,
         overrideUnitPrice: line.overrideUnitPrice,
         overrideDiscountPercent: line.overrideDiscountPercent,
+        overrideVatRate: line.overrideVatRate,
         unitPrice: pricedLine.unitPriceAfterDiscount,
         grossAmount: pricedLine.grossAmount,
         discountAmount: pricedLine.discountAmount,
@@ -1138,7 +1147,7 @@ export class QuoteService {
       materialKind: material.kind ?? 'STOCK',
       category: material.category,
       quantity: quantityOf(request.quantity),
-      ...overridesOf(request, { overrideUnitPrice: null, overrideDiscountPercent: null }),
+      ...overridesOf(request, { overrideUnitPrice: null, overrideDiscountPercent: null, overrideVatRate: null }),
       previousUnitCost: null,
     };
   }
@@ -1316,10 +1325,13 @@ function quantityOf(value: unknown): number {
   return boundedNumber(number, 0, QUANTITY_MAX, 'số lượng', 3);
 }
 
-function overridesOf(
-  request: SaveQuoteLineRequest,
-  current: { overrideUnitPrice: number | null; overrideDiscountPercent: number | null },
-): { overrideUnitPrice: number | null; overrideDiscountPercent: number | null } {
+interface LineOverrides {
+  overrideUnitPrice: number | null;
+  overrideDiscountPercent: number | null;
+  overrideVatRate: number | null;
+}
+
+function overridesOf(request: SaveQuoteLineRequest, current: LineOverrides): LineOverrides {
   const read = (value: unknown, max: number, label: string, decimals: number, fallback: number | null) =>
     value === undefined ? fallback : value === null || value === '' ? null : boundedNumber(value, 0, max, label, decimals);
   const overrideUnitPrice = read(request.overrideUnitPrice, AMOUNT_MAX, 'đơn giá ghi đè', 2, current.overrideUnitPrice);
@@ -1333,7 +1345,8 @@ function overridesOf(
   if (overrideUnitPrice !== null && overrideDiscountPercent !== null) {
     throw new CrmValidationError('OVERRIDE_CONFLICT', 'Chỉ ghi đè đơn giá hoặc chiết khấu, không ghi đè cả hai.');
   }
-  return { overrideUnitPrice, overrideDiscountPercent };
+  const overrideVatRate = read(request.overrideVatRate, 100, 'thuế suất sửa tay', 2, current.overrideVatRate);
+  return { overrideUnitPrice, overrideDiscountPercent, overrideVatRate };
 }
 
 function shippingOf(value: UpdateQuoteVersionRequest['shipping']): QuoteShipping {
