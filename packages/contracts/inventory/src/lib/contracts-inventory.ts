@@ -118,6 +118,8 @@ export interface CreateMaterialRequest {
   readonly tradeMode?: TradeMode;
   /** Giá bán mặc định (VND); bỏ trống là chưa khai, khác 0. */
   readonly salePrice?: number;
+  /** Thuế suất VAT bán ra (%), 0 đến 100, tối đa 2 chữ số thập phân; bỏ trống là chưa khai (bên bán coi là 10%), khác 0. */
+  readonly vatRate?: number | null;
   /** Phân loại hàng hóa hoặc dịch vụ, lấy từ danh mục `catalog.trade` trong Cài đặt. */
   readonly tradeCategory?: string;
   /** Mô tả, ghi chú; bỏ trống là chưa khai. */
@@ -169,6 +171,8 @@ export interface UpdateMaterialRequest {
   readonly description?: string;
   readonly tradeMode?: TradeMode;
   readonly salePrice?: number;
+  /** Thuế suất VAT bán ra (%); bỏ qua là giữ nguyên, `null` là xoá (về chưa khai). */
+  readonly vatRate?: number | null;
   readonly tradeCategory?: string;
   /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt. */
   readonly type?: AssetType;
@@ -542,6 +546,8 @@ export interface Material {
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
   readonly tradeMode?: TradeMode;
   readonly salePrice?: number;
+  /** Thuế suất VAT bán ra (%); không có là chưa khai (bên bán coi là 10%), khác 0. */
+  readonly vatRate?: number;
   /** Phân loại hàng hóa hoặc dịch vụ; không có là chưa khai. */
   readonly tradeCategory?: string;
   /** Mô tả, ghi chú của mặt hàng; không có là chưa khai. */
@@ -1711,6 +1717,8 @@ export interface InternalMaterialCatalogItem {
   readonly warrantyMonths: number | null;
   /** Giá bán khai trong danh mục hàng hoá (cột Giá ở màn Hàng hóa của Kho); null là chưa khai. */
   readonly salePrice: number | null;
+  /** Thuế suất VAT bán ra (%) khai ở mặt hàng; null là chưa khai (bên bán coi là 10%), khác 0. */
+  readonly vatRate: number | null;
   /** Phân loại hàng hoá hoặc dịch vụ (cột Phân loại ở màn Hàng hóa của Kho); null là chưa khai. */
   readonly tradeCategory: string | null;
   /**
@@ -1735,9 +1743,9 @@ export interface InternalMaterialCatalogPage {
  * danh mục mặt hàng (kể cả ngừng dùng) thuộc các nhóm `kind`, mặc định cả hàng
  * hoá và dịch vụ. Bên gọi so với lần đồng bộ trước để biết danh mục có đổi không.
  *
- * `fingerprint` là md5 (hex) của `id|code|name|unit|sale_price|is_active` từng mặt
- * hàng, xếp theo `id`, nối bằng xuống dòng. Chỉ đổi khi mã, tên, đơn vị, giá bán,
- * trạng thái đổi hoặc thêm, xoá mặt hàng; giá rỗng khác giá 0. Danh mục rỗng trả
+ * `fingerprint` là md5 (hex) của `id|code|name|unit|sale_price|vat_rate|is_active` từng
+ * mặt hàng, xếp theo `id`, nối bằng xuống dòng. Chỉ đổi khi mã, tên, đơn vị, giá bán,
+ * thuế suất VAT, trạng thái đổi hoặc thêm, xoá mặt hàng; giá hoặc thuế suất rỗng khác 0. Danh mục rỗng trả
  * md5 của chuỗi rỗng và `count = 0`.
  */
 export interface InternalMaterialCatalogFingerprint {

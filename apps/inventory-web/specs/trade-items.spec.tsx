@@ -6,8 +6,10 @@ import {
   TradeItemsPage,
   categoryChoices,
   filterTradeItems,
+  formatVatRate,
   paginate,
   parseImportRows,
+  parseVatRateInput,
   toExportRows,
   usageChoices,
   usageLabel,
@@ -84,6 +86,7 @@ const ITEMS = [
     tradeMode: 'SALE_ONLY',
     tradeCategory: 'Dây dẫn',
     salePrice: 45000,
+    vatRate: 8.5,
     createdBy: 'Hải',
     createdAt: '2026-11-01T00:00:00Z',
   }),
@@ -108,6 +111,20 @@ const CATALOG = {
 };
 
 describe('trade-items.model', () => {
+  it('thuế suất VAT: hiển thị kiểu Việt, chưa khai nói rõ mức 10%; ô nhập kiểm 0 đến 100, tối đa 2 chữ số thập phân', () => {
+    expect(formatVatRate(8.5)).toBe('8,5%');
+    expect(formatVatRate(0)).toBe('0%');
+    expect(formatVatRate(undefined)).toBe('Chưa khai (10%)');
+    expect(formatVatRate(null)).toBe('Chưa khai (10%)');
+    expect(parseVatRateInput('')).toEqual({ invalid: false });
+    expect(parseVatRateInput('8.5')).toEqual({ value: 8.5, invalid: false });
+    expect(parseVatRateInput('100')).toEqual({ value: 100, invalid: false });
+    expect(parseVatRateInput('0')).toEqual({ value: 0, invalid: false });
+    expect(parseVatRateInput('100.01').invalid).toBe(true);
+    expect(parseVatRateInput('8.555').invalid).toBe(true);
+    expect(parseVatRateInput('-1').invalid).toBe(true);
+  });
+
   it('đổi mã sử dụng cũ sang nhãn, giữ nguyên chuỗi tự khai', () => {
     expect(usageLabel('SALE_ONLY')).toBe('Chỉ bán');
     expect(usageLabel('Đi kèm combo')).toBe('Đi kèm combo');
@@ -309,6 +326,8 @@ describe('TradeItemsPage', () => {
     }
     expect(within(drawer).getByText('Hải')).toBeTruthy();
     expect(within(drawer).getByText('893001')).toBeTruthy();
+    expect(within(drawer).getByText('Thuế suất VAT')).toBeTruthy();
+    expect(within(drawer).getByText('8,5%')).toBeTruthy();
     expect(within(drawer).getByRole('heading', { name: 'Lịch sử xuất nhập' })).toBeTruthy();
     expect(within(drawer).getByRole('heading', { name: 'Tồn kho' })).toBeTruthy();
     await within(drawer).findByText('TX-1');
@@ -326,6 +345,65 @@ describe('TradeItemsPage', () => {
     expect(within(drawer).getByText(/không có lịch sử xuất nhập/)).toBeTruthy();
     expect(within(drawer).getByText('Dịch vụ không quản lý tồn kho.')).toBeTruthy();
     expect(mockHistory).not.toHaveBeenCalled();
+    // Chưa khai thuế suất: báo bên bán tính mặc định 10%.
+    expect(within(drawer).getByText('Chưa khai (10%)')).toBeTruthy();
+  });
+
+  it('tạo mới: thuế suất VAT nhận dấu phẩy thập phân; ngoài 0 đến 100 thì báo lỗi và không cho tạo', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    await screen.findByText('Cáp điện', { selector: 'td' });
+    fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Tạo hàng hóa' });
+    const submit = within(dialog).getByRole('button', { name: 'Tạo mới' }) as HTMLButtonElement;
+    fireEvent.change(within(dialog).getByLabelText(/^Mã/), { target: { value: 'vt-vat' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Tên/), { target: { value: 'Hàng VAT' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Đơn vị/), { target: { value: 'Cái' } });
+    expect(within(dialog).getByText('Bỏ trống: bên bán tính 10%')).toBeTruthy();
+    const vat = within(dialog).getByLabelText('Thuế suất VAT (%)') as HTMLInputElement;
+    fireEvent.change(vat, { target: { value: '150' } });
+    expect(within(dialog).getByRole('alert').textContent).toBe(
+      'Thuế suất VAT phải từ 0 đến 100, tối đa 2 chữ số thập phân.',
+    );
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(vat, { target: { value: '8,5' } });
+    expect(vat.value).toBe('8,5');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+    fireEvent.click(submit);
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({ code: 'VT-VAT', vatRate: 8.5 });
+  });
+
+  it('tạo mới: bỏ trống thuế suất VAT thì không gửi giá trị', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    await screen.findByText('Cáp điện', { selector: 'td' });
+    fireEvent.click(screen.getByRole('button', { name: /Tạo mới/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Tạo hàng hóa' });
+    fireEvent.change(within(dialog).getByLabelText(/^Mã/), { target: { value: 'vt-0' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Tên/), { target: { value: 'Hàng' } });
+    fireEvent.change(within(dialog).getByLabelText(/^Đơn vị/), { target: { value: 'Cái' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Tạo mới' }));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledTimes(1));
+    expect(mockCreate.mock.calls[0][0].vatRate).toBeUndefined();
+  });
+
+  it('sửa trên drawer: đổi thuế suất VAT gửi số mới, xoá trống gửi null để về chưa khai', async () => {
+    render(<TradeItemsPage canManage warehouses={warehouses} catalog={CATALOG} />);
+    fireEvent.click(await screen.findByText('Cáp điện', { selector: 'td' }));
+    const dialog = screen.getByRole('dialog', { name: 'Chi tiết VT-001' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sửa' }));
+    const vat = within(dialog).getByLabelText('Thuế suất VAT (%)') as HTMLInputElement;
+    expect(vat.value).toBe('8,5');
+    fireEvent.change(vat, { target: { value: '5' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(1));
+    expect(mockUpdate.mock.calls[0][1]).toMatchObject({ vatRate: 5 });
+
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: 'Sửa' })).toBeTruthy());
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sửa' }));
+    fireEvent.change(within(dialog).getByLabelText('Thuế suất VAT (%)'), { target: { value: '' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(mockUpdate).toHaveBeenCalledTimes(2));
+    expect(mockUpdate.mock.calls[1][1]).toMatchObject({ vatRate: null });
   });
 
   it('tạo mới: gửi mã viết hoa, nhóm, phân loại của nhóm, sử dụng và giá', async () => {

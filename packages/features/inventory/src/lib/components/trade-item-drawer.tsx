@@ -11,9 +11,13 @@ import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { formatDateTime } from '../inventory-labels';
 import { useUserLabel } from '../user-names';
 import {
+  DEFAULT_SALE_VAT_RATE,
   TRADE_GROUP_LABEL,
+  VAT_RATE_INVALID_MESSAGE,
   categoriesOf,
   formatSalePrice,
+  formatVatRate,
+  parseVatRateInput,
   tradeGroupOf,
   usageLabel,
   withCurrent,
@@ -67,6 +71,7 @@ interface Draft {
   unit: string;
   usage: string;
   price: string;
+  vat: string;
   description: string;
 }
 
@@ -78,6 +83,7 @@ function draftOf(item: Material): Draft {
     unit: item.unit,
     usage: usageLabel(item.tradeMode),
     price: item.salePrice === undefined ? '' : String(item.salePrice),
+    vat: item.vatRate === undefined ? '' : String(item.vatRate),
     description: item.description ?? '',
   };
 }
@@ -162,7 +168,8 @@ export function TradeItemDrawer({
   const dirty = editing && JSON.stringify(draft) !== JSON.stringify(draftOf(item));
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const priceInvalid = priceValue !== undefined && (!Number.isFinite(priceValue) || priceValue < 0);
-  const ready = draft.name.trim() !== '' && draft.unit.trim() !== '' && !priceInvalid;
+  const { value: vatValue, invalid: vatInvalid } = parseVatRateInput(draft.vat);
+  const ready = draft.name.trim() !== '' && draft.unit.trim() !== '' && !priceInvalid && !vatInvalid;
 
   const startEdit = () => {
     setDraft(draftOf(item));
@@ -186,6 +193,8 @@ export function TradeItemDrawer({
         tradeMode: draft.usage || undefined,
         salePrice: priceValue,
         currency: priceValue === undefined ? undefined : 'VND',
+        // Ô trống là xoá thuế suất (về chưa khai).
+        vatRate: vatValue ?? null,
         // Chuỗi rỗng là xoá mô tả.
         description: draft.description.trim(),
       });
@@ -369,6 +378,30 @@ export function TradeItemDrawer({
                   </EditField>
                 ) : (
                   <DrawerField label="Giá bán">{formatSalePrice(item.salePrice)}</DrawerField>
+                )}
+                {editing ? (
+                  <EditField label="Thuế suất VAT (%)" htmlFor="trade-edit-vat">
+                    <VnNumberInput
+                      id="trade-edit-vat"
+                      className={NUMBER_INPUT_CLASS}
+                      placeholder="VD: 8 hoặc 8,5"
+                      value={draft.vat}
+                      aria-invalid={vatInvalid}
+                      aria-describedby="trade-edit-vat-hint"
+                      onChange={(vat) => change({ vat })}
+                    />
+                    {vatInvalid ? (
+                      <span role="alert" className="text-[13px] text-red-600">
+                        {VAT_RATE_INVALID_MESSAGE}
+                      </span>
+                    ) : (
+                      <span id="trade-edit-vat-hint" className="text-[12px] text-slate-500">
+                        Bỏ trống: bên bán tính {DEFAULT_SALE_VAT_RATE}%
+                      </span>
+                    )}
+                  </EditField>
+                ) : (
+                  <DrawerField label="Thuế suất VAT">{formatVatRate(item.vatRate)}</DrawerField>
                 )}
                 <DrawerField label="Trạng thái">
                   <TradeStatusBadge active={item.isActive} />

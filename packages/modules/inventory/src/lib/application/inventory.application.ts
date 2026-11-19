@@ -1782,6 +1782,7 @@ function requireTradeFields(input: {
   tradeMode?: unknown;
   tradeCategory?: unknown;
   salePrice?: unknown;
+  vatRate?: unknown;
   description?: unknown;
 }): void {
   requireTradeLabel(input.tradeMode, 'Cách sử dụng không hợp lệ.');
@@ -1793,6 +1794,21 @@ function requireTradeFields(input: {
   const price = input.salePrice;
   if (price != null && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) {
     throw new InventoryError('VALIDATION', 'Giá bán phải là số không âm.');
+  }
+  requireVatRate(input.vatRate);
+}
+
+/** Thuế suất VAT bán ra: rỗng là chưa khai, có thì từ 0 đến 100, tối đa 2 chữ số thập phân (cột NUMERIC(5,2)). */
+function requireVatRate(value: unknown): void {
+  if (value == null) return;
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 100 ||
+    Math.abs(Math.round(value * 100) - value * 100) > 1e-6
+  ) {
+    throw new InventoryError('VALIDATION', 'Thuế suất VAT phải từ 0 đến 100, tối đa 2 chữ số thập phân.');
   }
 }
 
@@ -1829,6 +1845,7 @@ function importPatch(row: ImportMaterialRow): UpdateMaterialRequest {
     tradeCategory: row.tradeCategory?.trim() || undefined,
     tradeMode: row.tradeMode?.trim() || undefined,
     salePrice: row.salePrice,
+    vatRate: row.vatRate ?? undefined,
     purchasePrice: row.purchasePrice,
     currency: row.currency?.trim() || undefined,
     description: row.description?.trim() || undefined,

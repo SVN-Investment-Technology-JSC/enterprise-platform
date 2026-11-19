@@ -9,7 +9,15 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
-import { TRADE_GROUP_LABEL, categoriesOf, withCurrent, type TradeGroup } from '../trade-items.model';
+import {
+  DEFAULT_SALE_VAT_RATE,
+  TRADE_GROUP_LABEL,
+  VAT_RATE_INVALID_MESSAGE,
+  categoriesOf,
+  parseVatRateInput,
+  withCurrent,
+  type TradeGroup,
+} from '../trade-items.model';
 
 /** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
 const NUMBER_INPUT_CLASS =
@@ -42,6 +50,7 @@ export function TradeItemFormDialog({
   const [unit, setUnit] = useState('');
   const [usage, setUsage] = useState('');
   const [price, setPrice] = useState('');
+  const [vat, setVat] = useState('');
   const [description, setDescription] = useState('');
   const [error, setError] = useState<string>();
 
@@ -63,7 +72,8 @@ export function TradeItemFormDialog({
 
   const priceValue = price.trim() === '' ? undefined : Number(price);
   const priceInvalid = priceValue !== undefined && (!Number.isFinite(priceValue) || priceValue < 0);
-  const ready = code.trim() !== '' && name.trim() !== '' && unit.trim() !== '' && !priceInvalid;
+  const { value: vatValue, invalid: vatInvalid } = parseVatRateInput(vat);
+  const ready = code.trim() !== '' && name.trim() !== '' && unit.trim() !== '' && !priceInvalid && !vatInvalid;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -81,6 +91,7 @@ export function TradeItemFormDialog({
         tradeMode: usage || undefined,
         salePrice: priceValue,
         currency: priceValue === undefined ? undefined : 'VND',
+        vatRate: vatValue,
         description: description.trim() || undefined,
       });
     } catch (cause) {
@@ -90,7 +101,7 @@ export function TradeItemFormDialog({
 
   const title = 'Tạo hàng hóa';
 
-  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, price, description]);
+  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, price, vat, description]);
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
@@ -217,6 +228,27 @@ export function TradeItemFormDialog({
                     Giá bán phải là số không âm.
                   </span>
                 ) : null}
+              </div>
+              <div className="flex flex-col gap-[0.4rem]">
+                <Label htmlFor="trade-vat">Thuế suất VAT (%)</Label>
+                <VnNumberInput
+                  id="trade-vat"
+                  className={NUMBER_INPUT_CLASS}
+                  placeholder="VD: 8 hoặc 8,5"
+                  value={vat}
+                  onChange={setVat}
+                  aria-invalid={vatInvalid}
+                  aria-describedby="trade-vat-hint"
+                />
+                {vatInvalid ? (
+                  <span role="alert" className="text-[13px] text-red-600">
+                    {VAT_RATE_INVALID_MESSAGE}
+                  </span>
+                ) : (
+                  <span id="trade-vat-hint" className="text-[12px] text-slate-500">
+                    Bỏ trống: bên bán tính {DEFAULT_SALE_VAT_RATE}%
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex flex-col gap-[0.4rem]">
