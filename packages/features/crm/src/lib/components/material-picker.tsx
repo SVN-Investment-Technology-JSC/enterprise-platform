@@ -5,7 +5,7 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useState } from 'react';
 import { formatQuantity } from '../fulfillment.model';
-import { parseNumber } from '../pricing/pricing.model';
+import { formatPercent, parseNumber, parseVatRate } from '../pricing/pricing.model';
 import { formatMoney } from '../sales.model';
 import styles from '../sales.module.scss';
 import { CatalogPager, CatalogSearchBar, useCatalogSearch } from './catalog-search';
@@ -17,7 +17,10 @@ export interface PickedMaterial {
   readonly quantity: number | null;
   /** Có khi hộp thoại hỏi giá: giá khung (dòng hợp đồng) hoặc đơn giá ghi đè (dòng đơn bán). */
   readonly unitPrice: number | null;
+  /** Thuế suất của giá khung (chỉ dòng hợp đồng, `withPrice`). */
   readonly vatRate: number | null;
+  /** Thuế suất sửa tay (chỉ dòng đơn bán, `withOverridePrice`); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
 }
 
 /**
@@ -34,7 +37,10 @@ export function MaterialPickerDialog({
 }: {
   title: string;
   withPrice?: boolean;
-  /** Ô "Đơn giá ghi đè" tuỳ chọn (dòng đơn bán): bỏ trống là theo giá hợp đồng hoặc bảng giá. */
+  /**
+   * Ô "Đơn giá ghi đè" và "Thuế suất (%)" tuỳ chọn (dòng đơn bán): bỏ trống là theo giá, thuế suất của hợp đồng hoặc
+   * bảng giá.
+   */
   withOverridePrice?: boolean;
   quantityOptional?: boolean;
   onClose: () => void;
@@ -46,6 +52,7 @@ export function MaterialPickerDialog({
   const [price, setPrice] = useState('');
   const [overridePrice, setOverridePrice] = useState('');
   const [vat, setVat] = useState('10');
+  const [overrideVat, setOverrideVat] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -76,6 +83,8 @@ export function MaterialPickerDialog({
     if (withOverridePrice && overridePrice.trim() && (override === undefined || override < 0)) {
       return setError('Đơn giá ghi đè phải là số không âm.');
     }
+    const parsedVat = withOverridePrice && overrideVat.trim() ? parseVatRate(overrideVat) : undefined;
+    if (parsedVat && !parsedVat.ok) return setError(parsedVat.error);
     setSaving(true);
     try {
       await onPick({
@@ -83,6 +92,7 @@ export function MaterialPickerDialog({
         quantity: amount ?? null,
         unitPrice: unitPrice ?? override ?? null,
         vatRate: withPrice ? (parseNumber(vat) ?? null) : null,
+        overrideVatRate: parsedVat?.ok ? parsedVat.value : null,
       });
     } finally {
       setSaving(false);
@@ -131,6 +141,18 @@ export function MaterialPickerDialog({
               aria-label="Đơn giá ghi đè"
               value={overridePrice}
               onChange={(event) => setOverridePrice(event.target.value)}
+            />
+          </Field>
+        ) : null}
+        {withOverridePrice ? (
+          <Field label="Thuế suất (%)" hint="Bỏ trống: theo bảng giá hoặc hợp đồng. Từ 0 đến 100, tối đa 2 chữ số thập phân.">
+            <input
+              className={styles.input}
+              inputMode="decimal"
+              aria-label="Thuế suất"
+              placeholder={selected && selected.vatRate !== undefined ? `Kho: ${formatPercent(selected.vatRate ?? 10)}` : 'Theo bảng giá'}
+              value={overrideVat}
+              onChange={(event) => setOverrideVat(event.target.value)}
             />
           </Field>
         ) : null}

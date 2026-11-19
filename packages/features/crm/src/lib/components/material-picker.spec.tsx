@@ -68,8 +68,39 @@ describe('MaterialPickerDialog: đơn giá ghi đè (dòng đơn bán)', () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
-  it('không bật withOverridePrice thì không có ô ghi đè', () => {
+  it('không bật withOverridePrice thì không có ô ghi đè, ô thuế suất sửa tay', () => {
     render(<MaterialPickerDialog title="Chọn mặt hàng" onClose={jest.fn()} onPick={jest.fn()} />);
     expect(screen.queryByLabelText('Đơn giá ghi đè')).toBeNull();
+    expect(screen.queryByLabelText('Thuế suất')).toBeNull();
+  });
+
+  it('thuế suất "8,5" trả về overrideVatRate 8.5; bỏ trống là rỗng; vatRate (giá khung hợp đồng) giữ rỗng', async () => {
+    const onPick = jest.fn().mockResolvedValue(undefined);
+    render(<MaterialPickerDialog title="Thêm dòng đơn" withOverridePrice onClose={jest.fn()} onPick={onPick} />);
+    fireEvent.click(screen.getByText('3333'));
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm dòng' }));
+    await waitFor(() => expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({ overrideVatRate: null, vatRate: null })));
+    fireEvent.change(screen.getByLabelText('Thuế suất'), { target: { value: '8,5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm dòng' }));
+    await waitFor(() => expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({ overrideVatRate: 8.5, vatRate: null })));
+  });
+
+  it('thuế suất ngoài 0 đến 100: báo lỗi, không gửi', async () => {
+    const onPick = jest.fn().mockResolvedValue(undefined);
+    render(<MaterialPickerDialog title="Thêm dòng đơn" withOverridePrice onClose={jest.fn()} onPick={onPick} />);
+    fireEvent.click(screen.getByText('3333'));
+    fireEvent.change(screen.getByLabelText('Thuế suất'), { target: { value: '120' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm dòng' }));
+    expect(await screen.findByText('Thuế suất phải từ 0 đến 100.')).toBeTruthy();
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('dòng hợp đồng (withPrice) giữ thuế suất giá khung như cũ, không có overrideVatRate', async () => {
+    const onPick = jest.fn().mockResolvedValue(undefined);
+    render(<MaterialPickerDialog title="Thêm dòng hợp đồng" withPrice onClose={jest.fn()} onPick={onPick} />);
+    fireEvent.click(screen.getByText('3333'));
+    fireEvent.change(screen.getByLabelText(/Giá khung/), { target: { value: '1000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Thêm dòng' }));
+    await waitFor(() => expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ unitPrice: 1000, vatRate: 10, overrideVatRate: null })));
   });
 });

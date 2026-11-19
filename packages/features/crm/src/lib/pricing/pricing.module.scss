@@ -54,7 +54,7 @@
 
 .previewLine {
   display: grid;
-  grid-template-columns: minmax(200px, 2fr) repeat(5, minmax(90px, 1fr)) auto;
+  grid-template-columns: minmax(200px, 2fr) repeat(6, minmax(90px, 1fr)) auto;
   align-items: end;
   gap: 8px;
 

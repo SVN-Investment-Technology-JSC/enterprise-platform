@@ -78,6 +78,7 @@ export function fixtureLine(patch: Partial<QuoteLine> = {}): QuoteLine {
     overridden: false,
     overrideUnitPrice: null,
     overrideDiscountPercent: null,
+    overrideVatRate: null,
     unitPrice: 900_000,
     grossAmount: 2_000_000,
     discountAmount: 200_000,

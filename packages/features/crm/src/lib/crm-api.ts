@@ -372,9 +372,12 @@ export const setManualPrice = (id: string, itemId: string, price: number) =>
 /** Bảng theo tỷ lệ: bỏ giá tay, dòng về giá theo tỷ lệ. */
 export const clearManualPrice = (id: string, itemId: string) =>
   send<PriceListDetail>('DELETE', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/manual-price`);
-/** Bảng mặc định: sửa thuế suất một dòng (`SetVatRateRequest`). */
+/** Bảng theo tỷ lệ: nhập thuế suất tay một dòng (`SetVatRateRequest`), giữ khi đồng bộ. */
 export const setPriceListVatRate = (id: string, itemId: string, vatRate: number) =>
   send<PriceListDetail>('PUT', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/vat-rate`, { vatRate });
+/** Bảng theo tỷ lệ: bỏ thuế suất tay, dòng về thuế suất của bảng mặc định. */
+export const clearPriceListVatRate = (id: string, itemId: string) =>
+  send<PriceListDetail>('DELETE', `/price-lists/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/vat-rate`);
 /** Trạng thái đồng bộ bảng giá mặc định với Kho (chỉ quản trị CRM; người khác nhận 403). */
 export const loadCatalogSyncStatus = () => request<PriceListSyncStatus>('/pricing/catalog-sync', { cache: 'no-store' });
 export const syncCatalog = () => send<PriceListSyncResult>('POST', '/pricing/catalog-sync');

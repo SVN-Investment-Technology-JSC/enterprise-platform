@@ -47,7 +47,19 @@ jest.mock('@enterprise-platform/shared-ui/date-picker', () => ({
   ),
 }));
 jest.mock('../components/warehouse-select', () => ({ WarehouseSelect: () => null }));
-jest.mock('../components/material-picker', () => ({ MaterialPickerDialog: () => <div role="dialog" aria-label="Thêm dòng đơn" /> }));
+// Hộp chọn mặt hàng thay bằng nút trả về sẵn một mặt hàng kèm thuế suất sửa tay.
+jest.mock('../components/material-picker', () => ({
+  MaterialPickerDialog: ({ onPick }: { onPick: (picked: unknown) => Promise<void> }) => (
+    <div role="dialog" aria-label="Thêm dòng đơn">
+      <button
+        type="button"
+        onClick={() => void onPick({ material: { id: 'm9', code: 'VT-09' }, quantity: 2, unitPrice: null, vatRate: null, overrideVatRate: 8.5 })}
+      >
+        Chọn VT-09
+      </button>
+    </div>
+  ),
+}));
 jest.mock('../documents', () => ({ DocumentsPanel: () => null }));
 jest.mock('../receivables/order-receivable-panel', () => ({ OrderReceivablePanel: () => null }));
 jest.mock('./order-info-note', () => ({ OrderInfoNote: () => null }));
@@ -190,6 +202,35 @@ describe('Bảng giá ở đơn bán (C5.1, C5.2)', () => {
     fireEvent.click(within(confirm).getByRole('button', { name: 'Huỷ' }));
     expect(mockApi.updateOrder).not.toHaveBeenCalled();
     expect(priceField().querySelector('[data-select-value]')?.getAttribute('data-select-value')).toBe('pl-105');
+  });
+
+  it('thêm dòng đơn gửi overrideVatRate của dòng mới; dòng cũ giữ overrideVatRate đang có', async () => {
+    const existing = {
+      id: 'l1',
+      materialId: 'm1',
+      quantity: 1,
+      unit: 'Cái',
+      overrideUnitPrice: null,
+      overrideDiscountPercent: null,
+      overrideVatRate: 5,
+      warehouseCode: null,
+    } as SalesOrderLine;
+    const draft = order({ priceListId: 'pl-105', priceListCode: 'BG-105', priceListName: 'Bảng giá 105', priceListStatus: 'ACTIVE', lines: [existing] });
+    mockApi.getOrder.mockResolvedValue(draft);
+    mockApi.updateOrder.mockResolvedValue({ ...draft, revision: 3 });
+    render(<OrderDetail orderId="o1" onBack={jest.fn()} onOpenCustomer={jest.fn()} onOpenContract={jest.fn()} onOpenQuote={jest.fn()} />);
+    await screen.findByText('Dòng hàng');
+    fireEvent.click(addLine());
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Thêm dòng đơn' })).getByRole('button', { name: 'Chọn VT-09' }));
+    await waitFor(() =>
+      expect(mockApi.updateOrder).toHaveBeenCalledWith('o1', {
+        revision: 2,
+        lines: [
+          { materialId: 'm1', quantity: 1, unit: 'Cái', overrideUnitPrice: null, overrideDiscountPercent: null, overrideVatRate: 5, warehouseCode: null },
+          { materialId: 'm9', quantity: 2, overrideUnitPrice: null, overrideVatRate: 8.5 },
+        ],
+      }),
+    );
   });
 
   it('C5.2: đơn từ báo giá hiện bảng giá dạng chữ, không có ô chọn', async () => {

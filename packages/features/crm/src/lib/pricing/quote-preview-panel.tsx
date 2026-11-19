@@ -20,7 +20,7 @@ import { groupOptions, useCrm } from '../crm-context';
 import styles from '../sales.module.scss';
 import local from './pricing.module.scss';
 import { NO_PRICE_LISTS_TEXT, PICK_PRICE_LIST_FIRST, PriceListSelect, priceListOptions, todayInVietnam, usePriceLists } from './price-list-select';
-import { buildPricingSheet, formatMoney, formatPercent, parseNumber } from './pricing.model';
+import { buildPricingSheet, formatMoney, formatPercent, parseNumber, parseVatRate } from './pricing.model';
 
 interface LineDraft {
   readonly key: number;
@@ -29,6 +29,7 @@ interface LineDraft {
   quantity: string;
   overrideUnitPrice: string;
   overrideDiscountPercent: string;
+  overrideVatRate: string;
 }
 
 type Material = Pick<PriceListItem, 'materialId' | 'materialCode' | 'materialName' | 'unit' | 'price'>;
@@ -36,7 +37,7 @@ type Material = Pick<PriceListItem, 'materialId' | 'materialCode' | 'materialNam
 let lineKey = 0;
 function emptyLine(): LineDraft {
   lineKey += 1;
-  return { key: lineKey, materialId: '', unit: '', quantity: '1', overrideUnitPrice: '', overrideDiscountPercent: '' };
+  return { key: lineKey, materialId: '', unit: '', quantity: '1', overrideUnitPrice: '', overrideDiscountPercent: '', overrideVatRate: '' };
 }
 
 /**
@@ -120,6 +121,8 @@ export function QuotePreviewPanel() {
     for (const [index, line] of lines.entries()) {
       const material = materials.find((entry) => entry.materialId === line.materialId && entry.unit === line.unit);
       if (!line.materialId) return setError(`Dòng ${index + 1}: vui lòng chọn mặt hàng.`);
+      const vat = line.overrideVatRate.trim() ? parseVatRate(line.overrideVatRate) : undefined;
+      if (vat && !vat.ok) return setError(`Dòng ${index + 1}: ${vat.error}`);
       payload.push({
         materialId: line.materialId,
         materialCode: material?.materialCode,
@@ -130,6 +133,7 @@ export function QuotePreviewPanel() {
         overrideDiscountPercent: line.overrideDiscountPercent.trim()
           ? (parseNumber(line.overrideDiscountPercent) ?? Number.NaN)
           : null,
+        overrideVatRate: vat?.ok ? vat.value : null,
       });
     }
     const shippingAmount = shipping.trim() ? parseNumber(shipping) : undefined;
@@ -245,6 +249,16 @@ export function QuotePreviewPanel() {
                 Ghi đè CK (%)
                 <input className={styles.input} inputMode="decimal" value={line.overrideDiscountPercent} onChange={(event) => update(line.key, { overrideDiscountPercent: event.target.value })} />
               </label>
+              <label className={local.inlineField}>
+                Ghi đè VAT (%)
+                <input
+                  className={styles.input}
+                  inputMode="decimal"
+                  placeholder="Theo bảng giá"
+                  value={line.overrideVatRate}
+                  onChange={(event) => update(line.key, { overrideVatRate: event.target.value })}
+                />
+              </label>
               <button
                 type="button"
                 className={styles.iconButton}
@@ -337,7 +351,18 @@ function PreviewResult({ result }: { result: PricingResult }) {
       },
       { title: 'Đơn giá sau CK', dataIndex: 'unitPriceAfterDiscount', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
       { title: 'Thành tiền', dataIndex: 'lineAmount', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
-      { title: 'VAT', key: 'vat', width: 120, align: 'right', render: (_: unknown, row) => `${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})` },
+      {
+        title: 'VAT',
+        key: 'vat',
+        width: 150,
+        align: 'right',
+        render: (_: unknown, row) => (
+          <span className={styles.cellWithPill}>
+            {`${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})`}
+            {row.vatOverridden ? <StatusPill tone="info">Sửa tay</StatusPill> : null}
+          </span>
+        ),
+      },
       { title: 'Cộng', dataIndex: 'lineTotal', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
     ],
     [],

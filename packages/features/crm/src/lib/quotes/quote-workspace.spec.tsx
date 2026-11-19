@@ -32,7 +32,8 @@ import {
   sellerStateFromOrganization,
   withSellerDraft,
 } from './quote-seller.model';
-import { QUOTE_READ_ONLY_NOTE, QuoteEditor, openPickerAfterLoad } from './quote-editor';
+import { QUOTE_READ_ONLY_NOTE, QuoteEditor, TAX_BY_ORDER_HINT, openPickerAfterLoad } from './quote-editor';
+import { VAT_OVERRIDDEN_TAG } from './quote-lines-table';
 import { MISSING_SNAPSHOT_NOTE, QuotePreviewPane, previewLayoutChoice } from './quote-preview-pane';
 import { GeneralFields, type GeneralState } from './quote-form-parts';
 import {
@@ -1151,6 +1152,96 @@ describe('Bảng giá trên báo giá (C4)', () => {
     await waitFor(() =>
       expect(mockApi.addQuoteLines).toHaveBeenLastCalledWith('q1', 1, expect.objectContaining({ lines: [{ materialId: 'm4', quantity: 1, overrideUnitPrice: 12500 }] })),
     );
+  });
+
+  it('thêm dòng: ô "Thuế suất (%)" gợi ý thuế suất Kho; nhập "8,5" thì gửi overrideVatRate 8.5', async () => {
+    const detail = fixtureDetail(fixtureVersion({ lines: [] }));
+    mockApi.searchCatalog.mockResolvedValue({
+      items: [{ id: 'm4', code: 'VT-04', name: 'Van', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: null, salePrice: 1000, vatRate: 8 }],
+      nextCursor: null,
+    });
+    mockApi.addQuoteLines.mockResolvedValue(detail);
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(button('Thêm dòng hàng'));
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' });
+    fireEvent.click(await within(dialog).findByText('VT-04'));
+    const vat = within(dialog).getByLabelText('Thuế suất VT-04') as HTMLInputElement;
+    expect(vat.placeholder).toBe('Kho: 8%');
+    expect(vat.disabled).toBe(false);
+    fireEvent.change(vat, { target: { value: '101' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
+    expect(await within(dialog).findByText('Thuế suất phải từ 0 đến 100.')).toBeTruthy();
+    expect(mockApi.addQuoteLines).not.toHaveBeenCalled();
+    fireEvent.change(vat, { target: { value: '8,5' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
+    await waitFor(() =>
+      expect(mockApi.addQuoteLines).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ lines: [{ materialId: 'm4', quantity: 1, overrideVatRate: 8.5 }] })),
+    );
+  });
+
+  it('mẫu tính thuế theo tổng đơn: ô thuế suất ở hộp thêm dòng bị khoá, có lời nhắc; không gửi overrideVatRate', async () => {
+    const base = fixtureVersion({ lines: [] });
+    const detail = fixtureDetail({ ...base, form: { ...base.form, taxMode: 'ORDER' } });
+    mockApi.searchCatalog.mockResolvedValue({
+      items: [{ id: 'm4', code: 'VT-04', name: 'Van', unit: 'Cái', kind: 'STOCK', totalAvailable: 3, avgCost: null, salePrice: 1000, vatRate: 8 }],
+      nextCursor: null,
+    });
+    mockApi.addQuoteLines.mockResolvedValue(detail);
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    fireEvent.click(button('Thêm dòng hàng'));
+    const dialog = await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' });
+    expect(dialog.textContent).toContain(TAX_BY_ORDER_HINT);
+    fireEvent.click(await within(dialog).findByText('VT-04'));
+    expect((within(dialog).getByLabelText('Thuế suất VT-04') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
+    await waitFor(() => expect(mockApi.addQuoteLines).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ lines: [{ materialId: 'm4', quantity: 1 }] })));
+  });
+
+  it('sửa dòng: "Thuế suất (%)" gửi overrideVatRate; bỏ trống là theo bảng giá (null); dòng sửa tay có nhãn ở cột VAT', async () => {
+    const line = fixtureLine({ id: 'l1', lineNo: 1, overrideVatRate: 5, vatRate: 5 });
+    const detail = fixtureDetail(fixtureVersion({ lines: [line] }));
+    mockApi.updateQuoteLine.mockResolvedValue(detail);
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    const row = screen.getByRole('row', { name: /^Dòng 1:/ });
+    expect(row.textContent).toContain(VAT_OVERRIDDEN_TAG);
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hiệu chỉnh' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Dòng 1:/ });
+    const vat = within(dialog).getByLabelText(/Thuế suất \(%\)/) as HTMLInputElement;
+    expect(vat.value).toBe('5');
+    fireEvent.change(vat, { target: { value: '8,5' } });
+    // Sửa thuế suất không cần duyệt: không hiện cảnh báo ghi đè.
+    expect(dialog.textContent).not.toContain('báo giá phải được duyệt');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu' }));
+    await waitFor(() =>
+      expect(mockApi.updateQuoteLine).toHaveBeenCalledWith('q1', 1, 'l1', expect.objectContaining({ revision: 3, materialId: 'm1', overrideVatRate: 8.5 })),
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Dòng 1:/ })).toBeNull());
+    fireEvent.contextMenu(screen.getByRole('row', { name: /^Dòng 1:/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hiệu chỉnh' }));
+    const again = await screen.findByRole('dialog', { name: /^Dòng 1:/ });
+    fireEvent.change(within(again).getByLabelText(/Thuế suất \(%\)/), { target: { value: '' } });
+    fireEvent.click(within(again).getByRole('button', { name: 'Lưu' }));
+    await waitFor(() => expect(mockApi.updateQuoteLine).toHaveBeenLastCalledWith('q1', 1, 'l1', expect.objectContaining({ overrideVatRate: null })));
+  });
+
+  it('sửa dòng ở mẫu thuế theo tổng đơn: ô thuế suất bị khoá kèm lời nhắc', async () => {
+    const base = fixtureVersion({ lines: [fixtureLine({ id: 'l1', lineNo: 1, vatRate: 0, vatAmount: 0 })] });
+    const detail = fixtureDetail({ ...base, form: { ...base.form, taxMode: 'ORDER' } });
+    mockApi.updateQuoteLine.mockResolvedValue(detail);
+    renderEditor(detail);
+    await screen.findByText('Thông tin chung');
+    fireEvent.contextMenu(screen.getByRole('row', { name: /^Dòng 1:/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hiệu chỉnh' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Dòng 1:/ });
+    const vat = within(dialog).getByLabelText(/Thuế suất \(%\)/) as HTMLInputElement;
+    expect(vat.disabled).toBe(true);
+    expect(vat.closest('label')?.textContent).toContain(TAX_BY_ORDER_HINT);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Lưu' }));
+    await waitFor(() => expect(mockApi.updateQuoteLine).toHaveBeenCalledWith('q1', 1, 'l1', expect.objectContaining({ overrideVatRate: null })));
   });
 
   it('C4.11, C4.12: báo giá đã gửi hiện tên bảng giá dạng chữ, không có ô chọn; bảng đã tắt kèm "(Ngừng áp dụng)"', async () => {

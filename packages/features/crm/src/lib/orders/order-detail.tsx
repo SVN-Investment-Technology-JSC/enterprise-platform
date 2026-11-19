@@ -74,6 +74,7 @@ const lineRequest = (line: SalesOrderLine) => ({
   unit: line.unit,
   overrideUnitPrice: line.overrideUnitPrice,
   overrideDiscountPercent: line.overrideDiscountPercent,
+  overrideVatRate: line.overrideVatRate ?? null,
   warehouseCode: line.warehouseCode ?? null,
 });
 
@@ -245,7 +246,18 @@ export function OrderDetail({
     { title: 'Chiết khấu', dataIndex: 'discountPercent', width: 90, align: 'right', render: (value: number) => formatPercent(value) },
     { title: 'Đơn giá', dataIndex: 'unitPrice', width: 120, align: 'right', render: (value: number) => formatMoney(value) },
     { title: 'Thành tiền', dataIndex: 'lineAmount', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
-    { title: 'VAT', dataIndex: 'vatRate', width: 70, align: 'right', render: (value: number) => formatPercent(value) },
+    {
+      title: 'VAT',
+      dataIndex: 'vatRate',
+      width: 110,
+      align: 'right',
+      render: (value: number, row) =>
+        row.overrideVatRate != null ? (
+          <span title="Thuế suất sửa tay ở dòng này">{`${formatPercent(value)} (sửa tay)`}</span>
+        ) : (
+          formatPercent(value)
+        ),
+    },
     {
       title: 'Giữ hàng',
       key: 'reservation',
@@ -605,7 +617,15 @@ export function OrderDetail({
               () =>
                 updateOrder(detail.id, {
                   revision: detail.revision,
-                  lines: [...detail.lines.map(lineRequest), { materialId: picked.material.id, quantity: picked.quantity ?? 1, overrideUnitPrice: picked.unitPrice }],
+                  lines: [
+                    ...detail.lines.map(lineRequest),
+                    {
+                      materialId: picked.material.id,
+                      quantity: picked.quantity ?? 1,
+                      overrideUnitPrice: picked.unitPrice,
+                      overrideVatRate: picked.overrideVatRate,
+                    },
+                  ],
                 }),
               'Đã thêm dòng; giá tính theo bảng giá, chính sách như báo giá.',
             );
