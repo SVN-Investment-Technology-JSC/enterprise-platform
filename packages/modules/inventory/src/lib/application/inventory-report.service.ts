@@ -25,7 +25,7 @@ import {
   resolveReportPaging,
   resolveReportPeriod,
 } from '../domain/inventory-report.js';
-import { requiresApproval } from '../domain/stock-document-policy.js';
+import { requiresApproval, requiresApprovalWithoutSource } from '../domain/stock-document-policy.js';
 import { todayInVietnam } from '../domain/traceability-policy.js';
 import type { InventoryActor } from './inventory.application.js';
 import {
@@ -35,8 +35,12 @@ import {
 } from './inventory-report-store.port.js';
 
 const SERIAL_STOCK_STATES: readonly SerialStockState[] = ['IN_STOCK', 'ISSUED', 'IN_TRANSIT', 'SCRAPPED'];
-/** Loại chứng từ phải qua người duyệt: nguồn của lịch sử duyệt. */
+/** Loại chứng từ luôn phải qua người duyệt. */
 const APPROVAL_DOC_TYPES = STOCK_DOCUMENT_TYPES.filter((docType) => requiresApproval(docType));
+/** Nhập mua, xuất dự án không có chứng từ nguồn cũng phải duyệt (ISS-BE-006). */
+const SOURCE_LESS_APPROVAL_DOC_TYPES = STOCK_DOCUMENT_TYPES.filter((docType) => requiresApprovalWithoutSource(docType));
+/** Nguồn của lịch sử duyệt: mọi loại có thể phải qua người duyệt. */
+const REPORTABLE_APPROVAL_DOC_TYPES = [...APPROVAL_DOC_TYPES, ...SOURCE_LESS_APPROVAL_DOC_TYPES];
 
 /** Query string trả chuỗi; bỏ khoảng trắng, rỗng coi như không lọc. */
 function text(value: string | undefined): string | undefined {
@@ -149,17 +153,27 @@ export class InventoryReportService {
     };
   }
 
-  /** Lịch sử chứng từ phải duyệt (điều chỉnh, nhập khác, xuất khác): ai lập, ai duyệt, lúc nào, lý do. */
+  /**
+   * Lịch sử chứng từ phải duyệt: điều chỉnh, nhập khác, xuất khác, và nhập mua,
+   * xuất dự án không có chứng từ nguồn (ISS-BE-006). Ai lập, ai duyệt, lúc nào, lý do.
+   */
   async approvals(actor: InventoryActor, query: StockApprovalReportQuery): Promise<StockApprovalReport> {
     const period = resolveReportPeriod(query.fromDate, query.toDate, this.today());
-    const docType = oneOf<StockDocumentType>(query.docType, APPROVAL_DOC_TYPES, 'Loại chứng từ không phải loại cần duyệt.');
+    const docType = oneOf<StockDocumentType>(
+      query.docType,
+      REPORTABLE_APPROVAL_DOC_TYPES,
+      'Loại chứng từ không phải loại cần duyệt.',
+    );
     const paging = resolveReportPaging(query.limit, query.offset);
     const page = await this.store.approvals(
       actor.tenantId,
       {
         ...period,
         warehouseCode: text(query.warehouseCode),
-        docTypes: docType ? [docType] : APPROVAL_DOC_TYPES,
+        docTypes: docType ? APPROVAL_DOC_TYPES.filter((item) => item === docType) : APPROVAL_DOC_TYPES,
+        sourceLessDocTypes: docType
+          ? SOURCE_LESS_APPROVAL_DOC_TYPES.filter((item) => item === docType)
+          : SOURCE_LESS_APPROVAL_DOC_TYPES,
         status: oneOf<StockDocumentStatus>(query.status, STOCK_DOCUMENT_STATUSES, 'Trạng thái chứng từ không hợp lệ.'),
       },
       paging,

@@ -132,12 +132,23 @@ describe('InventoryReportService', () => {
     });
   });
 
-  it('lịch sử duyệt chỉ nhận loại chứng từ phải duyệt', async () => {
+  it('lịch sử duyệt gồm cả nhập mua, xuất dự án không nguồn (ISS-BE-006); loại không bao giờ phải duyệt bị từ chối', async () => {
     const store = fakeStore();
     const service = new InventoryReportService(store, () => '2026-10-28');
     await service.approvals(actor, {});
-    expect(store.approvals.mock.calls[0][1].docTypes).toEqual(['RECEIPT_OTHER', 'ISSUE_OTHER', 'ADJUSTMENT']);
-    await expect(service.approvals(actor, { docType: 'RECEIPT_PURCHASE' })).rejects.toMatchObject({
+    expect(store.approvals.mock.calls[0][1]).toMatchObject({
+      docTypes: ['RECEIPT_OTHER', 'ISSUE_OTHER', 'ADJUSTMENT'],
+      sourceLessDocTypes: ['RECEIPT_PURCHASE', 'ISSUE_PROJECT'],
+    });
+    await service.approvals(actor, { docType: 'ISSUE_PROJECT', status: 'PENDING' });
+    expect(store.approvals.mock.calls[1][1]).toMatchObject({
+      docTypes: [],
+      sourceLessDocTypes: ['ISSUE_PROJECT'],
+      status: 'PENDING',
+    });
+    await service.approvals(actor, { docType: 'ADJUSTMENT' });
+    expect(store.approvals.mock.calls[2][1]).toMatchObject({ docTypes: ['ADJUSTMENT'], sourceLessDocTypes: [] });
+    await expect(service.approvals(actor, { docType: 'TRANSFER' })).rejects.toMatchObject({
       statusCode: 400,
     });
   });
