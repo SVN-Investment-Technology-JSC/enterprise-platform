@@ -2,7 +2,9 @@ import type {
   CreateMaterialRequest,
   InventoryTradeCatalog,
   Material,
+  MaterialTrackingMode,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import { formatCurrencyVn, parseVnNumber } from '@enterprise-platform/shared-ui';
 import * as XLSX from 'xlsx';
 
@@ -194,9 +196,16 @@ const EXPORT_HEADERS = {
   group: 'Nhóm',
   category: 'Phân loại',
   unit: 'Đơn vị',
+  tracking: 'Cách theo dõi',
   usage: 'Sử dụng',
   price: 'Giá bán',
 } as const;
+
+export const TRACKING_MODE_DISPLAY_LABEL: Readonly<Record<MaterialTrackingMode, string>> = {
+  NONE: 'Số lượng',
+  LOT: 'Lô',
+  SERIAL: 'Serial',
+};
 
 export function toExportRows(items: readonly Material[]): Record<string, string | number>[] {
   return items.map((item) => ({
@@ -206,6 +215,7 @@ export function toExportRows(items: readonly Material[]): Record<string, string 
     [EXPORT_HEADERS.group]: TRADE_GROUP_LABEL[tradeGroupOf(item)],
     [EXPORT_HEADERS.category]: item.tradeCategory ?? '',
     [EXPORT_HEADERS.unit]: item.unit,
+    [EXPORT_HEADERS.tracking]: TRACKING_MODE_DISPLAY_LABEL[resolveTrackingMode(item)],
     [EXPORT_HEADERS.usage]: usageLabel(item.tradeMode),
     [EXPORT_HEADERS.price]: item.salePrice ?? '',
   }));
@@ -229,6 +239,7 @@ const TEMPLATE_HEADERS = [
   'Nhóm',
   'Phân loại',
   'Đơn vị',
+  'Cách theo dõi',
   'Sử dụng',
   'Giá bán',
   'Giá vốn',
@@ -255,6 +266,7 @@ export function tradeTemplateRows(catalog?: InventoryTradeCatalog): Record<strin
       Nhóm: 'Hàng hóa',
       'Phân loại': h,
       'Đơn vị': 'Mét',
+      'Cách theo dõi': 'Số lượng',
       'Sử dụng': u,
       'Giá bán': 45000,
       'Giá vốn': 32000,
@@ -271,6 +283,7 @@ export function tradeTemplateRows(catalog?: InventoryTradeCatalog): Record<strin
       Nhóm: 'Dịch vụ',
       'Phân loại': s,
       'Đơn vị': 'Gói',
+      'Cách theo dõi': 'Số lượng',
       'Sử dụng': u,
       'Giá bán': 5250000,
       'Giá vốn': '',

@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   MATERIAL_KINDS,
+  resolveTrackingMode,
   type MaterialKind,
+  type MaterialTrackingMode,
 } from '@enterprise-platform/contracts-inventory';
 import type {
   CreateWarehouseRequest,
@@ -96,6 +98,13 @@ import {
 } from '../domain/traceability-policy.js';
 import type { TraceabilityStore } from './traceability-store.port.js';
 import { filterWarehouseCatalog } from '../domain/inventory-report.js';
+import {
+  resolveCreateTracking,
+  resolveUpdateTracking,
+  trackingChangeBlockedMessage,
+  trackingSwitchBlockedMessage,
+  trackingSwitchOffMessage,
+} from '../domain/tracking-policy.js';
 
 /** Resolved by the access guard from the caller's session or service token. */
 export interface InventoryActor {
@@ -850,6 +859,13 @@ export class InventoryApplication {
     const material = await this.store.material.findAnyByCode(actor.tenantId, materialCode);
     if (!material) throw new MaterialNotFoundError(materialCode);
     if (material.kind === 'SERVICE') throw new ServiceMaterialNotStockedError(materialCode);
+    // Lô và serial loại trừ nhau: mặt hàng đã theo lô thì đổi cách theo dõi trước, không khai serial lẫn vào.
+    if (resolveTrackingMode(material) === 'LOT') {
+      throw new InventoryError(
+        'VALIDATION',
+        `Mã ${materialCode} đang theo dõi theo lô nên không khai serial. Hãy đổi cách theo dõi của mặt hàng trước.`,
+      );
+    }
 
     // Bỏ trùng và bỏ rỗng ngay: dán một cột từ Excel gần như luôn kéo theo dòng
     // trắng, và hai dòng giống nhau thì chỉ là một cá thể.
@@ -1374,6 +1390,8 @@ export class InventoryApplication {
     if (kind === 'SERVICE' && input.isSerialized) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
     }
+    const tracking = resolveCreateTracking(input, kind);
+    if (tracking.explicit) await this.requireTrackingEnabled(actor, tracking.mode);
 
     // Kiểm cả vật tư đã ngừng hoạt động: mã vẫn chiếm chỗ, và tạo trùng sẽ vỡ
     // ràng buộc UNIQUE với thông báo khó hiểu của Postgres.
@@ -1387,6 +1405,9 @@ export class InventoryApplication {
         code,
         name: input.name.trim(),
         kind,
+        // Hai giá trị luôn khớp nhau: is_serialized chỉ còn là bản sao tương thích cho bản app cũ.
+        trackingMode: tracking.mode,
+        isSerialized: tracking.mode === 'SERIAL',
         // Dịch vụ không có tồn nên không có định mức tồn.
         ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
       },
@@ -1434,6 +1455,20 @@ export class InventoryApplication {
     }
     if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
+    }
+    const tracking = resolveUpdateTracking(current, kind, patch);
+    if (tracking.mode !== tracking.current) {
+      // Đổi cách theo dõi khi đã có tồn hay chứng từ sẽ làm lệch số liệu lô, serial đã ghi.
+      if (await this.store.material.hasTrackingFootprint(actor.tenantId, code)) {
+        throw new InventoryError('VALIDATION', trackingChangeBlockedMessage(code));
+      }
+      if (tracking.explicit) await this.requireTrackingEnabled(actor, tracking.mode);
+      await this.store.material.changeTrackingMode(actor.tenantId, code, {
+        from: tracking.current,
+        to: tracking.mode,
+        changedBy: actor.userId,
+        reason: patch.trackingChangeReason,
+      });
     }
     // Không truyền đối số thứ tư khi không phải nhập từ hệ cũ: đường sửa thường giữ nguyên chữ ký cũ.
     const updated = history
@@ -1624,6 +1659,7 @@ export class InventoryApplication {
     // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất
     // ngăn một payload lạ nằm nguyên trạng trong database.
     const value = normalizeInventorySetting(key, input?.value);
+    await this.requireTrackingSwitchOffAllowed(actor, key, value);
     // version 0 nghĩa là "lúc đọc chưa có dòng nào". Vẫn phải gửi xuống SQL chứ
     // không được bỏ qua: không dòng nào mang version 0, nên mệnh đề WHERE sẽ
     // chặn đúng trường hợp hai admin cùng đọc "chưa có" rồi cùng ghi. Chỉ khi
@@ -1710,6 +1746,31 @@ export class InventoryApplication {
   ): Promise<AssetTestRecord> {
     this.requireStockWriter(actor);
     return this.store.assetTest.create(actor.tenantId, input);
+  }
+
+/** Công tắc tenant phải bật mới chọn được LOT hoặc SERIAL. NONE luôn chọn được. */
+  private async requireTrackingEnabled(actor: InventoryActor, mode: MaterialTrackingMode): Promise<void> {
+    if (mode === 'NONE') return;
+    const key = mode === 'LOT' ? 'tracking.lot.enabled' : 'tracking.serial.enabled';
+    const entry = await this.store.settings.get(actor.tenantId, key);
+    if (!normalizeInventorySetting(key, entry?.value).enabled) {
+      throw new InventoryError('VALIDATION', trackingSwitchOffMessage(mode));
+    }
+  }
+
+  /** Tắt công tắc lô, serial khi còn mặt hàng đang theo dõi kiểu đó mà có tồn sẽ làm mất truy vết: chặn. */
+  private async requireTrackingSwitchOffAllowed(
+    actor: InventoryActor,
+    key: InventorySettingsKey,
+    value: unknown,
+  ): Promise<void> {
+    const mode: MaterialTrackingMode | undefined =
+      key === 'tracking.lot.enabled' ? 'LOT' : key === 'tracking.serial.enabled' ? 'SERIAL' : undefined;
+    if (!mode || (value as { enabled?: boolean }).enabled) return;
+    const current = await this.store.settings.get(actor.tenantId, key);
+    if (!normalizeInventorySetting(key as 'tracking.lot.enabled', current?.value).enabled) return;
+    const count = await this.store.material.countTrackedWithStock(actor.tenantId, mode);
+    if (count > 0) throw new InventoryError('VALIDATION', trackingSwitchBlockedMessage(mode, count));
   }
 
   private requireManager(actor: InventoryActor): void {

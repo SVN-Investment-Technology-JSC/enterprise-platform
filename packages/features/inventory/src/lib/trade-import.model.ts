@@ -1,4 +1,8 @@
-import type { ImportMaterialRow, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
+import type {
+  ImportMaterialRow,
+  InventoryTradeCatalog,
+  MaterialTrackingMode,
+} from '@enterprise-platform/contracts-inventory';
 import * as XLSX from 'xlsx';
 import { VAT_RATE_INVALID_MESSAGE, categoriesOf, fold, isValidVatRate, type TradeGroup } from './trade-items.model';
 
@@ -18,6 +22,7 @@ export type ImportFieldKey =
   | 'price'
   | 'vat'
   | 'cost'
+  | 'trackingMode'
   | 'barcode'
   | 'manufacturer'
   | 'description'
@@ -48,6 +53,19 @@ export const IMPORT_FIELDS: readonly ImportFieldSpec[] = [
     exact: ['thue suat vat', 'thue suat vat (%)', 'thue suat', 'thue suat (%)', 'thue suat gtgt', 'thue gtgt', 'thue vat', 'vat', 'vat (%)', '% vat'],
   },
   { key: 'cost', label: 'Giá vốn (giá nhập)', exact: ['gia von', 'gia von mac dinh', 'gia nhap'] },
+  {
+    key: 'trackingMode',
+    label: 'Cách theo dõi (Số lượng, Lô, Serial)',
+    exact: [
+      'cach theo doi',
+      'theo doi',
+      'phuong thuc theo doi',
+      'quan ly theo',
+      'loai theo doi',
+      'tracking mode',
+      'tracking',
+    ],
+  },
   { key: 'barcode', label: 'Barcode', exact: ['barcode', 'ma vach'] },
   { key: 'manufacturer', label: 'Nhà sản xuất', exact: ['nha san xuat', 'hang san xuat', 'hang sx', 'thuong hieu'] },
   { key: 'description', label: 'Mô tả', exact: ['mo ta', 'ghi chu', 'thong tin dich vu', 'thong tin san pham', 'thong tin'] },
@@ -219,6 +237,27 @@ export function parseImportDate(value: unknown): string | undefined {
 
 const ACTIVE_STATUS = new Set(['hoat dong', 'dang dung', 'dang hoat dong', 'active', 'con dung', '1', 'true']);
 
+const TRACKING_MODE_BY_FOLDED: Record<string, MaterialTrackingMode> = {
+  'so luong': 'NONE',
+  'khong': 'NONE',
+  'none': 'NONE',
+  'lo': 'LOT',
+  'theo lo': 'LOT',
+  'lot': 'LOT',
+  'serial': 'SERIAL',
+  'se-ri': 'SERIAL',
+  'seri': 'SERIAL',
+  'theo serial': 'SERIAL',
+  'theo se-ri': 'SERIAL',
+  'imei': 'SERIAL',
+};
+
+export function parseTrackingMode(value: unknown): MaterialTrackingMode | undefined {
+  const raw = text(value);
+  if (!raw) return undefined;
+  return TRACKING_MODE_BY_FOLDED[fold(raw)];
+}
+
 /** Mã vạch hỏng do lỗi mã hóa của hệ cũ (ký tự lạ như "·") thì bỏ, không nhập rác. */
 function cleanBarcode(value: string): string | undefined {
   return value && /^[\w\-./ ]+$/.test(value) ? value : undefined;
@@ -292,6 +331,12 @@ export function buildImportRows(sheet: ImportSheet, options: ImportOptions): Bui
     const createdAt = parseImportDate(row.cells[mapping.createdAt ?? '']);
     if (createdAtText && !createdAt) return { line, error: `Ngày tạo "${createdAtText}" không đọc được (dd/mm/yyyy).` };
 
+    const trackingRaw = cell(row, 'trackingMode');
+    const trackingMode = trackingRaw ? parseTrackingMode(trackingRaw) : undefined;
+    if (trackingRaw && !trackingMode) {
+      return { line, error: `Cách theo dõi "${trackingRaw}" không hợp lệ (chọn Số lượng, Lô hoặc Serial).` };
+    }
+
     const author = cell(row, 'createdBy');
     const statusText = cell(row, 'status');
 
@@ -304,6 +349,8 @@ export function buildImportRows(sheet: ImportSheet, options: ImportOptions): Bui
         unit,
         category: 'CONSUMABLE',
         kind: kind === 'SERVICE' ? 'SERVICE' : 'STOCK',
+        trackingMode,
+        isSerialized: trackingMode === 'SERIAL' ? true : undefined,
         barcode: cleanBarcode(cell(row, 'barcode')),
         manufacturer: cell(row, 'manufacturer') || undefined,
         tradeCategory: category.value,

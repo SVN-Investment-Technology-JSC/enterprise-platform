@@ -3,6 +3,7 @@ import type {
   AssetStatus,
   AssetType,
   MaterialCategory,
+  MaterialTrackingMode,
   QualityStatus,
   ReservationStatus,
   TransactionType,
@@ -66,6 +67,12 @@ export const MATERIAL_CATEGORY_LABEL: Readonly<Record<MaterialCategory, string>>
   CONSUMABLE: 'Vật tư tiêu hao',
   TOOL: 'Dụng cụ',
   ROTABLE: 'Vật tư luân chuyển',
+};
+
+export const MATERIAL_TRACKING_LABEL: Readonly<Record<MaterialTrackingMode, string>> = {
+  NONE: 'Thông thường (theo số lượng)',
+  LOT: 'Theo lô',
+  SERIAL: 'Theo serial',
 };
 
 export const TRANSACTION_TYPE_LABEL: Readonly<Record<TransactionType, string>> = {

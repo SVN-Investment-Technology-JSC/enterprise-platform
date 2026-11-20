@@ -5,6 +5,7 @@ import type {
   MaterialInventory,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import * as XLSX from 'xlsx';
 import type { InventoryLedgerRow } from './inventory-api';
 import {
@@ -148,12 +149,9 @@ export function exportCatalogToExcel(params: {
     const minStock = mat?.minStock ?? 0;
     const maxStock = mat?.maxStock ?? 0;
 
-    let trackingMethod = 'Thông thường';
-    if (mat?.isSerialized) {
-      trackingMethod = 'Theo Sê-ri (SN)';
-    } else if (mat?.category === 'CONSUMABLE') {
-      trackingMethod = 'Theo Lô (Lot)';
-    }
+    const trackingMode = resolveTrackingMode(mat);
+    const trackingMethod =
+      trackingMode === 'SERIAL' ? 'Theo Sê-ri (SN)' : trackingMode === 'LOT' ? 'Theo Lô (Lot)' : 'Thông thường';
 
     const statusLabel = item.status
       ? ASSET_STATUS_LABEL[item.status] ?? item.status
