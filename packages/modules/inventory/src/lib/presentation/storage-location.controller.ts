@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpException, Param, Put, Query, Req } from '@nestjs/common';
 import type {
+  BulkStorageLocationsRequest,
   ReplaceStorageLocationsRequest,
   UpdateWarehouseLocationLevelsRequest,
 } from '@enterprise-platform/contracts-inventory';
@@ -82,6 +83,12 @@ export class StorageLocationController {
     @Body() body: UpdateWarehouseLocationLevelsRequest,
   ) {
     return this.execute(() => this.locations.setWarehouseLevels(this.actor(request), code, body));
+  }
+
+  /** Nạp danh sách vị trí lưu trữ hàng loạt (từ Excel hoặc đồng bộ). */
+  @Put('storage-locations/bulk')
+  bulkUpsert(@Req() request: InventoryRequest, @Body() body: BulkStorageLocationsRequest) {
+    return this.execute(() => this.locations.bulkUpsert(this.actor(request), body));
   }
 
   private actor(request: InventoryRequest): InventoryActor {

@@ -4,6 +4,8 @@ import {
   inTransaction,
 } from '@enterprise-platform/adapter-database';
 import type {
+  BulkStorageLocationItem,
+  BulkStorageLocationsResult,
   MaterialStorageLocation,
   WarehouseLocationLevels,
 } from '@enterprise-platform/contracts-inventory';
@@ -184,6 +186,100 @@ export class PostgresStorageLocationStore implements StorageLocationStore {
       warehouseCode: str(row.code),
       levels: Array.isArray(row.location_levels) ? row.location_levels.map((name) => String(name)) : null,
     };
+  }
+
+  async bulkUpsert(
+    tenantId: string,
+    items: readonly BulkStorageLocationItem[],
+    actorId: string,
+    overwritePrimary = false,
+  ): Promise<BulkStorageLocationsResult> {
+    const pool = await this.poolFor(tenantId);
+    let successCount = 0;
+    const errors: { materialCode: string; warehouseCode: string; message: string }[] = [];
+
+    for (const item of items) {
+      const matCode = (item.materialCode || '').trim();
+      const whCode = (item.warehouseCode || '').trim();
+      const locText = (item.locationText || '').trim();
+
+      if (!matCode || !whCode || !locText) {
+        errors.push({ materialCode: matCode, warehouseCode: whCode, message: 'Thiếu mã hàng, mã kho hoặc vị trí.' });
+        continue;
+      }
+      if (locText.length > 255) {
+        errors.push({ materialCode: matCode, warehouseCode: whCode, message: 'Chuỗi vị trí vượt quá 255 ký tự.' });
+        continue;
+      }
+
+      try {
+        await inTransaction(pool, async (client) => {
+          const wh = await client.query<Row>(
+            `SELECT id, code, type FROM inventory_schema.warehouses WHERE upper(code) = upper($1) LIMIT 1`,
+            [whCode],
+          );
+          if (!wh.rows[0]) throw new WarehouseNotFoundError(whCode);
+          if (wh.rows[0].type !== 'PHYSICAL') {
+            throw new InventoryError('STORAGE_LOCATION_WAREHOUSE_VIRTUAL', `Kho ${whCode} là kho trung chuyển ảo.`);
+          }
+
+          const mat = await client.query<Row>(
+            `SELECT id, code, kind FROM inventory_schema.materials WHERE upper(code) = upper($1) LIMIT 1`,
+            [matCode],
+          );
+          if (!mat.rows[0]) throw new MaterialNotFoundError(matCode);
+          if (mat.rows[0].kind === 'SERVICE') {
+            throw new InventoryError('STORAGE_LOCATION_SERVICE_MATERIAL', `${matCode} là dịch vụ.`);
+          }
+
+          const warehouseId = str(wh.rows[0].id);
+          const materialId = str(mat.rows[0].id);
+
+          await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+            `inventory.storage-location:${warehouseId}:${materialId}`,
+          ]);
+
+          const primaryRes = await client.query<Row>(
+            `SELECT id, location_text FROM inventory_schema.material_storage_locations
+              WHERE warehouse_id = $1 AND material_id = $2 AND is_primary = true LIMIT 1`,
+            [warehouseId, materialId],
+          );
+
+          let isPrimary = false;
+          if (!primaryRes.rows[0]) {
+            isPrimary = true;
+          } else if (item.isPrimary && overwritePrimary) {
+            await client.query(
+              `UPDATE inventory_schema.material_storage_locations SET is_primary = false WHERE id = $1`,
+              [primaryRes.rows[0].id],
+            );
+            isPrimary = true;
+          }
+
+          await client.query(
+            `INSERT INTO inventory_schema.material_storage_locations
+               (warehouse_id, material_id, location_text, is_primary, note, updated_by)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (warehouse_id, material_id, (lower(btrim(location_text))))
+             DO UPDATE SET
+               is_primary = CASE WHEN $4 THEN true ELSE inventory_schema.material_storage_locations.is_primary END,
+               note = COALESCE($5, inventory_schema.material_storage_locations.note),
+               updated_at = now(),
+               updated_by = $6`,
+            [warehouseId, materialId, locText, isPrimary, item.note?.trim() || null, actorId],
+          );
+        });
+        successCount++;
+      } catch (err: any) {
+        errors.push({
+          materialCode: matCode,
+          warehouseCode: whCode,
+          message: err?.message || 'Lỗi lưu vị trí.',
+        });
+      }
+    }
+
+    return { successCount, errorCount: errors.length, errors };
   }
 
   private async requireWarehouse(

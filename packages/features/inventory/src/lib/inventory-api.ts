@@ -3,6 +3,8 @@ import type {
   Asset,
   AssetBomLine,
   AssetDocument,
+  BulkStorageLocationsRequest,
+  BulkStorageLocationsResult,
   ChangeQualityRequest,
   CreateAssetDocumentResponse,
   CreateAssetRequest,
@@ -785,6 +787,16 @@ export function setWarehouseLocationLevels(
   );
 }
 
+/** Nạp danh sách vị trí lưu trữ hàng loạt (từ Excel hoặc đồng bộ). */
+export function bulkUpsertStorageLocations(
+  body: BulkStorageLocationsRequest,
+): Promise<BulkStorageLocationsResult> {
+  return request<BulkStorageLocationsResult>('/storage-locations/bulk', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
 export function loadReservations(): Promise<InventoryReservationRow[]> {
   return request<InventoryReservationRow[]>('/reservations');
 }
@@ -1316,13 +1328,15 @@ function hasCountData(line: StocktakeLine): boolean {
     line.countRound1 !== undefined ||
     line.countRound2 !== undefined ||
     Boolean(line.reason?.trim()) ||
-    Boolean(line.note?.trim())
+    Boolean(line.note?.trim()) ||
+    (line.binLocation?.trim() || '') !== (line.binLocationOriginal?.trim() || '')
   );
 }
 
 function toLineUpdate(line: StocktakeLine): UpdateStocktakeLineInput {
   return {
     lineId: line.id,
+    binLocation: line.binLocation,
     countRound1: line.countRound1,
     countRound2: line.countRound2,
     actualQuantity: line.actualQuantity,

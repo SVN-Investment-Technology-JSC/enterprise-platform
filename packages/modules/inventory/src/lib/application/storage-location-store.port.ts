@@ -1,4 +1,6 @@
 import type {
+  BulkStorageLocationItem,
+  BulkStorageLocationsResult,
   MaterialStorageLocation,
   WarehouseLocationLevels,
 } from '@enterprise-platform/contracts-inventory';
@@ -37,6 +39,13 @@ export interface StorageLocationStore {
     warehouseCode: string,
     levels: readonly string[] | null,
   ): Promise<WarehouseLocationLevels>;
+  /** Nạp danh sách vị trí lưu trữ hàng loạt (A5, A6). */
+  bulkUpsert(
+    tenantId: string,
+    items: readonly BulkStorageLocationItem[],
+    actorId: string,
+    overwritePrimary?: boolean,
+  ): Promise<BulkStorageLocationsResult>;
 }
 
 export const STORAGE_LOCATION_STORE = 'STORAGE_LOCATION_STORE';

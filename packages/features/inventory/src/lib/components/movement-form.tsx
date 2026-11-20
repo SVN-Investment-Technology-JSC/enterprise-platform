@@ -29,7 +29,7 @@ import type {
   ProcedureOption,
   ProcedureWorkOrder,
 } from '../inventory-api';
-import { loadLots, loadWarehouseStock } from '../inventory-api';
+import { loadLots, loadStorageLocations, loadWarehouseStock } from '../inventory-api';
 import { QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
 import {
@@ -533,6 +533,25 @@ export function MovementForm({
   >();
   const [stockReloadKey, setStockReloadKey] = useState(0);
   const [warehouseNotice, setWarehouseNotice] = useState<string>();
+  const [sourceLocations, setSourceLocations] = useState<ReadonlyMap<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!outbound || !warehouseCode) {
+      setSourceLocations(new Map());
+      return;
+    }
+    loadStorageLocations({ warehouseCode, limit: 1000 })
+      .then((locs) => {
+        const map = new Map<string, string>();
+        for (const loc of locs) {
+          if (loc.isPrimary || !map.has(loc.materialCode)) {
+            map.set(loc.materialCode, loc.locationText);
+          }
+        }
+        setSourceLocations(map);
+      })
+      .catch(() => setSourceLocations(new Map()));
+  }, [outbound, warehouseCode]);
 
   useEffect(() => {
     if (!outbound || !warehouseCode) {
@@ -1436,6 +1455,11 @@ export function MovementForm({
                           <span className="text-[13px] text-slate-600">
                             {item.materialName}
                           </span>
+                          {outbound && sourceLocations.get(item.materialCode) ? (
+                            <span className="mt-0.5 w-fit rounded bg-blue-50/80 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">
+                              Vị trí: <strong>{sourceLocations.get(item.materialCode)}</strong>
+                            </span>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center text-slate-600 text-[13px]">

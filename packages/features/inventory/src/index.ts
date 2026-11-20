@@ -43,6 +43,7 @@ export {
 } from './lib/trade-import.model';
 
 export { StorageLocationPanel } from './lib/components/storage-location-panel';
+export { StorageLocationBulkImportDialog } from './lib/components/storage-location-bulk-import-dialog';
 export {
   SUGGESTED_LOCATION_LEVELS,
   describeLevels,

@@ -629,6 +629,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0024-stocktake-server', path: 'tenant/inventory/0024-stocktake-server.sql' },
     { version: '0025-material-vat-rate', path: 'tenant/inventory/0025-material-vat-rate.sql' },
     { version: '0026-material-storage-locations', path: 'tenant/inventory/0026-material-storage-locations.sql' },
+    { version: '0028-stocktake-location-sync', path: 'tenant/inventory/0028-stocktake-location-sync.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

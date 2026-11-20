@@ -556,6 +556,30 @@ export interface ReplaceStorageLocationsRequest {
   readonly locations: readonly StorageLocationInput[];
 }
 
+export interface BulkStorageLocationItem {
+  readonly materialCode: string;
+  readonly warehouseCode: string;
+  readonly locationText: string;
+  readonly isPrimary?: boolean;
+  readonly note?: string;
+}
+
+export interface BulkStorageLocationsRequest {
+  readonly items: readonly BulkStorageLocationItem[];
+  /** Cập nhật vị trí chính theo file; mặc định false. */
+  readonly overwritePrimary?: boolean;
+}
+
+export interface BulkStorageLocationsResult {
+  readonly successCount: number;
+  readonly errorCount: number;
+  readonly errors: readonly {
+    readonly materialCode: string;
+    readonly warehouseCode: string;
+    readonly message: string;
+  }[];
+}
+
 export interface StorageLocationQuery {
   /** Tìm theo chuỗi vị trí, mã hoặc tên mặt hàng. */
   readonly q?: string;
@@ -1444,6 +1468,7 @@ export interface StocktakeLine {
   readonly materialName: string;
   readonly unit: string;
   readonly binLocation?: string;
+  readonly binLocationOriginal?: string;
   readonly isSerialized?: boolean;
   readonly isLotTracked?: boolean;
   readonly systemQuantity: number;
@@ -1551,6 +1576,7 @@ export interface CreateStocktakeRequest {
 
 export interface UpdateStocktakeLineInput {
   readonly lineId: string;
+  readonly binLocation?: string;
   readonly countRound1?: number;
   readonly countRound2?: number;
   readonly actualQuantity?: number;

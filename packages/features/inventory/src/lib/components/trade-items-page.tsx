@@ -48,6 +48,7 @@ import { TradeItemDrawer } from './trade-item-drawer';
 import { TradeItemFormDialog } from './trade-item-form-dialog';
 import { TradeStatusBadge } from './trade-status-badge';
 import { TradeItemImportDialog } from './trade-item-import-dialog';
+import { StorageLocationBulkImportDialog } from './storage-location-bulk-import-dialog';
 import type { CatalogAdditions } from '../trade-import.model';
 import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
@@ -98,7 +99,9 @@ export function TradeItemsPage({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [selectedCode, setSelectedCode] = useState<string>();
-  const [dialog, setDialog] = useState<{ kind: 'form' } | { kind: 'import' }>();
+  const [dialog, setDialog] = useState<
+    { kind: 'form' } | { kind: 'import' } | { kind: 'import-locations' }
+  >();
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(async () => {
@@ -300,10 +303,16 @@ export function TradeItemsPage({
         </div>
         <div className="flex items-center gap-2">
           {canManage ? (
-            <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => setDialog({ kind: 'import' })}>
-              <Upload size={14} className="mr-1.5 -mt-px" />
-              Nhập Excel
-            </Button>
+            <>
+              <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => setDialog({ kind: 'import' })}>
+                <Upload size={14} className="mr-1.5 -mt-px" />
+                Nhập Excel
+              </Button>
+              <Button type="button" variant="outline" className="whitespace-nowrap" onClick={() => setDialog({ kind: 'import-locations' })}>
+                <Upload size={14} className="mr-1.5 -mt-px" />
+                Nạp vị trí Excel
+              </Button>
+            </>
           ) : null}
           <Button
             type="button"
@@ -438,6 +447,18 @@ export function TradeItemsPage({
       ) : null}
       {dialog?.kind === 'import' ? (
         <TradeItemImportDialog catalog={catalog} existingCodes={items.map((item) => item.code)} onCancel={() => setDialog(undefined)} onImport={importRows} />
+      ) : null}
+      {dialog?.kind === 'import-locations' ? (
+        <StorageLocationBulkImportDialog
+          open={true}
+          onClose={() => setDialog(undefined)}
+          warehouses={warehouses}
+          materials={items}
+          onSuccess={() => {
+            onChanged?.();
+            void reload();
+          }}
+        />
       ) : null}
     </section>
   );

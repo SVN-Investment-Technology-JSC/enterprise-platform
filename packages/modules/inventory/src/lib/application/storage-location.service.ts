@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type {
+  BulkStorageLocationsRequest,
+  BulkStorageLocationsResult,
   MaterialStorageLocation,
   ReplaceStorageLocationsRequest,
   StorageLocationQuery,
@@ -70,6 +72,16 @@ export class StorageLocationService {
       requireCode(warehouseCode, 'Thiếu mã kho.'),
       parseLevelNames(body.levels),
     );
+  }
+
+  /** Nạp danh sách vị trí lưu trữ hàng loạt (A5, A6). */
+  async bulkUpsert(
+    actor: InventoryActor,
+    body: BulkStorageLocationsRequest,
+  ): Promise<BulkStorageLocationsResult> {
+    requireManager(actor);
+    const items = Array.isArray(body?.items) ? body.items : [];
+    return this.store.bulkUpsert(actor.tenantId, items, actor.userId, Boolean(body?.overwritePrimary));
   }
 }
 
