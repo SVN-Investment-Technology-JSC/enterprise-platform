@@ -6,7 +6,7 @@ import { QualityService } from './application/quality.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, purchaseSource, documentSource } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -88,11 +88,12 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
 
     const capReceipt = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
+      ...documentSource(),
       warehouseCode: 'QA-KHO',
       lines: [{ materialCode: 'QA-KHO-CAP', quantity: 100, unitCost: 800_000 }],
     });
     await documents.post(clerk, capReceipt.id);
-    await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-2', materialCode: 'QA-KHO-CAP', quantity: 100, unitCost: 900_000 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-2', materialCode: 'QA-KHO-CAP', quantity: 100, unitCost: 900_000 });
     await app.createStockReservation(clerk, {
       referenceType: 'crm_order',
       warehouseCode: 'QA-KHO',
@@ -100,6 +101,7 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
     });
     const mayReceipt = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
+      ...documentSource(),
       warehouseCode: 'QA-KHO',
       lines: [{ materialCode: 'QA-KHO-MAY', quantity: 3, unitCost: 5_000_000, serials: ['SN031', 'SN032', 'SN033'] }],
     });
@@ -459,7 +461,7 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
       // A9.3: mô tả, tồn kho, mức tồn tối thiểu không vào dấu vân tay.
       await setColumn('QA-FP-1', 'description', 'Mô tả mới');
       await setColumn('QA-FP-1', 'min_stock', 7);
-      await app.receiveStock(clerk, { warehouseCode: 'QA-KHO', materialCode: 'QA-FP-1', quantity: 5, unitCost: 100 });
+      await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO', materialCode: 'QA-FP-1', quantity: 5, unitCost: 100 });
       expect(await fingerprint()).toEqual(base);
 
       // A9.2: từng trường đổi rồi trả lại thì dấu vân tay đổi rồi về như cũ.

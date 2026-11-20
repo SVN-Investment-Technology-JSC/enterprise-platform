@@ -5,6 +5,7 @@ import { CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react'
 import { VnNumberInput, CloseGuard, SearchableSelect } from '@enterprise-platform/shared-ui';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
 import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
+import { isPendingStockMovement } from '@enterprise-platform/contracts-inventory';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -177,7 +178,12 @@ export function BatchRequisitionModal({
             quantity: item.quantity,
             note: itemNote,
           });
-          results.push(`${item.materialCode}: ${res.transactionCode}`);
+          // Không có chứng từ nguồn: phiếu xuất Chờ duyệt, chưa trừ tồn (ISS-BE-006).
+          results.push(
+            isPendingStockMovement(res)
+              ? `${item.materialCode}: chờ duyệt ${res.document.code}`
+              : `${item.materialCode}: ${res.transactionCode}`,
+          );
         }
       }
 

@@ -10,7 +10,7 @@ import { todayInVietnam } from './domain/traceability-policy.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, projectSource, purchaseSource, documentSource } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -67,7 +67,9 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     lines: StockDocumentLineInput[],
     extra: { targetWarehouseCode?: string; sourceType?: string; sourceId?: string } = {},
   ) {
-    const draft = await documents.create(clerk, { docType, warehouseCode, lines, ...extra });
+    // Nhập mua, xuất dự án ghi sổ thẳng cần chứng từ nguồn (ISS-BE-006).
+    const source = docType === 'RECEIPT_PURCHASE' || docType === 'ISSUE_PROJECT' ? documentSource() : {};
+    const draft = await documents.create(clerk, { docType, warehouseCode, lines, ...source, ...extra });
     return documents.post(clerk, draft.id);
   }
 
@@ -213,7 +215,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     expect((await app.listSerials(admin, lap)).length).toBe(2);
 
     // Nhập kho kiểu cũ (POST v1/receipts) mang sê-ri theo cùng phiếu.
-    await app.receiveStock(clerk, {
+    await app.receiveStock(clerk, { ...purchaseSource(),
       warehouseCode: 'QA-KHO-HN',
       materialCode: lap,
       quantity: 2,
@@ -223,7 +225,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     expect(await inStock()).toBe(3);
     expect(await stock(lap)).toMatchObject({ quantity: 3 });
     const mismatch = await rejection(
-      app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: lap, quantity: 2, serials: ['SN-KHAI-04'] }),
+      app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: lap, quantity: 2, serials: ['SN-KHAI-04'] }),
     );
     expect([mismatch.statusCode, mismatch.code]).toEqual([400, 'VALIDATION']);
     expect(await stock(lap)).toMatchObject({ quantity: 3 });
@@ -264,7 +266,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
       'Dòng 1: serial SN003 không ở trạng thái Trong kho, Đạt (đang Cách ly).',
     ]);
     const otherMaterial = await material('QA-KHO-MAY', true);
-    await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: otherMaterial, quantity: 1 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: otherMaterial, quantity: 1 });
     const wrongMaterial = await rejection(
       post('ISSUE_SALES', 'QA-KHO-HN', [{ materialCode: otherMaterial, quantity: 1, serials: ['SN001'] }]),
     );
@@ -314,7 +316,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     expect(history.issuedAt).toBe(history.lastIssue?.issuedAt);
     expect(history.movements.map((movement) => movement.movementType)).toEqual(['RECEIPT', 'ISSUE']);
 
-    const reversal = await documents.reverse(clerk, issued.document.id);
+    const reversal = await documents.reverse(admin, issued.document.id);
     expect(reversal.document.lines[0].serials).toEqual(['sn-h1']);
     const after = await serials.history(clerk, 'SN-H1', lap);
     expect(after).toMatchObject({ stockState: 'IN_STOCK', warehouseCode: 'QA-KHO-HN' });
@@ -379,7 +381,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
 
   it('TC-INV-07: nhập có lô lưu lô và hạn dùng ở server; nhập thêm cùng số lô cộng vào lô', async () => {
     const muc = await material('QA-KHO-MUC');
-    await app.receiveStock(clerk, {
+    await app.receiveStock(clerk, { ...purchaseSource(),
       warehouseCode: 'QA-KHO-HN',
       materialCode: muc,
       quantity: 20,
@@ -441,7 +443,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
       post('ISSUE_SALES', 'QA-KHO-HN', [{ materialCode: muc, quantity: 11, lot: { lotNo: 'L02' } }]),
     );
     expect([over.statusCode, over.code]).toEqual([409, 'LOT_INSUFFICIENT_STOCK']);
-    await app.issueStock(clerk, {
+    await app.issueStock(clerk, { ...projectSource(),
       warehouseCode: 'QA-KHO-HN',
       materialCode: muc,
       quantity: 4,
@@ -452,7 +454,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
 
     // Hàng đều thuộc lô: xuất không ghi lô bị từ chối, phải chọn lô.
     const unlotted = await rejection(
-      app.issueStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1 }),
+      app.issueStock(clerk, { ...projectSource(), warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1 }),
     );
     expect(unlotted.code).toBe('LOT_REQUIRED');
 
@@ -496,7 +498,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     expect(await stock(muc)).toMatchObject({ quantity: 30, blocked: 30, available: 0 });
 
     // Xuất tự do và giữ hàng đều tôn trọng khả dụng mới.
-    const issue = await rejection(app.issueStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1 }));
+    const issue = await rejection(app.issueStock(clerk, { ...projectSource(), warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1 }));
     expect(issue.statusCode).toBe(400);
     const reserve = await rejection(
       app.createStockReservation(clerk, {

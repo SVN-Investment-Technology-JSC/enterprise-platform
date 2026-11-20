@@ -35,6 +35,8 @@ import type {
   Material,
   MaterialInventory,
   MovementCounterparty,
+  PendingStockMovement,
+  PostedStockDocument,
   Reservation,
   MaterialDeleteResult,
   RetireResult,
@@ -377,7 +379,7 @@ export class InventoryApplication {
         createdBy: actor.userId,
         lines,
       }, { autoPickSerials: true });
-      return posted[0];
+      return posted.transactions[0];
     } catch (cause) {
       // Dòng đơn vị được tạo ở một transaction khác với bút toán, nên khi bút
       // toán hỏng (thiếu tồn) nó không tự cuốn theo. Không dọn thì cây mọc ra
@@ -550,7 +552,7 @@ export class InventoryApplication {
     // hiện tại), đúng serial và lô đã lắp, để bình quân và tồn lô không lệch.
     const tracked = await this.store.item.installedTracking(actor.tenantId, unit.id);
     const lines = await this.returnLines(actor, line.materialCode, quantity, input, tracked);
-    const [receipt] = await this.postLegacyDocument(
+    const posted = await this.postLegacyDocument(
       actor,
       {
         docType: 'RECEIPT_OTHER',
@@ -561,8 +563,10 @@ export class InventoryApplication {
         createdBy: actor.userId,
         lines,
       },
-      { returnToStock: true },
+      // Nhập về đúng đơn vị đang lắp trên cây: nguồn tài sản, ghi sổ thẳng (Q1).
+      { returnToStock: true, origin: 'asset_uninstall' },
     );
+    const [receipt] = posted.transactions;
 
     // Tháo hết thì đơn vị rời khỏi cây. Ngừng dùng chứ không xoá — bút toán
     // lắp–tháo của nó vẫn phải trỏ được vào một dòng có thật.
@@ -587,7 +591,7 @@ export class InventoryApplication {
     actor: InventoryActor,
     code: string,
     input: ReturnItemToStockRequest,
-  ): Promise<InventoryTransaction> {
+  ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireManager(actor);
     this.requireStockWriter(actor);
 
@@ -645,18 +649,22 @@ export class InventoryApplication {
         lots: [],
       },
     );
-    const [receipt] = await this.postLegacyDocument(
+    // Thiết bị trên cây là tài sản nguồn: nhập thẳng. Mã không có hồ sơ thiết bị
+    // thì không có nguồn nào chứng minh hàng đã từng ra khỏi kho: gửi duyệt (ISS-BE-006).
+    const posted = await this.postLegacyDocument(
       actor,
       {
         docType: 'RECEIPT_OTHER',
         warehouseCode,
+        sourceType: item ? 'asset' : undefined,
+        sourceId: item?.id,
         note: input.note?.trim() || `Thanh lý ${code} về kho ${warehouseCode}.`,
         createdBy: actor.userId,
         lines,
       },
-      { returnToStock: true },
+      { returnToStock: true, origin: item ? 'asset_return' : undefined },
     );
-    return receipt;
+    return legacyResult(posted);
   }
 
   /**
@@ -923,7 +931,12 @@ export class InventoryApplication {
       serials?: readonly string[];
       counterparty?: MovementCounterparty;
     },
-  ): Promise<InventoryTransaction> {
+    /**
+     * Nguồn miễn duyệt; chỉ bên gọi trong tiến trình (nhập dữ liệu ban đầu) khai,
+     * không bao giờ lấy từ thân request.
+     */
+    trusted: { readonly origin?: 'opening_balance' } = {},
+  ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
     const lot = normalizeLotInput(input.lot, 'IN');
@@ -950,8 +963,8 @@ export class InventoryApplication {
           serials,
         },
       ],
-    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
-    return posted[0];
+    }, { counterparty: this.normalizeCounterparty(input.counterparty), origin: trusted.origin });
+    return legacyResult(posted);
   }
 
   /**
@@ -973,7 +986,7 @@ export class InventoryApplication {
       lots?: readonly LotAllocationInput[];
       counterparty?: MovementCounterparty;
     },
-  ): Promise<InventoryTransaction> {
+  ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
     // Phân bổ nhiều lô thành nhiều dòng của cùng một chứng từ; response giữ bút
@@ -993,7 +1006,7 @@ export class InventoryApplication {
         lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
       })),
     }, { counterparty: this.normalizeCounterparty(input.counterparty) });
-    return posted[0];
+    return legacyResult(posted);
   }
 
   /**
@@ -1018,7 +1031,9 @@ export class InventoryApplication {
       throw new InvalidReservationError('Kho nguồn và kho đích phải khác nhau.');
     }
 
-    const [out, inbound] = await this.postLegacyDocument(actor, {
+    const {
+      transactions: [out, inbound],
+    } = await this.postLegacyDocument(actor, {
       docType: 'TRANSFER',
       warehouseCode: input.fromWarehouseCode,
       targetWarehouseCode: input.toWarehouseCode,
@@ -1036,11 +1051,10 @@ export class InventoryApplication {
   }
 
   /**
-   * Phiếu nhập hoặc xuất nhiều dòng, ghi nguyên tử: một dòng lỗi (thiếu tồn, sai
-   * mã vật tư) thì không dòng nào được ghi.
-   *
-   * Ghi qua chứng từ kho (cùng đường với nhập/xuất một dòng) nên giá vốn và kiểm
-   * tồn khả dụng đi đúng luật chung. Không xử lý sê-ri hay lô.
+   * Phiếu nhập khác hoặc xuất khác nhiều dòng. Là chứng từ phải duyệt nên chỉ
+   * tạo và gửi duyệt (ISS-BE-006): trả chứng từ Chờ duyệt, `transactions: []`;
+   * người duyệt duyệt rồi ghi sổ trên màn Chứng từ kho, lúc đó ghi nguyên tử
+   * (một dòng thiếu tồn thì không dòng nào được ghi).
    */
   async recordMovementLines(
     actor: InventoryActor,
@@ -1056,7 +1070,7 @@ export class InventoryApplication {
         note?: string;
       }[];
     },
-  ): Promise<InventoryTransaction[]> {
+  ): Promise<PostedStockDocument> {
     this.requireStockWriter(actor);
     if (!input?.lines?.length) {
       throw new InventoryError('VALIDATION', 'Phiếu phải có ít nhất một dòng.');
@@ -1125,20 +1139,20 @@ export class InventoryApplication {
   }
 
   /**
-   * Tạo và ghi sổ chứng từ cho đường API cũ. Không qua bước duyệt: loại chứng
-   * từ được chọn đều là loại ghi sổ thẳng, và quyền đã kiểm như trước. Lỗi
-   * thiếu tồn đổi về `InsufficientStockError` (400) để màn Kho cũ nhận đúng mã.
+   * Tạo và ghi sổ chứng từ cho đường API cũ. Chứng từ phải duyệt (nhập khác, xuất
+   * khác, nhập mua hoặc xuất dự án không nguồn) mà không có nguồn miễn thì store
+   * chỉ tạo và gửi duyệt, trả `transactions: []` (ISS-BE-006). Lỗi thiếu tồn đổi
+   * về `InsufficientStockError` (400) để màn Kho cũ nhận đúng mã.
    */
   private async postLegacyDocument(
     actor: InventoryActor,
     input: NewStockDocumentInput,
     options?: PostOptions,
-  ): Promise<InventoryTransaction[]> {
+  ): Promise<PostedStockDocument> {
     try {
-      const posted = options
+      return options
         ? await this.documents.createAndPost(actor.tenantId, input, actor.userId, options)
         : await this.documents.createAndPost(actor.tenantId, input, actor.userId);
-      return [...posted.transactions];
     } catch (error) {
       if (error instanceof InsufficientAvailableStockError) {
         throw new InsufficientStockError(
@@ -1755,6 +1769,17 @@ export class InventoryApplication {
   listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]> {
     return this.store.listAuditorCandidates(actor);
   }
+}
+
+/**
+ * Đường nhập xuất một dòng: đã ghi sổ thì trả bút toán đầu như trước; chứng từ
+ * phải duyệt thì trả chứng từ Chờ duyệt kèm cờ `pendingApproval` (ISS-BE-006).
+ */
+function legacyResult(posted: PostedStockDocument): InventoryTransaction | PendingStockMovement {
+  if (posted.document.status !== 'POSTED') {
+    return { document: posted.document, transactions: [], pendingApproval: true };
+  }
+  return posted.transactions[0];
 }
 
 const MAX_CATALOG_PAGE = 500;

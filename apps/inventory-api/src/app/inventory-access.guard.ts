@@ -30,8 +30,15 @@ function requiredInventoryPermission(request: Request): string | undefined {
   }
 
   // Duyệt, từ chối chứng từ kho: quyền riêng, người duyệt không nhất thiết là thủ kho.
-  if (/\/stock-documents\/[^/]+\/(approve|reject)\/?$/.test(path)) {
+  // Đảo chứng từ đã ghi sổ cũng là quyết định của người duyệt (ISS-BE-006).
+  if (/\/stock-documents\/[^/]+\/(approve|reject|reverse)\/?$/.test(path)) {
     return 'inventory.document.approve';
+  }
+
+  // Phiếu nhập khác, xuất khác nhiều dòng chỉ tạo chứng từ Chờ duyệt, nên thủ kho
+  // gửi được bằng quyền ghi phát sinh (ISS-BE-046), không cần quyền quản lý.
+  if (/\/movements\/batch\/?$/.test(path)) {
+    return 'inventory.transaction.write';
   }
 
   // Kiểm kê kho: duyệt, trả về đếm lại, ghi sổ cân kho là quyền của người duyệt;

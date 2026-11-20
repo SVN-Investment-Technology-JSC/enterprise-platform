@@ -1657,6 +1657,24 @@ export interface PostedStockDocument {
   readonly transactions: readonly InventoryTransaction[];
 }
 
+/**
+ * Kết quả của đường nhập xuất nhanh (`POST /receipts`, `/issues`, `/items/:code/return`)
+ * khi chứng từ phải qua người duyệt (ISS-BE-006): chứng từ ở Chờ duyệt, chưa có
+ * bút toán nào, tồn chưa đổi. Có chứng từ nguồn (hoặc nguồn miễn duyệt) thì các
+ * đường này vẫn trả bút toán như trước.
+ */
+export interface PendingStockMovement extends PostedStockDocument {
+  readonly pendingApproval: true;
+}
+
+export function isPendingStockMovement(value: unknown): value is PendingStockMovement {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { pendingApproval?: unknown }).pendingApproval === true
+  );
+}
+
 // ============================================================================
 // API NỘI BỘ CHO BÁN HÀNG (T1-24, T1-25, T1-26)
 // ============================================================================

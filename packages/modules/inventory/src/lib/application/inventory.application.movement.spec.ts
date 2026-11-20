@@ -11,27 +11,13 @@ const actor: InventoryActor = {
   canWriteTransactions: true,
 };
 
-const ledger = (code: string, quantity: number): InventoryTransaction => ({
-  id: `id-${code}`,
-  transactionCode: code,
-  warehouseId: 'w',
-  materialId: 'm',
-  type: quantity > 0 ? 'IMPORT' : 'EXPORT',
-  quantity,
-  unitCost: 0,
-  workflowStatus: 'APPROVED',
-  createdBy: 'u1',
-  createdAt: new Date(0).toISOString(),
-  documentId: 'doc',
-});
-
 function setup(transactions: InventoryTransaction[] = []) {
   const calls: { input: NewStockDocumentInput; options?: PostOptions }[] = [];
   const documents = {
     createAndPost: jest.fn(
       async (_tenantId: string, input: NewStockDocumentInput, _by: string, options?: PostOptions) => {
         calls.push({ input, options });
-        return { document: {}, transactions } as unknown as PostedStockDocument;
+        return { document: { status: 'PENDING' }, transactions } as unknown as PostedStockDocument;
       },
     ),
   } as unknown as StockDocumentStore;
@@ -41,16 +27,18 @@ function setup(transactions: InventoryTransaction[] = []) {
 const line = { warehouseCode: 'A', materialCode: 'M1', quantity: 3 };
 
 describe('InventoryApplication phiếu nhập/xuất nhiều dòng', () => {
-  it('phiếu nhập là MỘT chứng từ nhập nhiều dòng, dòng cộng tồn kèm đơn giá', async () => {
-    const { app, calls } = setup([ledger('T1', 3), ledger('T2', 4)]);
+  it('phiếu nhập là MỘT chứng từ nhập khác nhiều dòng, gửi duyệt chứ không ghi sổ thẳng (ISS-BE-006)', async () => {
+    const { app, calls } = setup();
 
     const result = await app.recordMovementLines(actor, {
       kind: 'receipt',
       lines: [{ ...line, unitCost: 5 }, { ...line, materialCode: 'M2', quantity: 4, unitCost: 7 }],
     });
 
-    expect(result).toHaveLength(2);
+    expect(result).toEqual({ document: { status: 'PENDING' }, transactions: [] });
     expect(calls).toHaveLength(1);
+    // Không khai nguồn miễn duyệt: store để chứng từ ở Chờ duyệt.
+    expect(calls[0].options?.origin).toBeUndefined();
     expect(calls[0].input).toMatchObject({ docType: 'RECEIPT_OTHER', warehouseCode: 'A', createdBy: 'u1' });
     expect(calls[0].input.lines).toEqual([
       { materialCode: 'M1', quantity: 3, direction: 'IN', unitCost: 5 },
@@ -59,7 +47,7 @@ describe('InventoryApplication phiếu nhập/xuất nhiều dòng', () => {
   });
 
   it('phiếu xuất ghi chiều OUT, giá vốn do kho tính nên không gửi đơn giá', async () => {
-    const { app, calls } = setup([ledger('T1', -3)]);
+    const { app, calls } = setup();
 
     await app.recordMovementLines(actor, { kind: 'issue', lines: [{ ...line, unitCost: 99 }] });
 

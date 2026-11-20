@@ -18,7 +18,7 @@ import { PostgresInventoryReportStore } from './infrastructure/postgres-inventor
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, documentSource } from './inventory-test-support.js';
 import { InternalCatalogController } from './presentation/internal-catalog.controller.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
@@ -83,7 +83,9 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
     lines: StockDocumentLineInput[],
     extra: { targetWarehouseCode?: string } = {},
   ) {
-    const draft = await documents.create(clerk, { docType, warehouseCode, lines, ...extra });
+    // Nhập mua, xuất dự án ghi sổ thẳng cần chứng từ nguồn (ISS-BE-006).
+    const source = docType === 'RECEIPT_PURCHASE' || docType === 'ISSUE_PROJECT' ? documentSource() : {};
+    const draft = await documents.create(clerk, { docType, warehouseCode, lines, ...source, ...extra });
     return documents.post(clerk, draft.id);
   }
 
@@ -222,7 +224,7 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
     await documents.approve(admin, adjustment.id);
     await documents.post(clerk, adjustment.id);
     const wrong = await post('RECEIPT_PURCHASE', 'RPT-HN', [{ materialCode: code, quantity: 5, unitCost: 90_000 }]);
-    await documents.reverse(clerk, wrong.document.id);
+    await documents.reverse(admin, wrong.document.id);
 
     const report = await reports.movements(viewer, { search: code, limit: 1000 });
     const today = todayInVietnam();

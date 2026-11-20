@@ -46,6 +46,8 @@ class FakeStockDocumentStore implements StockDocumentStore {
       warehouseId: 'w1',
       warehouseCode: input.warehouseCode,
       targetWarehouseCode: input.targetWarehouseCode,
+      sourceType: input.sourceType,
+      sourceId: input.sourceId,
       documentDate: '2026-10-27',
       createdBy: input.createdBy,
       createdAt: new Date(0).toISOString(),
@@ -296,6 +298,8 @@ describe('StockDocumentService', () => {
     const draft = await service.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: 'KHO',
+      sourceType: 'purchase_order',
+      sourceId: '8d0f6c1e-2b8e-4f55-9d64-2f0d9a1c7e11',
       lines: [{ materialCode: 'VT', quantity: 2 }],
     });
     await service.post(clerk, draft.id);
@@ -304,9 +308,44 @@ describe('StockDocumentService', () => {
     expect((await rejection(service.cancel(clerk, draft.id))).statusCode).toBe(409);
     expect((await rejection(service.post(clerk, draft.id))).statusCode).toBe(409);
 
-    const reversal = await service.reverse(clerk, draft.id);
+    const reversal = await service.reverse(manager, draft.id);
     expect(reversal.document.reversesDocumentId).toBe(draft.id);
     expect(store.documents.get(draft.id)?.status).toBe('POSTED');
+  });
+
+  it('nhập mua, xuất dự án không nguồn không ghi sổ thẳng từ Nháp; có nguồn thì được (ISS-BE-006)', async () => {
+    for (const docType of ['RECEIPT_PURCHASE', 'ISSUE_PROJECT'] as const) {
+      const draft = await service.create(clerk, { docType, warehouseCode: 'KHO', lines: [{ materialCode: 'VT', quantity: 1 }] });
+      const error = await rejection(service.post(clerk, draft.id));
+      expect([error.statusCode, error.message]).toEqual([409, 'Chứng từ này cần được duyệt trước khi ghi sổ.']);
+      expect(store.documents.get(draft.id)?.status).toBe('DRAFT');
+      await service.submit(clerk, draft.id);
+      await service.approve(manager, draft.id);
+      expect((await service.post(clerk, draft.id)).document.status).toBe('POSTED');
+    }
+    expect(store.posts).toBe(2);
+  });
+
+  it('đảo chứng từ cần quyền duyệt và khác người lập gốc, trừ khi cho tự duyệt (ISS-BE-006)', async () => {
+    const source = { sourceType: 'purchase_order', sourceId: '8d0f6c1e-2b8e-4f55-9d64-2f0d9a1c7e11' };
+    const byClerk = await service.create(clerk, { docType: 'RECEIPT_PURCHASE', warehouseCode: 'KHO', ...source, lines: [{ materialCode: 'VT', quantity: 1 }] });
+    await service.post(clerk, byClerk.id);
+    const denied = await rejection(service.reverse(clerk, byClerk.id));
+    expect([denied.statusCode, denied.message]).toEqual([403, 'Bạn không có quyền duyệt chứng từ kho.']);
+
+    const byManager = await service.create(manager, { docType: 'RECEIPT_PURCHASE', warehouseCode: 'KHO', ...source, lines: [{ materialCode: 'VT', quantity: 1 }] });
+    await service.post(manager, byManager.id);
+    const self = await rejection(service.reverse(manager, byManager.id));
+    expect([self.statusCode, self.code, self.message]).toEqual([
+      403,
+      'STOCK_DOCUMENT_SELF_REVERSAL',
+      'Bạn không được đảo chứng từ do chính mình lập.',
+    ]);
+    expect(store.documents.has(`${byManager.id}-r`)).toBe(false);
+
+    const permissive = new StockDocumentService(store, settingsStore(true));
+    expect((await permissive.reverse(manager, byManager.id)).document.reversesDocumentId).toBe(byManager.id);
+    expect((await service.reverse(manager, byClerk.id)).document.reversesDocumentId).toBe(byClerk.id);
   });
 
   it('không có quyền ghi phát sinh thì không lập được chứng từ', async () => {

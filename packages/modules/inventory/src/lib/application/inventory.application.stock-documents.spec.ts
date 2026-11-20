@@ -1,4 +1,8 @@
-import type { InventoryTransaction, PostedStockDocument } from '@enterprise-platform/contracts-inventory';
+import {
+  isPendingStockMovement,
+  type InventoryTransaction,
+  type PostedStockDocument,
+} from '@enterprise-platform/contracts-inventory';
 import { InsufficientAvailableStockError } from '../domain/inventory.error.js';
 import { InventoryApplication, type InventoryActor } from './inventory.application.js';
 import type { InventoryStore } from './inventory-store.port.js';
@@ -39,7 +43,13 @@ function setup(result: () => Promise<PostedStockDocument>) {
 }
 
 const posted = (...transactions: InventoryTransaction[]) => async () =>
-  ({ document: {} as PostedStockDocument['document'], transactions }) as PostedStockDocument;
+  ({ document: { status: 'POSTED' } as PostedStockDocument['document'], transactions }) as PostedStockDocument;
+
+const pending = async () =>
+  ({
+    document: { id: 'doc-1', code: 'PN-1', status: 'PENDING' } as PostedStockDocument['document'],
+    transactions: [],
+  }) as PostedStockDocument;
 
 describe('API cũ nhập, xuất, điều chuyển ghi qua chứng từ kho (T1-06)', () => {
   it('nhập kho: chứng từ nhập theo đơn mua một dòng, trả đúng bút toán như cũ', async () => {
@@ -53,7 +63,8 @@ describe('API cũ nhập, xuất, điều chuyển ghi qua chứng từ kho (T1-
       referenceId: '6f1c1d36-8a43-4a51-9d6e-0d0b8d1f4a10',
       note: 'Tồn đầu kỳ',
     });
-    expect(result.transactionCode).toBe('TXN-1');
+    expect(isPendingStockMovement(result)).toBe(false);
+    expect((result as InventoryTransaction).transactionCode).toBe('TXN-1');
     expect(calls[0]).toMatchObject({
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: 'KHO',
@@ -69,7 +80,13 @@ describe('API cũ nhập, xuất, điều chuyển ghi qua chứng từ kho (T1-
       throw new InsufficientAvailableStockError('VT', 10, 3, 'KHO');
     });
     await expect(
-      app.issueStock(actor, { warehouseCode: 'KHO', materialCode: 'VT', quantity: 10 }),
+      app.issueStock(actor, {
+        warehouseCode: 'KHO',
+        materialCode: 'VT',
+        quantity: 10,
+        referenceType: 'project',
+        referenceId: '6f1c1d36-8a43-4a51-9d6e-0d0b8d1f4a10',
+      }),
     ).rejects.toMatchObject({
       statusCode: 400,
       code: 'INSUFFICIENT_STOCK',
@@ -93,6 +110,40 @@ describe('API cũ nhập, xuất, điều chuyển ghi qua chứng từ kho (T1-
       targetWarehouseCode: 'B',
       lines: [{ direction: 'OUT', quantity: 2 }],
     });
+  });
+
+  it('nhập mua, xuất dự án không nguồn: chứng từ Chờ duyệt, không bút toán (ISS-BE-006)', async () => {
+    const { app, calls } = setup(pending);
+    const receipt = await app.receiveStock(actor, { warehouseCode: 'KHO', materialCode: 'VT', quantity: 5 });
+    expect(receipt).toEqual({
+      document: expect.objectContaining({ code: 'PN-1', status: 'PENDING' }),
+      transactions: [],
+      pendingApproval: true,
+    });
+    const issue = await app.issueStock(actor, { warehouseCode: 'KHO', materialCode: 'VT', quantity: 1 });
+    expect(isPendingStockMovement(issue)).toBe(true);
+    expect(calls.map((call) => [call.docType, call.sourceId])).toEqual([
+      ['RECEIPT_PURCHASE', undefined],
+      ['ISSUE_PROJECT', undefined],
+    ]);
+  });
+
+  it('nguồn miễn duyệt chỉ do bên gọi trong tiến trình khai, không lấy từ thân request', async () => {
+    const options: unknown[] = [];
+    const documents = {
+      createAndPost: jest.fn(async (_t: string, _input: NewStockDocumentInput, _by: string, opts: unknown) => {
+        options.push(opts);
+        return posted(ledger('TXN-1', 5))();
+      }),
+    } as unknown as StockDocumentStore;
+    const app = new InventoryApplication({} as InventoryStore, documents);
+    const body = { warehouseCode: 'KHO', materialCode: 'VT', quantity: 5, origin: 'opening_balance' };
+    await app.receiveStock(actor, body);
+    await app.receiveStock(actor, { ...body, referenceType: 'OPENING_BALANCE' }, { origin: 'opening_balance' });
+    expect(options).toEqual([
+      expect.objectContaining({ origin: undefined }),
+      expect.objectContaining({ origin: 'opening_balance' }),
+    ]);
   });
 
   it('giữ kiểm tra cũ: cùng kho, số lượng không dương, thiếu quyền', async () => {

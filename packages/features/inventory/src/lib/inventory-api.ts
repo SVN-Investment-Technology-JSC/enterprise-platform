@@ -32,6 +32,7 @@ import type {
   SerialHistory,
   SerialTracking,
   SettingsEntry,
+  PendingStockMovement,
   PostedStockDocument,
   StockDocument,
   StockDocumentListQuery,
@@ -283,13 +284,14 @@ export function uninstallMaterial(
  * Thanh lý: tháo khỏi cây và nhập về kho được chọn.
  *
  * Kho là bắt buộc — thao tác này ghi một bút toán NHẬP thật, nên phải biết nhập
- * vào đâu. Trả về chính bút toán đó để màn hình báo lại mã phiếu.
+ * vào đâu. Thiết bị trên cây (có tài sản nguồn) thì trả bút toán; mã không có hồ
+ * sơ thiết bị thì phiếu nhập Chờ duyệt (ISS-BE-006).
  */
 export function returnItemToStock(
   code: string,
   input: ReturnItemToStockRequest,
-): Promise<InventoryTransaction> {
-  return request<InventoryTransaction>(`/items/${encodeURIComponent(code)}/return`, {
+): Promise<InventoryTransaction | PendingStockMovement> {
+  return request<InventoryTransaction | PendingStockMovement>(`/items/${encodeURIComponent(code)}/return`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -757,8 +759,12 @@ export function receiveStock(input: {
   /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
   serials?: readonly string[];
   counterparty?: MovementCounterparty;
-}): Promise<InventoryTransaction> {
-  return request<InventoryTransaction>('/receipts', { method: 'POST', body: JSON.stringify(input) });
+}): Promise<InventoryTransaction | PendingStockMovement> {
+  // Không có chứng từ nguồn: server tạo phiếu nhập Chờ duyệt, chưa ghi sổ (ISS-BE-006).
+  return request<InventoryTransaction | PendingStockMovement>('/receipts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export function issueStock(input: {
@@ -770,11 +776,18 @@ export function issueStock(input: {
   lots?: readonly LotAllocationInput[];
   /** Nơi xuất đi đến (bộ phận, khách, dự án…). */
   counterparty?: MovementCounterparty;
-}): Promise<InventoryTransaction> {
-  return request<InventoryTransaction>('/issues', { method: 'POST', body: JSON.stringify(input) });
+}): Promise<InventoryTransaction | PendingStockMovement> {
+  // Không có chứng từ nguồn: server tạo phiếu xuất Chờ duyệt, chưa ghi sổ (ISS-BE-006).
+  return request<InventoryTransaction | PendingStockMovement>('/issues', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
-/** Ghi nhiều dòng nhập hoặc xuất của một phiếu: một dòng lỗi thì không dòng nào được ghi. */
+/**
+ * Phiếu nhập khác hoặc xuất khác nhiều dòng: server tạo MỘT chứng từ Chờ duyệt
+ * (`transactions: []`); tồn chỉ đổi khi người duyệt duyệt và ghi sổ (ISS-BE-006).
+ */
 export function recordMovementBatch(input: {
   kind: 'receipt' | 'issue';
   /** Nơi nhập đến từ / nơi xuất đi đến của cả phiếu. */
@@ -786,8 +799,8 @@ export function recordMovementBatch(input: {
     unitCost?: number;
     note?: string;
   }[];
-}): Promise<InventoryTransaction[]> {
-  return request<InventoryTransaction[]>('/movements/batch', {
+}): Promise<PostedStockDocument> {
+  return request<PostedStockDocument>('/movements/batch', {
     method: 'POST',
     body: JSON.stringify(input),
   });

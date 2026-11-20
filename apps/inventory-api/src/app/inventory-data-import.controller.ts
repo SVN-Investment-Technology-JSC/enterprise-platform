@@ -219,11 +219,16 @@ export class InventoryDataImportController {
     }
 
     for (const item of dataset.inventoryOpeningStock) {
-      await this.app.receiveStock(actor, {
-        ...item,
-        referenceType: 'OPENING_BALANCE',
-        note: item.note ?? 'Tồn đầu kỳ từ Data Import',
-      });
+      // Số dư đầu kỳ: nguồn miễn duyệt (ISS-BE-006, Q1), ghi sổ thẳng như trước.
+      await this.app.receiveStock(
+        actor,
+        {
+          ...item,
+          referenceType: 'OPENING_BALANCE',
+          note: item.note ?? 'Tồn đầu kỳ từ Data Import',
+        },
+        { origin: 'opening_balance' },
+      );
     }
     const settingsInput = dataset.inventorySettings[0];
     if (settingsInput) {

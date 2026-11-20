@@ -90,4 +90,24 @@ describe('inventory module capabilities', () => {
     await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
     expect(reader.request.inventoryActor).toMatchObject({ canWriteQuality: false });
   });
+  it('reversing a stock document needs document.approve, not transaction.write (ISS-BE-006)', async () => {
+    const writer = setup(['inventory.read', 'inventory.transaction.write'], '/stock-documents/abc/reverse');
+    await expect(writer.guard.canActivate(writer.context)).rejects.toMatchObject({
+      status: 403,
+      response: { message: 'Bạn không có quyền duyệt chứng từ kho.' },
+    });
+    const approver = setup(['inventory.read', 'inventory.document.approve'], '/stock-documents/abc/reverse');
+    await expect(approver.guard.canActivate(approver.context)).resolves.toBe(true);
+    expect(approver.request.inventoryActor).toMatchObject({ canApproveDocuments: true });
+  });
+  it('movement batch maps explicitly to transaction.write, not manage (ISS-BE-046)', async () => {
+    const writer = setup(['inventory.read', 'inventory.transaction.write'], '/movements/batch');
+    await expect(writer.guard.canActivate(writer.context)).resolves.toBe(true);
+    expect(writer.request.inventoryActor).toMatchObject({ canManage: false, canWriteTransactions: true });
+    const reader = setup(['inventory.read'], '/movements/batch');
+    await expect(reader.guard.canActivate(reader.context)).rejects.toMatchObject({
+      status: 403,
+      response: { message: 'Bạn không có quyền ghi phát sinh tồn kho.' },
+    });
+  });
 });

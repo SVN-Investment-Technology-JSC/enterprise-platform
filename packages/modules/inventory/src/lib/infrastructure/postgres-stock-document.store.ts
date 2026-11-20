@@ -42,7 +42,13 @@ import {
   inboundUnitCost,
   outboundUnitCost,
 } from '../domain/costing.js';
-import { requiresSerialsAtPosting, stockEventKind } from '../domain/stock-document-policy.js';
+import {
+  assertPostable,
+  documentRequiresApproval,
+  isExemptOrigin,
+  requiresSerialsAtPosting,
+  stockEventKind,
+} from '../domain/stock-document-policy.js';
 import { lowStockNotificationEvent } from './inventory-notification-events.js';
 import { stockDocumentPostedEvent } from './inventory-stock-events.js';
 import { mapTransaction, writeInventoryOutbox } from './postgres-inventory-store.js';
@@ -397,6 +403,21 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       if (created.status === 'POSTED') {
         return { document: created, transactions: await this.loadLedger(client, id) };
       }
+      // Chứng từ cần duyệt (ISS-BE-006): không ghi sổ ngay, chỉ gửi duyệt. Gọi
+      // lại cùng khoá thì trả chứng từ ở trạng thái hiện tại.
+      if (documentRequiresApproval(created) && !isExemptOrigin(created, options.origin)) {
+        if (created.status === 'DRAFT') {
+          await client.query(
+            `UPDATE inventory_schema.stock_documents
+                SET status = 'PENDING', submitted_by = $2, submitted_at = now(), updated_at = now()
+              WHERE id = $1`,
+            [id, postedBy],
+          );
+        }
+        const pending = await this.load(client, id, false);
+        if (!pending) throw new StockDocumentNotFoundError(id);
+        return { document: pending, transactions: [] };
+      }
       const ready = options.autoPickSerials ? await this.pickSerials(client, created) : created;
       const transactions = await this.postLocked(client, tenantId, ready, postedBy, options);
       const document = await this.load(client, id, false);
@@ -456,7 +477,9 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       );
       const reversal = await this.load(client, id, true);
       if (!reversal) throw new StockDocumentNotFoundError(id);
-      const transactions = await this.postLocked(client, tenantId, reversal, actorId);
+      const transactions = await this.postLocked(client, tenantId, reversal, actorId, {
+        origin: 'reversal',
+      });
       const document = await this.load(client, id, false);
       if (!document) throw new StockDocumentNotFoundError(id);
       return { document, transactions };
@@ -961,6 +984,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     if (document.lines.length === 0) {
       throw new InventoryError('VALIDATION', 'Chứng từ không có dòng nào để ghi sổ.');
     }
+    // Mọi đường ghi sổ (ghi ngay, ghi chứng từ đã duyệt, đảo) cùng kiểm duyệt ở đây.
+    assertPostable(document, { origin: options.origin });
     const isReversal = Boolean(document.reversesDocumentId);
     await this.assertPostableMaterials(client, document, isReversal);
 

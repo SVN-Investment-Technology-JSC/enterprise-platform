@@ -9,6 +9,7 @@ import type {
   StockDocumentType,
   QualityStatus,
 } from '@enterprise-platform/contracts-inventory';
+import type { PostingOrigin } from '../domain/stock-document-policy.js';
 
 export const STOCK_DOCUMENT_STORE = Symbol('STOCK_DOCUMENT_STORE');
 
@@ -75,6 +76,12 @@ export interface PostOptions {
   readonly autoPickSerials?: boolean;
   /** Nơi nhập đến từ / nơi xuất đi đến (nhà cung cấp, bộ phận, khách…), ghi lên các dòng sổ cái của chứng từ. */
   readonly counterparty?: MovementCounterparty;
+  /**
+   * Đường ghi sổ được miễn bước duyệt (danh sách trắng ở `stock-document-policy`).
+   * Không khai thì chứng từ cần duyệt không ghi sổ ngay: `createAndPost` để nó ở
+   * Chờ duyệt và trả `transactions: []` (ISS-BE-006).
+   */
+  readonly origin?: PostingOrigin;
 }
 
 export interface StockDocumentPatch {
@@ -114,7 +121,10 @@ export interface StockDocumentStore {
     key: string,
     decide: (current: StockDocument) => StockDocumentChange,
   ): Promise<PostedStockDocument>;
-  /** Tạo và ghi sổ ngay trong cùng một transaction (đường API cũ, chứng từ một dòng). */
+  /**
+   * Tạo và ghi sổ ngay trong cùng một transaction (đường API cũ, chứng từ một dòng).
+   * Chứng từ cần duyệt mà không có nguồn miễn thì chỉ tạo và gửi duyệt (Chờ duyệt).
+   */
   createAndPost(
     tenantId: string,
     input: NewStockDocumentInput,

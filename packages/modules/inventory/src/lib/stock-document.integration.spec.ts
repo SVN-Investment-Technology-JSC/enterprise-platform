@@ -4,7 +4,8 @@ import { InventoryApplication, type InventoryActor } from './application/invento
 import { StockDocumentService } from './application/stock-document.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { isPendingStockMovement } from '@enterprise-platform/contracts-inventory';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, projectSource, purchaseSource, documentSource, posted } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -71,9 +72,9 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     for (const code of ['VT-1', 'VT-2', 'VT-3']) {
       await app.createMaterial(admin, { code, name: `Vật tư ${code}`, category: 'CONSUMABLE', unit: 'Cái' });
     }
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: 'VT-1', quantity: 100, unitCost: 1000 });
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: 'VT-2', quantity: 50 });
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: 'VT-3', quantity: 5 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: 'VT-1', quantity: 100, unitCost: 1000 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: 'VT-2', quantity: 50 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: 'VT-3', quantity: 5 });
   }, 120_000);
 
   afterAll(async () => {
@@ -197,17 +198,17 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
   });
 
   it('TC-REG-01: API cũ nhập, xuất, điều chuyển giữ response, bút toán có document_id', async () => {
-    const receipt = await app.receiveStock(clerk, {
+    const receipt = posted(await app.receiveStock(clerk, { ...purchaseSource(),
       warehouseCode: 'KHO-B',
       materialCode: 'VT-1',
       quantity: 4,
       unitCost: 1500,
       note: 'Nhập lẻ',
-    });
+    }));
     expect(receipt).toMatchObject({ type: 'IMPORT', quantity: 4, unitCost: 1500, note: 'Nhập lẻ', workflowStatus: 'APPROVED' });
     expect(receipt.documentId).toBeDefined();
 
-    const issue = await app.issueStock(clerk, { warehouseCode: 'KHO-B', materialCode: 'VT-1', quantity: 1 });
+    const issue = await app.issueStock(clerk, { ...projectSource(), warehouseCode: 'KHO-B', materialCode: 'VT-1', quantity: 1 });
     expect(issue).toMatchObject({ type: 'EXPORT', quantity: -1 });
 
     const moved = await app.transferStock(clerk, {
@@ -228,13 +229,13 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     expect(moved.in.documentId).toBe(moved.out.documentId);
 
     const legacyError = await rejection(
-      app.issueStock(clerk, { warehouseCode: 'KHO-B', materialCode: 'VT-1', quantity: 100_000 }),
+      app.issueStock(clerk, { ...projectSource(), warehouseCode: 'KHO-B', materialCode: 'VT-1', quantity: 100_000 }),
     );
     expect([legacyError.statusCode, legacyError.code]).toEqual([400, 'INSUFFICIENT_STOCK']);
   });
 
   it('xuất tự do không lấy phần đã giữ: kiểm theo tồn khả dụng', async () => {
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-C', materialCode: 'VT-3', quantity: 20 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-C', materialCode: 'VT-3', quantity: 20 });
     await app.createStockReservation(clerk, {
       warehouseCode: 'KHO-C',
       referenceType: 'test',
@@ -243,6 +244,7 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     });
     const draft = await documents.create(clerk, {
       docType: 'ISSUE_PROJECT',
+      ...documentSource(),
       warehouseCode: 'KHO-C',
       lines: [{ materialCode: 'VT-3', quantity: 10 }],
     });
@@ -279,8 +281,8 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
   });
 
   it('điều chuyển ngược chiều đồng thời không khoá chéo (khoá theo thứ tự warehouse_id, material_id)', async () => {
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-B', materialCode: 'VT-2', quantity: 50 });
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-C', materialCode: 'VT-2', quantity: 50 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-B', materialCode: 'VT-2', quantity: 50 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-C', materialCode: 'VT-2', quantity: 50 });
     const total = async () =>
       (await onHand('KHO-B', 'VT-2')).quantity + (await onHand('KHO-C', 'VT-2')).quantity;
     const before = await total();
@@ -302,6 +304,7 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     const before = await onHand('KHO-B', 'VT-3');
     const draft = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
+      ...documentSource(),
       warehouseCode: 'KHO-B',
       lines: [{ materialCode: 'VT-3', quantity: 7, unitCost: 500 }],
     });
@@ -311,7 +314,12 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     );
     expect([edit.statusCode, edit.message]).toEqual([409, 'Chứng từ đã ghi sổ không được sửa.']);
 
-    const reversal = await documents.reverse(clerk, draft.code);
+    // Thủ kho không có quyền duyệt thì không đảo được (ISS-BE-006); tồn giữ nguyên.
+    const clerkReversal = await rejection(documents.reverse(clerk, draft.code));
+    expect([clerkReversal.statusCode, clerkReversal.message]).toEqual([403, 'Bạn không có quyền duyệt chứng từ kho.']);
+    expect((await onHand('KHO-B', 'VT-3')).quantity).toBe(before.quantity + 7);
+
+    const reversal = await documents.reverse(keeper, draft.code);
     expect(reversal.document).toMatchObject({ status: 'POSTED', reversesDocumentId: draft.id, docType: 'RECEIPT_PURCHASE' });
     expect(reversal.document.lines[0]).toMatchObject({ direction: 'OUT', quantity: 7 });
     expect(reversal.transactions[0]).toMatchObject({ type: 'EXPORT', quantity: -7 });
@@ -319,12 +327,85 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
 
     const original = await documents.get(clerk, draft.id);
     expect(original).toMatchObject({ status: 'POSTED', lines: [{ quantity: 7, direction: 'IN' }] });
-    expect((await rejection(documents.reverse(clerk, draft.id))).statusCode).toBe(409);
-    expect((await rejection(documents.reverse(clerk, reversal.document.id))).statusCode).toBe(409);
+    expect((await rejection(documents.reverse(keeper, draft.id))).statusCode).toBe(409);
+    expect((await rejection(documents.reverse(keeper, reversal.document.id))).statusCode).toBe(409);
+  });
+
+  it('ISS-BE-006: nhập mua, xuất dự án không nguồn qua API cũ thành Chờ duyệt, tồn không đổi tới khi duyệt và ghi sổ', async () => {
+    const before = await onHand('KHO-C', 'VT-2');
+    const receipt = await app.receiveStock(clerk, { warehouseCode: 'KHO-C', materialCode: 'VT-2', quantity: 6, unitCost: 10 });
+    if (!isPendingStockMovement(receipt)) throw new Error('expected pending receipt');
+    expect(receipt.document).toMatchObject({ docType: 'RECEIPT_PURCHASE', status: 'PENDING', submittedBy: clerk.userId });
+    expect(receipt.transactions).toEqual([]);
+    expect(await onHand('KHO-C', 'VT-2')).toEqual(before);
+    expect(await ledgerCount(receipt.document.id)).toBe(0);
+
+    // Thủ kho không ghi sổ được chứng từ chưa duyệt; người duyệt duyệt rồi mới ghi sổ.
+    const early = await rejection(documents.post(clerk, receipt.document.id));
+    expect([early.statusCode, early.code]).toEqual([409, 'STOCK_DOCUMENT_INVALID_TRANSITION']);
+    await documents.approve(keeper, receipt.document.id);
+    const posted = await documents.post(clerk, receipt.document.id);
+    expect(posted.document).toMatchObject({ status: 'POSTED', approvedBy: keeper.userId });
+    expect((await onHand('KHO-C', 'VT-2')).quantity).toBe(before.quantity + 6);
+
+    const issue = await app.issueStock(clerk, { warehouseCode: 'KHO-C', materialCode: 'VT-2', quantity: 1 });
+    expect(issue).toMatchObject({ pendingApproval: true, transactions: [], document: { docType: 'ISSUE_PROJECT', status: 'PENDING' } });
+    expect((await onHand('KHO-C', 'VT-2')).quantity).toBe(before.quantity + 6);
+  });
+
+  it('ISS-BE-006: chứng từ xuất dự án không nguồn không đi thẳng Nháp → Đã ghi sổ', async () => {
+    const draft = await documents.create(clerk, {
+      docType: 'ISSUE_PROJECT',
+      warehouseCode: 'KHO-A',
+      lines: [{ materialCode: 'VT-2', quantity: 1 }],
+    });
+    const error = await rejection(documents.post(clerk, draft.id));
+    expect([error.statusCode, error.message]).toEqual([409, 'Chứng từ này cần được duyệt trước khi ghi sổ.']);
+    expect((await documents.get(clerk, draft.id)).status).toBe('DRAFT');
+    expect(await ledgerCount(draft.id)).toBe(0);
+  });
+
+  it('ISS-BE-006: số dư đầu kỳ của nhập dữ liệu ban đầu là nguồn miễn duyệt, ghi sổ thẳng', async () => {
+    const before = await onHand('KHO-C', 'VT-3');
+    const opening = posted(
+      await app.receiveStock(
+        admin,
+        { warehouseCode: 'KHO-C', materialCode: 'VT-3', quantity: 2, referenceType: 'OPENING_BALANCE' },
+        { origin: 'opening_balance' },
+      ),
+    );
+    expect(opening).toMatchObject({ type: 'IMPORT', quantity: 2, referenceType: 'OPENING_BALANCE' });
+    expect((await onHand('KHO-C', 'VT-3')).quantity).toBe(before.quantity + 2);
+  });
+
+  it('ISS-BE-006: người lập chứng từ gốc không tự đảo; người duyệt khác đảo được, tồn về như cũ', async () => {
+    const before = await onHand('KHO-C', 'VT-1');
+    const draft = await documents.create(keeper, {
+      docType: 'RECEIPT_OTHER',
+      warehouseCode: 'KHO-C',
+      lines: [{ materialCode: 'VT-1', quantity: 3, unitCost: 1000 }],
+    });
+    await documents.submit(keeper, draft.id);
+    await documents.approve(admin, draft.id);
+    await documents.post(keeper, draft.id);
+    expect((await onHand('KHO-C', 'VT-1')).quantity).toBe(before.quantity + 3);
+
+    const self = await rejection(documents.reverse(keeper, draft.id));
+    expect([self.statusCode, self.code, self.message]).toEqual([
+      403,
+      'STOCK_DOCUMENT_SELF_REVERSAL',
+      'Bạn không được đảo chứng từ do chính mình lập.',
+    ]);
+    expect((await onHand('KHO-C', 'VT-1')).quantity).toBe(before.quantity + 3);
+
+    const reversal = await documents.reverse(admin, draft.id);
+    expect(reversal.document).toMatchObject({ status: 'POSTED', reversesDocumentId: draft.id, createdBy: admin.userId });
+    expect(await onHand('KHO-C', 'VT-1')).toEqual(before);
+    expect((await rejection(documents.reverse(admin, draft.id))).statusCode).toBe(409);
   });
 
   it('TC-INV-25: sổ kho và chứng từ đã ghi sổ chặn UPDATE, DELETE ở DB', async () => {
-    const receipt = await app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: 'VT-2', quantity: 1 });
+    const receipt = posted(await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: 'VT-2', quantity: 1 }));
     await expect(
       pool.query(`UPDATE inventory_schema.inventory_transactions SET quantity = 999 WHERE id = $1`, [receipt.id]),
     ).rejects.toThrow(/Sổ kho chỉ ghi thêm/);
