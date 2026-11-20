@@ -77,6 +77,7 @@ import {
   loadReservations,
   loadTenantHomePath,
   receiveStock,
+  replaceMaterialStorageLocations,
   issueStock,
   uninstallMaterial,
   saveInventorySetting,
@@ -647,6 +648,15 @@ export function InventoryScreen() {
           unitCost: item.unitCost,
           note: item.lineNote || 'Bổ sung dữ liệu đa kho từ tệp Excel',
         });
+        if (item.locationId?.trim()) {
+          try {
+            await replaceMaterialStorageLocations(item.materialCode, wh, [
+              { locationText: item.locationId.trim(), isPrimary: true },
+            ]);
+          } catch {
+            // Không chặn nhập tồn nếu lưu vị trí kệ gặp lỗi
+          }
+        }
         importedCount++;
       }
 
