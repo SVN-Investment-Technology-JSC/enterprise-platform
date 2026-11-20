@@ -1368,8 +1368,8 @@ export class InventoryApplication {
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
     if (!input.name?.trim()) throw new InventoryError('VALIDATION', 'Tên vật tư không được để trống.');
     if (!input.unit?.trim()) throw new InventoryError('VALIDATION', 'Đơn vị tính không được để trống.');
-    this.requireStockBounds(input.minStock, input.maxStock);
     const kind = requireMaterialKind(input.kind) ?? 'STOCK';
+    this.requireStockBounds(input.minStock, input.maxStock, kind !== 'SERVICE');
     requireWarrantyMonths(input.warrantyMonths);
     if (kind === 'SERVICE' && input.isSerialized) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
@@ -1420,11 +1420,15 @@ export class InventoryApplication {
     if (current.isActive === false && patch.isActive !== true) {
       throw new InventoryError('VALIDATION', `Mã ${code} đã ngừng dùng; hãy dùng lại trước khi sửa.`);
     }
+    const kind = requireMaterialKind(patch.kind) ?? current.kind;
+    // Chỉ so sàn với trần khi lần sửa này đụng tới một trong hai: mã cũ đang lệch vẫn sửa được
+    // các thông tin khác (tên, giá, dùng lại...), còn đã sửa định mức thì phải về hợp lệ.
+    const touchesBounds = patch.minStock !== undefined || patch.maxStock !== undefined;
     this.requireStockBounds(
       patch.minStock ?? current.minStock,
       patch.maxStock ?? current.maxStock,
+      touchesBounds && kind !== 'SERVICE',
     );
-    const kind = requireMaterialKind(patch.kind) ?? current.kind;
     requireWarrantyMonths(patch.warrantyMonths);
     if (kind !== current.kind && (await this.store.material.hasStockFootprint(actor.tenantId, code))) {
       throw new InventoryError(
@@ -1542,16 +1546,18 @@ export class InventoryApplication {
   }
 
   /**
-   * Chỉ còn kiểm SÀN tồn.
+   * Định mức tồn: không âm, và tồn tối thiểu không được lớn hơn tồn tối đa.
    *
-   * Trần tồn đã bỏ khỏi giao diện: không luật nào của kho đọc tới nó, nên nó chỉ
-   * là một con số bắt phải nhập rồi nằm đó. Luật "sàn không được lớn hơn trần"
-   * cũng bỏ theo — giữ lại thì mọi mã có trần cũ sẽ chặn việc nâng sàn, vì lý do
-   * người dùng không còn nhìn thấy ở đâu.
+   * Tồn tối đa bằng 0 hoặc để trống nghĩa là không đặt trần, khi đó không so. Mặt hàng dịch vụ
+   * không có tồn (định mức luôn lưu 0/0) nên chỉ kiểm không âm.
    */
-  private requireStockBounds(min?: number, max?: number): void {
+  private requireStockBounds(min?: number | null, max?: number | null, checkCeiling = true): void {
     if ((min ?? 0) < 0 || (max ?? 0) < 0) {
       throw new InventoryError('VALIDATION', 'Tồn tối thiểu không được âm.');
+    }
+    if (!checkCeiling) return;
+    if (max != null && max > 0 && (min ?? 0) > max) {
+      throw new InventoryError('VALIDATION', 'Tồn tối thiểu không được lớn hơn tồn tối đa.');
     }
   }
 
