@@ -8,6 +8,7 @@ export { CustodyPanel, custodyStateOf } from './lib/components/custody-panel';
 export { StocktakeHub, isSelfApprovalBlocked } from './lib/components/stocktake-hub';
 export { InventoryPermissionsContext } from './lib/inventory-permissions';
 export { AssetForm } from './lib/components/asset-form';
+export { AssetDetail, assetLocationChain } from './lib/components/asset-detail';
 export { BulkReturnToStockDialog } from './lib/components/bulk-return-dialog';
 export { FormError, useFormSubmit } from './lib/components/form-error';
 export { MaterialForm } from './lib/components/material-form';

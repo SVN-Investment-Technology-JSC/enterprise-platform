@@ -970,6 +970,7 @@ export function InventoryScreen() {
           {profileCode ? (
             <ItemProfileDialog
               code={profileCode}
+              assets={workspace.assets}
               catalog={settings?.['catalog.asset'].value}
               units={settings?.['catalog.unit'].value.units ?? []}
               busy={busy}
@@ -1397,6 +1398,7 @@ export function InventoryScreen() {
                 {selectedAsset ? (
                   <AssetDetail
                     asset={selectedAsset}
+                    assets={workspace.assets}
                     materials={workspace.materials}
                     childMaterials={workspace.assets
                       .filter((child) => child.parentId === selectedAsset.id)
