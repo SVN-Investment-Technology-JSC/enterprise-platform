@@ -25,7 +25,7 @@ import {
   Settings,
   Warehouse,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
 import { StocktakeHub } from './components/stocktake-hub';
@@ -150,18 +150,61 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
   vouchers: 'stock',
 };
 
+const LAST_STOCK_SUB_TAB_KEY = 'inventory:last-stock-subtab';
+
+function isStockSubTab(value: string): value is StockSubTab {
+  return STOCK_SUB_TABS.some((tab) => tab.id === value);
+}
+
+function getStoredStockSubTab(): StockSubTab | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const val = sessionStorage.getItem(LAST_STOCK_SUB_TAB_KEY);
+    if (val && isStockSubTab(val)) return val;
+  } catch {
+    // sessionStorage có thể không truy cập được trong một số môi trường kiểm thử
+  }
+  return undefined;
+}
+
+function setStoredStockSubTab(subTab: StockSubTab): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(LAST_STOCK_SUB_TAB_KEY, subTab);
+  } catch {
+    // Bỏ qua
+  }
+}
+
 /**
  * Trang Kho hàng gộp ba trang cũ; link cũ mở đúng tab con tương ứng.
- * Đọc hash thô vì `useHashView` đã đổi hash cũ sang `stock`.
+ * Lưu lại dấu vết subtab cũ đã truy cập thay vì luôn mặc định về subtab đầu tiên.
  */
 function initialStockSubTab(): StockSubTab {
   if (typeof window === 'undefined') return 'goods';
   if (movementHashTarget(window.location.hash)) return 'movements';
-  const raw = window.location.hash.replace(/^#/, '').split('/')[0];
-  if (raw === 'transactions') return 'history';
-  if (raw === 'items' || raw === 'overview' || raw === 'materials' || raw === 'warehouses' || raw === 'serials') {
+
+  const parts = window.location.hash.replace(/^#/, '').split('/');
+  const head = parts[0];
+  const second = parts[1];
+
+  // Hash mới dạng #stock/warehouse, #stock/goods, #stock/movements, #stock/history, #stock/stocktakes
+  if (head === 'stock') {
+    if (second && isStockSubTab(second)) return second;
+    const stored = getStoredStockSubTab();
+    if (stored) return stored;
+    return 'goods';
+  }
+
+  // Hash cũ
+  if (head === 'transactions') return 'history';
+  if (head === 'items' || head === 'overview' || head === 'materials' || head === 'warehouses' || head === 'serials') {
     return 'warehouse';
   }
+
+  const stored = getStoredStockSubTab();
+  if (stored) return stored;
+
   return 'goods';
 }
 
@@ -176,6 +219,50 @@ export function InventoryScreen() {
     legacy: LEGACY_TAB,
   });
   const [stockSubTab, setStockSubTab] = useState<StockSubTab>(initialStockSubTab);
+  const lastStockSubTabRef = useRef<StockSubTab>(stockSubTab);
+
+  const handleSelectSubTab = useCallback(
+    (subId: StockSubTab) => {
+      setStockSubTab(subId);
+      lastStockSubTabRef.current = subId;
+      setStoredStockSubTab(subId);
+      navigate('stock', subId);
+    },
+    [navigate],
+  );
+
+  const handleViewChange = useCallback(
+    (nextView: Tab) => {
+      if (nextView === 'stock') {
+        const remembered = lastStockSubTabRef.current || getStoredStockSubTab() || stockSubTab || 'goods';
+        navigate('stock', remembered);
+      } else {
+        navigate(nextView);
+      }
+    },
+    [navigate, stockSubTab],
+  );
+
+  // Đồng bộ subtab khi hash đổi (qua điều hướng, nút back/forward trình duyệt, hoặc link trực tiếp)
+  useEffect(() => {
+    if (tab !== 'stock') return;
+    if (hashAsset) {
+      const subKey = hashAsset.split('/')[0];
+      if (isStockSubTab(subKey)) {
+        setStockSubTab(subKey);
+        lastStockSubTabRef.current = subKey;
+        setStoredStockSubTab(subKey);
+      }
+    } else {
+      // Khi URL hash chỉ là #stock (không có subtab)
+      const remembered = lastStockSubTabRef.current || getStoredStockSubTab();
+      if (remembered && remembered !== 'goods') {
+        setStockSubTab(remembered);
+        navigate('stock', remembered);
+      }
+    }
+  }, [tab, hashAsset, navigate]);
+
   const [movementTarget, setMovementTarget] = useState<MovementHashTarget | undefined>(() =>
     typeof window === 'undefined' ? undefined : movementHashTarget(window.location.hash),
   );
@@ -187,6 +274,8 @@ export function InventoryScreen() {
       if (!target) return;
       setMovementTarget(target);
       setStockSubTab('movements');
+      lastStockSubTabRef.current = 'movements';
+      setStoredStockSubTab('movements');
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -918,7 +1007,7 @@ export function InventoryScreen() {
       subtitle="Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho."
       nav={NAV}
       view={tab}
-      onViewChange={navigate}
+      onViewChange={handleViewChange}
       homeHref={homePath}
       actions={null}
       banner={
@@ -1107,7 +1196,7 @@ export function InventoryScreen() {
               onSubmit={async (input) => {
                 const created = await createStocktakeSession(input, workspace);
                 const { session } = await startStocktakeCounting(created.id, workspace);
-                setStockSubTab('stocktakes');
+                handleSelectSubTab('stocktakes');
                 setShowStocktakeDialog(false);
                 setStocktakeInit(undefined);
                 notify(`Đã tạo đợt kiểm kê ${session.code} và bắt đầu phiên đếm.`);
@@ -1199,8 +1288,7 @@ export function InventoryScreen() {
               cardSelection={settings ? settings['dashboard.cards'].value.cardIds : undefined}
               onNavigate={(target) => {
                 if (target === 'transactions') {
-                  setStockSubTab('history');
-                  navigate('stock');
+                  handleSelectSubTab('history');
                   return;
                 }
                 navigate(target);
@@ -1424,7 +1512,7 @@ export function InventoryScreen() {
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                     )}
-                    onClick={() => setStockSubTab(sub.id)}
+                    onClick={() => handleSelectSubTab(sub.id)}
                   >
                     {sub.label}
                   </button>
