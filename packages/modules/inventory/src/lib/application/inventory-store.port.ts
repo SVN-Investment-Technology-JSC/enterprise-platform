@@ -27,6 +27,7 @@ import type {
   AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
 import type { InventoryActor } from './inventory.application.js';
+import type { LegacySupplierValue } from '../domain/supplier-catalog.js';
 
 /** Ledger entry to append. Balances are derived from these, never written directly. */
 export interface AppendTransactionInput {
@@ -390,6 +391,14 @@ export interface InventoryStore {
       updatedBy: string,
       expectedVersion?: number,
     ): Promise<SettingsEntry<unknown> | null>;
+  };
+
+  suppliers: {
+    /**
+     * Nhà cung cấp chữ tự do đang có trong dữ liệu, mỗi cách viết một dòng kèm số bản ghi dùng nó, từ hồ sơ
+     * mặt hàng, lô và bút toán sổ cái loại nhà cung cấp. Chỉ đọc; chưa chuẩn hóa hay gộp.
+     */
+    listLegacyValues(tenantId: string): Promise<LegacySupplierValue[]>;
   };
 
   /** Danh sách nhân sự có thể tham gia tổ kiểm kê kèm cờ phân quyền kho hasWarehouseAccess */

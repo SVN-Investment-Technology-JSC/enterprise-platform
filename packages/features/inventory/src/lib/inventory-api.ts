@@ -20,6 +20,7 @@ import type {
   InventorySettingsKey,
   InventorySettingsSnapshot,
   InventoryTransaction,
+  LegacySupplierCandidatesResponse,
   Lot,
   LotAllocationInput,
   LotDetail,
@@ -948,6 +949,12 @@ export const saveInventorySetting = (
   request<SettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
     method: 'PUT',
     body: JSON.stringify({ value, expectedVersion }),
+  });
+
+/** Nhà cung cấp chữ tự do trong dữ liệu cũ, đã gộp biến thể, để quản trị viên duyệt vào danh mục. */
+export const loadLegacySupplierCandidates = () =>
+  request<LegacySupplierCandidatesResponse>('/settings/suppliers/legacy-candidates', {
+    cache: 'no-store',
   });
 
 /** Phụ tùng tiêu chuẩn của một thiết bị. */

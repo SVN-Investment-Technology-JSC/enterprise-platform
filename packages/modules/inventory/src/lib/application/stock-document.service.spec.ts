@@ -538,3 +538,65 @@ describe('StockDocumentService', () => {
     });
   });
 });
+
+describe('StockDocumentService: nhà cung cấp của lô theo danh mục', () => {
+  const catalog = ['Công ty A', 'ABB Việt Nam'];
+
+  function build(suppliers: readonly string[]) {
+    const store = new FakeStockDocumentStore();
+    const get = jest.fn(async (_tenantId: string, key: string): Promise<SettingsEntry<unknown> | null> =>
+      key === 'catalog.supplier'
+        ? { key, value: { suppliers }, version: 1, updatedAt: new Date(0).toISOString() }
+        : null,
+    );
+    const service = new StockDocumentService(store, { settings: { get } } as unknown as InventoryStore);
+    return { store, service, get };
+  }
+
+  const receipt = (supplier?: string) => ({
+    docType: 'RECEIPT_OTHER' as const,
+    warehouseCode: 'KHO-HN',
+    lines: [{ materialCode: 'VT-01', quantity: 10, lot: { lotNo: 'L1', supplier } }],
+  });
+
+  it('tạo: nhà cung cấp của lô được đổi thành tên chuẩn trong danh mục', async () => {
+    const { store, service } = build(catalog);
+    await service.create(clerk, receipt('cong ty a'));
+    expect(store.created[0].lines[0].lot).toMatchObject({ lotNo: 'L1', supplier: 'Công ty A' });
+  });
+
+  it('tạo: nhà ngoài danh mục bị từ chối kèm số dòng, chứng từ không được tạo', async () => {
+    const { store, service } = build(catalog);
+    const error = await rejection(service.create(clerk, receipt('Nhà lạ')));
+    expect([error.statusCode, error.code]).toEqual([400, 'SUPPLIER_NOT_IN_CATALOG']);
+    expect(error.message).toBe(
+      'Dòng 1: Nhà cung cấp "Nhà lạ" chưa có trong danh mục. Nhờ người quản lý thêm ở Cài đặt.',
+    );
+    expect(store.created).toHaveLength(0);
+  });
+
+  it('danh mục rỗng: nhập tự do như trước', async () => {
+    const { store, service } = build([]);
+    await service.create(clerk, receipt('Nhà lạ'));
+    expect(store.created[0].lines[0].lot?.supplier).toBe('Nhà lạ');
+  });
+
+  it('không khai nhà cung cấp cho lô thì không đọc cấu hình', async () => {
+    const { service, get } = build(catalog);
+    await service.create(clerk, receipt(undefined));
+    await service.create(clerk, {
+      docType: 'RECEIPT_OTHER',
+      warehouseCode: 'KHO-HN',
+      lines: [{ materialCode: 'VT-01', quantity: 1 }],
+    });
+    expect(get).not.toHaveBeenCalled();
+  });
+
+  it('sửa chứng từ nháp: dòng mới có nhà ngoài danh mục bị từ chối, dòng đúng thì qua', async () => {
+    const { service } = build(catalog);
+    const draft = await service.create(clerk, receipt(undefined));
+    const bad = await rejection(service.update(clerk, draft.id, receipt('Nhà lạ')));
+    expect(bad.code).toBe('SUPPLIER_NOT_IN_CATALOG');
+    await expect(service.update(clerk, draft.id, receipt('abb viet nam'))).resolves.toBeDefined();
+  });
+});

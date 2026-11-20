@@ -35,7 +35,10 @@ function setup(transactions: InventoryTransaction[] = []) {
       },
     ),
   } as unknown as StockDocumentStore;
-  return { app: new InventoryApplication({} as InventoryStore, documents), calls, documents };
+  // Đối tác loại SUPPLIER được kiểm theo danh mục nhà cung cấp nên store giả cần trả cấu hình; danh mục trống
+  // nghĩa là nhập tự do, đúng hành vi trước đây.
+  const store = { settings: { get: async () => null } } as unknown as InventoryStore;
+  return { app: new InventoryApplication(store, documents), calls, documents };
 }
 
 const line = { warehouseCode: 'A', materialCode: 'M1', quantity: 3 };

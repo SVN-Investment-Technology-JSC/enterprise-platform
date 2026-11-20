@@ -65,3 +65,52 @@ describe('cài đặt warehouse.location.levels (mẫu tên cấp vị trí củ
     expect(normalizeInventorySetting('warehouse.location.levels', value)).toEqual({ levels: [] });
   });
 });
+
+describe('cài đặt catalog.supplier và supplier.input (danh mục nhà cung cấp)', () => {
+  it('mặc định: danh mục rỗng và chỉ chọn từ danh mục', () => {
+    expect(INVENTORY_SETTINGS_DEFAULTS['catalog.supplier']).toEqual({ suppliers: [] });
+    expect(INVENTORY_SETTINGS_DEFAULTS['supplier.input']).toEqual({ mode: 'CATALOG_ONLY' });
+  });
+
+  it('chuẩn hoá danh mục: cắt khoảng trắng, gộp khoảng trắng liền nhau, bỏ mục rỗng và không phải chuỗi', () => {
+    expect(
+      normalizeInventorySetting('catalog.supplier', {
+        suppliers: ['  Công   ty A ', '', 7, null, 'ABB'],
+      }),
+    ).toEqual({ suppliers: ['Công ty A', 'ABB'] });
+  });
+
+  it('bỏ mục trùng theo khóa so sánh (hoa thường, dấu, dấu câu), giữ mục đứng trước', () => {
+    expect(
+      normalizeInventorySetting('catalog.supplier', {
+        suppliers: ['Công ty A', 'CÔNG TY A', 'Cong ty A.', 'Công ty B'],
+      }),
+    ).toEqual({ suppliers: ['Công ty A', 'Công ty B'] });
+  });
+
+  it('bỏ mục dài quá 180 ký tự (khớp cột materials.supplier) và chặn trần 500 mục', () => {
+    const tooLong = 'A'.repeat(181);
+    const ok = 'B'.repeat(180);
+    expect(normalizeInventorySetting('catalog.supplier', { suppliers: [tooLong, ok] })).toEqual({
+      suppliers: [ok],
+    });
+    const many = Array.from({ length: 600 }, (_, index) => `Nhà ${index}`);
+    expect(normalizeInventorySetting('catalog.supplier', { suppliers: many }).suppliers).toHaveLength(500);
+  });
+
+  it.each([[null], [undefined], ['x'], [{}], [{ suppliers: 'A' }]])('payload hỏng %p thành danh mục rỗng', (value) => {
+    expect(normalizeInventorySetting('catalog.supplier', value)).toEqual({ suppliers: [] });
+  });
+
+  it.each([['CATALOG_ONLY'], ['CATALOG_OR_FREE']])('supplier.input giữ giá trị hợp lệ %s', (mode) => {
+    expect(normalizeInventorySetting('supplier.input', { mode })).toEqual({ mode });
+  });
+
+  it.each([[{ mode: 'FREE' }], [null], ['CATALOG_ONLY'], [{}]])(
+    'supplier.input giá trị lạ %p rơi về CATALOG_ONLY',
+    (value) => {
+      expect(normalizeInventorySetting('supplier.input', value)).toEqual({ mode: 'CATALOG_ONLY' });
+    },
+  );
+});
+});
