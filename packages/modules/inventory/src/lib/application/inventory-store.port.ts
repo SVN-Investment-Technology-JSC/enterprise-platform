@@ -93,7 +93,11 @@ export interface InventoryStore {
     findByCode(tenantId: string, code: string): Promise<Material | null>;
     /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
     findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
-    list(tenantId: string, includeInactive?: boolean): Promise<Material[]>;
+    list(
+      tenantId: string,
+      includeInactive?: boolean,
+      filter?: { readonly locationText?: string },
+    ): Promise<Material[]>;
     create(
       tenantId: string,
       input: CreateMaterialRequest,

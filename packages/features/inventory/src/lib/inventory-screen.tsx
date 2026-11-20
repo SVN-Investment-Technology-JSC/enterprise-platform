@@ -32,6 +32,7 @@ import { StocktakeHub } from './components/stocktake-hub';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemProfileDialog } from './components/item-profile-dialog';
+import { LocationLevelsEditor } from './components/location-levels-editor';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
 import { WarehouseEditor } from './components/warehouse-editor';
 import { AssetForm } from './components/asset-form';
@@ -230,6 +231,8 @@ export function InventoryScreen() {
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [assetCatalogDraft, setAssetCatalogDraft] = useState<InventoryCatalogSettings>();
   const [unitDraft, setUnitDraft] = useState<readonly string[]>([]);
+  /** Mẫu tên cấp vị trí lưu trữ của tenant (thứ tự có ý nghĩa: cấp đầu là lớn nhất). */
+  const [levelsDraft, setLevelsDraft] = useState<readonly string[]>([]);
   const [tradeDraft, setTradeDraft] = useState<InventoryTradeCatalog>();
   /** Vật tư đang lắp trên các thiết bị — lá của cây, suy từ sổ cái. */
   const [installed, setInstalled] = useState<InstalledMaterial[]>([]);
@@ -662,6 +665,7 @@ export function InventoryScreen() {
         setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setAssetCatalogDraft(loaded['catalog.asset'].value);
         setUnitDraft(loaded['catalog.unit'].value.units ?? []);
+        setLevelsDraft(loaded['warehouse.location.levels']?.value.levels ?? []);
         setTradeDraft(loaded['catalog.trade']?.value);
       })
       .catch(() => setSettings(undefined));
@@ -766,6 +770,31 @@ export function InventoryScreen() {
       setSavingCards(false);
     }
   };
+
+  const saveLocationLevels = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'warehouse.location.levels',
+        { levels: levelsDraft },
+        settings['warehouse.location.levels']?.version ?? 0,
+      );
+      setSettings({
+        ...settings,
+        'warehouse.location.levels': saved as InventorySettingsSnapshot['warehouse.location.levels'],
+      });
+      setLevelsDraft((saved as InventorySettingsSnapshot['warehouse.location.levels']).value.levels ?? []);
+      setError(undefined);
+    } catch (cause) {
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được mẫu cấp vị trí.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const levelsDirty =
+    JSON.stringify(levelsDraft) !== JSON.stringify(settings?.['warehouse.location.levels']?.value.levels ?? []);
 
   const saveTradeCatalog = async () => {
     if (!settings || !tradeDraft) return;
@@ -1155,7 +1184,25 @@ export function InventoryScreen() {
                   label: 'Kho',
                   description:
                     'Danh sách kho cho phiếu nhập/xuất chọn. Sửa xong là lưu ngay, không cần bấm Lưu. Kho còn hàng thì không ngừng dùng được.',
-                  render: () => <WarehouseEditor disabled={!canManage || savingCards} />,
+                  render: () => (
+                    <WarehouseEditor
+                      disabled={!canManage || savingCards}
+                      templateLevels={settings?.['warehouse.location.levels']?.value.levels ?? []}
+                    />
+                  ),
+                },
+                {
+                  id: 'location-levels',
+                  label: 'Cấp vị trí kho',
+                  description:
+                    'Mẫu tên các cấp vị trí lưu trữ (Khu vực, Dãy, Kệ, Tầng, Ô chứa...) dùng cho mọi kho. Mỗi kho có thể đặt tên cấp riêng ở mục Kho. Không giới hạn số cấp; đổi tên cấp không đổi vị trí đã nhập.',
+                  render: () => (
+                    <LocationLevelsEditor
+                      levels={levelsDraft}
+                      disabled={!canManage || savingCards}
+                      onChange={setLevelsDraft}
+                    />
+                  ),
                 },
                 {
                   id: 'units',
@@ -1228,9 +1275,11 @@ export function InventoryScreen() {
                     ? catalogDirty
                     : settingsSection === 'units'
                       ? unitsDirty
-                      : settingsSection === 'trade'
-                        ? tradeDirty
-                        : cardsDirty
+                      : settingsSection === 'location-levels'
+                        ? levelsDirty
+                        : settingsSection === 'trade'
+                          ? tradeDirty
+                          : cardsDirty
               }
               saving={savingCards}
               onSave={
@@ -1240,18 +1289,22 @@ export function InventoryScreen() {
                     ? saveAssetCatalog
                     : settingsSection === 'units'
                       ? saveUnits
-                      : settingsSection === 'trade'
-                        ? saveTradeCatalog
-                        : saveCards
+                      : settingsSection === 'location-levels'
+                        ? saveLocationLevels
+                        : settingsSection === 'trade'
+                          ? saveTradeCatalog
+                          : saveCards
               }
               onReset={() =>
                 settingsSection === 'asset-fields'
                   ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
                   : settingsSection === 'units'
                     ? setUnitDraft(settings?.['catalog.unit'].value.units ?? [])
-                    : settingsSection === 'trade'
-                      ? setTradeDraft(settings?.['catalog.trade']?.value)
-                      : setCardDraft(storedCards)
+                    : settingsSection === 'location-levels'
+                      ? setLevelsDraft(settings?.['warehouse.location.levels']?.value.levels ?? [])
+                      : settingsSection === 'trade'
+                        ? setTradeDraft(settings?.['catalog.trade']?.value)
+                        : setCardDraft(storedCards)
               }
             />
           ) : null}
@@ -1284,6 +1337,7 @@ export function InventoryScreen() {
                   stock={workspace.stock}
                   catalog={settings?.['catalog.trade']?.value}
                   units={settings?.['catalog.unit']?.value.units}
+                  locationLevels={settings?.['warehouse.location.levels']?.value.levels}
                   onChanged={() => void reload()}
                   onCatalogChanged={() => void loadInventorySettings().then(setSettings).catch(() => undefined)}
                 />

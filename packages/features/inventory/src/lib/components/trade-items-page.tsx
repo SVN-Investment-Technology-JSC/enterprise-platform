@@ -18,6 +18,7 @@ import {
   deleteMaterial,
   importMaterials,
   loadInventorySettings,
+  loadStorageLocations,
   loadTradeItems,
   saveInventorySetting,
   reactivateMaterial,
@@ -71,6 +72,7 @@ export function TradeItemsPage({
   stock = [],
   catalog,
   units,
+  locationLevels,
   onChanged,
   onCatalogChanged,
 }: {
@@ -82,6 +84,8 @@ export function TradeItemsPage({
   catalog?: InventoryTradeCatalog;
   /** Danh mục đơn vị tính khai ở Cài đặt, làm lựa chọn cho ô Đơn vị của form. */
   units?: readonly string[];
+  /** Mẫu tên cấp vị trí lưu trữ khai ở Cài đặt, cho nhóm Vị trí lưu trữ của drawer. */
+  locationLevels?: readonly string[];
   /** Gọi sau khi tạo, sửa hoặc nhập xong, để tab Nhà kho nạp lại danh mục. */
   onChanged?: () => void;
   /** Gọi sau khi nhập Excel thêm mục vào danh mục Cài đặt, để màn hình tải lại danh mục. */
@@ -117,7 +121,30 @@ export function TradeItemsPage({
     [items, catalog, filter.group],
   );
   const usageOptions = useMemo(() => usageChoices(items, catalog), [items, catalog]);
-  const filtered = useMemo(() => filterTradeItems(items, filter), [items, filter]);
+  /** Mã mặt hàng có vị trí lưu trữ khớp chữ đang tìm; server tìm có chờ nhịp gõ, lỗi thì bỏ qua (chỉ tìm theo mã, tên). */
+  const [locationMatches, setLocationMatches] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const term = filter.search.trim();
+    if (term.length < 2) {
+      setLocationMatches(new Set());
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      loadStorageLocations({ q: term, limit: 500 })
+        .then((rows) => {
+          if (!cancelled) setLocationMatches(new Set(rows.map((row) => row.materialCode)));
+        })
+        .catch(() => {
+          if (!cancelled) setLocationMatches(new Set());
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [filter.search]);
+  const filtered = useMemo(() => filterTradeItems(items, filter, locationMatches), [items, filter, locationMatches]);
   const view = useMemo(() => paginate(filtered, page, pageSize), [filtered, page, pageSize]);
   const selected = items.find((item) => item.code === selectedCode);
 
@@ -222,7 +249,7 @@ export function TradeItemsPage({
             <Input
               className="pl-8"
               value={filter.search}
-              placeholder="Tìm mã, tên hoặc barcode…"
+              placeholder="Tìm mã, tên, barcode hoặc vị trí…"
               aria-label="Tìm hàng hóa"
               onChange={(event) => change({ search: event.target.value })}
             />
@@ -391,6 +418,7 @@ export function TradeItemsPage({
           onClose={() => setSelectedCode(undefined)}
           catalog={catalog}
           units={units}
+          locationLevels={locationLevels}
           onSave={(patch: UpdateMaterialRequest) =>
             save(async () => `Đã cập nhật ${(await updateMaterial(selected.code, patch)).code}.`)
           }

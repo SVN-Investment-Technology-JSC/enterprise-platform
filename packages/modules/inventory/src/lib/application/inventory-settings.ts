@@ -6,6 +6,7 @@ import {
   type InventorySettings,
   type InventorySettingsKey,
 } from '@enterprise-platform/contracts-inventory';
+import { normalizeLevelNames } from '../domain/storage-location-policy.js';
 
 /**
  * Mặc định BẬT giá và bảo hành.
@@ -70,6 +71,9 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   'documents.approval': { allowSelfApproval: false },
   // D4: bình quân gia quyền tức thời. FIFO làm ở P2.
   'costing.method': { method: 'MOVING_AVERAGE' },
+  // Không có cấp dựng sẵn: vị trí nhập thành một chuỗi cho tới khi tenant khai tên cấp (giao diện gợi ý mẫu Khu vực,
+  // Dãy, Kệ, Tầng, Ô chứa để chọn nhanh).
+  'warehouse.location.levels': { levels: [] },
 };
 
 export function isInventorySettingsKey(value: string): value is InventorySettingsKey {
@@ -151,6 +155,10 @@ const NORMALIZERS: {
         : 'MOVING_AVERAGE',
     };
   },
+  // Số cấp không giới hạn; chỉ cắt tên quá dài và bỏ mục rỗng.
+  'warehouse.location.levels': (value) => ({
+    levels: normalizeLevelNames((value as { levels?: unknown } | null)?.levels),
+  }),
 };
 
 /**

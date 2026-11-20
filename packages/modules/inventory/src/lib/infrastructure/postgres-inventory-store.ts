@@ -49,6 +49,7 @@ import {
   ServiceMaterialNotStockedError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import { likePattern } from '../domain/stock-movement.js';
 import { reservationCreatedEvent } from './inventory-reservation-events.js';
 import {
   OPEN_RESERVATION_STATUSES,
@@ -104,6 +105,9 @@ function mapWarehouse(row: Row): Warehouse {
     orgUnitId: opt(row.org_unit_id),
     managerUserId: opt(row.manager_user_id),
     location: opt(row.location),
+    locationLevels: Array.isArray(row.location_levels)
+      ? row.location_levels.map((name) => String(name))
+      : undefined,
     isActive: Boolean(row.is_active),
   };
 }
@@ -407,13 +411,25 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
     },
 
-    list: async (tenantId: string, includeInactive = false): Promise<Material[]> => {
+    list: async (
+      tenantId: string,
+      includeInactive = false,
+      filter?: { readonly locationText?: string },
+    ): Promise<Material[]> => {
       const pool = await this.poolFor(tenantId);
       const whereClause = includeInactive
         ? `WHERE kind IN ('STOCK', 'SERVICE')`
         : `WHERE kind IN ('STOCK', 'SERVICE') AND is_active = true`;
+      const locationText = filter?.locationText?.trim();
+      // Lọc theo vị trí lưu trữ (0026): mặt hàng có ít nhất một vị trí ở kho nào đó khớp chuỗi.
+      const locationClause = locationText
+        ? `AND EXISTS (
+             SELECT 1 FROM inventory_schema.material_storage_locations l
+              WHERE l.material_id = materials.id AND l.location_text ILIKE $1)`
+        : '';
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials ${whereClause} ORDER BY code`,
+        `SELECT * FROM inventory_schema.materials ${whereClause} ${locationClause} ORDER BY code`,
+        locationText ? [likePattern(locationText)] : [],
       );
       return result.rows.map(mapMaterial);
     },

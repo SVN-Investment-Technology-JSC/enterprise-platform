@@ -39,6 +39,13 @@ import { StockMovementService } from './application/stock-movement.service.js';
 import { STOCK_MOVEMENT_STORE, type StockMovementStore } from './application/stock-movement-store.port.js';
 import { PostgresStockMovementStore } from './infrastructure/postgres-stock-movement.store.js';
 import { StockMovementController } from './presentation/stock-movement.controller.js';
+import { StorageLocationService } from './application/storage-location.service.js';
+import {
+  STORAGE_LOCATION_STORE,
+  type StorageLocationStore,
+} from './application/storage-location-store.port.js';
+import { PostgresStorageLocationStore } from './infrastructure/postgres-storage-location.store.js';
+import { StorageLocationController } from './presentation/storage-location.controller.js';
 
 @Module({
   controllers: [
@@ -53,6 +60,7 @@ import { StockMovementController } from './presentation/stock-movement.controlle
     InternalDocumentsController,
     InventoryReportsController,
     StockMovementController,
+    StorageLocationController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -143,6 +151,17 @@ import { StockMovementController } from './presentation/stock-movement.controlle
       useFactory: (store: StockMovementStore) => new StockMovementService(store),
       inject: [STOCK_MOVEMENT_STORE],
     },
+    {
+      provide: STORAGE_LOCATION_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresStorageLocationStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: StorageLocationService,
+      useFactory: (store: StorageLocationStore) => new StorageLocationService(store),
+      inject: [STORAGE_LOCATION_STORE],
+    },
   ],
   exports: [
     InventoryApplication,
@@ -153,6 +172,7 @@ import { StockMovementController } from './presentation/stock-movement.controlle
     QualityService,
     InventoryReportService,
     StockMovementService,
+    StorageLocationService,
     AssetDocumentService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

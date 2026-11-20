@@ -1,9 +1,11 @@
 'use client';
 
 import type { Warehouse } from '@enterprise-platform/contracts-inventory';
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { toast } from '@enterprise-platform/shared-ui';
-import { createWarehouse, loadAllWarehouses, updateWarehouse } from '../inventory-api';
+import { createWarehouse, loadAllWarehouses, setWarehouseLocationLevels, updateWarehouse } from '../inventory-api';
+import { describeLevels, effectiveLevels } from '../storage-location.model';
+import { LocationLevelsEditor } from './location-levels-editor';
 import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
 import { Input } from '../ui/input';
@@ -19,13 +21,22 @@ import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, Ta
  * côi toàn bộ lịch sử nhập xuất của kho đó. Ngừng dùng thì kho biến khỏi các ô
  * chọn nhưng lịch sử vẫn đọc được — và kho còn hàng thì server từ chối ngừng.
  */
-export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
+export function WarehouseEditor({
+  disabled,
+  templateLevels = [],
+}: {
+  disabled?: boolean;
+  /** Mẫu tên cấp vị trí của tenant (Cài đặt); kho không có tên cấp riêng thì dùng mẫu này. */
+  templateLevels?: readonly string[];
+}) {
   const [rows, setRows] = useState<Warehouse[]>();
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [location, setLocation] = useState('');
+  /** Kho đang mở phần khai tên cấp vị trí: dùng mẫu chung hay đặt riêng, kèm danh sách cấp đang soạn. */
+  const [levelsEdit, setLevelsEdit] = useState<{ code: string; own: boolean; levels: string[] }>();
 
   const reload = useCallback(async () => {
     try {
@@ -87,12 +98,14 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
             <TableHeaderCell>Mã</TableHeaderCell>
             <TableHeaderCell>Tên kho</TableHeaderCell>
             <TableHeaderCell>Vị trí</TableHeaderCell>
+            <TableHeaderCell>Cấp vị trí lưu trữ</TableHeaderCell>
             <TableHeaderCell>Đang dùng</TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {(rows ?? []).map((warehouse) => (
-            <TableRow key={warehouse.code} className={cn(!warehouse.isActive && 'text-slate-500')}>
+            <Fragment key={warehouse.code}>
+            <TableRow className={cn(!warehouse.isActive && 'text-slate-500')}>
               <TableCell className="font-mono font-bold tracking-[0.03em] text-slate-800">{warehouse.code}</TableCell>
               <TableCell>
                 <Input
@@ -136,6 +149,33 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
                 />
               </TableCell>
               <TableCell>
+                <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                  <span className="text-slate-700">
+                    {describeLevels(effectiveLevels(warehouse, templateLevels))}
+                    <span className="text-slate-400"> ({warehouse.locationLevels ? 'riêng' : 'mẫu chung'})</span>
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    disabled={busy}
+                    onClick={() =>
+                      setLevelsEdit(
+                        levelsEdit?.code === warehouse.code
+                          ? undefined
+                          : {
+                              code: warehouse.code,
+                              own: warehouse.locationLevels !== undefined,
+                              levels: [...(warehouse.locationLevels ?? templateLevels)],
+                            },
+                      )
+                    }
+                  >
+                    {levelsEdit?.code === warehouse.code ? 'Đóng' : 'Sửa cấp'}
+                  </Button>
+                </div>
+              </TableCell>
+              <TableCell>
                 <input
                   type="checkbox"
                   className="size-[1.05rem] cursor-pointer accent-primary"
@@ -151,9 +191,71 @@ export function WarehouseEditor({ disabled }: { disabled?: boolean }) {
                 />
               </TableCell>
             </TableRow>
+            {levelsEdit?.code === warehouse.code ? (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <div className="flex flex-col gap-3 py-2">
+                    <div className="flex flex-wrap items-center gap-5 text-[13px] text-slate-700">
+                      <label className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name={`levels-source-${warehouse.code}`}
+                          className="accent-primary"
+                          checked={!levelsEdit.own}
+                          disabled={busy}
+                          onChange={() => setLevelsEdit({ ...levelsEdit, own: false })}
+                        />
+                        Dùng mẫu chung ({describeLevels(templateLevels)})
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name={`levels-source-${warehouse.code}`}
+                          className="accent-primary"
+                          checked={levelsEdit.own}
+                          disabled={busy}
+                          onChange={() => setLevelsEdit({ ...levelsEdit, own: true })}
+                        />
+                        Đặt cấp riêng cho kho này
+                      </label>
+                    </div>
+                    {levelsEdit.own ? (
+                      <LocationLevelsEditor
+                        levels={levelsEdit.levels}
+                        disabled={busy}
+                        onChange={(next) => setLevelsEdit({ ...levelsEdit, levels: next })}
+                      />
+                    ) : null}
+                    <p className="m-0 text-xs text-slate-500">
+                      Đổi tên hay số cấp không đổi vị trí đã nhập: mỗi vị trí đã lưu là một chuỗi hoàn chỉnh.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() =>
+                            setWarehouseLocationLevels(warehouse.code, levelsEdit.own ? levelsEdit.levels : null),
+                          ).then((ok) => {
+                            if (ok) setLevelsEdit(undefined);
+                          })
+                        }
+                      >
+                        Lưu cấp vị trí
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setLevelsEdit(undefined)}>
+                        Hủy
+                      </Button>
+                    </div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : null}
+            </Fragment>
           ))}
           {rows && rows.length === 0 ? (
-            <TableEmpty colSpan={4}>Chưa khai kho nào.</TableEmpty>
+            <TableEmpty colSpan={5}>Chưa khai kho nào.</TableEmpty>
           ) : null}
         </TableBody>
       </Table>

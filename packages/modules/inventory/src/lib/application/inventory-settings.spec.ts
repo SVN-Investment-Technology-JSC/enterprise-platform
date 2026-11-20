@@ -44,3 +44,24 @@ describe('cài đặt catalog.trade (phân loại và sử dụng hàng hóa)', 
     });
   });
 });
+
+describe('cài đặt warehouse.location.levels (mẫu tên cấp vị trí của tenant)', () => {
+  it('mặc định không chia cấp', () => {
+    expect(INVENTORY_SETTINGS_DEFAULTS['warehouse.location.levels']).toEqual({ levels: [] });
+  });
+
+  it('chuẩn hoá: bỏ mục rỗng và không phải chuỗi, cắt tên quá 50 ký tự, không giới hạn số cấp', () => {
+    const many = Array.from({ length: 20 }, (_, index) => `Cấp ${index + 1}`);
+    expect(normalizeInventorySetting('warehouse.location.levels', { levels: [' Khu ', '', 3, 'Kệ'] })).toEqual({
+      levels: ['Khu', 'Kệ'],
+    });
+    expect(normalizeInventorySetting('warehouse.location.levels', { levels: ['x'.repeat(80)] })).toEqual({
+      levels: ['x'.repeat(50)],
+    });
+    expect(normalizeInventorySetting('warehouse.location.levels', { levels: many }).levels).toHaveLength(20);
+  });
+
+  it.each([[null], [undefined], ['x'], [{}], [{ levels: 'Khu' }]])('payload hỏng %p thành danh sách rỗng', (value) => {
+    expect(normalizeInventorySetting('warehouse.location.levels', value)).toEqual({ levels: [] });
+  });
+});

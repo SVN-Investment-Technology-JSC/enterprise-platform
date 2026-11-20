@@ -473,6 +473,11 @@ export interface Warehouse {
   readonly orgUnitId?: string;
   readonly managerUserId?: string;
   readonly location?: string;
+  /**
+   * Tên các cấp vị trí của riêng kho này (ví dụ Khu, Kệ, Ngăn). Không có nghĩa là dùng mẫu của tenant
+   * (`warehouse.location.levels`); mảng rỗng nghĩa là kho này nhập vị trí thành một chuỗi, không chia cấp.
+   */
+  readonly locationLevels?: readonly string[];
   readonly isActive: boolean;
 }
 
@@ -503,6 +508,75 @@ export interface WarehouseLocation {
   readonly code: string;
   readonly name: string;
   readonly qrCode?: string;
+}
+
+// ============================================================================
+// VỊ TRÍ LƯU TRỮ CỦA MẶT HÀNG THEO KHO
+// ============================================================================
+
+/** Độ dài tối đa của chuỗi vị trí và của tên một cấp. */
+export const STORAGE_LOCATION_TEXT_MAX = 255;
+export const STORAGE_LOCATION_LEVEL_NAME_MAX = 50;
+/** Ký tự nối các cấp khi ghép `locationText` từ `segments`. */
+export const STORAGE_LOCATION_SEPARATOR = ' / ';
+
+/**
+ * Một vị trí lưu trữ của mặt hàng trong một kho. Chỉ là thông tin tùy chọn (chuỗi tự do): không ràng buộc với
+ * `WarehouseLocation`, không đổi cách tính tồn. Một cặp (kho, mặt hàng) có thể có nhiều vị trí, đúng một vị trí chính.
+ */
+export interface MaterialStorageLocation {
+  readonly id: string;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  /** Chuỗi hiển thị và tìm kiếm, ví dụ `Khu A / Kệ 3 / Ngăn 2`. */
+  readonly locationText: string;
+  /** Các phần theo từng cấp, chỉ để form chia ô; lệch với `locationText` thì `locationText` thắng. */
+  readonly segments?: readonly string[];
+  readonly isPrimary: boolean;
+  readonly note?: string;
+  readonly updatedAt: string;
+  readonly updatedBy?: string;
+}
+
+/** Một vị trí khai báo. Thiếu `locationText` thì ghép từ `segments`; cả hai trống thì dòng bị bỏ qua. */
+export interface StorageLocationInput {
+  readonly locationText?: string;
+  readonly segments?: readonly string[];
+  readonly isPrimary?: boolean;
+  readonly note?: string;
+}
+
+/**
+ * Thay toàn bộ danh sách vị trí của một mặt hàng ở một kho trong một lần ghi. Danh sách rỗng là xóa hết vị trí của
+ * cặp đó. Không có vị trí nào đánh dấu chính thì vị trí đầu tiên là vị trí chính.
+ */
+export interface ReplaceStorageLocationsRequest {
+  readonly locations: readonly StorageLocationInput[];
+}
+
+export interface StorageLocationQuery {
+  /** Tìm theo chuỗi vị trí, mã hoặc tên mặt hàng. */
+  readonly q?: string;
+  readonly warehouseCode?: string;
+  readonly materialCode?: string;
+  readonly limit?: number;
+}
+
+/** Khai tên cấp của một kho. `levels: null` bỏ ghi đè, kho quay về dùng mẫu của tenant. */
+export interface UpdateWarehouseLocationLevelsRequest {
+  readonly levels: readonly string[] | null;
+}
+
+export interface WarehouseLocationLevels {
+  readonly warehouseCode: string;
+  readonly levels: readonly string[] | null;
+}
+
+/** Mẫu tên cấp của tenant (khoá cài đặt `warehouse.location.levels`). Rỗng là không chia cấp. */
+export interface WarehouseLocationLevelsSettings {
+  readonly levels: readonly string[];
 }
 
 export interface Material {
@@ -1155,6 +1229,7 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.trade',
   'documents.approval',
   'costing.method',
+  'warehouse.location.levels',
 ] as const;
 
 export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
@@ -1242,6 +1317,7 @@ export interface InventorySettings {
   readonly 'catalog.trade': InventoryTradeCatalog;
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
+  readonly 'warehouse.location.levels': WarehouseLocationLevelsSettings;
 }
 
 export interface SettingsEntry<TValue> {

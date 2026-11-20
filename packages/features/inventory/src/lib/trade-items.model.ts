@@ -110,7 +110,15 @@ export function fold(value: string | undefined): string {
     .replace(/đ/g, 'd');
 }
 
-export function filterTradeItems(items: readonly Material[], filter: TradeFilter): Material[] {
+/**
+ * `locationMatches`: mã mặt hàng có vị trí lưu trữ khớp chuỗi đang tìm (server tìm, vì giao diện không giữ vị trí của mọi
+ * mặt hàng). Có ô tìm thì mặt hàng khớp mã, tên, barcode hoặc nằm trong tập này đều được giữ.
+ */
+export function filterTradeItems(
+  items: readonly Material[],
+  filter: TradeFilter,
+  locationMatches?: ReadonlySet<string>,
+): Material[] {
   const term = fold(filter.search.trim());
   return items.filter((item) => {
     if (filter.status === 'ACTIVE' && !item.isActive) return false;
@@ -119,6 +127,7 @@ export function filterTradeItems(items: readonly Material[], filter: TradeFilter
     if (filter.category && (item.tradeCategory ?? '').trim() !== filter.category) return false;
     if (filter.usage && usageLabel(item.tradeMode) !== filter.usage) return false;
     if (!term) return true;
+    if (locationMatches?.has(item.code)) return true;
     return [item.code, item.name, item.barcode].some((value) => fold(value).includes(term));
   });
 }

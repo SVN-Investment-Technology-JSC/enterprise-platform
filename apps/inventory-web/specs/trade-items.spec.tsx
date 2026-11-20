@@ -31,6 +31,10 @@ jest.mock('../../../packages/features/inventory/src/lib/inventory-api', () => ({
   reactivateMaterial: (code: string) => mockReactivate(code),
   deleteMaterial: (code: string) => mockDelete(code),
   loadMaterialHistory: (code: string) => mockHistory(code),
+  // Nhóm Vị trí lưu trữ của drawer và ô tìm theo vị trí: mặc định chưa có vị trí nào.
+  loadMaterialStorageLocations: () => Promise.resolve([]),
+  replaceMaterialStorageLocations: () => Promise.resolve([]),
+  loadStorageLocations: () => Promise.resolve([]),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
   // Các hàm và ô nhập dùng chung là mã thuần, dùng bản thật để test khớp hành vi trên giao diện.

@@ -226,8 +226,13 @@ export class InventoryApplication {
     return material;
   }
 
-  listMaterials(actor: InventoryActor, includeInactive = false): Promise<Material[]> {
-    return this.store.material.list(actor.tenantId, includeInactive);
+  /** `filter.locationText`: chỉ mặt hàng có vị trí lưu trữ khớp chuỗi (không phân biệt hoa thường). */
+  listMaterials(
+    actor: InventoryActor,
+    includeInactive = false,
+    filter?: { readonly locationText?: string },
+  ): Promise<Material[]> {
+    return this.store.material.list(actor.tenantId, includeInactive, filter);
   }
 
   /**

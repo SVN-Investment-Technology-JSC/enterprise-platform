@@ -24,6 +24,7 @@ import type {
   LotSuggestion,
   Material,
   MaterialInventory,
+  MaterialStorageLocation,
   RegisterSerialsRequest,
   Reservation,
   MaterialDeleteResult,
@@ -60,6 +61,9 @@ import type {
   StockMovementReportQuery,
   StockReport,
   StockReportQuery,
+  StorageLocationInput,
+  StorageLocationQuery,
+  WarehouseLocationLevels,
 } from '@enterprise-platform/contracts-inventory';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -740,6 +744,45 @@ export function updateWarehouse(
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
+}
+
+/** Mọi vị trí lưu trữ của một mặt hàng, ở mọi kho. */
+export function loadMaterialStorageLocations(materialCode: string): Promise<MaterialStorageLocation[]> {
+  return request<MaterialStorageLocation[]>(`/materials/${encodeURIComponent(materialCode)}/storage-locations`);
+}
+
+/** Thay toàn bộ vị trí của một mặt hàng ở một kho; danh sách rỗng là xóa hết. */
+export function replaceMaterialStorageLocations(
+  materialCode: string,
+  warehouseCode: string,
+  locations: readonly StorageLocationInput[],
+): Promise<MaterialStorageLocation[]> {
+  return request<MaterialStorageLocation[]>(
+    `/materials/${encodeURIComponent(materialCode)}/storage-locations/${encodeURIComponent(warehouseCode)}`,
+    { method: 'PUT', body: JSON.stringify({ locations }) },
+  );
+}
+
+/** Tìm vị trí lưu trữ toàn tenant theo chuỗi vị trí, mã hoặc tên mặt hàng. */
+export function loadStorageLocations(query: StorageLocationQuery = {}): Promise<MaterialStorageLocation[]> {
+  const params = new URLSearchParams();
+  if (query.q) params.set('q', query.q);
+  if (query.warehouseCode) params.set('warehouseCode', query.warehouseCode);
+  if (query.materialCode) params.set('materialCode', query.materialCode);
+  if (query.limit) params.set('limit', String(query.limit));
+  const qs = params.toString();
+  return request<MaterialStorageLocation[]>(`/storage-locations${qs ? `?${qs}` : ''}`);
+}
+
+/** Khai tên cấp vị trí của một kho; `levels: null` để kho dùng lại mẫu của tenant. */
+export function setWarehouseLocationLevels(
+  warehouseCode: string,
+  levels: readonly string[] | null,
+): Promise<WarehouseLocationLevels> {
+  return request<WarehouseLocationLevels>(
+    `/warehouses/${encodeURIComponent(warehouseCode)}/location-levels`,
+    { method: 'PUT', body: JSON.stringify({ levels }) },
+  );
 }
 
 export function loadReservations(): Promise<InventoryReservationRow[]> {

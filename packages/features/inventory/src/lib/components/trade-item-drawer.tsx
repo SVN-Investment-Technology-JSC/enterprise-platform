@@ -30,6 +30,7 @@ import {
   type StockRow,
 } from './material-drawer-sections';
 import { FormError, submitErrorMessage, useFormSubmit } from './form-error';
+import { StorageLocationPanel } from './storage-location-panel';
 import { TradeStatusBadge } from './trade-status-badge';
 import { Button } from '../ui/button';
 import { DialogCloseButton } from '../ui/dialog';
@@ -102,6 +103,7 @@ export function TradeItemDrawer({
   busy,
   catalog,
   units = [],
+  locationLevels,
   onSave,
   onRetire,
   onReactivate,
@@ -116,6 +118,8 @@ export function TradeItemDrawer({
   catalog?: InventoryTradeCatalog;
   /** Danh mục đơn vị tính khai ở Cài đặt; rỗng thì cho gõ tự do. */
   units?: readonly string[];
+  /** Mẫu tên cấp vị trí của tenant khai ở Cài đặt; kho không có tên cấp riêng thì dùng mẫu này. */
+  locationLevels?: readonly string[];
   /** Lưu phần sửa; từ chối (reject) khi Kho báo lỗi để drawer hiện lý do và giữ dữ liệu đã nhập. */
   onSave: (patch: UpdateMaterialRequest) => Promise<void> | void;
   /** Ngừng dùng mã; không có đường xoá vì sổ cái trỏ vào mã. Từ chối (reject) khi Kho báo lỗi. */
@@ -460,6 +464,15 @@ export function TradeItemDrawer({
 
           <DrawerSection title="Tồn kho">
             <MaterialStockSection material={item} stock={stock} warehouses={warehouses} />
+          </DrawerSection>
+
+          <DrawerSection title="Vị trí lưu trữ">
+            <StorageLocationPanel
+              material={item}
+              warehouses={warehouses}
+              templateLevels={locationLevels}
+              canManage={canManage && item.isActive}
+            />
           </DrawerSection>
         </SheetBody>
       </SheetContent>

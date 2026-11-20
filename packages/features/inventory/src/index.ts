@@ -41,3 +41,16 @@ export {
   type ImportSheet,
   type ValueDecision,
 } from './lib/trade-import.model';
+
+export { StorageLocationPanel } from './lib/components/storage-location-panel';
+export {
+  SUGGESTED_LOCATION_LEVELS,
+  describeLevels,
+  draftText,
+  draftsSignature,
+  effectiveLevels,
+  splitLocationText,
+  summarizePrimary,
+  toDraft,
+  toInputs,
+} from './lib/storage-location.model';
