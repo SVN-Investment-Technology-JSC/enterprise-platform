@@ -881,6 +881,21 @@ export async function loadTenantHomePath(): Promise<string> {
   }
 }
 
+/**
+ * Id người đang đăng nhập, để giao diện ẩn nút tự duyệt. Chỉ là gợi ý hiển thị:
+ * server vẫn chặn tự duyệt. Không đọc được thì trả `undefined`.
+ */
+export async function loadCurrentUserId(): Promise<string | undefined> {
+  try {
+    const response = await authFetch('/api/auth/v1/me', { cache: 'no-store' });
+    if (!response.ok) return undefined;
+    const principal = (await response.json()) as { userId?: string };
+    return principal?.userId || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Cấu hình module do tenant admin đặt; đọc mới mỗi lần vào màn cài đặt. */
 export const loadInventorySettings = () =>
   request<InventorySettingsSnapshot>('/settings', { cache: 'no-store' });
@@ -1104,49 +1119,6 @@ export interface AuditorCandidate {
   readonly hasWarehouseAccess?: boolean;
 }
 
-export const DEFAULT_WAREHOUSE_AUDITORS: readonly AuditorCandidate[] = [
-  {
-    id: 'auditor-1',
-    name: 'Trần Văn Hưng',
-    code: 'NV-KHO-01',
-    position: 'Thủ kho trưởng',
-    department: 'Bộ phận Kho vận',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-2',
-    name: 'Nguyễn Văn An',
-    code: 'NV-KT-02',
-    position: 'Kế toán vật tư',
-    department: 'Phòng Kế toán',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-3',
-    name: 'Lê Thị Mai',
-    code: 'NV-KHO-03',
-    position: 'Nhân viên thủ kho',
-    department: 'Bộ phận Kho vận',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-4',
-    name: 'Phạm Minh Đức',
-    code: 'NV-QL-04',
-    position: 'Quản lý kho tổng',
-    department: 'Ban Quản trị Cơ sở',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-5',
-    name: 'Hoàng Quốc Việt',
-    code: 'NV-KT-05',
-    position: 'Kỹ thuật viên vật tư',
-    department: 'Bộ phận Kỹ thuật',
-    hasWarehouseAccess: true,
-  },
-];
-
 let cachedAuditors: AuditorCandidate[] | null = null;
 
 export async function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
@@ -1243,9 +1215,8 @@ export async function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
     // Bỏ qua
   }
 
-  // 3. Fallback danh sách nhân sự kho chuẩn
-  cachedAuditors = [...DEFAULT_WAREHOUSE_AUDITORS];
-  return cachedAuditors;
+  // 3. Không có nguồn nào trả về người thật: để danh sách rỗng, giao diện báo "Chưa có nhân viên kho".
+  return [];
 }
 
 export function createStocktakeSession(
@@ -1330,6 +1301,17 @@ export async function approveAndPostStocktake(sessionId: string): Promise<Stockt
     await request<StocktakeSession>(`/stocktakes/${key}/approve`, { method: 'POST' });
   }
   const result = await request<StocktakePostResult>(`/stocktakes/${key}/post`, { method: 'POST' });
+  return result.session;
+}
+
+/**
+ * Ghi sổ lại đợt đã duyệt (lần trước ghi sổ lỗi). Server có khoá chống lặp theo
+ * đợt nên bấm lặp không điều chỉnh tồn hai lần; đợt đã ghi sổ trả kết quả cũ.
+ */
+export async function postStocktake(sessionId: string): Promise<StocktakeSession> {
+  const result = await request<StocktakePostResult>(`/stocktakes/${encodeURIComponent(sessionId)}/post`, {
+    method: 'POST',
+  });
   return result.session;
 }
 
