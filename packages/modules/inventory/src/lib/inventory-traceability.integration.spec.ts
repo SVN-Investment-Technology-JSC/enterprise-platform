@@ -572,4 +572,154 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     await documents.post(clerk, draft.id);
     expect(await stock(lap)).toMatchObject({ quantity: 1, blocked: 0, available: 1 });
   });
+
+  describe('ISS-BE-066: lô chỉ tạo lúc ghi sổ, không tạo lúc lưu nháp', () => {
+    const receiptDraft = (materialCode: string, quantity: number, lot: StockDocumentLineInput['lot']) =>
+      documents.create(clerk, {
+        docType: 'RECEIPT_PURCHASE',
+        warehouseCode: 'QA-KHO-HN',
+        lines: [{ materialCode, quantity, lot }],
+      });
+
+    async function approveAndPost(documentId: string) {
+      await documents.submit(clerk, documentId);
+      await documents.approve(admin, documentId);
+      return documents.post(clerk, documentId);
+    }
+
+    async function lineLotIds(documentId: string): Promise<(string | null)[]> {
+      const { rows } = await pool.query(
+        `SELECT lot_id FROM inventory_schema.stock_document_lines WHERE document_id = $1 ORDER BY line_no`,
+        [documentId],
+      );
+      return rows.map((row) => (row as { lot_id: string | null }).lot_id);
+    }
+
+    it('BE066-04, BE066-07: nháp lô mới không tạo lô, huỷ không để lại lô; ghi sổ tạo lô đúng thông tin', async () => {
+      const muc = await material('QA-BE066');
+      const cancelled = await receiptDraft(muc, 5, {
+        lotNo: 'lo-new-1',
+        manufacturedOn: '2026-01-15',
+        expiresOn: '2027-12-31',
+        certificateNo: 'CO-066',
+      });
+      expect(await lots.list(clerk, muc)).toEqual([]);
+      expect(cancelled.lines[0]).toMatchObject({ lotNo: 'LO-NEW-1', lotExpiresOn: '2027-12-31' });
+      expect(cancelled.lines[0].lotId).toBeUndefined();
+      await documents.cancel(clerk, cancelled.id);
+      expect(await lots.list(clerk, muc)).toEqual([]);
+
+      const draft = await receiptDraft(muc, 7, {
+        lotNo: 'LO-NEW-1',
+        manufacturedOn: '2026-01-15',
+        expiresOn: '2027-12-31',
+        certificateNo: 'CO-066',
+      });
+      expect(await lots.list(clerk, muc)).toEqual([]);
+      const posted = await approveAndPost(draft.id);
+      const [lot] = await lots.list(clerk, muc);
+      expect(lot).toMatchObject({
+        lotNo: 'LO-NEW-1',
+        manufacturedOn: '2026-01-15',
+        expiresOn: '2027-12-31',
+        certificateNo: 'CO-066',
+        quantity: 7,
+      });
+      expect(posted.document.lines[0]).toMatchObject({ lotId: lot.id, lotNo: 'LO-NEW-1' });
+      expect(await lineLotIds(draft.id)).toEqual([lot.id]);
+      expect(await lineLotIds(cancelled.id)).toEqual([null]);
+    });
+
+    it('BE066-05: nháp trên lô có sẵn chưa có hạn dùng không đổi lô; ghi sổ mới điền hạn dùng', async () => {
+      const muc = await material('QA-BE066');
+      await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 3, lot: { lotNo: 'LO-OLD' } });
+      const draft = await receiptDraft(muc, 2, { lotNo: 'LO-OLD', expiresOn: '2028-03-31' });
+      const [before] = await lots.list(clerk, muc);
+      expect(before.expiresOn).toBeUndefined();
+      expect(draft.lines[0]).toMatchObject({ lotId: before.id, lotNo: 'LO-OLD', lotExpiresOn: '2028-03-31' });
+
+      await approveAndPost(draft.id);
+      const [after] = await lots.list(clerk, muc);
+      expect(after).toMatchObject({ id: before.id, expiresOn: '2028-03-31', quantity: 5 });
+    });
+
+    it('BE066-06: hạn dùng xung đột trả 409 lúc lưu nháp và lúc ghi sổ', async () => {
+      const muc = await material('QA-BE066');
+      await app.receiveStock(clerk, {
+        warehouseCode: 'QA-KHO-HN',
+        materialCode: muc,
+        quantity: 1,
+        lot: { lotNo: 'LO-HAN', expiresOn: '2027-12-31' },
+      });
+      const atDraft = await rejection(receiptDraft(muc, 1, { lotNo: 'LO-HAN', expiresOn: '2027-06-30' }));
+      expect([atDraft.statusCode, atDraft.code]).toEqual([409, 'LOT_ATTRIBUTE_CONFLICT']);
+
+      // Nháp hợp lệ lúc lưu, nhưng lô cùng số được ghi sổ trước với hạn khác.
+      const draft = await receiptDraft(muc, 1, { lotNo: 'LO-SAU', expiresOn: '2027-06-30' });
+      await app.receiveStock(clerk, {
+        warehouseCode: 'QA-KHO-HN',
+        materialCode: muc,
+        quantity: 1,
+        lot: { lotNo: 'LO-SAU', expiresOn: '2027-12-31' },
+      });
+      const atPost = await rejection(approveAndPost(draft.id));
+      expect([atPost.statusCode, atPost.code]).toEqual([409, 'LOT_ATTRIBUTE_CONFLICT']);
+      expect((await documents.get(clerk, draft.id)).status).not.toBe('POSTED');
+      expect((await lots.list(clerk, muc)).find((lot) => lot.lotNo === 'LO-SAU')?.expiresOn).toBe('2027-12-31');
+    });
+
+    it('BE066-08: hai nháp cùng lô mới, ghi sổ lần lượt: một lô, tồn bằng tổng', async () => {
+      const muc = await material('QA-BE066');
+      const first = await receiptDraft(muc, 4, { lotNo: 'LO-NEW-2', expiresOn: '2028-01-31' });
+      const second = await receiptDraft(muc, 6, { lotNo: 'LO-NEW-2' });
+      expect(await lots.list(clerk, muc)).toEqual([]);
+      await approveAndPost(first.id);
+      await approveAndPost(second.id);
+      const list = await lots.list(clerk, muc);
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({ lotNo: 'LO-NEW-2', expiresOn: '2028-01-31', quantity: 10 });
+      expect(await lineLotIds(second.id)).toEqual([list[0].id]);
+    });
+
+    it('BE066-09: tạo và ghi sổ ngay (createAndPost) vẫn tạo lô lúc ghi sổ', async () => {
+      const muc = await material('QA-BE066');
+      const received = await app.receiveStock(clerk, {
+        warehouseCode: 'QA-KHO-HN',
+        materialCode: muc,
+        quantity: 8,
+        lot: { lotNo: 'LO-NGAY', expiresOn: '2028-02-29' },
+      });
+      const [lot] = await lots.list(clerk, muc);
+      expect(lot).toMatchObject({ lotNo: 'LO-NGAY', expiresOn: '2028-02-29', quantity: 8 });
+      expect(received.documentId).toBeDefined();
+      expect(await lineLotIds(received.documentId as string)).toEqual([lot.id]);
+    });
+
+    it('BE066-10: sửa nháp đổi lô không tạo lô nào trước khi ghi sổ', async () => {
+      const muc = await material('QA-BE066');
+      const draft = await receiptDraft(muc, 2, { lotNo: 'LO-A', expiresOn: '2028-05-31' });
+      const edited = await documents.update(clerk, draft.id, {
+        lines: [{ materialCode: muc, quantity: 2, lot: { lotNo: 'LO-B', expiresOn: '2028-06-30' } }],
+      });
+      expect(await lots.list(clerk, muc)).toEqual([]);
+      expect(edited.lines[0]).toMatchObject({ lotNo: 'LO-B', lotExpiresOn: '2028-06-30' });
+      await approveAndPost(draft.id);
+      expect((await lots.list(clerk, muc)).map((lot) => lot.lotNo)).toEqual(['LO-B']);
+    });
+
+    it('BE066-11: dòng nháp cũ đã có lot_id, không có lot_draft vẫn ghi sổ bình thường', async () => {
+      const muc = await material('QA-BE066');
+      await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1, lot: { lotNo: 'LO-CU' } });
+      const lot = await lotId(muc, 'LO-CU');
+      const draft = await receiptDraft(muc, 3, { lotNo: 'LO-CU' });
+      // Giả lập dòng tạo trước migration 0026: chỉ có lot_id.
+      await pool.query(
+        `UPDATE inventory_schema.stock_document_lines SET lot_draft = NULL WHERE document_id = $1`,
+        [draft.id],
+      );
+      const posted = await approveAndPost(draft.id);
+      expect(posted.document.lines[0]).toMatchObject({ lotId: lot, lotNo: 'LO-CU' });
+      expect((await lots.list(clerk, muc))[0]).toMatchObject({ id: lot, quantity: 4 });
+    });
+  });
 });

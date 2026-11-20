@@ -352,6 +352,34 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     expect(page.items.filter((item) => item.idempotencyKey === request.idempotencyKey)).toHaveLength(1);
   });
 
+  it('ISS-BE-066: lưu nháp, từ chối không ghi bảng lô; thông tin lô nằm trên dòng đến lúc ghi sổ', async () => {
+    const lotCount = async () => {
+      const { rows } = await pool.query(`SELECT count(*)::int AS n FROM inventory_schema.lots`);
+      return (rows[0] as { n: number }).n;
+    };
+    const before = await lotCount();
+    const draft = await documents.create(clerk, {
+      docType: 'RECEIPT_OTHER',
+      warehouseCode: 'KHO-B',
+      lines: [{ materialCode: 'VT-1', quantity: 2, lot: { lotNo: 'BE066-REJ', expiresOn: '2029-01-31', supplier: 'NCC A' } }],
+    });
+    await documents.submit(clerk, draft.id);
+    await documents.reject(keeper, draft.id, { reason: 'Sai lô' });
+    expect(await lotCount()).toBe(before);
+    const { rows } = await pool.query(
+      `SELECT lot_id, lot_draft FROM inventory_schema.stock_document_lines WHERE document_id = $1`,
+      [draft.id],
+    );
+    expect(rows).toEqual([
+      {
+        lot_id: null,
+        lot_draft: { lotNo: 'BE066-REJ', expiresOn: '2029-01-31', supplier: 'NCC A' },
+      },
+    ]);
+    const reopened = await documents.get(clerk, draft.id);
+    expect(reopened.lines[0]).toMatchObject({ lotNo: 'BE066-REJ', lotExpiresOn: '2029-01-31' });
+  });
+
   it('danh sách lọc nhiều loại, nguồn và khoảng ngày chứng từ (màn thủ kho)', async () => {
     const sourceType = `qa_source_${randomUUID().slice(0, 8)}`;
     const make = (docType: 'ISSUE_SALES' | 'ISSUE_WARRANTY' | 'ISSUE_OTHER', documentDate: string) =>
