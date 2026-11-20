@@ -8,7 +8,7 @@ import { InventoryApplication, type InventoryActor } from './application/invento
 import { StockDocumentService } from './application/stock-document.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, purchaseSource } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 const run = promisify(execFile);
@@ -81,7 +81,7 @@ integration('Dọn lô rác do lưu nháp tạo (ISS-BE-066)', () => {
     await app.createWarehouse(admin, { code: 'CL-KHO', name: 'Kho dọn lô' });
     await app.createMaterial(admin, { code: 'CL-VT', name: 'Vật tư', category: 'CONSUMABLE', unit: 'Cái' });
     // Lô thật có tồn, không hạn dùng; một nháp cũ đã điền hạn dùng vào nó.
-    await app.receiveStock(clerk, { warehouseCode: 'CL-KHO', materialCode: 'CL-VT', quantity: 5, lot: { lotNo: 'LO-THAT' } });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'CL-KHO', materialCode: 'CL-VT', quantity: 5, lot: { lotNo: 'LO-THAT' } });
     const filledDraft = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: 'CL-KHO',

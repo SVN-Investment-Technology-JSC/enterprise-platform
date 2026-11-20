@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import type { StockDocumentLineInput, StockDocumentType } from '@enterprise-platform/contracts-inventory';
+import { isPendingStockMovement, type StockDocumentLineInput, type StockDocumentType } from '@enterprise-platform/contracts-inventory';
 import { InventoryApplication, type InventoryActor } from './application/inventory.application.js';
 import { LotService } from './application/lot.service.js';
 import { QualityService } from './application/quality.service.js';
@@ -634,7 +634,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
 
     it('BE066-05: nháp trên lô có sẵn chưa có hạn dùng không đổi lô; ghi sổ mới điền hạn dùng', async () => {
       const muc = await material('QA-BE066');
-      await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 3, lot: { lotNo: 'LO-OLD' } });
+      await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 3, lot: { lotNo: 'LO-OLD' } });
       const draft = await receiptDraft(muc, 2, { lotNo: 'LO-OLD', expiresOn: '2028-03-31' });
       const [before] = await lots.list(clerk, muc);
       expect(before.expiresOn).toBeUndefined();
@@ -648,6 +648,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     it('BE066-06: hạn dùng xung đột trả 409 lúc lưu nháp và lúc ghi sổ', async () => {
       const muc = await material('QA-BE066');
       await app.receiveStock(clerk, {
+        ...purchaseSource(),
         warehouseCode: 'QA-KHO-HN',
         materialCode: muc,
         quantity: 1,
@@ -659,6 +660,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
       // Nháp hợp lệ lúc lưu, nhưng lô cùng số được ghi sổ trước với hạn khác.
       const draft = await receiptDraft(muc, 1, { lotNo: 'LO-SAU', expiresOn: '2027-06-30' });
       await app.receiveStock(clerk, {
+        ...purchaseSource(),
         warehouseCode: 'QA-KHO-HN',
         materialCode: muc,
         quantity: 1,
@@ -686,6 +688,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     it('BE066-09: tạo và ghi sổ ngay (createAndPost) vẫn tạo lô lúc ghi sổ', async () => {
       const muc = await material('QA-BE066');
       const received = await app.receiveStock(clerk, {
+        ...purchaseSource(),
         warehouseCode: 'QA-KHO-HN',
         materialCode: muc,
         quantity: 8,
@@ -693,6 +696,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
       });
       const [lot] = await lots.list(clerk, muc);
       expect(lot).toMatchObject({ lotNo: 'LO-NGAY', expiresOn: '2028-02-29', quantity: 8 });
+      if (isPendingStockMovement(received)) throw new Error('Phiếu nhập có nguồn phải ghi sổ ngay');
       expect(received.documentId).toBeDefined();
       expect(await lineLotIds(received.documentId as string)).toEqual([lot.id]);
     });
@@ -711,7 +715,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
 
     it('BE066-11: dòng nháp cũ đã có lot_id, không có lot_draft vẫn ghi sổ bình thường', async () => {
       const muc = await material('QA-BE066');
-      await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1, lot: { lotNo: 'LO-CU' } });
+      await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: muc, quantity: 1, lot: { lotNo: 'LO-CU' } });
       const lot = await lotId(muc, 'LO-CU');
       const draft = await receiptDraft(muc, 3, { lotNo: 'LO-CU' });
       // Giả lập dòng tạo trước migration 0026: chỉ có lot_id.
