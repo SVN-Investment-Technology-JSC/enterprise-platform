@@ -755,6 +755,52 @@ export interface LotAllocationInput {
   readonly quantity: number;
 }
 
+/**
+ * `POST v1/issues`: xuất nhanh một mặt hàng. Không có chứng từ nguồn thì thành
+ * chứng từ Chờ duyệt (ISS-BE-006). Hàng theo serial phải gửi đủ `serials`, số
+ * phần tử bằng số lượng nguyên (ISS-BE-005); một dòng chỉ ghi lô hoặc serial.
+ */
+export interface IssueStockRequest {
+  readonly warehouseCode: string;
+  readonly materialCode: string;
+  readonly quantity: number;
+  readonly referenceType?: string;
+  readonly referenceId?: string;
+  readonly note?: string;
+  readonly lots?: readonly LotAllocationInput[];
+  readonly serials?: readonly string[];
+  readonly counterparty?: MovementCounterparty;
+}
+
+/** `POST v1/transfers`: chuyển kho nhanh; hàng theo serial gửi đủ `serials` (ISS-BE-005). */
+export interface TransferStockRequest {
+  readonly fromWarehouseCode: string;
+  readonly toWarehouseCode: string;
+  readonly materialCode: string;
+  readonly quantity: number;
+  readonly note?: string;
+  readonly lots?: readonly LotAllocationInput[];
+  readonly serials?: readonly string[];
+}
+
+/**
+ * `POST v1/movements/batch`: phiếu nhập khác hoặc xuất khác nhiều dòng, một kho.
+ * Trả `PostedStockDocument` với chứng từ Chờ duyệt, `transactions: []` (ISS-BE-006).
+ * Dòng hàng theo serial gửi đủ `serials` (ISS-BE-005).
+ */
+export interface MovementBatchRequest {
+  readonly kind: 'receipt' | 'issue';
+  readonly counterparty?: MovementCounterparty;
+  readonly lines: readonly {
+    readonly warehouseCode: string;
+    readonly materialCode: string;
+    readonly quantity: number;
+    readonly unitCost?: number;
+    readonly note?: string;
+    readonly serials?: readonly string[];
+  }[];
+}
+
 export type AssetTestResultStatus = 'PASSED' | 'FAILED' | 'WARNING';
 
 export interface AssetTestRecord {

@@ -253,19 +253,40 @@ export function resolveLineDirection(
 }
 
 /**
- * Chứng từ gắn với giao hàng, bảo hành, nhận hàng trả về: mặt hàng theo serial
- * phải có đủ serial LÚC GHI SỔ (thủ kho chọn serial trên chứng từ nháp rồi mới
- * ghi sổ). Chứng từ đảo chép serial của chứng từ gốc nên không kiểm lại; đường
- * nhập xuất cũ (loại khác) vẫn cho bỏ trống serial như trước.
+ * Mặt hàng theo serial phải có đủ serial LÚC GHI SỔ ở MỌI loại chứng từ và mọi
+ * đường (ISS-BE-005): nhập, xuất, điều chuyển (dòng xuất), điều chỉnh. Thiếu serial
+ * thì tồn và số serial Trong kho lệch nhau. Chứng từ đảo chép serial của chứng từ
+ * gốc nên không kiểm lại.
  */
-const SERIALS_REQUIRED_AT_POSTING: ReadonlySet<StockDocumentType> = new Set<StockDocumentType>([
-  'ISSUE_SALES',
-  'ISSUE_WARRANTY',
-  'RECEIPT_SALES_RETURN',
-]);
+export function requiresSerialsAtPosting(
+  document: Pick<StockDocument, 'reversesDocumentId'>,
+): boolean {
+  return !document.reversesDocumentId;
+}
 
-export function requiresSerialsAtPosting(docType: StockDocumentType, isReversal: boolean): boolean {
-  return !isReversal && SERIALS_REQUIRED_AT_POSTING.has(docType);
+/**
+ * Một dòng của mặt hàng theo serial: số lượng nguyên và đúng bằng số serial.
+ * `stage` chỉ đổi lời nhắc: lúc nhận yêu cầu thì "nhập", lúc ghi sổ thì "chọn".
+ */
+export function assertSerializedLine(
+  line: { readonly lineNo: number; readonly materialCode: string; readonly quantity: number },
+  serialCount: number,
+  stage: 'request' | 'posting',
+): void {
+  if (!Number.isInteger(line.quantity)) {
+    throw new InventoryError(
+      'SERIALS_REQUIRED',
+      `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial. Hàng theo dõi serial phải có số lượng nguyên.`,
+    );
+  }
+  if (serialCount !== line.quantity) {
+    throw new InventoryError(
+      'SERIALS_REQUIRED',
+      stage === 'posting'
+        ? `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial; chọn đủ ${line.quantity} serial trước khi ghi sổ (đang có ${serialCount}).`
+        : `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial; nhập đủ ${line.quantity} serial (đang có ${serialCount}).`,
+    );
+  }
 }
 
 /** Loại chứng từ phát sự kiện kho khi ghi sổ (T1-27). */

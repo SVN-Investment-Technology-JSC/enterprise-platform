@@ -19,7 +19,6 @@ import type {
   InventorySettingsSnapshot,
   InventoryTransaction,
   Lot,
-  LotAllocationInput,
   LotDetail,
   LotSuggestion,
   Material,
@@ -32,8 +31,11 @@ import type {
   SerialHistory,
   SerialTracking,
   SettingsEntry,
+  IssueStockRequest,
+  MovementBatchRequest,
   PendingStockMovement,
   PostedStockDocument,
+  TransferStockRequest,
   StockDocument,
   StockDocumentListQuery,
   StockDocumentLotInput,
@@ -767,16 +769,7 @@ export function receiveStock(input: {
   });
 }
 
-export function issueStock(input: {
-  warehouseCode: string;
-  materialCode: string;
-  quantity: number;
-  note?: string;
-  /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
-  lots?: readonly LotAllocationInput[];
-  /** Nơi xuất đi đến (bộ phận, khách, dự án…). */
-  counterparty?: MovementCounterparty;
-}): Promise<InventoryTransaction | PendingStockMovement> {
+export function issueStock(input: IssueStockRequest): Promise<InventoryTransaction | PendingStockMovement> {
   // Không có chứng từ nguồn: server tạo phiếu xuất Chờ duyệt, chưa ghi sổ (ISS-BE-006).
   return request<InventoryTransaction | PendingStockMovement>('/issues', {
     method: 'POST',
@@ -788,33 +781,14 @@ export function issueStock(input: {
  * Phiếu nhập khác hoặc xuất khác nhiều dòng: server tạo MỘT chứng từ Chờ duyệt
  * (`transactions: []`); tồn chỉ đổi khi người duyệt duyệt và ghi sổ (ISS-BE-006).
  */
-export function recordMovementBatch(input: {
-  kind: 'receipt' | 'issue';
-  /** Nơi nhập đến từ / nơi xuất đi đến của cả phiếu. */
-  counterparty?: MovementCounterparty;
-  lines: {
-    warehouseCode: string;
-    materialCode: string;
-    quantity: number;
-    unitCost?: number;
-    note?: string;
-  }[];
-}): Promise<PostedStockDocument> {
+export function recordMovementBatch(input: MovementBatchRequest): Promise<PostedStockDocument> {
   return request<PostedStockDocument>('/movements/batch', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function transferStock(input: {
-  fromWarehouseCode: string;
-  toWarehouseCode: string;
-  materialCode: string;
-  quantity: number;
-  note?: string;
-  /** Phân bổ theo lô; phần còn lại chuyển không theo lô. */
-  lots?: readonly LotAllocationInput[];
-}): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
+export function transferStock(input: TransferStockRequest): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
   return request<{ out: InventoryTransaction; in: InventoryTransaction }>('/transfers', {
     method: 'POST',
     body: JSON.stringify(input),

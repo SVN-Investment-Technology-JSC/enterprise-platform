@@ -3,6 +3,15 @@ import { InventoryApplication, type InventoryActor } from './inventory.applicati
 import type { InventoryStore } from './inventory-store.port.js';
 import type { NewStockDocumentInput, PostOptions, StockDocumentStore } from './stock-document-store.port.js';
 
+/** Danh mục giả: mã bắt đầu bằng `SR` theo dõi serial, mã khác là hàng thường. */
+const catalog = {
+  material: {
+    findAnyByCode: jest.fn(async (_tenantId: string, code: string) =>
+      ({ code, kind: 'STOCK', isSerialized: code.startsWith('SR') }),
+    ),
+  },
+} as unknown as InventoryStore;
+
 const actor: InventoryActor = {
   tenantId: 't1',
   userId: 'u1',
@@ -21,7 +30,7 @@ function setup(transactions: InventoryTransaction[] = []) {
       },
     ),
   } as unknown as StockDocumentStore;
-  return { app: new InventoryApplication({} as InventoryStore, documents), calls, documents };
+  return { app: new InventoryApplication(catalog, documents), calls, documents };
 }
 
 const line = { warehouseCode: 'A', materialCode: 'M1', quantity: 3 };
@@ -126,6 +135,36 @@ describe('InventoryApplication phiếu nhập/xuất nhiều dòng', () => {
       app.recordMovementLines(actor, { kind: 'issue', lines: [{ ...line, quantity: 0 }] }),
     ).rejects.toThrow();
     expect(documents.createAndPost).not.toHaveBeenCalled();
+  });
+
+  it('dòng hàng serial mang serial xuống chứng từ; thiếu serial thì 400 SERIALS_REQUIRED, không tạo chứng từ (ISS-BE-005)', async () => {
+    const { app, calls, documents } = setup();
+    await app.recordMovementLines(actor, {
+      kind: 'receipt',
+      lines: [line, { ...line, materialCode: 'SR-1', quantity: 2, serials: [' S-1 ', 'S-2'] }],
+    });
+    expect(calls[0].input.lines[1]).toMatchObject({ materialCode: 'SR-1', serials: ['S-1', 'S-2'] });
+    expect(calls[0].input.lines[0].serials).toBeUndefined();
+
+    const missing = app.recordMovementLines(actor, {
+      kind: 'issue',
+      lines: [line, { ...line, materialCode: 'SR-1', quantity: 1 }],
+    });
+    await expect(missing).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'SERIALS_REQUIRED',
+      message: 'Dòng 2: SR-1 theo dõi theo serial; nhập đủ 1 serial (đang có 0).',
+    });
+    await expect(
+      app.recordMovementLines(actor, {
+        kind: 'receipt',
+        lines: [
+          { ...line, materialCode: 'SR-1', quantity: 1, serials: ['S-9'] },
+          { ...line, materialCode: 'SR-1', quantity: 1, serials: ['s-9 '] },
+        ],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(documents.createAndPost).toHaveBeenCalledTimes(1);
   });
 
   it('người không có quyền ghi phát sinh tồn kho bị từ chối', async () => {

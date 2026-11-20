@@ -547,6 +547,7 @@ export function InventoryScreen() {
               parentCode: movement.targetAssetCode,
               quantity: item.quantity,
               note: lineNote,
+              serials: item.serialNumbers?.length ? [...item.serialNumbers] : undefined,
             });
             showInLedger([tx]);
             txCodes.push(tx.transactionCode);
@@ -557,6 +558,8 @@ export function InventoryScreen() {
               quantity: item.quantity,
               note: lineNote,
               lots: lotAllocations(item),
+              // Hàng theo serial phải gửi đủ serial (ISS-BE-005).
+              serials: item.serialNumbers?.length ? [...item.serialNumbers] : undefined,
               counterparty: movement.counterparty,
             });
             if (isPendingStockMovement(result)) {
@@ -593,6 +596,7 @@ export function InventoryScreen() {
           quantity: item.quantity,
           note: lineNote,
           lots: lotAllocations(item),
+          serials: item.serialNumbers?.length ? [...item.serialNumbers] : undefined,
         });
         showInLedger([moved.out, moved.in]);
         txCodes.push(`${moved.out.transactionCode}/${moved.in.transactionCode}`);

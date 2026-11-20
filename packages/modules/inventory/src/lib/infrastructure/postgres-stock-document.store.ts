@@ -44,6 +44,7 @@ import {
 } from '../domain/costing.js';
 import {
   assertPostable,
+  assertSerializedLine,
   documentRequiresApproval,
   isExemptOrigin,
   requiresSerialsAtPosting,
@@ -987,7 +988,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     // Mọi đường ghi sổ (ghi ngay, ghi chứng từ đã duyệt, đảo) cùng kiểm duyệt ở đây.
     assertPostable(document, { origin: options.origin });
     const isReversal = Boolean(document.reversesDocumentId);
-    await this.assertPostableMaterials(client, document, isReversal);
+    await this.assertPostableMaterials(client, document);
 
     // ISS-BE-066: lô mới, hạn dùng còn thiếu của dòng nhập chỉ ghi vào bảng lô lúc này.
     document = await this.materializeDraftLots(client, document, postedBy);
@@ -1302,33 +1303,24 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
 
   /**
    * Kiểm mặt hàng trước khi ghi sổ: dịch vụ không ghi sổ kho (D6, phòng mã đổi
-   * loại sau khi lập nháp); chứng từ giao hàng, bảo hành, nhập trả phải có đủ
-   * serial cho mặt hàng theo serial.
+   * loại sau khi lập nháp); mặt hàng theo serial phải có số lượng nguyên và đủ
+   * serial ở mọi loại chứng từ, dòng nhập lẫn dòng xuất (ISS-BE-005). Điều chuyển
+   * chỉ có dòng xuất; vế nhập ở kho đích dùng đúng serial của dòng xuất.
    */
-  private async assertPostableMaterials(
-    client: Queryable,
-    document: StockDocument,
-    isReversal: boolean,
-  ): Promise<void> {
+  private async assertPostableMaterials(client: Queryable, document: StockDocument): Promise<void> {
     const result = await client.query<Row>(
       `SELECT id, code, kind, is_serialized FROM inventory_schema.materials WHERE id = ANY($1::uuid[])`,
       [[...new Set(document.lines.map((line) => line.materialId))]],
     );
     const materials = new Map(result.rows.map((row) => [str(row.id), row]));
-    const serialsRequired = requiresSerialsAtPosting(document.docType, isReversal);
+    const serialsRequired = requiresSerialsAtPosting(document);
     for (const line of document.lines) {
       const material = materials.get(line.materialId);
       if (material && str(material.kind) === 'SERVICE') {
         throw new ServiceMaterialNotStockedError(line.materialCode);
       }
       if (serialsRequired && material && Boolean(material.is_serialized)) {
-        const count = line.serials?.length ?? 0;
-        if (count !== line.quantity) {
-          throw new InventoryError(
-            'SERIALS_REQUIRED',
-            `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial; chọn đủ ${line.quantity} serial trước khi ghi sổ (đang có ${count}).`,
-          );
-        }
+        assertSerializedLine(line, line.serials?.length ?? 0, 'posting');
       }
     }
   }

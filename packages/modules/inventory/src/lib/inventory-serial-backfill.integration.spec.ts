@@ -42,10 +42,13 @@ integration('Backfill stock_state của serial sau rollback', () => {
       new PostgresStockDocumentStore(database.references, database.pools),
     );
     await app.createWarehouse(admin, { code: 'RB-KHO', name: 'Kho rollback' });
-    await app.createMaterial(admin, { code: 'RB-MAY', name: 'Máy', category: 'SPARE_PART', unit: 'Cái', isSerialized: true });
+    await app.createMaterial(admin, { code: 'RB-MAY', name: 'Máy', category: 'SPARE_PART', unit: 'Cái' });
     await app.createMaterial(admin, { code: 'RB-CAP', name: 'Cáp', category: 'CONSUMABLE', unit: 'Mét' });
     // Tồn 3 máy nhập không kèm serial (đường cũ), một serial đã Trong kho từ chứng từ.
+    // Đường cũ nay bị chặn (ISS-BE-005): dựng dữ liệu cũ bằng cách nhập khi chưa theo
+    // dõi serial rồi bật cờ thẳng trong DB, đúng tình trạng dữ liệu trước bản sửa.
     await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: 'RB-KHO', materialCode: 'RB-MAY', quantity: 2 });
+    await pool.query(`UPDATE inventory_schema.materials SET is_serialized = true WHERE code = 'RB-MAY'`);
     await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: 'RB-KHO', materialCode: 'RB-MAY', quantity: 1, serials: ['RB-00'] });
     await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: 'RB-KHO', materialCode: 'RB-CAP', quantity: 5 });
     // Bản cũ khai serial kèm kho: stock_state NULL. Ba serial có kho, một không có kho (không phải ứng viên).

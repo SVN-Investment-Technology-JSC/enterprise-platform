@@ -16,6 +16,7 @@ import {
   POSTING_ORIGINS,
   requiresApproval,
   requiresSerialsAtPosting,
+  assertSerializedLine,
   resolveLineDirection,
   stockEventKind,
 } from './stock-document-policy.js';
@@ -131,10 +132,28 @@ describe('máy trạng thái chứng từ kho (TC-SM-11)', () => {
 });
 
 describe('serial bắt buộc lúc ghi sổ và sự kiện kho (T1-25, T1-27)', () => {
-  it('chỉ xuất bán, xuất bảo hành, nhập trả bắt buộc serial; chứng từ đảo thì không', () => {
-    const required = STOCK_DOCUMENT_TYPES.filter((type) => requiresSerialsAtPosting(type, false));
-    expect(required).toEqual(['RECEIPT_SALES_RETURN', 'ISSUE_SALES', 'ISSUE_WARRANTY']);
-    expect(requiresSerialsAtPosting('ISSUE_SALES', true)).toBe(false);
+  it('mọi loại chứng từ bắt buộc serial cho hàng theo serial; chứng từ đảo thì không (ISS-BE-005)', () => {
+    // Không còn danh sách loại chứng từ: chỉ chứng từ đảo được miễn (chép serial của chứng từ gốc).
+    expect(requiresSerialsAtPosting({ reversesDocumentId: undefined })).toBe(true);
+    expect(requiresSerialsAtPosting({ reversesDocumentId: 'goc' })).toBe(false);
+  });
+
+  it('dòng hàng serial: số lượng nguyên và đúng bằng số serial, lời nhắc tiếng Việt', () => {
+    const line = { lineNo: 2, materialCode: 'VT-SR', quantity: 2 };
+    expect(() => assertSerializedLine(line, 2, 'posting')).not.toThrow();
+    expect(() => assertSerializedLine(line, 1, 'request')).toThrow(
+      expect.objectContaining({
+        statusCode: 400,
+        code: 'SERIALS_REQUIRED',
+        message: 'Dòng 2: VT-SR theo dõi theo serial; nhập đủ 2 serial (đang có 1).',
+      }),
+    );
+    expect(() => assertSerializedLine(line, 3, 'posting')).toThrow(
+      'Dòng 2: VT-SR theo dõi theo serial; chọn đủ 2 serial trước khi ghi sổ (đang có 3).',
+    );
+    expect(() => assertSerializedLine({ ...line, quantity: 1.5 }, 1, 'request')).toThrow(
+      expect.objectContaining({ code: 'SERIALS_REQUIRED', message: expect.stringContaining('Hàng theo dõi serial phải có số lượng nguyên.') }),
+    );
   });
 
   it('chứng từ xuất phát issued, nhập trả hàng bán phát returned, loại khác không phát', () => {

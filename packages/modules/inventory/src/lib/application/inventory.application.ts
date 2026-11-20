@@ -88,7 +88,9 @@ import {
   INVENTORY_SETTINGS_KEYS,
   MOVEMENT_COUNTERPARTY_TYPES,
 } from '@enterprise-platform/contracts-inventory';
+import { assertSerializedLine } from '../domain/stock-document-policy.js';
 import {
+  assertSerialsUniqueAcrossLines,
   normalizeLineSerials,
   normalizeLotInput,
   serialKey,
@@ -858,6 +860,8 @@ export class InventoryApplication {
     const material = await this.store.material.findAnyByCode(actor.tenantId, materialCode);
     if (!material) throw new MaterialNotFoundError(materialCode);
     if (material.kind === 'SERVICE') throw new ServiceMaterialNotStockedError(materialCode);
+    // Khai serial bật cờ theo dõi serial: chặn trước khi ghi gì nếu tồn chưa có serial (Q3-1).
+    if (!material.isSerialized) await this.assertSerializable(actor, material.code);
 
     // Bỏ trùng và bỏ rỗng ngay: dán một cột từ Excel gần như luôn kéo theo dòng
     // trắng, và hai dòng giống nhau thì chỉ là một cá thể.
@@ -884,6 +888,24 @@ export class InventoryApplication {
 
     const total = (await this.store.serial.listByMaterial(actor.tenantId, materialCode)).length;
     return { added, total };
+  }
+
+  /**
+   * Chặn bật theo dõi serial khi đang có tồn mà số serial Trong kho không khớp tồn
+   * ở từng kho (ISS-BE-005, Q3-1): bật lên thì tồn và serial lệch nhau ngay, mọi
+   * phiếu xuất sau đó bị chặn vì thiếu serial.
+   */
+  private async assertSerializable(actor: InventoryActor, code: string): Promise<void> {
+    const gaps = await this.store.material.unserializedStock(actor.tenantId, code);
+    if (gaps.length === 0) return;
+    const detail = gaps
+      .map((gap) => `kho ${gap.warehouseCode} tồn ${gap.onHand}, ${gap.inStockSerials} serial Trong kho`)
+      .join('; ');
+    throw new InventoryError(
+      'SERIALIZATION_STOCK_MISMATCH',
+      `Vật tư đang có tồn chưa có serial (${detail}). Xuất hoặc điều chỉnh hết phần tồn này, bật theo dõi serial rồi nhập lại kèm serial.`,
+      409,
+    );
   }
 
   async updateSerial(
@@ -946,6 +968,7 @@ export class InventoryApplication {
     if (serials && lot) {
       throw new InventoryError('VALIDATION', 'Dòng 1: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.');
     }
+    await this.requireSerialsForTracked(actor, [{ ...input, serials }]);
     const posted = await this.postLegacyDocument(actor, {
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: input.warehouseCode,
@@ -984,11 +1007,14 @@ export class InventoryApplication {
       referenceId?: string;
       note?: string;
       lots?: readonly LotAllocationInput[];
+      /** Serial xuất, số phần tử bằng số lượng; bắt buộc với hàng theo serial (ISS-BE-005). */
+      serials?: readonly string[];
       counterparty?: MovementCounterparty;
     },
   ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
+    const lines = await this.outboundLines(actor, input);
     // Phân bổ nhiều lô thành nhiều dòng của cùng một chứng từ; response giữ bút
     // toán của dòng đầu như trước.
     const posted = await this.postLegacyDocument(actor, {
@@ -998,13 +1024,7 @@ export class InventoryApplication {
       sourceId: input.referenceId,
       note: input.note,
       createdBy: actor.userId,
-      lines: splitByLots(input.quantity, input.lots).map((part) => ({
-        materialCode: input.materialCode,
-        quantity: part.quantity,
-        direction: 'OUT' as const,
-        unitCost: 0,
-        lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
-      })),
+      lines,
     }, { counterparty: this.normalizeCounterparty(input.counterparty) });
     return legacyResult(posted);
   }
@@ -1023,6 +1043,8 @@ export class InventoryApplication {
       quantity: number;
       note?: string;
       lots?: readonly LotAllocationInput[];
+      /** Serial chuyển, số phần tử bằng số lượng; bắt buộc với hàng theo serial (ISS-BE-005). */
+      serials?: readonly string[];
     },
   ): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
     this.requireStockWriter(actor);
@@ -1030,6 +1052,7 @@ export class InventoryApplication {
     if (input.fromWarehouseCode === input.toWarehouseCode) {
       throw new InvalidReservationError('Kho nguồn và kho đích phải khác nhau.');
     }
+    const lines = await this.outboundLines(actor, input);
 
     const {
       transactions: [out, inbound],
@@ -1039,13 +1062,7 @@ export class InventoryApplication {
       targetWarehouseCode: input.toWarehouseCode,
       note: input.note,
       createdBy: actor.userId,
-      lines: splitByLots(input.quantity, input.lots).map((part) => ({
-        materialCode: input.materialCode,
-        quantity: part.quantity,
-        direction: 'OUT' as const,
-        unitCost: 0,
-        lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
-      })),
+      lines,
     });
     return { out, in: inbound };
   }
@@ -1068,6 +1085,8 @@ export class InventoryApplication {
         quantity: number;
         unitCost?: number;
         note?: string;
+        /** Serial của dòng, số phần tử bằng số lượng; bắt buộc với hàng theo serial (ISS-BE-005). */
+        serials?: readonly string[];
       }[];
     },
   ): Promise<PostedStockDocument> {
@@ -1086,6 +1105,13 @@ export class InventoryApplication {
     }
     const counterparty = this.normalizeCounterparty(input.counterparty);
     const receipt = input.kind === 'receipt';
+    const withSerials = input.lines.map((line, index) => ({
+      ...line,
+      serials: normalizeLineSerials(line.serials, line.quantity, index + 1),
+    }));
+    assertSerialsUniqueAcrossLines(withSerials);
+    // Một dòng hàng serial thiếu serial thì 400 ngay, không tạo chứng từ nào.
+    await this.requireSerialsForTracked(actor, withSerials);
     // Chứng từ chỉ có một ghi chú chung: gộp ghi chú các dòng, bỏ trùng.
     const note = [...new Set(input.lines.map((line) => line.note?.trim()).filter(Boolean))].join(' ; ');
     return this.postLegacyDocument(
@@ -1095,15 +1121,72 @@ export class InventoryApplication {
         warehouseCode: input.lines[0].warehouseCode,
         note: note || undefined,
         createdBy: actor.userId,
-        lines: input.lines.map((line) => ({
+        lines: withSerials.map((line) => ({
           materialCode: line.materialCode,
           quantity: line.quantity,
           direction: receipt ? ('IN' as const) : ('OUT' as const),
           unitCost: receipt ? (line.unitCost ?? 0) : 0,
+          ...(line.serials ? { serials: line.serials } : {}),
         })),
       },
       { counterparty },
     );
+  }
+
+  /**
+   * Dòng xuất của đường xuất, chuyển nhanh: có serial thì một dòng mang đủ serial
+   * (không trộn với lô); không thì tách theo lô như trước. Hàng theo serial thiếu
+   * serial thì 400 SERIALS_REQUIRED trước khi tạo chứng từ (ISS-BE-005).
+   */
+  private async outboundLines(
+    actor: InventoryActor,
+    input: {
+      materialCode: string;
+      quantity: number;
+      lots?: readonly LotAllocationInput[];
+      serials?: readonly string[];
+    },
+  ): Promise<StockDocumentLineDraft[]> {
+    const serials = normalizeLineSerials(input.serials, input.quantity, 1);
+    if (serials && input.lots?.length) {
+      throw new InventoryError('VALIDATION', 'Dòng 1: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.');
+    }
+    await this.requireSerialsForTracked(actor, [{ ...input, serials }]);
+    if (serials) {
+      return [{ materialCode: input.materialCode, quantity: input.quantity, direction: 'OUT', unitCost: 0, serials }];
+    }
+    return splitByLots(input.quantity, input.lots).map((part) => ({
+      materialCode: input.materialCode,
+      quantity: part.quantity,
+      direction: 'OUT' as const,
+      unitCost: 0,
+      lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
+    }));
+  }
+
+  /**
+   * Mặt hàng theo serial: số lượng nguyên và đủ serial, báo sớm 400 SERIALS_REQUIRED
+   * tiếng Việt trước khi tạo chứng từ (ISS-BE-005). Store vẫn kiểm lại lúc ghi sổ.
+   */
+  private async requireSerialsForTracked(
+    actor: InventoryActor,
+    lines: readonly { materialCode: string; quantity: number; serials?: readonly string[] }[],
+  ): Promise<void> {
+    const tracked = new Map<string, boolean>();
+    for (const [index, line] of lines.entries()) {
+      const code = line.materialCode?.trim();
+      if (!code) continue;
+      if (!tracked.has(code)) {
+        const material = await this.store.material.findAnyByCode(actor.tenantId, code);
+        tracked.set(code, material?.isSerialized === true);
+      }
+      if (!tracked.get(code)) continue;
+      assertSerializedLine(
+        { lineNo: index + 1, materialCode: code, quantity: line.quantity },
+        line.serials?.length ?? 0,
+        'request',
+      );
+    }
   }
 
   /**
@@ -1452,6 +1535,9 @@ export class InventoryApplication {
     }
     if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
+    }
+    if (patch.isSerialized === true && !current.isSerialized) {
+      await this.assertSerializable(actor, current.code);
     }
     // Không truyền đối số thứ tư khi không phải nhập từ hệ cũ: đường sửa thường giữ nguyên chữ ký cũ.
     const updated = history
