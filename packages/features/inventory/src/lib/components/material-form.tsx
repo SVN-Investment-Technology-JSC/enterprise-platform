@@ -6,11 +6,14 @@ import type {
   Material,
   MaterialCategory,
   MaterialKind,
+  MaterialTrackingMode,
+  TrackingDefaultsByCategory,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode, suggestTrackingMode } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
 import { Info, Layers, Package, QrCode } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
-import { currencyLabel } from '../inventory-labels';
+import { MATERIAL_CATEGORY_LABEL, currencyLabel } from '../inventory-labels';
 import { categoriesOf, withCurrent } from '../trade-items.model';
 import { FormError, useFormSubmit } from './form-error';
 import { Button } from '../ui/button';
@@ -64,7 +67,16 @@ const TRACKING_CARDS: readonly {
   },
 ];
 
-export type MaterialTrackingMode = 'SERIAL' | 'LOT' | 'NONE';
+const CATEGORY_OPTIONS = (Object.keys(MATERIAL_CATEGORY_LABEL) as MaterialCategory[]).map((value) => ({
+  value,
+  label: MATERIAL_CATEGORY_LABEL[value],
+}));
+
+/** Công tắc quản lý theo lô, serial của tenant (Cài đặt). */
+export interface MaterialFormTracking {
+  readonly lotEnabled: boolean;
+  readonly serialEnabled: boolean;
+}
 
 /** Dịch vụ, phần mềm có trong danh mục để bán nhưng không quản lý tồn (D6). */
 const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
@@ -87,6 +99,8 @@ export function MaterialForm({
   units = [],
   types = [],
   catalog,
+  tracking,
+  trackingDefaults,
   busy,
   onCancel,
   onSubmit,
@@ -98,6 +112,13 @@ export function MaterialForm({
   types?: readonly string[];
   /** Danh mục phân loại khai trong Cài đặt: nguồn duy nhất của ô Phân loại (hàng hóa và dịch vụ có danh sách riêng). */
   catalog?: InventoryTradeCatalog;
+  /**
+   * Công tắc quản lý theo lô, serial của tenant. Chưa tải xong thì để trống: form hiện đủ ba cách và server kiểm
+   * lại. Tắt thì ẩn cách theo dõi tương ứng.
+   */
+  tracking?: MaterialFormTracking;
+  /** Gợi ý cách theo dõi theo nhóm (Cài đặt); trống thì dùng mặc định tích hợp. */
+  trackingDefaults?: TrackingDefaultsByCategory;
   busy: boolean;
   onCancel: () => void;
   /** Từ chối (reject) khi Kho báo lỗi để form hiện lý do và giữ dữ liệu. */
@@ -120,13 +141,23 @@ export function MaterialForm({
     editing?.purchasePrice === undefined ? '' : String(editing.purchasePrice),
   );
 
-  // Xác định phương thức quản lý ban đầu khi sửa hoặc tạo mới
-  const initialMode: MaterialTrackingMode = editing?.isSerialized
-    ? 'SERIAL'
-    : editing?.category === 'CONSUMABLE'
-    ? 'LOT'
-    : 'NONE';
-  const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(initialMode);
+  // Nhóm kỹ thuật (phụ tùng, tiêu hao...) độc lập với cách theo dõi: chỉ gợi ý giá trị điền sẵn lúc tạo.
+  const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
+  const modeAllowed = (mode: MaterialTrackingMode): boolean =>
+    mode === 'NONE' ||
+    tracking === undefined ||
+    (mode === 'LOT' ? tracking.lotEnabled : tracking.serialEnabled);
+  // Sửa: cách theo dõi đang lưu. Tạo: gợi ý theo nhóm, nhưng chỉ lấy khi tenant đã bật cách đó.
+  const currentMode: MaterialTrackingMode | undefined = editing ? resolveTrackingMode(editing) : undefined;
+  const suggestedMode = (next: MaterialCategory): MaterialTrackingMode => {
+    const suggestion = suggestTrackingMode(next, trackingDefaults);
+    return modeAllowed(suggestion) ? suggestion : 'NONE';
+  };
+  const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(
+    currentMode ?? suggestedMode(category),
+  );
+  // Người dùng đã tự chọn cách theo dõi thì đổi nhóm không điền đè nữa.
+  const [trackingTouched, setTrackingTouched] = useState(false);
 
   // Mỗi nhóm (hàng hóa, dịch vụ) một danh sách phân loại riêng, lấy từ Cài đặt.
   const categoryOptions = useMemo(
@@ -154,11 +185,10 @@ export function MaterialForm({
 
     if (!cleanCode || !cleanName || !cleanUnit) return;
 
-    // `category` là trường kỹ thuật (theo lô hay không) để thỏa ràng buộc database; không hiện cho người dùng.
-    // Phân loại người dùng thấy và chọn là `tradeCategory`, lấy từ Cài đặt.
-    const category: MaterialCategory =
-      trackingMode === 'LOT' ? 'CONSUMABLE' : 'SPARE_PART';
-    const isSerialized = !isService && trackingMode === 'SERIAL';
+    // `category` là nhóm kỹ thuật, không quyết định cách theo dõi. Phân loại người dùng thấy và chọn là
+    // `tradeCategory`, lấy từ Cài đặt. Dịch vụ luôn theo dõi theo số lượng.
+    const mode: MaterialTrackingMode = isService ? 'NONE' : trackingMode;
+    const isSerialized = mode === 'SERIAL';
     const warranty = warrantyMonths.trim();
     const price = purchasePrice.trim() === '' ? undefined : Number(purchasePrice);
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) return;
@@ -174,6 +204,7 @@ export function MaterialForm({
       maxStock: isService ? 0 : Number(maxStock) || 0,
       purchasePrice: price,
       isSerialized,
+      trackingMode: mode,
       kind,
       // Ô trống khi sửa là xoá số tháng đã khai.
       warrantyMonths: warranty ? Math.max(Math.trunc(Number(warranty)) || 0, 0) : editing ? null : undefined,
@@ -181,8 +212,12 @@ export function MaterialForm({
   };
 
   const isDisabled = busy;
+  // Ẩn cách theo dõi tenant chưa bật; riêng cách đang lưu của mã đang sửa luôn hiện để không làm mất nó khỏi form.
+  const visibleCards = TRACKING_CARDS.filter(
+    (card) => modeAllowed(card.mode) || card.mode === currentMode,
+  );
 
-  const dirtySnapshot = JSON.stringify([code, name, tradeCategory, type, unit, minStock, maxStock, kind, warrantyMonths, purchasePrice, trackingMode]);
+  const dirtySnapshot = JSON.stringify([code, name, category, tradeCategory, type, unit, minStock, maxStock, kind, warrantyMonths, purchasePrice, trackingMode]);
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
@@ -307,6 +342,30 @@ export function MaterialForm({
                 ) : null}
               </Label>
 
+              {!isService ? (
+                <Label className={FIELD_CLASS}>
+                  Nhóm
+                  <SearchableSelect
+                    options={CATEGORY_OPTIONS}
+                    value={category}
+                    placeholder="Chọn nhóm"
+                    emptyText="Không có nhóm phù hợp"
+                    onChange={(value) => {
+                      const next = (value || category) as MaterialCategory;
+                      setCategory(next);
+                      // Chỉ điền sẵn khi tạo mới và người dùng chưa tự chọn cách theo dõi.
+                      if (!editing && !trackingTouched) setTrackingMode(suggestedMode(next));
+                    }}
+                    className="w-full"
+                  />
+                  <small className="text-xs font-normal text-slate-500">
+                    {editing
+                      ? 'Đổi nhóm không làm đổi cách theo dõi.'
+                      : 'Nhóm gợi ý sẵn cách theo dõi bên dưới, bạn vẫn đổi được.'}
+                  </small>
+                </Label>
+              ) : null}
+
               <Label className={FIELD_CLASS}>
                 Bảo hành (tháng)
                 <Input
@@ -363,8 +422,14 @@ export function MaterialForm({
                 Phương thức quản lý định danh vật tư *
               </span>
 
-              <div className="grid grid-cols-3 gap-2.5">
-                {TRACKING_CARDS.map(({ mode, Icon, title, description, active, icon, titleActive }) => {
+              {visibleCards.length < 2 ? (
+                <p className="m-0 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-[13px] leading-normal text-slate-600">
+                  Đơn vị chưa bật quản lý theo lô hoặc theo serial nên vật tư được quản lý theo số lượng. Quản trị viên bật ở
+                  Cài đặt, mục Theo dõi lô và serial.
+                </p>
+              ) : (
+              <div className={cn('grid gap-2.5', visibleCards.length === 2 ? 'grid-cols-2' : 'grid-cols-3')}>
+                {visibleCards.map(({ mode, Icon, title, description, active, icon, titleActive }) => {
                   const selected = trackingMode === mode;
                   return (
                     <label
@@ -372,7 +437,7 @@ export function MaterialForm({
                       className={cn(
                         'flex flex-col gap-1.5 rounded-lg p-3 transition-all',
                         selected ? active : 'border border-slate-200 bg-white',
-                        editing ? 'cursor-not-allowed' : 'cursor-pointer',
+                        'cursor-pointer',
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -380,9 +445,11 @@ export function MaterialForm({
                           type="radio"
                           name="trackingMode"
                           className="accent-primary"
-                          disabled={Boolean(editing)}
                           checked={selected}
-                          onChange={() => setTrackingMode(mode)}
+                          onChange={() => {
+                            setTrackingMode(mode);
+                            setTrackingTouched(true);
+                          }}
                         />
                         <Icon size={16} className={selected ? icon : 'text-slate-500'} />
                         <span className={cn('text-sm font-bold', selected ? titleActive : 'text-slate-700')}>
@@ -394,6 +461,12 @@ export function MaterialForm({
                   );
                 })}
               </div>
+              )}
+              {editing && visibleCards.length >= 2 ? (
+                <small className="mt-2 block text-xs text-slate-500">
+                  Chỉ đổi được khi mã chưa có tồn, chứng từ, giữ hàng, lô hay serial. Đã có thì Kho sẽ từ chối.
+                </small>
+              ) : null}
             </div>
 
             ) : null}

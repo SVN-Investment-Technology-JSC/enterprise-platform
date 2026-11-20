@@ -13,6 +13,7 @@ import type {
   InventoryTransaction,
   Material,
   MaterialInventory,
+  MaterialTrackingMode,
   Reservation,
   SerialTracking,
   AssetBomLine,
@@ -116,6 +117,24 @@ export interface InventoryStore {
     countTransactions(tenantId: string, code: string): Promise<number>;
     /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
     hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
+    /**
+     * Có dòng tồn, bút toán, chứng từ, giữ hàng, serial hay lô nào không; chặn đổi cách theo dõi.
+     * Rộng hơn `hasStockFootprint` ở chỗ tính cả lô.
+     */
+    hasTrackingFootprint(tenantId: string, code: string): Promise<boolean>;
+    /** Đổi `tracking_mode` và ghi `material_tracking_history` trong một transaction. */
+    changeTrackingMode(
+      tenantId: string,
+      code: string,
+      change: {
+        readonly from: MaterialTrackingMode;
+        readonly to: MaterialTrackingMode;
+        readonly changedBy?: string;
+        readonly reason?: string;
+      },
+    ): Promise<void>;
+    /** Số mặt hàng đang theo dõi theo `mode` mà còn tồn; chặn tắt công tắc lô, serial của tenant. */
+    countTrackedWithStock(tenantId: string, mode: MaterialTrackingMode): Promise<number>;
     /**
      * Mọi nơi đang trỏ vào mã này (bảng của Kho và cột material_id, material_code của các phân hệ khác);
      * rỗng nghĩa là mã chưa có liên kết nào và xoá được.

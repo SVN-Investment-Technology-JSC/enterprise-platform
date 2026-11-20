@@ -1,10 +1,15 @@
 import {
   COSTING_METHODS,
+  DEFAULT_TRACKING_BY_CATEGORY,
   INVENTORY_SETTINGS_KEYS,
+  isMaterialTrackingMode,
   type CostingMethod,
   type InventoryCatalogSettings,
   type InventorySettings,
   type InventorySettingsKey,
+  type MaterialCategory,
+  type MaterialTrackingMode,
+  type TrackingDefaultsByCategory,
 } from '@enterprise-platform/contracts-inventory';
 import { normalizeLevelNames } from '../domain/storage-location-policy.js';
 
@@ -74,6 +79,10 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   // Không có cấp dựng sẵn: vị trí nhập thành một chuỗi cho tới khi tenant khai tên cấp (giao diện gợi ý mẫu Khu vực,
   // Dãy, Kệ, Tầng, Ô chứa để chọn nhanh).
   'warehouse.location.levels': { levels: [] },
+  // Quản lý theo lô, theo serial là tuỳ chọn của tenant: mặc định tắt.
+  'tracking.lot.enabled': { enabled: false },
+  'tracking.serial.enabled': { enabled: false },
+  'tracking.defaultByCategory': DEFAULT_TRACKING_BY_CATEGORY,
 };
 
 export function isInventorySettingsKey(value: string): value is InventorySettingsKey {
@@ -107,6 +116,26 @@ function normalizeCatalog(value: unknown): InventoryCatalogSettings {
     priceFieldsEnabled: raw.priceFieldsEnabled !== false,
     warrantyFieldsEnabled: raw.warrantyFieldsEnabled !== false,
   };
+}
+
+const TRACKING_CATEGORIES: readonly MaterialCategory[] = ['SPARE_PART', 'CONSUMABLE', 'TOOL', 'ROTABLE'];
+
+/** Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về tắt (mặc định của quản lý theo lô, serial). */
+function normalizeTrackingSwitch(value: unknown): { enabled: boolean } {
+  return { enabled: (value as { enabled?: unknown } | null)?.enabled === true };
+}
+
+/** Mỗi nhóm một cách theo dõi hợp lệ; nhóm thiếu hoặc giá trị lạ rơi về mặc định của nhóm đó. */
+function normalizeTrackingDefaults(value: unknown): TrackingDefaultsByCategory {
+  const raw = (value ?? {}) as Partial<Record<MaterialCategory, unknown>>;
+  const next = {} as Record<MaterialCategory, MaterialTrackingMode>;
+  for (const category of TRACKING_CATEGORIES) {
+    const candidate = raw[category];
+    next[category] = isMaterialTrackingMode(candidate)
+      ? candidate
+      : DEFAULT_TRACKING_BY_CATEGORY[category];
+  }
+  return next;
 }
 
 /**
@@ -159,6 +188,9 @@ const NORMALIZERS: {
   'warehouse.location.levels': (value) => ({
     levels: normalizeLevelNames((value as { levels?: unknown } | null)?.levels),
   }),
+  'tracking.lot.enabled': normalizeTrackingSwitch,
+  'tracking.serial.enabled': normalizeTrackingSwitch,
+  'tracking.defaultByCategory': normalizeTrackingDefaults,
 };
 
 /**

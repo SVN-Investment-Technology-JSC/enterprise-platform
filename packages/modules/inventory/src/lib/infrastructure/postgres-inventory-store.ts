@@ -3,6 +3,7 @@ import {
   TenantDatabaseRegistry,
   inTransaction,
 } from '@enterprise-platform/adapter-database';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import type {
   CreateWarehouseRequest,
   UpdateWarehouseRequest,
@@ -19,6 +20,7 @@ import type {
   InventoryTransaction,
   Material,
   MaterialInventory,
+  MaterialTrackingMode,
   Reservation,
   ReservationItem,
   ReservationShortage,
@@ -122,6 +124,11 @@ function mapMaterial(row: Row): Material {
     minStock: num(row.min_stock),
     maxStock: num(row.max_stock),
     isSerialized: Boolean(row.is_serialized),
+    // Dòng thiếu cột (câu SELECT liệt kê cột) rơi về suy từ cờ cũ, nên không bao giờ trả giá trị lạ.
+    trackingMode: resolveTrackingMode({
+      trackingMode: row.tracking_mode as MaterialTrackingMode | undefined,
+      isSerialized: Boolean(row.is_serialized),
+    }),
     barcode: opt(row.barcode),
     serialNumber: opt(row.serial_number),
     manufactureYear: row.manufacture_year === null || row.manufacture_year === undefined
@@ -447,9 +454,9 @@ export class PostgresInventoryStore implements InventoryStore {
             serial_number, manufacture_year, supplier, manufacturer,
             purchase_price, currency, is_active, kind, warranty_months,
             assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
-            trade_category, description, created_at, vat_rate)
+            trade_category, description, created_at, vat_rate, tracking_mode)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $16, $17, $18, $19,
-                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()), $28)
+                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()), $28, $29)
       RETURNING *`,
         [
           input.code,
@@ -480,6 +487,8 @@ export class PostgresInventoryStore implements InventoryStore {
           history?.isActive ?? true,
           history?.createdAt ?? null,
           input.vatRate ?? null,
+          // Trigger `materials_sync_tracking_mode` giữ is_serialized khớp; app đã tính sẵn hai giá trị khớp nhau.
+          resolveTrackingMode(input),
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -594,6 +603,74 @@ export class PostgresInventoryStore implements InventoryStore {
         [code],
       );
       return Boolean(result.rows[0]?.used);
+    },
+
+    hasTrackingFootprint: async (tenantId: string, code: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT EXISTS (SELECT 1 FROM inventory_schema.material_inventory b WHERE b.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.inventory_transactions t WHERE t.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.reservation_items r WHERE r.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.serial_tracking s WHERE s.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.stock_document_lines l WHERE l.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.lots l WHERE l.material_id = m.id)
+             AS used
+           FROM inventory_schema.materials m
+          WHERE m.code = $1`,
+        [code],
+      );
+      return Boolean(result.rows[0]?.used);
+    },
+
+    changeTrackingMode: async (
+      tenantId: string,
+      code: string,
+      change: {
+        readonly from: MaterialTrackingMode;
+        readonly to: MaterialTrackingMode;
+        readonly changedBy?: string;
+        readonly reason?: string;
+      },
+    ): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        // Điều kiện `tracking_mode = from`: hai người đổi cùng lúc thì người sau không ghi đè lịch sử của người trước.
+        const changed = await client.query<Row>(
+          `UPDATE inventory_schema.materials
+              SET tracking_mode = $2
+            WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') AND tracking_mode = $3
+        RETURNING id`,
+          [code, change.to, change.from],
+        );
+        const id = changed.rows[0]?.id;
+        if (!id) {
+          throw new InventoryError(
+            'VALIDATION',
+            `Cách theo dõi của mã ${code} vừa được người khác thay đổi. Hãy tải lại rồi thử lại.`,
+          );
+        }
+        await client.query(
+          `INSERT INTO inventory_schema.material_tracking_history
+             (material_id, from_mode, to_mode, reason, changed_by)
+           VALUES ($1, $2, $3, $4, $5::uuid)`,
+          [id, change.from, change.to, change.reason?.trim() || null, change.changedBy ?? null],
+        );
+      });
+    },
+
+    countTrackedWithStock: async (tenantId: string, mode: MaterialTrackingMode): Promise<number> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT count(*)::int AS n
+           FROM inventory_schema.materials m
+          WHERE m.tracking_mode = $1
+            AND EXISTS (
+              SELECT 1 FROM inventory_schema.material_inventory b
+               WHERE b.material_id = m.id AND b.quantity > 0
+            )`,
+        [mode],
+      );
+      return num(result.rows[0]?.n ?? 0);
     },
 
     listLinks: async (tenantId: string, code: string): Promise<{ label: string; count: number }[]> => {

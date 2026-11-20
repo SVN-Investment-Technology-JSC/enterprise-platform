@@ -99,7 +99,13 @@ export interface CreateMaterialRequest {
   readonly unit: string;
   readonly minStock?: number;
   readonly maxStock?: number;
+  /** Cờ cũ, tương đương `trackingMode = 'SERIAL'`. Gửi cả hai thì phải khớp nhau. */
   readonly isSerialized?: boolean;
+  /**
+   * Cách theo dõi tồn. Bỏ trống: `SERIAL` nếu `isSerialized`, ngược lại `NONE`. Chọn `LOT` hoặc `SERIAL`
+   * cần công tắc `tracking.lot.enabled` hoặc `tracking.serial.enabled` của tenant đang bật.
+   */
+  readonly trackingMode?: MaterialTrackingMode;
   readonly barcode?: string;
   /** Số sê-ri của vật tư cá thể; tuỳ chọn. */
   readonly serialNumber?: string;
@@ -179,8 +185,15 @@ export interface UpdateMaterialRequest {
   /** Tình trạng và vị trí sử dụng — cùng hai cột với vật tư đã lắp. */
   readonly status?: AssetStatus;
   readonly usageState?: string;
-  /** Bật theo dõi theo cá thể. Khai sê-ri lần đầu tự bật cờ này. */
+  /** Bật theo dõi theo cá thể. Khai sê-ri lần đầu tự bật cờ này. Gửi cùng `trackingMode` thì phải khớp. */
   readonly isSerialized?: boolean;
+  /**
+   * Đổi cách theo dõi. Chỉ đổi được khi mã chưa có tồn, bút toán, chứng từ, giữ hàng, lô hay serial.
+   * Mỗi lần đổi ghi `material_tracking_history`.
+   */
+  readonly trackingMode?: MaterialTrackingMode;
+  /** Lý do đổi cách theo dõi, lưu vào lịch sử; tuỳ chọn. */
+  readonly trackingChangeReason?: string;
   readonly name?: string;
   readonly category?: MaterialCategory;
   readonly unit?: string;
@@ -434,6 +447,52 @@ export type WarehouseType = 'PHYSICAL' | 'VIRTUAL_IN_TRANSIT';
 export type MaterialCategory = 'SPARE_PART' | 'CONSUMABLE' | 'TOOL' | 'ROTABLE';
 
 /**
+ * Cách theo dõi tồn của một mặt hàng. Ba giá trị loại trừ nhau.
+ *
+ * - `NONE`: chỉ đếm số lượng (đinh, vít, ốc không cần truy xuất).
+ * - `LOT`: theo lô (nhiều lần nhập cùng thông tin gom thành một lô; có hạn dùng, kiểm định).
+ * - `SERIAL`: theo từng cá thể có số serial riêng (máy bơm, động cơ, thiết bị đo).
+ *
+ * Độc lập với nhóm (`MaterialCategory`): nhóm chỉ gợi ý giá trị điền sẵn lúc tạo mặt hàng, không quyết định.
+ */
+export const MATERIAL_TRACKING_MODES = ['NONE', 'LOT', 'SERIAL'] as const;
+export type MaterialTrackingMode = (typeof MATERIAL_TRACKING_MODES)[number];
+
+export function isMaterialTrackingMode(value: unknown): value is MaterialTrackingMode {
+  return (MATERIAL_TRACKING_MODES as readonly unknown[]).includes(value);
+}
+
+/**
+ * Nơi duy nhất quyết định một mặt hàng theo dõi thế nào. Bản ghi từ API luôn có `trackingMode`; hàm này còn
+ * phục vụ dữ liệu cũ hơn (chỉ có cờ `isSerialized`) và dữ liệu dựng tay trong test.
+ */
+export function resolveTrackingMode(material?: {
+  readonly trackingMode?: MaterialTrackingMode;
+  readonly isSerialized?: boolean;
+}): MaterialTrackingMode {
+  if (!material) return 'NONE';
+  if (isMaterialTrackingMode(material.trackingMode)) return material.trackingMode;
+  return material.isSerialized ? 'SERIAL' : 'NONE';
+}
+
+/** Gợi ý cách theo dõi theo nhóm, điền sẵn lúc TẠO mặt hàng. Tenant sửa được ở `tracking.defaultByCategory`. */
+export type TrackingDefaultsByCategory = Readonly<Record<MaterialCategory, MaterialTrackingMode>>;
+
+export const DEFAULT_TRACKING_BY_CATEGORY: TrackingDefaultsByCategory = {
+  SPARE_PART: 'NONE',
+  CONSUMABLE: 'NONE',
+  TOOL: 'SERIAL',
+  ROTABLE: 'SERIAL',
+};
+
+export function suggestTrackingMode(
+  category: MaterialCategory | undefined,
+  defaults: TrackingDefaultsByCategory = DEFAULT_TRACKING_BY_CATEGORY,
+): MaterialTrackingMode {
+  return (category && defaults[category]) || 'NONE';
+}
+
+/**
  * Loại mặt hàng trong danh mục vật tư. SERVICE (dịch vụ, phần mềm) có trong danh
  * mục để Bán hàng chọn nhưng không có dòng tồn; chứng từ kho và giữ hàng từ chối
  * (D6). Thiết bị (`ASSET`) đi đường riêng, không nằm trong union này.
@@ -615,6 +674,11 @@ export interface Material {
   readonly minStock: number;
   readonly maxStock: number;
   readonly isSerialized: boolean;
+  /**
+   * Cách theo dõi tồn. API luôn trả; kiểu để tuỳ chọn cho dữ liệu dựng tay, đọc qua `resolveTrackingMode`.
+   * Với hàng theo serial, `isSerialized` luôn khớp (`true`).
+   */
+  readonly trackingMode?: MaterialTrackingMode;
   readonly barcode?: string;
   /**
    * Số sê-ri của chính mã vật tư này. TUỲ CHỌN.
@@ -1254,6 +1318,9 @@ export const INVENTORY_SETTINGS_KEYS = [
   'documents.approval',
   'costing.method',
   'warehouse.location.levels',
+  'tracking.lot.enabled',
+  'tracking.serial.enabled',
+  'tracking.defaultByCategory',
 ] as const;
 
 export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
@@ -1333,6 +1400,15 @@ export interface InventoryCostingSettings {
   readonly method: CostingMethod;
 }
 
+/**
+ * Công tắc quản lý theo lô hoặc theo serial của tenant. Mặc định TẮT: tenant không bật thì giao diện không hiện
+ * lựa chọn tương ứng và server từ chối đặt `tracking_mode` đó. Tenant đã có dữ liệu lô hoặc serial được migration
+ * 0027 tự bật.
+ */
+export interface InventoryTrackingSwitch {
+  readonly enabled: boolean;
+}
+
 export interface InventorySettings {
   readonly 'dashboard.cards': DashboardCardSelection;
   readonly 'catalog.material': InventoryCatalogSettings;
@@ -1342,6 +1418,9 @@ export interface InventorySettings {
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
   readonly 'warehouse.location.levels': WarehouseLocationLevelsSettings;
+  readonly 'tracking.lot.enabled': InventoryTrackingSwitch;
+  readonly 'tracking.serial.enabled': InventoryTrackingSwitch;
+  readonly 'tracking.defaultByCategory': TrackingDefaultsByCategory;
 }
 
 export interface SettingsEntry<TValue> {

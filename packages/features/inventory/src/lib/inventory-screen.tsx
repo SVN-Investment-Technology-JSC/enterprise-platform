@@ -34,6 +34,11 @@ import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemProfileDialog } from './components/item-profile-dialog';
 import { LocationLevelsEditor } from './components/location-levels-editor';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
+import {
+  TrackingSettingsEditor,
+  trackingDraftFromSettings,
+  type TrackingSettingsDraft,
+} from './components/tracking-settings-editor';
 import { WarehouseEditor } from './components/warehouse-editor';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
@@ -234,6 +239,7 @@ export function InventoryScreen() {
   /** Mẫu tên cấp vị trí lưu trữ của tenant (thứ tự có ý nghĩa: cấp đầu là lớn nhất). */
   const [levelsDraft, setLevelsDraft] = useState<readonly string[]>([]);
   const [tradeDraft, setTradeDraft] = useState<InventoryTradeCatalog>();
+  const [trackingDraft, setTrackingDraft] = useState<TrackingSettingsDraft>();
   /** Vật tư đang lắp trên các thiết bị — lá của cây, suy từ sổ cái. */
   const [installed, setInstalled] = useState<InstalledMaterial[]>([]);
   /** Đơn vị đang chờ chọn kho để tháo về, kèm số đang lắp. */
@@ -657,7 +663,8 @@ export function InventoryScreen() {
   useEffect(() => {
     // Tab Tài sản cũng cần cấu hình: nó quyết định trường nào được hiện. Kho hàng cần danh mục
     // phân loại và sử dụng của hàng hóa.
-    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets' && tab !== 'stock') return;
+    // Form hàng hóa cần công tắc lô, serial và bảng gợi ý theo nhóm, nên cũng nạp khi mở form.
+    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets' && tab !== 'stock' && form !== 'material') return;
     if (settings) return;
     void loadInventorySettings()
       .then((loaded) => {
@@ -667,9 +674,10 @@ export function InventoryScreen() {
         setUnitDraft(loaded['catalog.unit'].value.units ?? []);
         setLevelsDraft(loaded['warehouse.location.levels']?.value.levels ?? []);
         setTradeDraft(loaded['catalog.trade']?.value);
+        setTrackingDraft(trackingDraftFromSettings(loaded));
       })
       .catch(() => setSettings(undefined));
-  }, [tab, settings]);
+  }, [tab, form, settings]);
 
   const materialByCode = useMemo(() => {
     const map = new Map<string, Material>();
@@ -817,6 +825,37 @@ export function InventoryScreen() {
       setSavingCards(false);
     }
   };
+
+  const saveTracking = async () => {
+    if (!settings || !trackingDraft) return;
+    setSavingCards(true);
+    let next = settings;
+    try {
+      // Công tắc trước, bảng gợi ý sau; chỉ ghi khoá nào đổi. Dừng ở khoá đầu tiên lỗi (ví dụ còn hàng có tồn
+      // đang theo dõi nên không tắt được) và giữ những khoá đã lưu.
+      const writes = [
+        ['tracking.serial.enabled', { enabled: trackingDraft.serialEnabled }],
+        ['tracking.lot.enabled', { enabled: trackingDraft.lotEnabled }],
+        ['tracking.defaultByCategory', trackingDraft.defaults],
+      ] as const;
+      for (const [key, value] of writes) {
+        if (JSON.stringify(value) === JSON.stringify(next[key]?.value)) continue;
+        const saved = await saveInventorySetting(key, value, next[key]?.version);
+        next = { ...next, [key]: saved } as InventorySettingsSnapshot;
+      }
+      setTrackingDraft(trackingDraftFromSettings(next));
+      setError(undefined);
+    } catch (cause) {
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình theo dõi lô và serial.');
+    } finally {
+      setSettings(next);
+      setSavingCards(false);
+    }
+  };
+
+  const trackingDirty =
+    trackingDraft !== undefined &&
+    JSON.stringify(trackingDraft) !== JSON.stringify(trackingDraftFromSettings(settings));
 
   const tradeDirty =
     tradeDraft !== undefined &&
@@ -1088,6 +1127,15 @@ export function InventoryScreen() {
               units={settings?.['catalog.unit'].value.units ?? []}
               types={settings?.['catalog.asset'].value.types ?? []}
               catalog={settings?.['catalog.trade']?.value}
+              tracking={
+                settings
+                  ? {
+                      lotEnabled: settings['tracking.lot.enabled']?.value.enabled === true,
+                      serialEnabled: settings['tracking.serial.enabled']?.value.enabled === true,
+                    }
+                  : undefined
+              }
+              trackingDefaults={settings?.['tracking.defaultByCategory']?.value}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -1262,6 +1310,20 @@ export function InventoryScreen() {
                       </div>
                     ) : null,
                 },
+                {
+                  id: 'tracking',
+                  label: 'Theo dõi lô và serial',
+                  description:
+                    'Bật quản lý theo lô hoặc theo serial cho đơn vị. Tắt thì form hàng hóa không hiện lựa chọn đó. Còn hàng đang theo dõi kiểu đó mà có tồn thì không tắt được.',
+                  render: () =>
+                    trackingDraft ? (
+                      <TrackingSettingsEditor
+                        value={trackingDraft}
+                        disabled={!canManage || savingCards}
+                        onChange={setTrackingDraft}
+                      />
+                    ) : null,
+                },
               ]}
               activeSectionId={settingsSection}
               readOnly={!canManage}
@@ -1269,7 +1331,9 @@ export function InventoryScreen() {
               /* Khối Kho tự lưu ngay khi sửa nên không bao giờ "bẩn": để nó
                  dùng chung nút Lưu sẽ hiện một nút không làm gì. */
               dirty={
-                settingsSection === 'warehouses'
+                settingsSection === 'tracking'
+                  ? trackingDirty
+                  : settingsSection === 'warehouses'
                   ? false
                   : settingsSection === 'asset-fields'
                     ? catalogDirty
@@ -1283,7 +1347,9 @@ export function InventoryScreen() {
               }
               saving={savingCards}
               onSave={
-                settingsSection === 'warehouses'
+                settingsSection === 'tracking'
+                  ? saveTracking
+                  : settingsSection === 'warehouses'
                   ? () => undefined
                   : settingsSection === 'asset-fields'
                     ? saveAssetCatalog
@@ -1296,7 +1362,9 @@ export function InventoryScreen() {
                           : saveCards
               }
               onReset={() =>
-                settingsSection === 'asset-fields'
+                settingsSection === 'tracking'
+                  ? setTrackingDraft(trackingDraftFromSettings(settings))
+                  : settingsSection === 'asset-fields'
                   ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
                   : settingsSection === 'units'
                     ? setUnitDraft(settings?.['catalog.unit'].value.units ?? [])

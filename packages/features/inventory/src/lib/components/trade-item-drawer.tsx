@@ -6,12 +6,14 @@ import type {
   UpdateMaterialRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import { CloseGuard, Popconfirm, SearchableSelect, VnNumberInput } from '@enterprise-platform/shared-ui';
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { formatDateTime } from '../inventory-labels';
 import { useUserLabel } from '../user-names';
 import {
   DEFAULT_SALE_VAT_RATE,
+  TRACKING_MODE_DISPLAY_LABEL,
   TRADE_GROUP_LABEL,
   VAT_RATE_INVALID_MESSAGE,
   categoriesOf,
@@ -38,6 +40,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Sheet, SheetBody, SheetContent, SheetHeader } from '../ui/sheet';
+import { cn } from '../ui/cn';
 
 /** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
 const NUMBER_INPUT_CLASS =
@@ -410,6 +413,22 @@ export function TradeItemDrawer({
                 <DrawerField label="Trạng thái">
                   <TradeStatusBadge active={item.isActive} />
                 </DrawerField>
+                {group !== 'SERVICE' ? (
+                  <DrawerField label="Cách theo dõi">
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold',
+                        resolveTrackingMode(item) === 'SERIAL'
+                          ? 'border border-purple-200 bg-purple-50 text-purple-700'
+                          : resolveTrackingMode(item) === 'LOT'
+                          ? 'border border-amber-200 bg-amber-50 text-amber-700'
+                          : 'border border-slate-200 bg-slate-100 text-slate-700',
+                      )}
+                    >
+                      {TRACKING_MODE_DISPLAY_LABEL[resolveTrackingMode(item)]}
+                    </span>
+                  </DrawerField>
+                ) : null}
                 {editing ? (
                   <EditField label="Mô tả" htmlFor="trade-edit-description">
                     <Textarea

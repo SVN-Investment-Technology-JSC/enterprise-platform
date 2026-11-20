@@ -6,6 +6,7 @@ import type {
   Lot,
   MovementCounterparty,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import {
   X,
   Paperclip,
@@ -219,14 +220,6 @@ function lotChoices(lots: readonly Lot[], warehouseCode: string, kind: string): 
       (kind === 'transfer' || (lot.qualityStatus === 'PASSED' && !(lot.expiresOn && lot.expiresOn < today))),
     )
     .sort((left, right) => (left.lot.expiresOn ?? '9999-12-31').localeCompare(right.lot.expiresOn ?? '9999-12-31'));
-}
-
-function getTrackingMode(material?: Material): 'SERIAL' | 'LOT' | 'NONE' {
-  if (!material) return 'NONE';
-  if (material.isSerialized) return 'SERIAL';
-  return material.category === 'CONSUMABLE' || material.code.includes('DAU') || material.code.includes('CAP') || material.code === 'VT-001'
-    ? 'LOT'
-    : 'NONE';
 }
 
 /**
@@ -829,11 +822,11 @@ export function MovementForm({
       ? 'Tạo mã vật tư, khai sê-ri và xuất lắp đặt cần quyền quản lý kho.'
       : undefined;
   const hasInvalidSerialSelection = items.some((item) =>
-    getTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) === 'SERIAL' &&
+    resolveTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) === 'SERIAL' &&
     (item.serialNumbers?.length ?? 0) !== item.quantity,
   );
   const hasInvalidLotAllocation = items.some((item) => {
-    if (getTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) !== 'LOT') return false;
+    if (resolveTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) !== 'LOT') return false;
     if (kind === 'receipt') return !item.receiptLot?.lotNumber;
     // Phần không phân bổ xuất từ tồn không theo lô; server từ chối nếu phần đó không đủ.
     return (item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0) > item.quantity;
@@ -1427,7 +1420,7 @@ export function MovementForm({
                   const serialCount = item.serialNumbers?.length || 0;
                   const lotCount = item.lotAllocations?.length || (item.receiptLot ? 1 : 0);
                   const allocatedLotQuantity = item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0;
-                  const trackingMode = getTrackingMode(workspace.materials.find((material) => material.code === item.materialCode));
+                  const trackingMode = resolveTrackingMode(workspace.materials.find((material) => material.code === item.materialCode));
                   const itemUnitConfig = getUnitQuantityConfig(item.unit);
                   const itemMaterial = workspace.materials.find((m) => m.code === item.materialCode);
                   const itemType = item.materialType || itemMaterial?.type || '—';
