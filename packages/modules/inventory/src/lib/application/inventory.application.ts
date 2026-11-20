@@ -96,6 +96,13 @@ import {
 } from '../domain/traceability-policy.js';
 import type { TraceabilityStore } from './traceability-store.port.js';
 import { filterWarehouseCatalog } from '../domain/inventory-report.js';
+import {
+  SUPPLIER_CATALOG_MAX_ITEMS,
+  SUPPLIER_NAME_MAX_LENGTH,
+  type LegacySupplierCandidatesResponse,
+} from '@enterprise-platform/contracts-inventory';
+import { groupLegacySuppliers, type SupplierPolicy } from '../domain/supplier-catalog.js';
+import { hasSupplier, memoizedSupplierPolicy } from './supplier-policy.js';
 
 /** Resolved by the access guard from the caller's session or service token. */
 export interface InventoryActor {
@@ -926,7 +933,10 @@ export class InventoryApplication {
   ): Promise<InventoryTransaction> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
-    const lot = normalizeLotInput(input.lot, 'IN');
+    const normalizedLot = normalizeLotInput(input.lot, 'IN');
+    const lot = normalizedLot?.supplier
+      ? { ...normalizedLot, supplier: await this.resolveSupplierName(actor, normalizedLot.supplier) }
+      : normalizedLot;
     // Đường cũ ghi thẳng qua store, không qua chuẩn hoá dòng của StockDocumentService:
     // kiểm số serial bằng số lượng ở đây.
     const serials = normalizeLineSerials(input.serials, input.quantity, 1);
@@ -950,7 +960,7 @@ export class InventoryApplication {
           serials,
         },
       ],
-    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
+    }, { counterparty: await this.normalizeCounterpartyChecked(actor, input.counterparty) });
     return posted[0];
   }
 
@@ -992,7 +1002,7 @@ export class InventoryApplication {
         unitCost: 0,
         lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
       })),
-    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
+    }, { counterparty: await this.normalizeCounterpartyChecked(actor, input.counterparty) });
     return posted[0];
   }
 
@@ -1070,7 +1080,7 @@ export class InventoryApplication {
     if (warehouses.size > 1) {
       throw new InventoryError('VALIDATION', 'Một phiếu chỉ được thực hiện trong một kho.');
     }
-    const counterparty = this.normalizeCounterparty(input.counterparty);
+    const counterparty = await this.normalizeCounterpartyChecked(actor, input.counterparty);
     const receipt = input.kind === 'receipt';
     // Chứng từ chỉ có một ghi chú chung: gộp ghi chú các dòng, bỏ trùng.
     const note = [...new Set(input.lines.map((line) => line.note?.trim()).filter(Boolean))].join(' ; ');
@@ -1090,6 +1100,35 @@ export class InventoryApplication {
       },
       { counterparty },
     );
+  }
+
+  /**
+   * Đổi chữ nhà cung cấp người dùng nhập thành tên chuẩn của danh mục.
+   *
+   * Không đọc cấu hình khi chữ trống. `current` là giá trị đang lưu: sửa bản ghi cũ mà không đụng tới nhà
+   * cung cấp (hoặc gửi lại đúng giá trị cũ chữ tự do) thì không bị chặn chỉ vì giá trị cũ ngoài danh mục.
+   */
+  private async resolveSupplierName(
+    actor: InventoryActor,
+    raw: string | undefined,
+    loadPolicy?: () => Promise<SupplierPolicy>,
+    current?: string | null,
+  ): Promise<string | undefined> {
+    if (!hasSupplier(raw)) return undefined;
+    const policy = await (loadPolicy ?? memoizedSupplierPolicy(this.store.settings, actor.tenantId))();
+    if (current && policy.sameSupplier(raw, current)) return raw?.trim();
+    return policy.resolve(raw);
+  }
+
+  /** Như `normalizeCounterparty`, và với loại nhà cung cấp thì kiểm tên theo danh mục. */
+  private async normalizeCounterpartyChecked(
+    actor: InventoryActor,
+    counterparty: MovementCounterparty | undefined,
+  ): Promise<MovementCounterparty | undefined> {
+    const normalized = this.normalizeCounterparty(counterparty);
+    if (normalized?.type !== 'SUPPLIER') return normalized;
+    const name = await this.resolveSupplierName(actor, normalized.name);
+    return name === undefined ? normalized : { ...normalized, name };
   }
 
   /**
@@ -1295,6 +1334,8 @@ export class InventoryApplication {
     if (policy !== 'FAIL' && policy !== 'SKIP' && policy !== 'UPDATE') {
       throw new InventoryError('VALIDATION', 'Cách xử lý mã trùng không hợp lệ.');
     }
+    // Đọc danh mục nhà cung cấp một lần cho cả tệp, không mỗi dòng một lần.
+    const loadPolicy = memoizedSupplierPolicy(this.store.settings, actor.tenantId);
     const failures: ImportFailure[] = [];
     const skipped: { line: number; message: string }[] = [];
     let created = 0;
@@ -1321,14 +1362,17 @@ export class InventoryApplication {
             skipped.push({ line: row.line, message: `Mã ${code} đã ngừng dùng, không cập nhật.` });
           } else {
             requireTradeFields(row);
-            await this.updateMaterialRecord(actor, code, importPatch(row), {
-              createdBy: createdBy || undefined,
-              createdAt: createdAt || undefined,
-            });
+            await this.updateMaterialRecord(
+              actor,
+              code,
+              importPatch(row),
+              { createdBy: createdBy || undefined, createdAt: createdAt || undefined },
+              loadPolicy,
+            );
             updated += 1;
           }
         } else {
-          await this.createMaterialRecord(actor, row, createdBy || undefined, history);
+          await this.createMaterialRecord(actor, row, createdBy || undefined, history, loadPolicy);
           created += 1;
         }
       } catch (error) {
@@ -1358,6 +1402,7 @@ export class InventoryApplication {
     input: CreateMaterialRequest,
     createdBy: string | undefined,
     history?: { createdAt?: string; isActive?: boolean },
+    loadPolicy?: () => Promise<SupplierPolicy>,
   ): Promise<Material> {
     this.requireValidYear(input.manufactureYear);
     this.requirePurchasePrice(input.purchasePrice);
@@ -1380,6 +1425,7 @@ export class InventoryApplication {
     if (await this.store.material.findAnyByCode(actor.tenantId, code)) {
       throw new InventoryError('VALIDATION', duplicateMaterialCodeMessage(code));
     }
+    const supplier = await this.resolveSupplierName(actor, input.supplier, loadPolicy);
     return this.store.material.create(
       actor.tenantId,
       {
@@ -1387,6 +1433,7 @@ export class InventoryApplication {
         code,
         name: input.name.trim(),
         kind,
+        ...(supplier !== undefined ? { supplier } : {}),
         // Dịch vụ không có tồn nên không có định mức tồn.
         ...(kind === 'SERVICE' ? { minStock: 0, maxStock: 0, isSerialized: false } : {}),
       },
@@ -1408,6 +1455,7 @@ export class InventoryApplication {
     code: string,
     patch: UpdateMaterialRequest,
     history?: { createdBy?: string; createdAt?: string },
+    loadPolicy?: () => Promise<SupplierPolicy>,
   ): Promise<Material> {
     this.requireValidYear(patch.manufactureYear);
     this.requirePurchasePrice(patch.purchasePrice);
@@ -1435,10 +1483,12 @@ export class InventoryApplication {
     if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
     }
+    const supplier = await this.resolveSupplierName(actor, patch.supplier, loadPolicy, current.supplier);
+    const effective = supplier !== undefined && supplier !== patch.supplier ? { ...patch, supplier } : patch;
     // Không truyền đối số thứ tư khi không phải nhập từ hệ cũ: đường sửa thường giữ nguyên chữ ký cũ.
     const updated = history
-      ? await this.store.material.update(actor.tenantId, code, patch, history)
-      : await this.store.material.update(actor.tenantId, code, patch);
+      ? await this.store.material.update(actor.tenantId, code, effective, history)
+      : await this.store.material.update(actor.tenantId, code, effective);
     if (!updated) throw new MaterialNotFoundError(code);
     return updated;
   }
@@ -1621,6 +1671,7 @@ export class InventoryApplication {
     this.requireManager(actor);
     if (!isInventorySettingsKey(key)) throw new UnknownSettingsKeyError(key);
 
+    if (key === 'catalog.supplier') requireSupplierCatalogInput(input?.value);
     // Chuẩn hoá trước khi ghi: bảng là khoá–giá trị nên đây là chỗ duy nhất
     // ngăn một payload lạ nằm nguyên trạng trong database.
     const value = normalizeInventorySetting(key, input?.value);
@@ -1639,6 +1690,20 @@ export class InventoryApplication {
     );
     if (!saved) throw new SettingsVersionConflictError(key);
     return { ...saved, value: normalizeInventorySetting(key, saved.value) };
+  }
+
+  /**
+   * Nhà cung cấp chữ tự do đang có trong dữ liệu cũ, đã gộp biến thể, để quản trị viên duyệt rồi thêm vào
+   * danh mục. Chỉ đọc: việc thêm đi qua `PUT /settings/catalog.supplier` như mọi danh mục khác.
+   */
+  async listLegacySupplierCandidates(actor: InventoryActor): Promise<LegacySupplierCandidatesResponse> {
+    this.requireManager(actor);
+    const [values, entry] = await Promise.all([
+      this.store.suppliers.listLegacyValues(actor.tenantId),
+      this.store.settings.get(actor.tenantId, 'catalog.supplier'),
+    ]);
+    const catalog = normalizeInventorySetting('catalog.supplier', entry?.value).suppliers;
+    return { candidates: groupLegacySuppliers(values, catalog) };
   }
 
   // --- Trang thiết bị nhân sự (HRM Custody) ---
@@ -1831,6 +1896,31 @@ function requireMaterialTextLengths(input: object): void {
     const value = record[key];
     if (typeof value === 'string' && value.trim().length > max) {
       throw new InventoryError('VALIDATION', `${label} tối đa ${max} ký tự (hiện ${value.trim().length}).`);
+    }
+  }
+}
+
+/**
+ * Danh mục nhà cung cấp gửi lên phải đúng hình dạng và độ dài. Bước chuẩn hoá khi lưu lặng lẽ bỏ mục lạ,
+ * nên kiểm trước ở đây để người dùng được báo lỗi thay vì thấy mục của mình biến mất.
+ */
+function requireSupplierCatalogInput(value: unknown): void {
+  const list = (value as { suppliers?: unknown } | null)?.suppliers;
+  if (!Array.isArray(list)) {
+    throw new InventoryError('VALIDATION', 'Danh mục nhà cung cấp phải là một danh sách.');
+  }
+  if (list.length > SUPPLIER_CATALOG_MAX_ITEMS) {
+    throw new InventoryError(
+      'VALIDATION',
+      `Danh mục nhà cung cấp tối đa ${SUPPLIER_CATALOG_MAX_ITEMS} mục.`,
+    );
+  }
+  for (const entry of list) {
+    if (typeof entry === 'string' && entry.trim().length > SUPPLIER_NAME_MAX_LENGTH) {
+      throw new InventoryError(
+        'VALIDATION',
+        `Tên nhà cung cấp tối đa ${SUPPLIER_NAME_MAX_LENGTH} ký tự (hiện ${entry.trim().length}).`,
+      );
     }
   }
 }

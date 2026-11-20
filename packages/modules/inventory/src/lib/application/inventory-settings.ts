@@ -1,11 +1,16 @@
 import {
   COSTING_METHODS,
   INVENTORY_SETTINGS_KEYS,
+  SUPPLIER_CATALOG_MAX_ITEMS,
+  SUPPLIER_INPUT_MODES,
+  SUPPLIER_NAME_MAX_LENGTH,
   type CostingMethod,
   type InventoryCatalogSettings,
   type InventorySettings,
   type InventorySettingsKey,
+  type SupplierInputMode,
 } from '@enterprise-platform/contracts-inventory';
+import { normalizeSupplierKey } from '../domain/supplier-catalog.js';
 
 /**
  * Mặc định BẬT giá và bảo hành.
@@ -66,6 +71,10 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
     serviceCategories: [],
     usageModes: ['Chỉ bán', 'Có thể bán và quà tặng', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
   },
+  // Danh mục nhà cung cấp không có giá trị dựng sẵn: mỗi tenant có nhà cung cấp riêng.
+  'catalog.supplier': { suppliers: [] },
+  // Chỉ chọn từ danh mục, nhưng chỉ có hiệu lực khi danh mục không rỗng (xem buildSupplierPolicy).
+  'supplier.input': { mode: 'CATALOG_ONLY' },
   // Q5: mặc định không tự duyệt, giống Tài chính.
   'documents.approval': { allowSelfApproval: false },
   // D4: bình quân gia quyền tức thời. FIFO làm ở P2.
@@ -89,6 +98,28 @@ function normalizeStringList(value: unknown, max: number): string[] {
     if (seen.size >= max) break;
   }
   return [...seen];
+}
+
+/**
+ * Danh mục nhà cung cấp: cắt khoảng trắng, bỏ mục rỗng, quá dài, và mục trùng khóa so sánh (khác hoa thường,
+ * dấu, dấu câu), giữ mục đứng trước. Trùng theo khóa chứ không theo chữ, vì hai mục "Công ty A" và "CÔNG TY A"
+ * trong danh mục sẽ làm việc nhận diện tên chuẩn mơ hồ.
+ */
+function normalizeSupplierList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const name = entry.trim().replace(/\s+/g, ' ');
+    if (!name || name.length > SUPPLIER_NAME_MAX_LENGTH) continue;
+    const key = normalizeSupplierKey(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+    if (result.length >= SUPPLIER_CATALOG_MAX_ITEMS) break;
+  }
+  return result;
 }
 
 function normalizeCatalog(value: unknown): InventoryCatalogSettings {
@@ -136,6 +167,18 @@ const NORMALIZERS: {
       goodsCategories: normalizeStringList(raw.goodsCategories, 64),
       serviceCategories: normalizeStringList(raw.serviceCategories, 64),
       usageModes: normalizeStringList(raw.usageModes, 64),
+    };
+  },
+  'catalog.supplier': (value) => ({
+    suppliers: normalizeSupplierList((value as { suppliers?: unknown } | null)?.suppliers),
+  }),
+  // Giá trị lạ rơi về mặc định CATALOG_ONLY.
+  'supplier.input': (value) => {
+    const mode = (value as { mode?: unknown } | null)?.mode;
+    return {
+      mode: (SUPPLIER_INPUT_MODES as readonly unknown[]).includes(mode)
+        ? (mode as SupplierInputMode)
+        : 'CATALOG_ONLY',
     };
   },
   // Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về chặn tự duyệt.

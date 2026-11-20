@@ -1153,6 +1153,8 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.asset',
   'catalog.unit',
   'catalog.trade',
+  'catalog.supplier',
+  'supplier.input',
   'documents.approval',
   'costing.method',
 ] as const;
@@ -1213,6 +1215,64 @@ export interface InventoryTradeCatalog {
   readonly usageModes: readonly string[];
 }
 
+/** Trần số nhà cung cấp trong danh mục và độ dài tên (khớp `materials.supplier` varchar 180). */
+export const SUPPLIER_CATALOG_MAX_ITEMS = 500;
+export const SUPPLIER_NAME_MAX_LENGTH = 180;
+
+/**
+ * Danh mục nhà cung cấp của tenant, khai ở Cài đặt.
+ *
+ * Trước đây nhà cung cấp là chữ tự do ở bốn nơi (hồ sơ mặt hàng, lô, bút toán sổ cái), nên "Cty A" và
+ * "Công ty A" là hai nhà khác nhau. Danh mục là danh sách tên chuẩn để chọn; không phải bảng đối tác.
+ */
+export interface InventorySupplierCatalog {
+  readonly suppliers: readonly string[];
+}
+
+/**
+ * Cách nhập nhà cung cấp.
+ * - `CATALOG_ONLY` (mặc định): chỉ chọn từ danh mục. Chỉ có hiệu lực khi danh mục có ít nhất một nhà cung cấp;
+ *   danh mục rỗng thì vẫn nhập tự do, để tenant chưa khai danh mục không bị chặn nhập kho.
+ * - `CATALOG_OR_FREE`: chọn từ danh mục hoặc gõ tự do.
+ */
+export const SUPPLIER_INPUT_MODES = ['CATALOG_ONLY', 'CATALOG_OR_FREE'] as const;
+export type SupplierInputMode = (typeof SUPPLIER_INPUT_MODES)[number];
+
+export interface InventorySupplierInputSettings {
+  readonly mode: SupplierInputMode;
+}
+
+/**
+ * Quy tắc "chỉ chọn từ danh mục" có hiệu lực không: chọn `CATALOG_ONLY` VÀ danh mục có ít nhất một mục.
+ *
+ * Danh mục rỗng thì nhập tự do. Mặc định của tenant là `CATALOG_ONLY` nên nếu rỗng mà vẫn chặn thì mọi lần
+ * nhập kho có nhà cung cấp ở tenant hiện có sẽ lỗi ngay sau khi nâng cấp. Server và giao diện cùng gọi hàm
+ * này để không lệch nhau.
+ */
+export function isSupplierCatalogEnforced(
+  suppliers: readonly string[],
+  mode: SupplierInputMode,
+): boolean {
+  return mode === 'CATALOG_ONLY' && suppliers.some((name) => name.trim() !== '');
+}
+
+/** Một nhà cung cấp tìm thấy trong dữ liệu cũ (chữ tự do), đã gộp các biến thể viết khác nhau. */
+export interface LegacySupplierCandidate {
+  /** Tên đề xuất đưa vào danh mục: biến thể được dùng nhiều nhất. */
+  readonly name: string;
+  /** Các cách viết khác nhau đã gộp vào mục này (gồm cả `name`). */
+  readonly variants: readonly string[];
+  readonly materialCount: number;
+  readonly lotCount: number;
+  readonly transactionCount: number;
+  /** Đã có trong danh mục (so sánh sau chuẩn hóa) nên không cần thêm. */
+  readonly inCatalog: boolean;
+}
+
+export interface LegacySupplierCandidatesResponse {
+  readonly candidates: readonly LegacySupplierCandidate[];
+}
+
 /**
  * Quy tắc duyệt chứng từ kho (nhập khác, xuất khác, điều chỉnh).
  *
@@ -1240,6 +1300,8 @@ export interface InventorySettings {
   readonly 'catalog.asset': InventoryCatalogSettings;
   readonly 'catalog.unit': InventoryUnitCatalog;
   readonly 'catalog.trade': InventoryTradeCatalog;
+  readonly 'catalog.supplier': InventorySupplierCatalog;
+  readonly 'supplier.input': InventorySupplierInputSettings;
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
 }

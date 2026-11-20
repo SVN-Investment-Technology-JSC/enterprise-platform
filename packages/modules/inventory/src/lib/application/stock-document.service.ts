@@ -35,6 +35,8 @@ import {
 import type { InventoryActor } from './inventory.application.js';
 import { INVENTORY_STORE, type InventoryStore } from './inventory-store.port.js';
 import { INVENTORY_SETTINGS_DEFAULTS, normalizeInventorySetting } from './inventory-settings.js';
+import type { SupplierPolicy } from '../domain/supplier-catalog.js';
+import { hasSupplier, loadSupplierPolicy } from './supplier-policy.js';
 import {
   STOCK_DOCUMENT_STORE,
   type StockDocumentLineDraft,
@@ -112,7 +114,7 @@ export class StockDocumentService {
       documentDate: normalizeDate(input.documentDate),
       note: input.note?.trim() || undefined,
       createdBy: actor.userId,
-      lines: normalizeLines(docType, input.lines),
+      lines: await this.withSupplierPolicy(actor.tenantId, normalizeLines(docType, input.lines)),
     });
   }
 
@@ -122,6 +124,8 @@ export class StockDocumentService {
     input: UpdateStockDocumentRequest,
   ): Promise<StockDocument> {
     requireStockWriter(actor);
+    // Kiểm nhà cung cấp của lô cần đọc cấu hình (bất đồng bộ), nên làm trước callback đồng bộ của `change`.
+    const supplierPolicy = input?.lines ? await this.supplierPolicyForLines(actor.tenantId, input.lines) : undefined;
     const result = await this.documents.change(actor.tenantId, key, (current) => {
       assertEditable(current);
       const warehouseCode = input?.warehouseCode?.trim() || undefined;
@@ -143,7 +147,9 @@ export class StockDocumentService {
           targetWarehouseCode,
           documentDate: normalizeDate(input?.documentDate),
           note: input?.note !== undefined ? input.note.trim() : undefined,
-          lines: input?.lines ? normalizeLines(current.docType, input.lines) : undefined,
+          lines: input?.lines
+            ? applySupplierPolicy(normalizeLines(current.docType, input.lines), supplierPolicy)
+            : undefined,
         },
       };
     });
@@ -348,6 +354,23 @@ export class StockDocumentService {
     return internalResult(submitted.document);
   }
 
+  /** Đọc quy tắc nhà cung cấp chỉ khi có dòng nhập nào khai nhà cung cấp cho lô. */
+  private async supplierPolicyForLines(
+    tenantId: string,
+    lines: readonly StockDocumentLineInput[],
+  ): Promise<SupplierPolicy | undefined> {
+    if (!lines.some((line) => hasSupplier(line?.lot?.supplier))) return undefined;
+    return loadSupplierPolicy(this.inventory.settings, tenantId);
+  }
+
+  private async withSupplierPolicy(
+    tenantId: string,
+    lines: StockDocumentLineDraft[],
+  ): Promise<StockDocumentLineDraft[]> {
+    if (!lines.some((line) => hasSupplier(line.lot?.supplier))) return lines;
+    return applySupplierPolicy(lines, await loadSupplierPolicy(this.inventory.settings, tenantId));
+  }
+
   private async allowSelfApproval(tenantId: string): Promise<boolean> {
     const stored = await this.inventory.settings.get(tenantId, 'documents.approval');
     const value = stored
@@ -355,6 +378,22 @@ export class StockDocumentService {
       : INVENTORY_SETTINGS_DEFAULTS['documents.approval'];
     return value.allowSelfApproval;
   }
+}
+
+/**
+ * Đổi nhà cung cấp của lô trên từng dòng thành tên chuẩn của danh mục; ngoài danh mục (khi đang chặn) thì lỗi
+ * kèm số dòng. Không có quy tắc (không dòng nào khai nhà cung cấp) thì giữ nguyên.
+ */
+function applySupplierPolicy(
+  lines: StockDocumentLineDraft[],
+  policy: SupplierPolicy | undefined,
+): StockDocumentLineDraft[] {
+  if (!policy) return lines;
+  return lines.map((line, index) => {
+    const supplier = line.lot?.supplier;
+    if (!line.lot || !hasSupplier(supplier)) return line;
+    return { ...line, lot: { ...line.lot, supplier: policy.resolve(supplier, `Dòng ${index + 1}: `) } };
+  });
 }
 
 function requireStockWriter(actor: InventoryActor): void {

@@ -49,6 +49,7 @@ import {
   ServiceMaterialNotStockedError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import type { LegacySupplierValue } from '../domain/supplier-catalog.js';
 import { reservationCreatedEvent } from './inventory-reservation-events.js';
 import {
   OPEN_RESERVATION_STATUSES,
@@ -2022,6 +2023,35 @@ export class PostgresInventoryStore implements InventoryStore {
         [assetCode, bomId],
       );
       return (result.rowCount ?? 0) > 0;
+    },
+  };
+
+  suppliers = {
+    listLegacyValues: async (tenantId: string): Promise<LegacySupplierValue[]> => {
+      const pool = await this.poolFor(tenantId);
+      // Ba nơi còn lưu nhà cung cấp bằng chữ tự do; gộp theo từng cách viết, chuẩn hóa để ở tầng ứng dụng.
+      const result = await pool.query<Row>(
+        `SELECT btrim(supplier) AS name, 'MATERIAL' AS source, count(*)::int AS count
+           FROM inventory_schema.materials
+          WHERE supplier IS NOT NULL AND btrim(supplier) <> ''
+          GROUP BY btrim(supplier)
+         UNION ALL
+         SELECT btrim(supplier), 'LOT', count(*)::int
+           FROM inventory_schema.lots
+          WHERE supplier IS NOT NULL AND btrim(supplier) <> ''
+          GROUP BY btrim(supplier)
+         UNION ALL
+         SELECT btrim(counterparty_name), 'TRANSACTION', count(*)::int
+           FROM inventory_schema.inventory_transactions
+          WHERE counterparty_type = 'SUPPLIER'
+            AND counterparty_name IS NOT NULL AND btrim(counterparty_name) <> ''
+          GROUP BY btrim(counterparty_name)`,
+      );
+      return result.rows.map((row) => ({
+        name: String(row.name),
+        source: row.source as LegacySupplierValue['source'],
+        count: Number(row.count),
+      }));
     },
   };
 

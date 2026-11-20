@@ -530,6 +530,15 @@ export class InventoryController {
     return this.execute(() => this.app.getSettings(this.actor(request)));
   }
 
+  /**
+   * Nhà cung cấp chữ tự do trong dữ liệu cũ, để quản trị viên duyệt rồi thêm vào danh mục. Đường dẫn nằm dưới
+   * `settings/` nên guard xếp vào quyền đọc; quyền quản lý kiểm ở tầng ứng dụng.
+   */
+  @Get('settings/suppliers/legacy-candidates')
+  listLegacySupplierCandidates(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listLegacySupplierCandidates(this.actor(request)));
+  }
+
   @Put('settings/:key')
   putSetting(
     @Req() request: InventoryRequest,

@@ -83,6 +83,20 @@ export class SettingsVersionConflictError extends InventoryError {
   }
 }
 
+/** Nhà cung cấp ngoài danh mục khi tenant chọn "chỉ chọn từ danh mục". `prefix` ví dụ "Dòng 2: ". */
+export class SupplierNotInCatalogError extends InventoryError {
+  constructor(name: string, prefix = '') {
+    super(
+      'SUPPLIER_NOT_IN_CATALOG',
+      `${prefix}Nhà cung cấp "${name}" chưa có trong danh mục. Nhờ người quản lý thêm ở Cài đặt.`,
+      400,
+      { supplier: name },
+    );
+    // Lớp cha ép prototype về InventoryError; trả lại để `instanceof` nhận ra lỗi này.
+    Object.setPrototypeOf(this, SupplierNotInCatalogError.prototype);
+  }
+}
+
 export class StockDocumentNotFoundError extends InventoryError {
   constructor(key: string) {
     super('STOCK_DOCUMENT_NOT_FOUND', `Không tìm thấy chứng từ kho ${key}.`, 404);

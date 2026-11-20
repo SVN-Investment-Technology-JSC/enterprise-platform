@@ -22,6 +22,7 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { SearchableSelect, VnNumberInput, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SupplierField } from '../supplier-input';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
 import type {
@@ -1204,10 +1205,9 @@ export function MovementForm({
             <>
               <div className={FIELD_BLOCK}>
                 <Label>Nhà cung cấp / Đơn vị giao hàng</Label>
-                <Input
-                  type="text"
+                <SupplierField
                   value={supplierName}
-                  onChange={(e) => setSupplierName(e.target.value)}
+                  onChange={setSupplierName}
                   disabled={busy}
                   maxLength={255}
                   placeholder="Tên nhà cung cấp…"
@@ -1669,12 +1669,10 @@ export function MovementForm({
                 </div>
                 <div className={`flex min-w-0 flex-col gap-1 [&>div]:min-w-0 col-span-full`}>
                   <Label>Nhà cung cấp</Label>
-                  <Input
+                  <SupplierField
                     value={newLotDraft.supplier}
                     placeholder="VD: Schneider Electric, ABB…"
-                    onChange={(event) =>
-                      setNewLotDraft((draft) => ({ ...draft, supplier: event.target.value }))
-                    }
+                    onChange={(supplier) => setNewLotDraft((draft) => ({ ...draft, supplier }))}
                   />
                 </div>
               </div>

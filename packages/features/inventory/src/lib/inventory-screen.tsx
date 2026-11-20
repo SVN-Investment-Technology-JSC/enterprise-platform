@@ -33,6 +33,8 @@ import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemProfileDialog } from './components/item-profile-dialog';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
+import { SupplierCatalogSection, supplierCatalogSectionKey } from './components/supplier-catalog-section';
+import { SupplierInputProvider, supplierInputState } from './supplier-input';
 import { WarehouseEditor } from './components/warehouse-editor';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
@@ -816,6 +818,9 @@ export function InventoryScreen() {
     [workspace],
   );
 
+  /** Quy tắc nhập nhà cung cấp cho các form (nhập kho, lô): chọn từ danh mục hay gõ tự do. */
+  const supplierInput = useMemo(() => supplierInputState(settings), [settings]);
+
   const catalogDirty =
     assetCatalogDraft !== undefined &&
     JSON.stringify(assetCatalogDraft) !== JSON.stringify(settings?.['catalog.asset'].value);
@@ -827,6 +832,7 @@ export function InventoryScreen() {
 
   return (
     <InventoryPermissionsContext.Provider value={uiPermissions}>
+    <SupplierInputProvider value={supplierInput}>
     <ModuleShell<Tab>
       moduleKey="inventory"
       appearance="light"
@@ -1172,6 +1178,23 @@ export function InventoryScreen() {
                   ),
                 },
                 {
+                  id: 'suppliers',
+                  label: 'Nhà cung cấp',
+                  description:
+                    'Danh mục nhà cung cấp cho form nhập kho và lô. Chỉ chọn từ danh mục thì "Công ty A" và "CÔNG TY A" không thành hai nhà khác nhau khi tìm và truy xuất.',
+                  render: () => (
+                    <SupplierCatalogSection
+                      key={supplierCatalogSectionKey(settings)}
+                      settings={settings}
+                      canManage={canManage}
+                      onSaved={(message) => {
+                        notify(message);
+                        void loadInventorySettings().then(setSettings).catch(() => undefined);
+                      }}
+                    />
+                  ),
+                },
+                {
                   id: 'trade',
                   label: 'Phân loại hàng hóa',
                   description:
@@ -1222,7 +1245,7 @@ export function InventoryScreen() {
               /* Khối Kho tự lưu ngay khi sửa nên không bao giờ "bẩn": để nó
                  dùng chung nút Lưu sẽ hiện một nút không làm gì. */
               dirty={
-                settingsSection === 'warehouses'
+                settingsSection === 'warehouses' || settingsSection === 'suppliers'
                   ? false
                   : settingsSection === 'asset-fields'
                     ? catalogDirty
@@ -1234,7 +1257,7 @@ export function InventoryScreen() {
               }
               saving={savingCards}
               onSave={
-                settingsSection === 'warehouses'
+                settingsSection === 'warehouses' || settingsSection === 'suppliers'
                   ? () => undefined
                   : settingsSection === 'asset-fields'
                     ? saveAssetCatalog
@@ -1461,6 +1484,7 @@ export function InventoryScreen() {
         </>
       )}
     </ModuleShell>
+    </SupplierInputProvider>
     </InventoryPermissionsContext.Provider>
   );
 }
