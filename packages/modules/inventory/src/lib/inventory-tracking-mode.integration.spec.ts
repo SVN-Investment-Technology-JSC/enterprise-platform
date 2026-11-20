@@ -30,7 +30,9 @@ integration('Migration 0027 material tracking_mode', () => {
   /** Chạy file migration bằng kết nối riêng để bắt NOTICE (danh sách mặt hàng xung đột). */
   async function runMigrationWithNotices(): Promise<void> {
     const client = new Client({ connectionString: database.url });
-    client.on('notice', (notice) => notices.push(notice.message));
+    client.on('notice', (notice) => {
+      if (notice?.message) notices.push(notice.message);
+    });
     await client.connect();
     try {
       await client.query(await readFile(migrationFile(), 'utf8'));

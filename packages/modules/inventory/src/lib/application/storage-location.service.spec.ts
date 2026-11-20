@@ -1,4 +1,9 @@
-import type { MaterialStorageLocation, WarehouseLocationLevels } from '@enterprise-platform/contracts-inventory';
+import type {
+  BulkStorageLocationItem,
+  BulkStorageLocationsResult,
+  MaterialStorageLocation,
+  WarehouseLocationLevels,
+} from '@enterprise-platform/contracts-inventory';
 import type { InventoryActor } from './inventory.application.js';
 import { StorageLocationService } from './storage-location.service.js';
 import type {
@@ -27,6 +32,14 @@ class FakeStorageLocationStore implements StorageLocationStore {
   ): Promise<WarehouseLocationLevels> {
     this.levelCalls.push({ warehouseCode, levels });
     return { warehouseCode, levels };
+  }
+  async bulkUpsert(
+    _tenantId: string,
+    items: readonly BulkStorageLocationItem[],
+    _actorId: string,
+    _overwritePrimary?: boolean,
+  ): Promise<BulkStorageLocationsResult> {
+    return { successCount: items.length, errorCount: 0, errors: [] };
   }
 }
 
