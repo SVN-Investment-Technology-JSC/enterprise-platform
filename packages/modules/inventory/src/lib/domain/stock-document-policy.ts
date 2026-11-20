@@ -64,6 +64,11 @@ const APPROVAL_REQUIRED_WITHOUT_SOURCE: ReadonlySet<StockDocumentType> = new Set
   'ISSUE_PROJECT',
 ]);
 
+/** Loại chứng từ chỉ phải duyệt khi không có chứng từ nguồn (nhập mua, xuất dự án). */
+export function requiresApprovalWithoutSource(docType: StockDocumentType): boolean {
+  return APPROVAL_REQUIRED_WITHOUT_SOURCE.has(docType);
+}
+
 /** Chứng từ cụ thể có phải qua bước duyệt trước khi ghi sổ không (xét cả chứng từ nguồn). */
 export function documentRequiresApproval(
   document: Pick<StockDocument, 'docType' | 'sourceId'>,
@@ -83,6 +88,7 @@ export const POSTING_ORIGINS = [
   'asset_return',
   'opening_balance',
   'reversal',
+  'procedure_requisition',
 ] as const;
 export type PostingOrigin = (typeof POSTING_ORIGINS)[number];
 
@@ -105,6 +111,12 @@ const ORIGIN_APPLIES: Readonly<Record<PostingOrigin, (document: PostableDocument
     document.docType === 'RECEIPT_PURCHASE' && document.sourceType === 'OPENING_BALANCE',
   // Chứng từ đảo: quyền duyệt và người đảo khác người lập đã kiểm ở service.
   reversal: (document) => Boolean(document.reversesDocumentId),
+  // Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031, Q4-1): hồ sơ đã được duyệt bên
+  // Quy trình, service đã hỏi lại qua API nội bộ trước khi ghi sổ.
+  procedure_requisition: (document) =>
+    document.docType === 'ISSUE_PROJECT' &&
+    document.sourceType === 'procedure_instance' &&
+    Boolean(document.sourceId),
 };
 
 export function isExemptOrigin(document: PostableDocument, origin: PostingOrigin | undefined): boolean {

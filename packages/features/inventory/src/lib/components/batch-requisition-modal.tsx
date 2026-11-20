@@ -2,14 +2,14 @@
 
 import { useState, useMemo } from 'react';
 import { CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
-import { VnNumberInput, CloseGuard, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { VnNumberInput, CloseGuard, SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
-import { issueStock, installItem, markRequisitionFulfilled } from '../inventory-api';
-import { isPendingStockMovement } from '@enterprise-platform/contracts-inventory';
+import { fulfilRequisition, isRequisitionApproved } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
+import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
 import { Textarea } from '../ui/textarea';
@@ -20,7 +20,21 @@ export interface BatchItemState {
   materialName: string;
   quantity: number;
   unit: string;
-  warehouseCode: string;
+  /** Serial xuất, cách nhau bằng dấu phẩy hoặc xuống dòng; chỉ dùng cho hàng theo dõi serial. */
+  serialText: string;
+}
+
+/** Tách ô serial thành danh sách, bỏ khoảng trắng và dòng trống. */
+export function parseSerialText(value: string): string[] {
+  return value
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** Lời ghi lên hồ sơ Quy trình sau khi cấp xong: nêu mã chứng từ để người theo dõi tra được. */
+export function requisitionFulfilledComment(reqCode: string, documentCodes: readonly string[]): string {
+  return `[Thủ kho] Đã cấp vật tư theo yêu cầu ${reqCode}, chứng từ xuất kho: ${documentCodes.join(', ')}.`;
 }
 
 export function BatchRequisitionModal({
@@ -74,33 +88,38 @@ export function BatchRequisitionModal({
     };
   }, [req.lines, workspace.stock]);
 
-  // Khởi tạo danh sách vật tư kèm kho xuất tối ưu nhất
-  const [items, setItems] = useState<BatchItemState[]>(() => {
-    return req.lines.map((line) => {
-      // Ưu tiên chọn kho có tồn khả dụng >= số lượng yêu cầu
-      let initialWh = defaultWarehouse;
-      const whWithEnoughStock = workspace.stock.find(
-        (s) => s.materialCode === line.materialCode && s.available >= line.quantity,
-      );
-      const whWithAnyStock = workspace.stock.find(
-        (s) => s.materialCode === line.materialCode && s.available > 0,
-      );
+  const serializedCodes = useMemo(
+    () => new Set(workspace.materials.filter((material) => material.isSerialized).map((material) => material.code)),
+    [workspace.materials],
+  );
 
-      if (whWithEnoughStock?.warehouseCode) {
-        initialWh = whWithEnoughStock.warehouseCode;
-      } else if (whWithAnyStock?.warehouseCode) {
-        initialWh = whWithAnyStock.warehouseCode;
+  // Một yêu cầu xuất từ một kho (một chứng từ): ưu tiên kho đủ hàng cho nhiều dòng nhất.
+  const [warehouseCode, setWarehouseCode] = useState<string>(() => {
+    let best = defaultWarehouse;
+    let bestCount = -1;
+    for (const warehouse of workspace.warehouses) {
+      const count = req.lines.filter((line) =>
+        workspace.stock.some(
+          (s) => s.warehouseCode === warehouse.code && s.materialCode === line.materialCode && s.available >= line.quantity,
+        ),
+      ).length;
+      if (count > bestCount) {
+        best = warehouse.code;
+        bestCount = count;
       }
-
-      return {
-        materialCode: line.materialCode,
-        materialName: line.materialName || line.materialCode,
-        quantity: line.quantity,
-        unit: line.unit || '',
-        warehouseCode: initialWh,
-      };
-    });
+    }
+    return best;
   });
+
+  const [items, setItems] = useState<BatchItemState[]>(() =>
+    req.lines.map((line) => ({
+      materialCode: line.materialCode,
+      materialName: line.materialName || line.materialCode,
+      quantity: line.quantity,
+      unit: line.unit || '',
+      serialText: '',
+    })),
+  );
 
   const [note, setNote] = useState<string>(
     `Xuất cấp phát vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${
@@ -119,13 +138,13 @@ export function BatchRequisitionModal({
     });
   };
 
-  // Kiểm tra tồn kho và phân loại 3 màu cho từng dòng
+  // Kiểm tra tồn kho và phân loại 3 màu cho từng dòng (theo kho xuất đã chọn)
   const itemStatuses = useMemo(() => {
     return items.map((item) => {
       const matchingStocks = workspace.stock.filter((s) => s.materialCode === item.materialCode);
       const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
 
-      const stockRow = matchingStocks.find((s) => s.warehouseCode === item.warehouseCode);
+      const stockRow = matchingStocks.find((s) => s.warehouseCode === warehouseCode);
       const onHand = stockRow?.quantity ?? 0;
       const available = stockRow?.available ?? 0;
 
@@ -136,14 +155,21 @@ export function BatchRequisitionModal({
         tier = 'shortage';
       }
 
-      const overdraw = item.quantity > onHand;
-      const valid = item.quantity >= 0 && !!item.warehouseCode && !overdraw;
+      const overdraw = item.quantity > available;
+      const serialized = serializedCodes.has(item.materialCode);
+      const serialCount = parseSerialText(item.serialText).length;
+      const serialsMissing = serialized && item.quantity > 0 && serialCount !== item.quantity;
+      const valid = item.quantity >= 0 && !!warehouseCode && !overdraw && !serialsMissing;
 
-      return { valid, onHand, available, totalAvail, overdraw, tier };
+      return { valid, onHand, available, totalAvail, overdraw, tier, serialized, serialCount, serialsMissing };
     });
-  }, [items, workspace.stock]);
+  }, [items, workspace.stock, warehouseCode, serializedCodes]);
 
-  const hasInvalid = itemStatuses.some((v) => !v.valid);
+  const activeItems = items.filter((item) => item.quantity > 0);
+  const targetAsset = req.assetCode || selectedAssetCode;
+  const approved = isRequisitionApproved(req);
+  const missingAsset = isAssignToAsset && !targetAsset;
+  const hasInvalid = itemStatuses.some((v) => !v.valid) || activeItems.length === 0 || missingAsset || !approved;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,75 +179,50 @@ export function BatchRequisitionModal({
     setErrorMessage(null);
 
     try {
-      const results: string[] = [];
-      const targetAsset = req.assetCode || selectedAssetCode;
-
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (item.quantity <= 0) continue; // Bỏ qua nếu người dùng đặt = 0
-
-        const itemNote = `${note} [Vật tư ${item.materialCode} × ${item.quantity} ${item.unit}]`;
-        if (targetAsset && isAssignToAsset) {
-          // Xuất cho bảo trì/thay thế thiết bị: gọi installItem để liên kết cây tài sản và cộng vào 'Đang sử dụng'
-          const res = await installItem(item.materialCode, {
-            warehouseCode: item.warehouseCode,
-            parentCode: targetAsset,
-            quantity: item.quantity,
-            note: itemNote,
-          });
-          results.push(`${item.materialCode}: ${res.transactionCode}`);
-        } else {
-          // Xuất tiêu hao
-          const res = await issueStock({
-            warehouseCode: item.warehouseCode,
+      // Một lần gọi: server tạo một chứng từ (hoặc lắp từng dòng vào thiết bị) và
+      // chống cấp lặp theo mã yêu cầu; bấm lại hay người khác cấp cùng lúc không sinh chứng từ thứ hai.
+      const result = await fulfilRequisition(req.code, {
+        instanceId: req.id,
+        warehouseCode,
+        assetCode: isAssignToAsset ? targetAsset : undefined,
+        note: note.trim() || undefined,
+        lines: activeItems.map((item) => {
+          const serials = parseSerialText(item.serialText);
+          return {
             materialCode: item.materialCode,
             quantity: item.quantity,
-            note: itemNote,
-          });
-          // Không có chứng từ nguồn: phiếu xuất Chờ duyệt, chưa trừ tồn (ISS-BE-006).
-          results.push(
-            isPendingStockMovement(res)
-              ? `${item.materialCode}: chờ duyệt ${res.document.code}`
-              : `${item.materialCode}: ${res.transactionCode}`,
-          );
-        }
-      }
+            ...(serializedCodes.has(item.materialCode) && serials.length ? { serials } : {}),
+          };
+        }),
+      });
+      const documentCodes = result.documents.map((document) => document.code);
 
-      markRequisitionFulfilled(req.code);
-      if (req.id && req.id !== req.code) {
-        try {
-          const csrfToken =
-            document.cookie.split('; ').find((p) => p.startsWith('ep_csrf='))?.split('=')[1] ?? '';
-          void fetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/comments`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'content-type': 'application/json', 'x-csrf-token': csrfToken },
-            body: JSON.stringify({
-              comment: `[Thủ kho] Đã xuất kho thành công cấp phát theo phiếu yêu cầu ${req.code} (chứng từ: ${results.join(', ')}).`,
-            }),
-          }).catch((err) => {
-            void err;
-          });
-        } catch {
-          // Bỏ qua nếu không thể gửi comment về quy trình
-        }
+      // Chỉ báo về Quy trình sau khi cấp thành công, và chỉ lần cấp đầu (gọi lại không ghi trùng).
+      if (!result.replayed) {
+        void authFetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/comments`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ comment: requisitionFulfilledComment(req.code, documentCodes) }),
+        }).catch(() => undefined);
       }
 
       onSuccess(
-        `Đã xuất kho thành công cấp phát vật tư theo phiếu yêu cầu ${req.code} (${results.join(', ')}).`,
+        result.replayed
+          ? `Yêu cầu ${req.code} đã được cấp trước đó (chứng từ ${documentCodes.join(', ')}); không ghi thêm.`
+          : `Đã cấp vật tư theo yêu cầu ${req.code} (chứng từ ${documentCodes.join(', ')}).`,
         req.code,
       );
       onClose();
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : 'Có lỗi xảy ra khi thực hiện xuất kho theo phiếu yêu cầu.',
+        err instanceof Error ? err.message : 'Có lỗi xảy ra khi cấp vật tư theo phiếu yêu cầu.',
       );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const dirtySnapshot = JSON.stringify([isAssignToAsset, selectedAssetCode, items, note]);
+  const dirtySnapshot = JSON.stringify([isAssignToAsset, selectedAssetCode, warehouseCode, items, note]);
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
@@ -263,6 +264,26 @@ export function BatchRequisitionModal({
                 <span>{errorMessage}</span>
               </div>
             ) : null}
+
+            {!approved ? (
+              <div className="py-2.5 px-3.5 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-[14px] flex items-center gap-2">
+                <AlertTriangle size={16} />
+                <span>Hồ sơ {req.code} chưa được duyệt xong ở Quy trình nên chưa cấp vật tư được.</span>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-[13px] font-semibold text-slate-700 whitespace-nowrap">Kho xuất cho cả yêu cầu:</span>
+              <SearchableSelect
+                className="max-w-95 flex-1"
+                height={32}
+                value={warehouseCode}
+                onChange={setWarehouseCode}
+                clearable={false}
+                options={workspace.warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` }))}
+              />
+              <span className="text-[12px] text-slate-500">Một yêu cầu ghi một chứng từ xuất từ một kho.</span>
+            </div>
 
             {/* BANNER 3 MÀU TỔNG QUAN TÌNH TRẠNG ĐÁP ỨNG CỦA PHIẾU YÊU CẦU */}
             <div
@@ -387,7 +408,7 @@ export function BatchRequisitionModal({
                       Số lượng xuất
                     </TableHeaderCell>
                     <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-57.5">
-                      Kho chỉ định xuất
+                      Serial xuất
                     </TableHeaderCell>
                     <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-52.5 text-right">
                       Tồn kho & Trạng thái
@@ -427,33 +448,37 @@ export function BatchRequisitionModal({
                               {item.unit}
                             </span>
                           </div>
-                          {status.overdraw && status.onHand > 0 ? (
+                          {status.overdraw && status.available > 0 ? (
                             <div className="mt-[3px]">
                               <Button
                                 type="button"
                                 variant="link"
                                 size="xs"
                                 className="h-auto p-0 text-[12px] underline"
-                                onClick={() => handleItemChange(idx, { quantity: status.onHand })}
+                                onClick={() => handleItemChange(idx, { quantity: status.available })}
                               >
-                                Lấy tồn ({status.onHand})
+                                Lấy tồn ({status.available})
                               </Button>
                             </div>
                           ) : null}
                         </TableCell>
                         <TableCell className="px-3 py-2">
-                          <SearchableSelect
-                            height={32}
-                            value={item.warehouseCode}
-                            onChange={(value) => handleItemChange(idx, { warehouseCode: value })}
-                            options={workspace.warehouses.map((w) => {
-                              const wStock = workspace.stock.find(
-                                (stock) => stock.materialCode === item.materialCode && stock.warehouseCode === w.code,
-                              );
-                              const wAvail = wStock?.available ?? 0;
-                              return { value: w.code, label: `${w.name} (khả dụng: ${formatNumber(wAvail)})` };
-                            })}
-                          />
+                          {status.serialized ? (
+                            <>
+                              <Input
+                                value={item.serialText}
+                                onChange={(e) => handleItemChange(idx, { serialText: e.target.value })}
+                                placeholder="Nhập serial, cách nhau bằng dấu phẩy"
+                                aria-label={`Serial xuất của ${item.materialCode}`}
+                                className={cn('h-8 text-[13px]', status.serialsMissing && 'border-red-500')}
+                              />
+                              <div className={cn('mt-0.5 text-[12px]', status.serialsMissing ? 'text-red-600' : 'text-slate-500')}>
+                                Đã nhập {status.serialCount}/{formatNumber(item.quantity)} serial
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-[12px] text-slate-400">Không theo dõi serial</span>
+                          )}
                         </TableCell>
                         <TableCell className="px-3 py-2 text-right">
                           {status.tier === 'single_ready' ? (
@@ -479,7 +504,7 @@ export function BatchRequisitionModal({
                           )}
                           {status.overdraw ? (
                             <div className="text-[12px] text-red-600 mt-0.5 font-medium">
-                              Kho chọn chỉ còn {formatNumber(status.onHand)}!
+                              Kho chọn chỉ còn {formatNumber(status.available)} khả dụng.
                             </div>
                           ) : null}
                         </TableCell>
@@ -509,7 +534,11 @@ export function BatchRequisitionModal({
             <div className="flex items-center gap-1.5 text-[13px] text-slate-500">
               <CheckCircle2 size={15} color="#16a34a" />
               <span>
-                Sẽ ghi đồng thời <strong>{items.filter(i => i.quantity > 0).length} bút toán xuất kho</strong> vào sổ cái.
+                {isAssignToAsset ? (
+                  <>Sẽ lắp <strong>{activeItems.length} vật tư</strong> vào thiết bị, xuất từ kho {warehouseCode}.</>
+                ) : (
+                  <>Sẽ ghi <strong>một chứng từ xuất kho gồm {activeItems.length} dòng</strong>, xuất từ kho {warehouseCode}.</>
+                )}
               </span>
             </div>
 
@@ -525,8 +554,8 @@ export function BatchRequisitionModal({
                 className="min-w-45"
               >
                 {submitting
-                  ? 'Đang ghi sổ giao dịch…'
-                  : `Xác nhận xuất ${items.filter(i => i.quantity > 0).length} vật tư`}
+                  ? 'Đang cấp vật tư…'
+                  : `Xác nhận cấp ${activeItems.length} vật tư`}
               </Button>
             </div>
           </DialogFooter>

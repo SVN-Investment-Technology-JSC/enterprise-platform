@@ -209,6 +209,13 @@ describe('mọi đường ghi sổ đều kiểm duyệt (ISS-BE-006)', () => {
     expect(blocked(doc({}), 'reversal')).toBe(true);
     // Chứng từ đảo mà không qua đường đảo (không khai nguồn) vẫn bị chặn.
     expect(blocked(doc({ reversesDocumentId: 'orig' }))).toBe(true);
+
+    // Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): chỉ chứng từ xuất dự án có nguồn hồ sơ.
+    const requisition = { docType: 'ISSUE_PROJECT', sourceType: 'procedure_instance', sourceId: 'i-1' } as const;
+    expect(blocked(doc(requisition), 'procedure_requisition')).toBe(false);
+    expect(blocked(doc({ ...requisition, sourceId: undefined }), 'procedure_requisition')).toBe(true);
+    expect(blocked(doc({ ...requisition, docType: 'ISSUE_OTHER' }), 'procedure_requisition')).toBe(true);
+    expect(blocked(doc({ docType: 'ISSUE_OTHER', sourceType: 'asset', sourceId: 'a' }), 'procedure_requisition')).toBe(true);
     // Nguồn lạ (chuỗi do client gửi) không miễn được gì.
     expect(blocked(doc({}), 'client' as never)).toBe(true);
   });

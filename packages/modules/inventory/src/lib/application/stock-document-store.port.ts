@@ -106,10 +106,29 @@ export type StockDocumentChange =
     }
   | { readonly kind: 'post'; readonly actorId: string };
 
+/** Chứng từ tìm theo khoá chống lặp (ISS-BE-031): đủ để biết đã cấp chưa và đối dấu nội dung. */
+export interface IdempotentDocumentRef {
+  readonly id: string;
+  readonly code: string;
+  readonly status: StockDocument['status'];
+  readonly idempotencyKey: string;
+  readonly requestHash?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+}
+
 export interface StockDocumentStore {
   list(tenantId: string, query: StockDocumentListQuery): Promise<StockDocumentPage>;
   /** Tìm theo id (UUID) hoặc theo mã chứng từ. */
   get(tenantId: string, key: string): Promise<StockDocument | null>;
+  /**
+   * Chứng từ có khoá chống lặp đúng bằng một khoá gốc, hoặc bắt đầu bằng `<khoá gốc>:`
+   * (các chứng từ con của cùng một yêu cầu). Không có thì mảng rỗng.
+   */
+  findByIdempotencyPrefixes(
+    tenantId: string,
+    prefixes: readonly string[],
+  ): Promise<IdempotentDocumentRef[]>;
   /** Tạo chứng từ Nháp. Có `idempotencyKey` đã dùng thì trả chứng từ cũ. */
   create(tenantId: string, input: NewStockDocumentInput): Promise<StockDocument>;
   /**

@@ -110,4 +110,16 @@ describe('inventory module capabilities', () => {
       response: { message: 'Bạn không có quyền ghi phát sinh tồn kho.' },
     });
   });
+  it('requisition fulfil maps explicitly to transaction.write; status is a read (ISS-BE-031)', async () => {
+    const keeper = setup(['inventory.read', 'inventory.transaction.write'], '/requisitions/PR-001/fulfil');
+    await expect(keeper.guard.canActivate(keeper.context)).resolves.toBe(true);
+    expect(keeper.request.inventoryActor).toMatchObject({ canManage: false, canWriteTransactions: true });
+    const basic = setup(['inventory.read'], '/requisitions/PR-001/fulfil');
+    await expect(basic.guard.canActivate(basic.context)).rejects.toMatchObject({
+      status: 403,
+      response: { message: 'Bạn không có quyền ghi phát sinh tồn kho.' },
+    });
+    const status = setup(['inventory.read'], '/requisitions/status', 'GET');
+    await expect(status.guard.canActivate(status.context)).resolves.toBe(true);
+  });
 });

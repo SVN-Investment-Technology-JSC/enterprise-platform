@@ -18,6 +18,7 @@ import type {
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import { randomUUID } from 'node:crypto';
 import type {
+  IdempotentDocumentRef,
   NewStockDocumentInput,
   PostOptions,
   StockDocumentChange,
@@ -345,6 +346,34 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
   async get(tenantId: string, key: string): Promise<StockDocument | null> {
     const pool = await this.poolFor(tenantId);
     return this.load(pool, key, false);
+  }
+
+  async findByIdempotencyPrefixes(
+    tenantId: string,
+    prefixes: readonly string[],
+  ): Promise<IdempotentDocumentRef[]> {
+    const keys = [...new Set(prefixes.map((prefix) => prefix.trim()).filter(Boolean))];
+    if (!keys.length) return [];
+    const pool = await this.poolFor(tenantId);
+    // Khoá gốc khớp đúng; chứng từ con khớp `<khoá>:%` (thoát ký tự đặc biệt của LIKE).
+    const patterns = keys.map((key) => `${key.replace(/[\\%_]/g, (char) => `\\${char}`)}:%`);
+    const result = await pool.query<Row>(
+      `SELECT id, code, status, idempotency_key, request_hash, source_type, source_id
+         FROM inventory_schema.stock_documents
+        WHERE idempotency_key = ANY($1::text[])
+           OR idempotency_key LIKE ANY($2::text[])
+        ORDER BY idempotency_key`,
+      [keys, patterns],
+    );
+    return result.rows.map((row) => ({
+      id: str(row.id),
+      code: str(row.code),
+      status: str(row.status) as StockDocument['status'],
+      idempotencyKey: str(row.idempotency_key),
+      requestHash: opt(row.request_hash),
+      sourceType: opt(row.source_type),
+      sourceId: opt(row.source_id),
+    }));
   }
 
   async create(tenantId: string, input: NewStockDocumentInput): Promise<StockDocument> {

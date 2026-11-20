@@ -1721,6 +1721,73 @@ export function isPendingStockMovement(value: unknown): value is PendingStockMov
   );
 }
 
+// ---------------------------------------------------------------- Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031)
+
+/** Nguồn của chứng từ xuất cấp theo yêu cầu vật tư của Quy trình; `sourceId` là id hồ sơ. */
+export const PROCEDURE_REQUISITION_SOURCE_TYPE = 'procedure_instance';
+
+/**
+ * Khoá chống lặp của một yêu cầu vật tư: mỗi mã yêu cầu chỉ sinh một lần cấp.
+ * Xuất tiêu hao dùng đúng khoá này; lắp vào thiết bị dùng `<khoá>:install:<dòng>/<số dòng>`.
+ */
+export function procedureRequisitionKey(orderCode: string): string {
+  return `procedure-requisition:${orderCode}`;
+}
+
+export interface FulfilRequisitionLine {
+  readonly materialCode: string;
+  readonly quantity: number;
+  /** Serial xuất, đủ bằng số lượng; bắt buộc với hàng theo dõi serial (ISS-BE-005). */
+  readonly serials?: readonly string[];
+}
+
+/**
+ * `POST /v1/requisitions/:orderCode/fulfil`. Một kho xuất cho cả yêu cầu. Có
+ * `assetCode` thì từng dòng lắp vào thiết bị đó; không có thì xuất tiêu hao bằng
+ * một chứng từ nhiều dòng.
+ */
+export interface FulfilRequisitionRequest {
+  /** Id hồ sơ Quy trình của yêu cầu; server hỏi Quy trình hồ sơ còn, đã duyệt và đúng mã. */
+  readonly instanceId: string;
+  readonly warehouseCode: string;
+  readonly assetCode?: string;
+  readonly note?: string;
+  readonly lines: readonly FulfilRequisitionLine[];
+}
+
+/** OPEN: chưa cấp; PARTIAL: lắp thiết bị dở dang (gọi lại cùng nội dung để cấp nốt); FULFILLED: đã cấp đủ. */
+export type RequisitionFulfilmentStatus = 'OPEN' | 'PARTIAL' | 'FULFILLED';
+
+export interface RequisitionFulfilmentDocument {
+  readonly id: string;
+  readonly code: string;
+  readonly status: StockDocumentStatus;
+}
+
+export interface FulfilRequisitionResult {
+  readonly orderCode: string;
+  readonly instanceId: string;
+  readonly mode: 'ISSUE' | 'INSTALL';
+  readonly status: RequisitionFulfilmentStatus;
+  /** Mã chứng từ xuất (chứng từ đầu tiên khi lắp nhiều dòng). */
+  readonly documentCode: string;
+  readonly documents: readonly RequisitionFulfilmentDocument[];
+  /** Gọi lại cùng khoá: trả chứng từ đã có, không ghi gì thêm. */
+  readonly replayed: boolean;
+}
+
+export interface RequisitionStatusEntry {
+  readonly orderCode: string;
+  readonly status: RequisitionFulfilmentStatus;
+  readonly documentCode?: string;
+  readonly documentCodes: readonly string[];
+}
+
+/** `GET /v1/requisitions/status?codes=a,b`. */
+export interface RequisitionStatusResponse {
+  readonly items: readonly RequisitionStatusEntry[];
+}
+
 // ============================================================================
 // API NỘI BỘ CHO BÁN HÀNG (T1-24, T1-25, T1-26)
 // ============================================================================

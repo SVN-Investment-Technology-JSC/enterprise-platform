@@ -9,6 +9,7 @@ import type { InventoryActor } from './inventory.application.js';
 import type { InventoryStore } from './inventory-store.port.js';
 import { StockDocumentService } from './stock-document.service.js';
 import type {
+  IdempotentDocumentRef,
   NewStockDocumentInput,
   PostOptions,
   StockDocumentChange,
@@ -32,6 +33,10 @@ class FakeStockDocumentStore implements StockDocumentStore {
 
   async get(_tenantId: string, key: string): Promise<StockDocument | null> {
     return this.documents.get(key) ?? null;
+  }
+
+  async findByIdempotencyPrefixes(): Promise<IdempotentDocumentRef[]> {
+    return [];
   }
 
   async create(_tenantId: string, input: NewStockDocumentInput): Promise<StockDocument> {

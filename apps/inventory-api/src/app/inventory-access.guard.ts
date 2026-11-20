@@ -41,6 +41,12 @@ function requiredInventoryPermission(request: Request): string | undefined {
     return 'inventory.transaction.write';
   }
 
+  // Cấp vật tư theo yêu cầu đã duyệt của Quy trình (ISS-BE-031): việc của thủ kho,
+  // khai tường minh để không rơi xuống quyền quản lý danh mục. Xem trạng thái là GET (quyền đọc).
+  if (/\/requisitions\/[^/]+\/fulfil\/?$/.test(path)) {
+    return 'inventory.transaction.write';
+  }
+
   // Kiểm kê kho: duyệt, trả về đếm lại, ghi sổ cân kho là quyền của người duyệt;
   // lập đợt, ghi số đếm, gửi duyệt, huỷ là quyền của người kiểm kê.
   if (/\/stocktakes\/[^/]+\/(approve|reject|post)\/?$/.test(path)) {

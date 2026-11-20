@@ -63,6 +63,7 @@ import {
 } from './stock-document-store.port.js';
 import {
   AssetNotFoundError,
+  DocumentIdempotencyConflictError,
   IdempotencyKeyConflictError,
   InsufficientAvailableStockError,
   InsufficientStockError,
@@ -331,7 +332,45 @@ export class InventoryApplication {
   ): Promise<InventoryTransaction> {
     this.requireManager(actor);
     this.requireStockWriter(actor);
+    const posted = await this.installCore(actor, code, input);
+    return posted.transactions[0];
+  }
 
+  /**
+   * Lắp một dòng của yêu cầu vật tư Quy trình đã duyệt (ISS-BE-031). Cùng luồng
+   * lắp như trên nhưng quyền là ghi phát sinh (thủ kho): hồ sơ Quy trình đã duyệt
+   * là căn cứ, service cấp phát đã hỏi lại Quy trình trước khi gọi.
+   *
+   * Có khoá chống lặp: dòng đã lắp thì trả chứng từ cũ, không tạo đơn vị lắp mới;
+   * cùng khoá khác nội dung thì 409.
+   */
+  async installItemForRequisition(
+    actor: InventoryActor,
+    code: string,
+    input: InstallItemRequest,
+    idempotency: { readonly key: string; readonly requestHash: string },
+  ): Promise<PostedStockDocument> {
+    this.requireStockWriter(actor);
+    const [existing] = (
+      await this.documents.findByIdempotencyPrefixes(actor.tenantId, [idempotency.key])
+    ).filter((document) => document.idempotencyKey === idempotency.key);
+    if (existing) {
+      if (existing.requestHash !== idempotency.requestHash) {
+        throw new DocumentIdempotencyConflictError(idempotency.key);
+      }
+      const document = await this.documents.get(actor.tenantId, existing.id);
+      if (!document) throw new InventoryError('NOT_FOUND', `Không tìm thấy chứng từ ${existing.code}.`, 404);
+      return { document, transactions: [] };
+    }
+    return this.installCore(actor, code, input, idempotency);
+  }
+
+  private async installCore(
+    actor: InventoryActor,
+    code: string,
+    input: InstallItemRequest,
+    idempotency?: { readonly key: string; readonly requestHash: string },
+  ): Promise<PostedStockDocument> {
     const parentCode = input?.parentCode?.trim() || undefined;
     if (parentCode && code === parentCode) {
       throw new InventoryError('VALIDATION', 'Không thể lắp một vật tư vào chính nó.');
@@ -377,11 +416,18 @@ export class InventoryApplication {
         warehouseCode,
         sourceType: 'asset',
         sourceId: unit.unitId,
+        idempotencyKey: idempotency?.key,
+        requestHash: idempotency?.requestHash,
         note: input.note?.trim() || actionNote,
         createdBy: actor.userId,
         lines,
       }, { autoPickSerials: true });
-      return posted.transactions[0];
+      // Hai lần gọi cùng khoá chạy song song: bên thua nhận chứng từ của bên thắng,
+      // đơn vị lắp của mình không có bút toán nào nên dọn đi.
+      if (idempotency && posted.document.sourceId !== unit.unitId) {
+        await this.store.item.deactivateUnit(actor.tenantId, unit.unitCode);
+      }
+      return posted;
     } catch (cause) {
       // Dòng đơn vị được tạo ở một transaction khác với bút toán, nên khi bút
       // toán hỏng (thiếu tồn) nó không tự cuốn theo. Không dọn thì cây mọc ra
