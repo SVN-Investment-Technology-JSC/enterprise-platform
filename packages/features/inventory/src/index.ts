@@ -11,6 +11,7 @@ export { AssetForm } from './lib/components/asset-form';
 export {
   BatchRequisitionModal,
   parseSerialText,
+  requisitionCommentKey,
   requisitionFulfilledComment,
 } from './lib/components/batch-requisition-modal';
 export { AssetDetail, assetLocationChain } from './lib/components/asset-detail';

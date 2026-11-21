@@ -4,6 +4,7 @@ import {
   BatchRequisitionModal,
   loadProcedureRequisitions,
   parseSerialText,
+  requisitionCommentKey,
   requisitionFulfilledComment,
   type InventoryWorkspace,
   type ProcedureRequisition,
@@ -12,6 +13,7 @@ import {
 // Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): trạng thái cấp đọc từ server,
 // cấp bằng MỘT lời gọi, bình luận về Quy trình chỉ sau khi cấp thành công.
 const INSTANCE_B = '22222222-2222-4222-8222-222222222222';
+const PARENT_B = '33333333-3333-4333-8333-333333333333';
 
 type Call = { url: string; method: string; body?: unknown };
 let calls: Call[] = [];
@@ -105,6 +107,8 @@ describe('BatchRequisitionModal', () => {
     kind: 'issue',
     lines: [{ materialCode: 'VT-01', quantity: 2, unit: 'Cái' }],
     csvFileName: 'bang-ke-vat-tu-PR-B.csv',
+    sourceType: 'auto_from_parent',
+    sourceId: PARENT_B,
     ...patch,
   });
 
@@ -144,9 +148,33 @@ describe('BatchRequisitionModal', () => {
     expect((fulfils[0].body as { assetCode?: string }).assetCode).toBeUndefined();
     await waitFor(() => expect(calls.some((call) => call.url.endsWith('/comments'))).toBe(true));
     const comment = calls.find((call) => call.url.endsWith('/comments'));
-    expect(comment?.url).toBe(`/api/procedure/v1/instances/${INSTANCE_B}/comments`);
-    expect(comment?.body).toEqual({ comment: requisitionFulfilledComment('PR-B', ['PX-9']) });
+    // Ghi vào hồ sơ cha đang chạy: hồ sơ yêu cầu đã kết thúc thì Quy trình trả 409 cho mọi trao đổi.
+    expect(comment?.url).toBe(`/api/procedure/v1/instances/${PARENT_B}/comments`);
+    // Khớp hợp đồng API trao đổi của Quy trình: `body` + khoá chống lặp theo mã yêu cầu.
+    expect(comment?.body).toEqual({
+      body: requisitionFulfilledComment('PR-B', ['PX-9']),
+      idempotencyKey: requisitionCommentKey('PR-B'),
+    });
     expect(onSuccess.mock.calls[0][0]).toContain('PX-9');
+  });
+
+  it('yêu cầu không có hồ sơ cha: cấp được, không gửi trao đổi', async () => {
+    mockFetch((url) =>
+      url.includes('/fulfil')
+        ? {
+            status: 201,
+            body: { orderCode: 'PR-B', instanceId: INSTANCE_B, mode: 'ISSUE', status: 'FULFILLED', documentCode: 'PX-9', documents: [{ id: 'd9', code: 'PX-9', status: 'POSTED' }], replayed: false },
+          }
+        : { body: {} },
+    );
+    const onSuccess = jest.fn();
+    render(
+      <BatchRequisitionModal req={req({ sourceType: undefined, sourceId: undefined })} workspace={workspace} onClose={jest.fn()} onSuccess={onSuccess} />,
+    );
+    fireEvent.click(screen.getByLabelText(/Xuất tiêu hao/));
+    fireEvent.click(screen.getByRole('button', { name: /Xác nhận cấp/ }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+    expect(calls.some((call) => call.url.endsWith('/comments'))).toBe(false);
   });
 
   it('server báo lỗi: hiện lời server, không bình luận về Quy trình', async () => {
