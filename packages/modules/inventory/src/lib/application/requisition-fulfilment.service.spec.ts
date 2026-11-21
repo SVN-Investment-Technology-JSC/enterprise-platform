@@ -5,7 +5,11 @@ import {
 } from '../domain/inventory.error.js';
 import type { InventoryActor, InventoryApplication } from './inventory.application.js';
 import type { InventoryStore } from './inventory-store.port.js';
-import type { ProcedureInstanceReader, ProcedureInstanceState } from './procedure-instance-reader.port.js';
+import type {
+  ProcedureInstanceReader,
+  ProcedureInstanceState,
+  ProcedureIssueOrder,
+} from './procedure-instance-reader.port.js';
 import {
   RequisitionFulfilmentService,
   requisitionInstallKey,
@@ -31,6 +35,7 @@ const keeper: InventoryActor = {
 
 function setup(options: {
   state?: ProcedureInstanceState | null;
+  orders?: ProcedureIssueOrder[];
   available?: Record<string, number>;
   serialized?: string[];
 } = {}) {
@@ -130,7 +135,10 @@ function setup(options: {
 
   const state: ProcedureInstanceState | null =
     options.state === undefined ? { instanceId: INSTANCE_ID, instanceCode: ORDER, status: 'completed' } : options.state;
-  const procedures: ProcedureInstanceReader = { instanceState: jest.fn(async () => state) };
+  const procedures: ProcedureInstanceReader = {
+    instanceState: jest.fn(async () => state),
+    listIssueOrders: jest.fn(async () => options.orders ?? []),
+  };
 
   const service = new RequisitionFulfilmentService(
     documents as unknown as StockDocumentStore,
@@ -370,5 +378,71 @@ describe('requisitionStatus', () => {
     expect(requisitionStatus(ORDER, [ref(`procedure-requisition:${ORDER}`, 'PX-1', 'PENDING')])).toMatchObject({
       status: 'OPEN',
     });
+  });
+});
+
+describe('RequisitionFulfilmentService.list: mọi thủ kho thấy toàn bộ yêu cầu', () => {
+  const order = (code: string, patch: Partial<ProcedureIssueOrder> = {}): ProcedureIssueOrder => ({
+    orderCode: code,
+    createdAt: '2026-11-21T00:00:00Z',
+    lines: [{ materialCode: 'VT-01', quantity: 2, materialName: 'Vật tư 1', unit: 'Cái' }],
+    instanceId: INSTANCE_ID,
+    instanceTitle: `Xin vật tư ${code}`,
+    instanceStatus: 'completed',
+    parentInstanceId: 'parent-1',
+    parentCode: 'PR-CHA',
+    parentTitle: 'Hồ sơ cha',
+    ...patch,
+  });
+
+  it('đọc từ Quy trình bằng service token, không phụ thuộc người xem có mặt trong hồ sơ', async () => {
+    const { service, procedures } = setup({ orders: [order('PR-A'), order('PR-B', { instanceStatus: 'running' })] });
+    const result = await service.list({ ...keeper, canWriteTransactions: false });
+
+    expect(procedures.listIssueOrders).toHaveBeenCalledWith('tenant-1');
+    expect(result.items.map((item) => [item.orderCode, item.procedureStatus, item.fulfilment.status])).toEqual([
+      ['PR-A', 'completed', 'OPEN'],
+      ['PR-B', 'running', 'OPEN'],
+    ]);
+    expect(result.items[0]).toMatchObject({
+      instanceId: INSTANCE_ID,
+      title: 'Xin vật tư PR-A',
+      parentCode: 'PR-CHA',
+      lines: [{ materialCode: 'VT-01', quantity: 2, materialName: 'Vật tư 1', unit: 'Cái' }],
+    });
+  });
+
+  it('bỏ yêu cầu đã cấp đủ, hồ sơ đã đóng hoặc không còn; giữ yêu cầu lắp dở', async () => {
+    const orders = [
+      order(ORDER),
+      order('PR-HUY', { instanceStatus: 'cancelled' }),
+      order('PR-TUCHOI', { instanceStatus: 'rejected' }),
+      order('PR-HUYHL', { instanceStatus: 'reversed' }),
+      order('PR-MAT', { instanceId: undefined, instanceStatus: undefined }),
+      order('PR-DO', { createdAt: '2026-11-22T00:00:00Z' }),
+    ];
+    const { service } = setup({ orders });
+    // ORDER cấp xong thì biến khỏi danh sách.
+    await service.fulfil(keeper, ORDER, request());
+
+    const result = await service.list(keeper);
+    expect(result.items.map((item) => item.orderCode)).toEqual(['PR-DO']);
+  });
+
+  it('yêu cầu lắp thiết bị dở dang vẫn hiện với trạng thái PARTIAL', async () => {
+    const ctx = setup({ orders: [order(ORDER)] });
+    ctx.stored.push({
+      id: 'doc-x',
+      code: 'PX-X',
+      status: 'POSTED',
+      idempotencyKey: requisitionInstallKey(ORDER, 0, 2),
+      requestHash: 'h',
+      sourceType: 'asset',
+      sourceId: 'unit-1',
+    });
+
+    const result = await ctx.service.list(keeper);
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].fulfilment).toMatchObject({ status: 'PARTIAL', documentCodes: ['PX-X'] });
   });
 });

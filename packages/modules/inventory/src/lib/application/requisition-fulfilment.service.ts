@@ -6,6 +6,8 @@ import {
   type FulfilRequisitionRequest,
   type FulfilRequisitionResult,
   type RequisitionFulfilmentDocument,
+  type RequisitionListItem,
+  type RequisitionListResponse,
   type RequisitionStatusEntry,
   type RequisitionStatusResponse,
 } from '@enterprise-platform/contracts-inventory';
@@ -36,6 +38,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const ORDER_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,149}$/;
 const MAX_LINES = 200;
 const MAX_STATUS_CODES = 200;
+/** Hồ sơ yêu cầu đã đóng ở Quy trình: không còn gì để cấp, không hiện cho thủ kho. */
+const CLOSED_PROCEDURE_STATUSES = new Set(['cancelled', 'rejected', 'reversed']);
 
 interface NormalizedLine {
   readonly materialCode: string;
@@ -100,22 +104,74 @@ export class RequisitionFulfilmentService {
     if (wanted.length > MAX_STATUS_CODES) {
       throw new InventoryError('VALIDATION', `Hỏi tối đa ${MAX_STATUS_CODES} mã yêu cầu mỗi lần.`);
     }
-    const valid = wanted.filter((code) => ORDER_CODE_PATTERN.test(code));
-    const found = await this.documents.findByIdempotencyPrefixes(
-      actor.tenantId,
-      valid.map((code) => procedureRequisitionKey(code)),
+    return { items: await this.statusesOf(actor.tenantId, wanted) };
+  }
+
+  /**
+   * Mọi yêu cầu cấp vật tư còn phải xử lý, cho mọi thủ kho (người có quyền xem kho):
+   * Kho đọc đơn vật tư từ Quy trình bằng service token, không qua workspace của
+   * người xem (workspace chỉ trả hồ sơ người đó tham gia, nên thủ kho không thấy gì).
+   * Bỏ yêu cầu đã cấp đủ, hồ sơ đã huỷ, từ chối, huỷ hiệu lực hoặc không còn.
+   */
+  async list(actor: InventoryActor): Promise<RequisitionListResponse> {
+    const orders = (await this.procedures.listIssueOrders(actor.tenantId)).filter(
+      (order) => order.instanceId && !CLOSED_PROCEDURE_STATUSES.has(order.instanceStatus ?? ''),
     );
-    return {
-      items: wanted.map((code) => {
-        const base = procedureRequisitionKey(code);
-        return requisitionStatus(
-          code,
-          found.filter(
-            (document) => document.idempotencyKey === base || document.idempotencyKey.startsWith(`${base}:`),
-          ),
-        );
-      }),
-    };
+    const statuses = new Map(
+      (await this.statusesOf(actor.tenantId, orders.map((order) => order.orderCode))).map((entry) => [
+        entry.orderCode,
+        entry,
+      ]),
+    );
+    const items: RequisitionListItem[] = [];
+    for (const order of orders) {
+      const fulfilment: RequisitionStatusEntry = statuses.get(order.orderCode) ?? {
+        orderCode: order.orderCode,
+        status: 'OPEN',
+        documentCodes: [],
+      };
+      if (fulfilment.status === 'FULFILLED') continue;
+      items.push({
+        orderCode: order.orderCode,
+        instanceId: order.instanceId,
+        title: order.instanceTitle ?? `Yêu cầu cấp vật tư từ ${order.parentCode}`,
+        procedureStatus: order.instanceStatus ?? 'running',
+        createdAt: order.createdAt,
+        parentInstanceId: order.parentInstanceId,
+        parentCode: order.parentCode,
+        ...(order.assetCode ? { assetCode: order.assetCode } : {}),
+        lines: order.lines.map((line) => ({
+          materialCode: line.materialCode,
+          quantity: line.quantity,
+          ...(line.materialName ? { materialName: line.materialName } : {}),
+          ...(line.unit ? { unit: line.unit } : {}),
+        })),
+        fulfilment,
+      });
+    }
+    return { items: items.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) };
+  }
+
+  /** Trạng thái cấp theo mã, đọc từng lô `MAX_STATUS_CODES` mã. */
+  private async statusesOf(tenantId: string, codes: readonly string[]): Promise<RequisitionStatusEntry[]> {
+    const wanted = [...new Set(codes)];
+    const valid = wanted.filter((code) => ORDER_CODE_PATTERN.test(code));
+    const found: IdempotentDocumentRef[] = [];
+    for (let start = 0; start < valid.length; start += MAX_STATUS_CODES) {
+      found.push(
+        ...(await this.documents.findByIdempotencyPrefixes(
+          tenantId,
+          valid.slice(start, start + MAX_STATUS_CODES).map((code) => procedureRequisitionKey(code)),
+        )),
+      );
+    }
+    return wanted.map((code) => {
+      const base = procedureRequisitionKey(code);
+      return requisitionStatus(
+        code,
+        found.filter((document) => document.idempotencyKey === base || document.idempotencyKey.startsWith(`${base}:`)),
+      );
+    });
   }
 
   async fulfil(

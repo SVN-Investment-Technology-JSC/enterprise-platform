@@ -279,6 +279,15 @@ export class ProcedureEngineController {
     return this.execute(() => this.procedures.checkReversalForService(tenantId, instanceId));
   }
 
+  /** Kho đọc mọi đơn vật tư xuất kho để thủ kho xử lý (chỉ đọc, service token). */
+  @Get('internal/material-orders')
+  internalIssueMaterialOrders(@Req() request: { headers: Record<string, unknown> }) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(async () => ({
+      items: await this.procedures.listIssueMaterialOrdersForService(tenantId),
+    }));
+  }
+
   /** Đối soát hàng loạt (tối đa 100 mã): trạng thái và bước hiện tại. */
   @Post('internal/instances/status')
   @HttpCode(200)

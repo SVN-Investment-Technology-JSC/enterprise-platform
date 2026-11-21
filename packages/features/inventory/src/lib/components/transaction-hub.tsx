@@ -88,6 +88,7 @@ export function TransactionHub({
   // Procedure Requisitions state
   const [requisitions, setRequisitions] = useState<ProcedureRequisition[]>([]);
   const [loadingRequisitions, setLoadingRequisitions] = useState(false);
+  const [requisitionError, setRequisitionError] = useState<string | null>(null);
   const [procedures, setProcedures] = useState<ProcedureOption[]>([]);
 
   const reloadRequisitions = useCallback(async () => {
@@ -95,6 +96,14 @@ export function TransactionHub({
     try {
       const data = await loadProcedureRequisitions();
       setRequisitions(data);
+      setRequisitionError(null);
+    } catch (error) {
+      // Không nuốt lỗi thành danh sách rỗng: thủ kho phải biết có thể còn yêu cầu chưa thấy.
+      setRequisitionError(
+        error instanceof Error && error.message
+          ? `Không tải được yêu cầu cấp vật tư từ Quy trình: ${error.message}`
+          : 'Không tải được yêu cầu cấp vật tư từ Quy trình.',
+      );
     } finally {
       setLoadingRequisitions(false);
     }
@@ -224,6 +233,18 @@ export function TransactionHub({
             </button>
           </div>
         </>
+      ) : null}
+
+      {activeSubTab === 'ledger' && requisitionError ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span>{requisitionError}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void reloadRequisitions()}>
+            Tải lại
+          </Button>
+        </div>
       ) : null}
 
       {activeSubTab === 'ledger' && (requisitions.length > 0 || loadingRequisitions) ? (

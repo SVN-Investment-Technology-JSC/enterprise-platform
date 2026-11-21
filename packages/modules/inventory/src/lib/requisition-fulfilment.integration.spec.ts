@@ -44,6 +44,18 @@ integration('Cấp vật tư theo yêu cầu Quy trình trên PostgreSQL (ISS-BE
       const code = [...instances.entries()].find(([, id]) => id === instanceId)?.[0];
       return code ? { instanceId, instanceCode: code, status: 'completed' } : null;
     },
+    async listIssueOrders() {
+      return [...instances.entries()].map(([code, instanceId]) => ({
+        orderCode: code,
+        createdAt: new Date().toISOString(),
+        lines: [],
+        instanceId,
+        instanceStatus: 'completed',
+        parentInstanceId: randomUUID(),
+        parentCode: 'PR-CHA',
+        parentTitle: 'Hồ sơ cha',
+      }));
+    },
   };
 
   function order(): { code: string; instanceId: string } {

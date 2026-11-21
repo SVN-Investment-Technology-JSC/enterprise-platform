@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { CheckCircle2, AlertTriangle, Layers, PackageCheck } from 'lucide-react';
-import { VnNumberInput, CloseGuard, SearchableSelect, authFetch } from '@enterprise-platform/shared-ui';
+import { VnNumberInput, CloseGuard, SearchableSelect } from '@enterprise-platform/shared-ui';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
 import { fulfilRequisition, isRequisitionApproved } from '../inventory-api';
 import { formatNumber, getUnitQuantityConfig } from '../inventory-labels';
@@ -30,21 +30,6 @@ export function parseSerialText(value: string): string[] {
     .split(/[,;\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
-}
-
-/** Lời ghi lên hồ sơ Quy trình sau khi cấp xong: nêu mã chứng từ để người theo dõi tra được. */
-export function requisitionFulfilledComment(reqCode: string, documentCodes: readonly string[]): string {
-  return `[Thủ kho] Đã cấp vật tư theo yêu cầu ${reqCode}, chứng từ xuất kho: ${documentCodes.join(', ')}.`;
-}
-
-/** Khoá chống lặp của lời báo đã cấp: một yêu cầu chỉ có một lời trên hồ sơ Quy trình. */
-export function requisitionCommentKey(reqCode: string): string {
-  return `inventory-requisition-fulfilled:${reqCode}`;
-}
-
-/** Hồ sơ nhận lời báo đã cấp: hồ sơ cha đã xin vật tư; không có hồ sơ cha thì không ghi. */
-export function requisitionCommentTarget(req: Pick<ProcedureRequisition, 'sourceType' | 'sourceId'>): string | null {
-  return req.sourceType === 'auto_from_parent' && req.sourceId ? req.sourceId : null;
 }
 
 export function BatchRequisitionModal({
@@ -207,21 +192,8 @@ export function BatchRequisitionModal({
       });
       const documentCodes = result.documents.map((document) => document.code);
 
-      // Chỉ báo về Quy trình sau khi cấp thành công, và chỉ lần cấp đầu (gọi lại không ghi trùng).
-      // Ghi vào hồ sơ CHA (nơi xin vật tư, còn đang chạy): hồ sơ yêu cầu đã kết thúc thì Quy trình
-      // không nhận trao đổi nữa. API nhận `body` và bắt buộc khoá chống lặp, khoá theo mã yêu cầu.
-      const commentTarget = requisitionCommentTarget(req);
-      if (!result.replayed && commentTarget) {
-        void authFetch(`/api/procedure/v1/instances/${encodeURIComponent(commentTarget)}/comments`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            body: requisitionFulfilledComment(req.code, documentCodes),
-            idempotencyKey: requisitionCommentKey(req.code),
-          }),
-        }).catch(() => undefined);
-      }
-
+      // Lời báo đã cấp vào hồ sơ Quy trình do Quy trình tự ghi khi nhận sự kiện ghi sổ của Kho
+      // (`inventory.stock.issued`), nên thủ kho không cần có mặt trong hồ sơ.
       onSuccess(
         result.replayed
           ? `Yêu cầu ${req.code} đã được cấp trước đó (chứng từ ${documentCodes.join(', ')}); không ghi thêm.`

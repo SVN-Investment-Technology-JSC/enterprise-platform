@@ -4,14 +4,13 @@ import {
   BatchRequisitionModal,
   loadProcedureRequisitions,
   parseSerialText,
-  requisitionCommentKey,
-  requisitionFulfilledComment,
   type InventoryWorkspace,
   type ProcedureRequisition,
 } from '@enterprise-platform/feature-inventory';
 
-// Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): trạng thái cấp đọc từ server,
-// cấp bằng MỘT lời gọi, bình luận về Quy trình chỉ sau khi cấp thành công.
+// Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): danh sách và trạng thái cấp đọc
+// từ server Kho (mọi thủ kho thấy đủ), cấp bằng MỘT lời gọi; lời báo vào hồ sơ
+// Quy trình do server ghi qua sự kiện, trình duyệt không gọi API trao đổi.
 const INSTANCE_B = '22222222-2222-4222-8222-222222222222';
 const PARENT_B = '33333333-3333-4333-8333-333333333333';
 
@@ -36,51 +35,55 @@ afterEach(() => {
 });
 
 describe('danh sách yêu cầu cấp vật tư', () => {
-  it('đọc trạng thái cấp từ server: yêu cầu đã cấp không hiện, không dùng localStorage', async () => {
-    mockFetch((url) => {
-      if (url.startsWith('/api/procedure/v1/workspace')) {
-        return {
-          body: {
-            instances: [
-              {
-                id: 'parent-1',
-                code: 'HS-1',
-                status: 'running',
-                startedAt: '2026-11-01T00:00:00Z',
-                materialOrders: [
-                  { code: 'PR-A', kind: 'issue', createdAt: '2026-11-02T00:00:00Z', lines: [{ materialCode: 'VT-01', quantity: 1 }] },
-                  { code: 'PR-B', kind: 'issue', createdAt: '2026-11-03T00:00:00Z', lines: [{ materialCode: 'VT-01', quantity: 2 }] },
-                  { code: 'PR-MUA', kind: 'purchase', createdAt: '2026-11-03T00:00:00Z', lines: [{ materialCode: 'VT-09', quantity: 2 }] },
-                ],
-              },
-              { id: 'child-a', code: 'PR-A', status: 'completed', startedAt: '2026-11-02T00:00:00Z', sourceType: 'auto_from_parent' },
-              { id: INSTANCE_B, code: 'PR-B', status: 'completed', startedAt: '2026-11-03T00:00:00Z', sourceType: 'auto_from_parent' },
-            ],
-          },
-        };
-      }
-      if (url.startsWith('/api/inventory/v1/requisitions/status')) {
-        return {
-          body: {
-            items: [
-              { orderCode: 'PR-A', status: 'FULFILLED', documentCode: 'PX-1', documentCodes: ['PX-1'] },
-              { orderCode: 'PR-B', status: 'OPEN', documentCodes: [] },
-            ],
-          },
-        };
-      }
-      if (url.includes('/attachments')) return { body: [] };
-      return undefined;
-    });
+  it('đọc từ GET /requisitions của Kho, không gọi workspace Quy trình, không dùng localStorage', async () => {
+    mockFetch((url) =>
+      url === '/api/inventory/v1/requisitions'
+        ? {
+            body: {
+              items: [
+                {
+                  orderCode: 'PR-B',
+                  instanceId: INSTANCE_B,
+                  title: 'Xin vật tư',
+                  procedureStatus: 'completed',
+                  createdAt: '2026-11-03T00:00:00Z',
+                  parentInstanceId: PARENT_B,
+                  parentCode: 'HS-1',
+                  assetCode: 'TB-01',
+                  lines: [{ materialCode: 'VT-01', quantity: 2 }],
+                  fulfilment: { orderCode: 'PR-B', status: 'OPEN', documentCodes: [] },
+                },
+              ],
+            },
+          }
+        : undefined,
+    );
 
     const list = await loadProcedureRequisitions();
 
-    expect(list.map((req) => req.code)).toEqual(['PR-B']);
-    expect(list[0]).toMatchObject({ id: INSTANCE_B, status: 'completed', fulfilment: { status: 'OPEN' } });
-    expect(calls.find((call) => call.url.startsWith('/api/inventory/v1/requisitions/status'))?.url).toBe(
-      '/api/inventory/v1/requisitions/status?codes=PR-A,PR-B',
-    );
+    expect(list).toEqual([
+      {
+        id: INSTANCE_B,
+        code: 'PR-B',
+        title: 'Xin vật tư',
+        status: 'completed',
+        startedAt: '2026-11-03T00:00:00Z',
+        sourceType: 'auto_from_parent',
+        sourceId: PARENT_B,
+        assetCode: 'TB-01',
+        kind: 'issue',
+        lines: [{ materialCode: 'VT-01', quantity: 2 }],
+        csvFileName: 'bang-ke-vat-tu-PR-B.csv',
+        fulfilment: { orderCode: 'PR-B', status: 'OPEN', documentCodes: [] },
+      },
+    ]);
+    expect(calls.map((call) => call.url)).toEqual(['/api/inventory/v1/requisitions']);
     expect(window.localStorage.getItem('ep:inventory:fulfilled_requisitions')).toBeNull();
+  });
+
+  it('server lỗi: ném lỗi để màn báo cho thủ kho, không trả danh sách rỗng', async () => {
+    mockFetch(() => ({ status: 503, body: { message: 'Quy trình đang không khả dụng. Vui lòng thử lại sau.' } }));
+    await expect(loadProcedureRequisitions()).rejects.toThrow(/Quy trình đang không khả dụng/);
   });
 });
 
@@ -112,7 +115,7 @@ describe('BatchRequisitionModal', () => {
     ...patch,
   });
 
-  it('cấp bằng một lời gọi; bình luận Quy trình chỉ sau khi thành công, nêu mã chứng từ', async () => {
+  it('cấp bằng một lời gọi, báo thành công kèm mã chứng từ', async () => {
     mockFetch((url) =>
       url.includes('/requisitions/PR-B/fulfil')
         ? {
@@ -146,38 +149,12 @@ describe('BatchRequisitionModal', () => {
       body: { instanceId: INSTANCE_B, warehouseCode: 'KHO-01', lines: [{ materialCode: 'VT-01', quantity: 2 }] },
     });
     expect((fulfils[0].body as { assetCode?: string }).assetCode).toBeUndefined();
-    await waitFor(() => expect(calls.some((call) => call.url.endsWith('/comments'))).toBe(true));
-    const comment = calls.find((call) => call.url.endsWith('/comments'));
-    // Ghi vào hồ sơ cha đang chạy: hồ sơ yêu cầu đã kết thúc thì Quy trình trả 409 cho mọi trao đổi.
-    expect(comment?.url).toBe(`/api/procedure/v1/instances/${PARENT_B}/comments`);
-    // Khớp hợp đồng API trao đổi của Quy trình: `body` + khoá chống lặp theo mã yêu cầu.
-    expect(comment?.body).toEqual({
-      body: requisitionFulfilledComment('PR-B', ['PX-9']),
-      idempotencyKey: requisitionCommentKey('PR-B'),
-    });
+    // Lời báo vào hồ sơ Quy trình do server ghi qua sự kiện; trình duyệt không gọi API của Quy trình.
+    expect(calls.some((call) => call.url.startsWith('/api/procedure/'))).toBe(false);
     expect(onSuccess.mock.calls[0][0]).toContain('PX-9');
   });
 
-  it('yêu cầu không có hồ sơ cha: cấp được, không gửi trao đổi', async () => {
-    mockFetch((url) =>
-      url.includes('/fulfil')
-        ? {
-            status: 201,
-            body: { orderCode: 'PR-B', instanceId: INSTANCE_B, mode: 'ISSUE', status: 'FULFILLED', documentCode: 'PX-9', documents: [{ id: 'd9', code: 'PX-9', status: 'POSTED' }], replayed: false },
-          }
-        : { body: {} },
-    );
-    const onSuccess = jest.fn();
-    render(
-      <BatchRequisitionModal req={req({ sourceType: undefined, sourceId: undefined })} workspace={workspace} onClose={jest.fn()} onSuccess={onSuccess} />,
-    );
-    fireEvent.click(screen.getByLabelText(/Xuất tiêu hao/));
-    fireEvent.click(screen.getByRole('button', { name: /Xác nhận cấp/ }));
-    await waitFor(() => expect(onSuccess).toHaveBeenCalled());
-    expect(calls.some((call) => call.url.endsWith('/comments'))).toBe(false);
-  });
-
-  it('server báo lỗi: hiện lời server, không bình luận về Quy trình', async () => {
+  it('server báo lỗi: hiện lời server', async () => {
     mockFetch((url) =>
       url.includes('/fulfil')
         ? { status: 409, body: { message: 'Yêu cầu PR-B chưa được duyệt xong ở Quy trình nên chưa cấp vật tư được.' } }

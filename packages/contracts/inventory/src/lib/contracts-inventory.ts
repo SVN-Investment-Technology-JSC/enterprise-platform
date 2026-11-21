@@ -1788,6 +1788,39 @@ export interface RequisitionStatusResponse {
   readonly items: readonly RequisitionStatusEntry[];
 }
 
+export interface RequisitionListLine {
+  readonly materialCode: string;
+  readonly quantity: number;
+  readonly materialName?: string;
+  readonly unit?: string;
+}
+
+/**
+ * Một yêu cầu cấp vật tư chưa cấp xong, Kho đọc từ Quy trình bằng service token
+ * nên mọi thủ kho đều thấy, không cần có mặt trong hồ sơ.
+ */
+export interface RequisitionListItem {
+  /** Mã hồ sơ yêu cầu bên Quy trình, cũng là mã yêu cầu khi cấp. */
+  readonly orderCode: string;
+  /** Id hồ sơ yêu cầu; vắng khi hồ sơ không còn (chưa cấp được). */
+  readonly instanceId?: string;
+  readonly title: string;
+  /** Trạng thái hồ sơ yêu cầu bên Quy trình: chỉ `completed` mới cấp được. */
+  readonly procedureStatus: string;
+  readonly createdAt: string;
+  readonly parentInstanceId: string;
+  readonly parentCode: string;
+  readonly assetCode?: string;
+  readonly lines: readonly RequisitionListLine[];
+  /** OPEN hoặc PARTIAL; yêu cầu đã cấp đủ không có trong danh sách. */
+  readonly fulfilment: RequisitionStatusEntry;
+}
+
+/** `GET /v1/requisitions`: yêu cầu còn mở, mới nhất trước. */
+export interface RequisitionListResponse {
+  readonly items: readonly RequisitionListItem[];
+}
+
 // ============================================================================
 // API NỘI BỘ CHO BÁN HÀNG (T1-24, T1-25, T1-26)
 // ============================================================================

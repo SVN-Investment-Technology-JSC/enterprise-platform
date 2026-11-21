@@ -10,12 +10,18 @@ interface InventoryRequest {
 
 /**
  * Cấp vật tư theo yêu cầu của Quy trình (`v1/requisitions`, ISS-BE-031). Quyền ở
- * guard của inventory-api: cấp cần `inventory.transaction.write`, xem trạng thái
- * cần `inventory.read`; service kiểm lại quyền ghi trên actor.
+ * guard của inventory-api: cấp cần `inventory.transaction.write`, xem danh sách và
+ * trạng thái cần `inventory.read`; service kiểm lại quyền ghi trên actor.
  */
 @Controller('v1/requisitions')
 export class RequisitionController {
   constructor(private readonly requisitions: RequisitionFulfilmentService) {}
+
+  /** Mọi yêu cầu cấp vật tư còn phải xử lý (đọc từ Quy trình bằng service token). */
+  @Get()
+  list(@Req() request: InventoryRequest) {
+    return this.execute(() => this.requisitions.list(this.actor(request)));
+  }
 
   /** `?codes=a,b`: mã đã cấp trả FULFILLED kèm mã chứng từ, chưa cấp trả OPEN. */
   @Get('status')

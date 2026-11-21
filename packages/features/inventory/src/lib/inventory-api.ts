@@ -36,6 +36,7 @@ import type {
   PendingStockMovement,
   FulfilRequisitionRequest,
   FulfilRequisitionResult,
+  RequisitionListResponse,
   RequisitionStatusEntry,
   RequisitionStatusResponse,
   PostedStockDocument,
@@ -379,130 +380,30 @@ export function fulfilRequisition(
   });
 }
 
-const CLOSED_PROCEDURE_STATUSES = new Set(['cancelled', 'rejected', 'reversed']);
-
 /**
- * Tải danh sách yêu cầu cấp vật tư từ Quy trình (hồ sơ con mở từ `materialOrders`
- * của hồ sơ cha, loại xuất kho), kèm trạng thái cấp đọc từ Kho. Yêu cầu đã cấp
- * đủ không hiện; hồ sơ đã huỷ, bị từ chối, bị huỷ hiệu lực cũng không hiện.
+ * Danh sách yêu cầu cấp vật tư từ Quy trình, đọc qua `GET /requisitions` của Kho.
+ * Server Kho hỏi Quy trình bằng service token nên mọi thủ kho thấy đủ yêu cầu,
+ * kể cả hồ sơ mình không có mặt (đọc thẳng workspace của Quy trình thì chỉ thấy
+ * hồ sơ mình tham gia). Server đã bỏ yêu cầu cấp đủ và hồ sơ đã đóng; bảng kê CSV
+ * dựng từ dòng vật tư ở trình duyệt. Lỗi thì ném ra để màn báo cho thủ kho.
  */
 export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[]> {
-  try {
-    const response = await authFetch('/api/procedure/v1/workspace', {
-      cache: 'no-store',
-    });
-    if (!response.ok) return [];
-    const body = (await response.json()) as {
-      instances?: Array<{
-        id: string;
-        code: string;
-        title?: string;
-        status: string;
-        startedAt: string;
-        sourceType?: string;
-        sourceId?: string;
-        assetCode?: string;
-        materialOrders?: Array<{
-          code: string;
-          kind: 'issue' | 'purchase';
-          createdAt: string;
-          lines: readonly {
-            materialCode: string;
-            quantity: number;
-            materialName?: string;
-            unit?: string;
-          }[];
-        }>;
-      }>;
-    };
-
-    const instances = body.instances ?? [];
-    const requisitions: ProcedureRequisition[] = [];
-
-    // 1. Thu thập từ `materialOrders` ghi trên hồ sơ cha (chỉ đơn xuất kho; đơn mua không cấp từ kho)
-    for (const inst of instances) {
-      for (const order of inst.materialOrders ?? []) {
-        if (order.kind === 'purchase') continue;
-        const childInst = instances.find((c) => c.code === order.code);
-        const status = childInst?.status ?? 'running';
-        if (CLOSED_PROCEDURE_STATUSES.has(status)) continue;
-
-        requisitions.push({
-          id: childInst?.id ?? order.code,
-          code: order.code,
-          title: childInst?.title ?? `Yêu cầu cấp phát vật tư từ ${inst.code}`,
-          status,
-          startedAt: order.createdAt || inst.startedAt,
-          sourceType: 'auto_from_parent',
-          sourceId: inst.id,
-          assetCode: inst.assetCode,
-          kind: 'issue',
-          lines: order.lines ?? [],
-          csvFileName: `bang-ke-vat-tu-${order.code}.csv`,
-        });
-      }
-    }
-
-    // 2. Thu thập từ chính các quy trình con nếu chưa có trong danh sách
-    for (const inst of instances) {
-      if (
-        inst.sourceType === 'auto_from_parent' &&
-        !requisitions.some((r) => r.code === inst.code || r.id === inst.id)
-      ) {
-        if (CLOSED_PROCEDURE_STATUSES.has(inst.status)) continue;
-
-        requisitions.push({
-          id: inst.id,
-          code: inst.code,
-          title: inst.title ?? inst.code,
-          status: inst.status,
-          startedAt: inst.startedAt,
-          sourceType: inst.sourceType,
-          sourceId: inst.sourceId,
-          assetCode: inst.assetCode,
-          kind: 'issue',
-          lines: [],
-          csvFileName: `bang-ke-vat-tu-${inst.code}.csv`,
-        });
-      }
-    }
-
-    // Trạng thái cấp đọc từ server Kho: yêu cầu đã cấp đủ không hiện nữa.
-    const statuses = new Map(
-      (await loadRequisitionStatuses(requisitions.map((req) => req.code)).catch(() => [])).map((entry) => [
-        entry.orderCode,
-        entry,
-      ]),
-    );
-    const open = requisitions
-      .map((req) => ({ ...req, fulfilment: statuses.get(req.code) }))
-      .filter((req) => req.fulfilment?.status !== 'FULFILLED');
-
-    // Lấy đính kèm downloadUrl cho từng yêu cầu
-    await Promise.all(
-      open.map(async (req) => {
-        if (!req.id || req.id === req.code) return;
-        try {
-          const attRes = await authFetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/attachments`, {
-            cache: 'no-store',
-          });
-          if (attRes.ok) {
-            const atts = (await attRes.json()) as Array<{ fileName: string; downloadUrl?: string }>;
-            const csvAtt = atts.find((a) => a.fileName === req.csvFileName || a.fileName.endsWith('.csv'));
-            if (csvAtt?.downloadUrl) {
-              (req as { downloadUrl?: string }).downloadUrl = csvAtt.downloadUrl;
-            }
-          }
-        } catch {
-          // Bỏ qua nếu lỗi lấy attachment, vẫn hiển thị được dòng yêu cầu
-        }
-      }),
-    );
-
-    return open.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  } catch {
-    return [];
-  }
+  const response = await request<RequisitionListResponse>('/requisitions', { cache: 'no-store' });
+  return (response.items ?? []).map((item) => ({
+    // Thiếu id hồ sơ thì dùng mã: `isRequisitionApproved` coi là chưa cấp được.
+    id: item.instanceId ?? item.orderCode,
+    code: item.orderCode,
+    title: item.title,
+    status: item.procedureStatus,
+    startedAt: item.createdAt,
+    sourceType: 'auto_from_parent',
+    sourceId: item.parentInstanceId,
+    assetCode: item.assetCode,
+    kind: 'issue' as const,
+    lines: item.lines,
+    csvFileName: `bang-ke-vat-tu-${item.orderCode}.csv`,
+    fulfilment: item.fulfilment,
+  }));
 }
 
 /**
