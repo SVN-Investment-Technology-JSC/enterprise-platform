@@ -29,6 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
 import { StocktakeHub } from './components/stocktake-hub';
+import { SerialHub } from './components/serial-hub';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemProfileDialog } from './components/item-profile-dialog';
@@ -108,11 +109,12 @@ type Tab =
   | 'settings';
 
 /** Năm tab con của trang Kho hàng. */
-type StockSubTab = 'goods' | 'warehouse' | 'movements' | 'history' | 'stocktakes';
+type StockSubTab = 'goods' | 'warehouse' | 'serials' | 'movements' | 'history' | 'stocktakes';
 
 const STOCK_SUB_TABS: readonly { id: StockSubTab; label: string }[] = [
   { id: 'goods', label: 'Hàng hóa' },
   { id: 'warehouse', label: 'Nhà kho' },
+  { id: 'serials', label: 'Serial' },
   { id: 'movements', label: 'Xuất/nhập kho' },
   { id: 'history', label: 'Lịch sử xuất nhập' },
   { id: 'stocktakes', label: 'Lịch sử kiểm đếm' },
@@ -198,9 +200,10 @@ function initialStockSubTab(): StockSubTab {
 
   // Hash cũ
   if (head === 'transactions') return 'history';
-  if (head === 'items' || head === 'overview' || head === 'materials' || head === 'warehouses' || head === 'serials') {
+  if (head === 'items' || head === 'overview' || head === 'materials' || head === 'warehouses') {
     return 'warehouse';
   }
+  if (head === 'serials') return 'serials';
 
   const stored = getStoredStockSubTab();
   if (stored) return stored;
@@ -1537,6 +1540,8 @@ export function InventoryScreen() {
                   materials={workspace.materials}
                   warehouses={workspace.warehouses}
                   stock={workspace.stock}
+                  statuses={settings?.['catalog.asset']?.value.enabledStatuses ?? []}
+                  usageStates={settings?.['catalog.asset']?.value.usageStates ?? []}
                   onOpenBulkImport={canWriteTransactions ? () => setShowBulkImport(true) : undefined}
                   onOpenStocktake={
                     canCreateStocktake
@@ -1554,6 +1559,15 @@ export function InventoryScreen() {
                         }
                       : undefined
                   }
+                />
+              ) : null}
+
+              {stockSubTab === 'serials' ? (
+                <SerialHub
+                  materials={workspace.materials}
+                  warehouses={workspace.warehouses}
+                  statuses={settings?.['catalog.asset']?.value.enabledStatuses ?? []}
+                  usageStates={settings?.['catalog.asset']?.value.usageStates ?? []}
                 />
               ) : null}
 

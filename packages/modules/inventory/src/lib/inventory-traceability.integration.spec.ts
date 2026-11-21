@@ -572,4 +572,67 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     await documents.post(clerk, draft.id);
     expect(await stock(lap)).toMatchObject({ quantity: 1, blocked: 0, available: 1 });
   });
+
+  it('Gắn serial cho tồn có sẵn: không vượt tồn, không đổi số lượng, có lịch sử ADJUSTMENT', async () => {
+    const traced = new InventoryApplication(
+      new PostgresInventoryStore(database.references, database.pools),
+      new PostgresStockDocumentStore(database.references, database.pools),
+      new PostgresTraceabilityStore(database.references, database.pools),
+    );
+    // Hàng vào kho bằng đường không kèm serial (như nhập qua API).
+    const lap = await material('QA-KHO-ASSIGN');
+    await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: lap, quantity: 2 });
+    expect(await traced.serialCoverage(admin, lap)).toEqual([
+      expect.objectContaining({ warehouseCode: 'QA-KHO-HN', quantity: 2, serialized: 0, unassigned: 2 }),
+    ]);
+
+    const tooMany = await rejection(
+      traced.assignSerialsToStock(admin, { materialCode: lap, warehouseCode: 'QA-KHO-HN', serialNumbers: ['A1', 'A2', 'A3'] }),
+    );
+    expect(tooMany).toMatchObject({ statusCode: 409, code: 'SERIAL_EXCEEDS_STOCK' });
+    expect(await serialRow(lap, 'A1')).toBeUndefined();
+
+    const first = await traced.assignSerialsToStock(admin, {
+      materialCode: lap,
+      warehouseCode: 'QA-KHO-HN',
+      serialNumbers: ['A1', ' A1 '],
+    });
+    expect(first).toMatchObject({ assigned: 1, coverage: { quantity: 2, serialized: 1, unassigned: 1 } });
+    expect(await serialRow(lap, 'A1')).toEqual({ stock_state: 'IN_STOCK', quality_status: 'PASSED', warehouse_code: 'QA-KHO-HN' });
+    expect(await stock(lap)).toMatchObject({ quantity: 2 });
+
+    const history = await serials.history(admin, 'A1', lap);
+    expect(history.movements.map((movement) => movement.movementType)).toEqual(['ADJUSTMENT']);
+
+    const duplicate = await rejection(
+      traced.assignSerialsToStock(admin, { materialCode: lap, warehouseCode: 'QA-KHO-HN', serialNumbers: ['a1'] }),
+    );
+    expect(duplicate).toMatchObject({ code: 'SERIAL_DUPLICATE' });
+
+    const second = await traced.assignSerialsToStock(admin, { materialCode: lap, warehouseCode: 'QA-KHO-HN', serialNumbers: ['A2'] });
+    expect(second.coverage).toMatchObject({ serialized: 2, unassigned: 0 });
+    await rejection(traced.assignSerialsToStock(clerk, { materialCode: lap, warehouseCode: 'QA-KHO-HN', serialNumbers: ['A9'] }));
+  });
+
+  it('Serial mới khai sửa số và xoá được; đã vào kho thì 409 SERIAL_IN_USE', async () => {
+    const lap = await material('QA-KHO-DECL', true);
+    await app.registerSerials(admin, { materialCode: lap, serialNumbers: ['D1', 'D2'] });
+
+    const renamed = await app.updateSerial(admin, lap, 'D1', { serialNumber: ' D1-FIX ' });
+    expect(renamed.serialNumber).toBe('D1-FIX');
+    expect(await serialRow(lap, 'D1')).toBeUndefined();
+
+    expect(await app.deleteSerial(admin, lap, 'D2')).toEqual({ deleted: true });
+    expect(await serialRow(lap, 'D2')).toBeUndefined();
+    expect(await rejection(app.deleteSerial(admin, lap, 'D2'))).toMatchObject({ statusCode: 404 });
+
+    // Vào kho qua phiếu nhập: từ đó không sửa số, không xoá.
+    await post('RECEIPT_PURCHASE', 'QA-KHO-HN', [{ materialCode: lap, quantity: 1, serials: ['D1-FIX'] }]);
+    expect(await rejection(app.deleteSerial(admin, lap, 'D1-FIX'))).toMatchObject({ statusCode: 409, code: 'SERIAL_IN_USE' });
+    expect(await rejection(app.updateSerial(admin, lap, 'D1-FIX', { serialNumber: 'D1-X' }))).toMatchObject({
+      statusCode: 409,
+      code: 'SERIAL_IN_USE',
+    });
+    expect(await serialRow(lap, 'D1-FIX')).toMatchObject({ stock_state: 'IN_STOCK' });
+  });
 });

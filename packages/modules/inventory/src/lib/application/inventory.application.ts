@@ -9,6 +9,9 @@ import type {
   CreateWarehouseRequest,
   UpdateWarehouseRequest,
   RegisterSerialsRequest,
+  AssignSerialsRequest,
+  AssignSerialsResult,
+  SerialCoverage,
   UpdateSerialRequest,
   InstallItemRequest,
   InstalledMaterial,
@@ -906,6 +909,47 @@ export class InventoryApplication {
     return { added, total };
   }
 
+  /** Mức phủ serial theo kho của một mã: tồn, đã gắn serial, còn thiếu. */
+  async serialCoverage(actor: InventoryActor, materialCode: string): Promise<SerialCoverage[]> {
+    const code = materialCode?.trim().toUpperCase();
+    if (!code) throw new InventoryError('VALIDATION', 'Thiếu mã vật tư.');
+    if (!this.traceability) return [];
+    return this.traceability.serialCoverage(actor.tenantId, code);
+  }
+
+  /**
+   * Gắn số serial cho hàng ĐÃ có trong tồn của một kho (nhập qua API, tồn đầu kỳ).
+   * Không đổi số lượng tồn; số serial không vượt phần chưa gắn. Hàng mới vào kho vẫn
+   * đi qua phiếu nhập.
+   */
+  async assignSerialsToStock(
+    actor: InventoryActor,
+    input: AssignSerialsRequest,
+  ): Promise<AssignSerialsResult> {
+    this.requireManager(actor);
+    if (!this.traceability) throw new InventoryError('VALIDATION', 'Chưa cấu hình truy vết.');
+    const materialCode = input?.materialCode?.trim().toUpperCase();
+    const warehouseCode = input?.warehouseCode?.trim();
+    if (!materialCode) throw new InventoryError('VALIDATION', 'Thiếu mã vật tư.');
+    if (!warehouseCode) throw new InventoryError('VALIDATION', 'Thiếu kho.');
+    const serials = [
+      ...new Set((input.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean)),
+    ];
+    if (serials.length === 0) throw new InventoryError('VALIDATION', 'Chưa nhập số serial nào.');
+    if (serials.some((value) => value.length > 100)) {
+      throw new InventoryError('VALIDATION', 'Số serial dài tối đa 100 ký tự.');
+    }
+    const states = (await this.getSettings(actor))['catalog.asset'].value.usageStates;
+    return this.traceability.assignSerialsToStock(actor.tenantId, {
+      materialCode,
+      warehouseCode,
+      serials,
+      actorId: actor.userId,
+      defaultStatus: 'OPERATING',
+      defaultLocationType: states[0] || '',
+    });
+  }
+
   async updateSerial(
     actor: InventoryActor,
     materialCode: string,
@@ -921,12 +965,34 @@ export class InventoryApplication {
         currentStatus: patch?.currentStatus?.trim() || undefined,
         locationType: patch?.locationType?.trim() || undefined,
         internalCode: patch?.internalCode?.trim() || undefined,
+        newSerialNumber: patch?.serialNumber?.trim() || undefined,
       },
     );
     if (!updated) {
       throw new InventoryError('NOT_FOUND', `Không tìm thấy sê-ri ${serialNumber}.`, 404);
     }
     return updated;
+  }
+
+  /** Xoá serial mới khai mà chưa phát sinh; đã phát sinh thì 409 và gợi ý chứng từ đảo. */
+  async deleteSerial(actor: InventoryActor, materialCode: string, serialNumber: string): Promise<{ deleted: true }> {
+    this.requireManager(actor);
+    const outcome = await this.store.serial.remove(
+      actor.tenantId,
+      materialCode.trim().toUpperCase(),
+      serialNumber.trim(),
+    );
+    if (outcome === 'not_found') {
+      throw new InventoryError('NOT_FOUND', `Không tìm thấy sê-ri ${serialNumber}.`, 404);
+    }
+    if (outcome === 'in_use') {
+      throw new InventoryError(
+        'SERIAL_IN_USE',
+        `Serial ${serialNumber} đã phát sinh (vào kho, có lịch sử hoặc nằm trên chứng từ) nên không xoá. Sai thì dùng chứng từ đảo hoặc điều chỉnh.`,
+        409,
+      );
+    }
+    return { deleted: true };
   }
 
   /**

@@ -902,6 +902,33 @@ export interface SerialHistory {
   readonly movements: readonly SerialMovement[];
 }
 
+/**
+ * Mức phủ serial của một mặt hàng tại một kho: tồn trên sổ kho, số serial đã
+ * gắn, số còn thiếu. `unassigned` > 0 nghĩa là còn hàng chưa có số serial.
+ */
+export interface SerialCoverage {
+  readonly warehouseCode: string;
+  readonly warehouseName?: string;
+  /** Tồn trên sổ kho. */
+  readonly quantity: number;
+  /** Số serial đang Trong kho tại kho này. */
+  readonly serialized: number;
+  /** `quantity - serialized`, không âm. */
+  readonly unassigned: number;
+}
+
+/** Gắn số serial cho hàng đã có trong tồn của một kho (hàng nhập từ API, tồn đầu kỳ, không kèm serial). */
+export interface AssignSerialsRequest {
+  readonly materialCode: string;
+  readonly warehouseCode: string;
+  readonly serialNumbers: readonly string[];
+}
+
+export interface AssignSerialsResult {
+  readonly assigned: number;
+  readonly coverage: SerialCoverage;
+}
+
 /** Thông tin lô trên dòng nhập: tạo lô mới hoặc cộng vào lô đã có cùng số lô. */
 export interface StockDocumentLotInput {
   readonly lotNo: string;
@@ -973,6 +1000,8 @@ export interface RegisterSerialsRequest {
 
 /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
 export interface UpdateSerialRequest {
+  /** Đổi số serial; chỉ khi serial chưa phát sinh (chưa vào kho, chưa có lịch sử). */
+  readonly serialNumber?: string;
   readonly currentStatus?: string;
   readonly locationType?: string;
   readonly internalCode?: string;

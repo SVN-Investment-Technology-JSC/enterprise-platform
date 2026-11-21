@@ -24,6 +24,15 @@ class FakeTraceabilityStore implements TraceabilityStore {
   async lotCandidates() {
     return this.candidates;
   }
+  async serialCoverage() {
+    return [];
+  }
+  async assignSerialsToStock() {
+    return {
+      assigned: 0,
+      coverage: { warehouseCode: 'W', quantity: 0, serialized: 0, unassigned: 0 },
+    };
+  }
   async serialHistory(_tenantId: string, serial: string) {
     return serial === 'SN001' ? ({ serialNumber: 'SN001' } as SerialHistory) : null;
   }

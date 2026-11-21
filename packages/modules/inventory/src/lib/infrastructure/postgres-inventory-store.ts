@@ -1905,14 +1905,27 @@ export class PostgresInventoryStore implements InventoryStore {
       tenantId: string,
       materialCode: string,
       serialNumber: string,
-      patch: { currentStatus?: string; locationType?: string; internalCode?: string },
+      patch: { currentStatus?: string; locationType?: string; internalCode?: string; newSerialNumber?: string },
     ): Promise<SerialTracking | null> => {
       const pool = await this.poolFor(tenantId);
+      // Sửa số serial chỉ khi chưa phát sinh: số đã vào sổ kho còn nằm trong lịch sử và chứng từ.
+      if (patch.newSerialNumber && patch.newSerialNumber !== serialNumber) {
+        const usage = await this.serialUsage(pool, materialCode, serialNumber);
+        if (usage === 'not_found') return null;
+        if (usage === 'in_use') {
+          throw new InventoryError(
+            'SERIAL_IN_USE',
+            `Serial ${serialNumber} đã phát sinh (vào kho, có lịch sử hoặc nằm trên chứng từ) nên không sửa số. Sai thì dùng chứng từ đảo hoặc điều chỉnh.`,
+            409,
+          );
+        }
+      }
       const result = await pool.query<Row>(
         `UPDATE inventory_schema.serial_tracking s
             SET current_status = COALESCE($3, s.current_status),
                 location_type  = COALESCE($4, s.location_type),
-                internal_code  = COALESCE($5, s.internal_code)
+                internal_code  = COALESCE($5, s.internal_code),
+                serial_number  = COALESCE($6, s.serial_number)
            FROM inventory_schema.materials m
           WHERE m.id = s.material_id AND m.code = $1 AND s.serial_number = $2
       RETURNING s.*, m.code AS material_code`,
@@ -1922,9 +1935,29 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.currentStatus ?? null,
           patch.locationType ?? null,
           patch.internalCode ?? null,
+          patch.newSerialNumber ?? null,
         ],
       );
       return result.rows[0] ? mapSerial(result.rows[0]) : null;
+    },
+
+    remove: async (
+      tenantId: string,
+      materialCode: string,
+      serialNumber: string,
+    ): Promise<'deleted' | 'not_found' | 'in_use'> => {
+      const pool = await this.poolFor(tenantId);
+      const usage = await this.serialUsage(pool, materialCode, serialNumber);
+      if (usage !== 'free') return usage;
+      const result = await pool.query(
+        `DELETE FROM inventory_schema.serial_tracking s
+          USING inventory_schema.materials m
+          WHERE m.id = s.material_id AND m.code = $1 AND s.serial_number = $2
+            AND s.stock_state IS NULL
+            AND NOT EXISTS (SELECT 1 FROM inventory_schema.serial_movements mv WHERE mv.serial_id = s.id)`,
+        [materialCode, serialNumber],
+      );
+      return (result.rowCount ?? 0) > 0 ? 'deleted' : 'in_use';
     },
   };
 
@@ -2199,6 +2232,36 @@ export class PostgresInventoryStore implements InventoryStore {
   };
 
   /** Đổi mã kho, mã vật tư của các dòng giữ hàng sang id; mã không có thì 404. */
+  /**
+   * Serial có đang được dùng không: đã vào sổ kho, đã có lịch sử, đang gắn thiết bị, hoặc nằm trên
+   * chứng từ chưa ghi sổ. `free` mới được sửa số hay xoá.
+   */
+  private async serialUsage(
+    pool: Pool,
+    materialCode: string,
+    serialNumber: string,
+  ): Promise<'free' | 'in_use' | 'not_found'> {
+    const result = await pool.query<Row>(
+      `SELECT s.stock_state, s.current_asset_id,
+              EXISTS (SELECT 1 FROM inventory_schema.serial_movements mv WHERE mv.serial_id = s.id) AS has_history,
+              EXISTS (
+                SELECT 1 FROM inventory_schema.stock_document_lines l
+                 WHERE l.material_id = s.material_id
+                   AND l.serial_numbers IS NOT NULL
+                   AND upper(btrim($2)) = ANY (SELECT upper(btrim(x)) FROM unnest(l.serial_numbers) AS x)
+              ) AS on_document
+         FROM inventory_schema.serial_tracking s
+         JOIN inventory_schema.materials m ON m.id = s.material_id
+        WHERE m.code = $1 AND s.serial_number = $2`,
+      [materialCode, serialNumber],
+    );
+    const row = result.rows[0];
+    if (!row) return 'not_found';
+    return row.stock_state != null || row.current_asset_id != null || row.has_history || row.on_document
+      ? 'in_use'
+      : 'free';
+  }
+
   private async resolveReservationLines(
     client: PoolClient,
     items: CreateReservationInput['items'],

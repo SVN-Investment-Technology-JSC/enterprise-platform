@@ -278,6 +278,8 @@ export function StockTable({
                             statuses={statuses}
                             usageStates={usageStates}
                             busy={busy}
+                            warehouseCode={row.warehouseCode}
+                            warehouseCodeById={warehouseCodeById}
                           />
                         ) : null}
 

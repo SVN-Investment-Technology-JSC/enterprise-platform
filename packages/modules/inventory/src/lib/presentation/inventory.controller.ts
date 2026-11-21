@@ -11,6 +11,7 @@ import type {
   InventorySettingsKey,
   LotAllocationInput,
   RegisterSerialsRequest,
+  AssignSerialsRequest,
   ReturnItemToStockRequest,
   StockDocumentLotInput,
   UninstallMaterialRequest,
@@ -363,6 +364,29 @@ export class InventoryController {
   @HttpCode(200)
   registerSerials(@Req() request: InventoryRequest, @Body() body: RegisterSerialsRequest) {
     return this.execute(() => this.app.registerSerials(this.actor(request), body));
+  }
+
+  /** Mức phủ serial theo kho của một mã. */
+  @Get('serials/coverage')
+  serialCoverage(@Req() request: InventoryRequest, @Query('materialCode') materialCode: string) {
+    return this.execute(() => this.app.serialCoverage(this.actor(request), materialCode));
+  }
+
+  /** Gắn serial cho hàng đã có trong tồn của một kho. */
+  @Post('serials/assign')
+  @HttpCode(200)
+  assignSerials(@Req() request: InventoryRequest, @Body() body: AssignSerialsRequest) {
+    return this.execute(() => this.app.assignSerialsToStock(this.actor(request), body));
+  }
+
+  /** Xoá serial khai ở danh mục mà chưa phát sinh. */
+  @Delete('serials/:materialCode/:serialNumber')
+  deleteSerial(
+    @Req() request: InventoryRequest,
+    @Param('materialCode') materialCode: string,
+    @Param('serialNumber') serialNumber: string,
+  ) {
+    return this.execute(() => this.app.deleteSerial(this.actor(request), materialCode, serialNumber));
   }
 
   /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */

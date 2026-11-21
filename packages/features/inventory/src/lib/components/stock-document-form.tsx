@@ -7,6 +7,7 @@ import type {
   StockDocumentType,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import {
   SearchableSelect,
   VnNumberInput,
@@ -101,9 +102,12 @@ export function StockDocumentForm({
         .map((item) => ({
           value: item.code,
           label: `${item.code} - ${item.name}`,
-          description: item.isSerialized
-            ? `${item.unit} · theo serial`
-            : item.unit,
+          description:
+            resolveTrackingMode(item) === 'SERIAL'
+              ? `${item.unit} · theo serial`
+              : resolveTrackingMode(item) === 'LOT'
+                ? `${item.unit} · theo lô`
+                : item.unit,
         })),
     [materials],
   );
@@ -297,14 +301,30 @@ export function StockDocumentForm({
         ),
     },
     {
-      title: 'Lô',
-      key: 'lot',
+      title: 'Theo dõi',
+      key: 'tracking',
       width: 240,
       render: (_value, line) => {
         const material = materialByCode.get(line.materialCode);
         if (!material) return <span className="my-[0.35rem] text-[13px] text-slate-500">—</span>;
-        if (material.isSerialized)
-          return <span className="my-[0.35rem] text-[13px] text-slate-500">Theo serial</span>;
+        // Mỗi mặt hàng chỉ có một cách định danh: serial, lô, hoặc theo dõi số lượng thuần.
+        const mode = resolveTrackingMode(material);
+        if (mode === 'SERIAL') {
+          const need = Math.max(Math.trunc(line.quantity) || 0, 0);
+          return (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto whitespace-nowrap rounded-[0.4rem] border-dashed border-blue-300 bg-blue-50 px-[0.55rem] py-1 text-[13px] font-normal text-blue-700 hover:bg-blue-100"
+              disabled={!draft.warehouseCode || need === 0}
+              onClick={() => setSerialLine(line.key)}
+            >
+              {line.serials.length}/{need} serial
+            </Button>
+          );
+        }
+        if (mode !== 'LOT')
+          return <span className="my-[0.35rem] text-[13px] text-slate-500">Không theo dõi</span>;
         if (lineDirection(draft.docType, line.direction) === 'IN') {
           return (
             <div className="grid grid-cols-2 gap-[0.35rem]">
@@ -345,28 +365,6 @@ export function StockDocumentForm({
             {line.lotNo
               ? `${line.lotNo}${line.lotExpiresOn ? ` · HSD ${formatDate(line.lotExpiresOn)}` : ''}`
               : 'Chọn lô (FEFO)'}
-          </Button>
-        );
-      },
-    },
-    {
-      title: 'Serial',
-      key: 'serials',
-      width: 130,
-      render: (_value, line) => {
-        const material = materialByCode.get(line.materialCode);
-        if (!material?.isSerialized)
-          return <span className="my-[0.35rem] text-[13px] text-slate-500">—</span>;
-        const need = Math.max(Math.trunc(line.quantity) || 0, 0);
-        return (
-          <Button
-            type="button"
-            variant="outline"
-            className="h-auto whitespace-nowrap rounded-[0.4rem] border-dashed border-blue-300 bg-blue-50 px-[0.55rem] py-1 text-[13px] font-normal text-blue-700 hover:bg-blue-100"
-            disabled={!draft.warehouseCode || need === 0}
-            onClick={() => setSerialLine(line.key)}
-          >
-            {line.serials.length}/{need} serial
           </Button>
         );
       },

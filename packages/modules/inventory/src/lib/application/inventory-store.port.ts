@@ -329,8 +329,13 @@ export interface InventoryStore {
       tenantId: string,
       materialCode: string,
       serialNumber: string,
-      patch: { currentStatus?: string; locationType?: string; internalCode?: string },
+      patch: { currentStatus?: string; locationType?: string; internalCode?: string; newSerialNumber?: string },
     ): Promise<SerialTracking | null>;
+    /**
+     * Xoá serial khai ở danh mục mà chưa phát sinh gì (chưa vào sổ kho, không có lịch sử, không nằm
+     * trên chứng từ nháp). Trả `in_use` khi đã phát sinh, `not_found` khi không có.
+     */
+    remove(tenantId: string, materialCode: string, serialNumber: string): Promise<'deleted' | 'not_found' | 'in_use'>;
   };
 
   taskTemplate: {

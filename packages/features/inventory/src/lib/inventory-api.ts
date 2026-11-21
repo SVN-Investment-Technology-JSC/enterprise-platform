@@ -29,6 +29,9 @@ import type {
   MaterialInventory,
   MaterialStorageLocation,
   RegisterSerialsRequest,
+  AssignSerialsRequest,
+  AssignSerialsResult,
+  SerialCoverage,
   Reservation,
   MaterialDeleteResult,
   RetireResult,
@@ -546,6 +549,29 @@ export function registerSerials(
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/** Mọi serial của tenant, cho màn quản lý serial. */
+export function loadAllSerials(): Promise<SerialTracking[]> {
+  return request<SerialTracking[]>('/serials');
+}
+
+/** Xoá serial mới khai mà chưa phát sinh; đã phát sinh thì server từ chối. */
+export function deleteSerial(materialCode: string, serialNumber: string): Promise<{ deleted: true }> {
+  return request<{ deleted: true }>(
+    `/serials/${encodeURIComponent(materialCode)}/${encodeURIComponent(serialNumber)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** Mức phủ serial theo kho: tồn, đã gắn serial, còn thiếu. */
+export function loadSerialCoverage(materialCode: string): Promise<SerialCoverage[]> {
+  return request<SerialCoverage[]>(`/serials/coverage?materialCode=${encodeURIComponent(materialCode)}`);
+}
+
+/** Gắn serial cho hàng đã có trong tồn của một kho (không đổi số lượng tồn). */
+export function assignSerials(input: AssignSerialsRequest): Promise<AssignSerialsResult> {
+  return request<AssignSerialsResult>('/serials/assign', { method: 'POST', body: JSON.stringify(input) });
 }
 
 /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
