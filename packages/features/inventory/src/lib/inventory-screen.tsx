@@ -86,7 +86,8 @@ import { usageLabel } from './trade-items.model';
 import { Button } from './ui/button';
 import { cn } from './ui/cn';
 import { InventoryPermissionsContext } from './inventory-permissions';
-import { movementHashTarget, type MovementHashTarget } from './stock-movement.model';
+import { movementHashTarget, movementOutcomeMessage, type MovementHashTarget } from './stock-movement.model';
+import { isPendingStockMovement } from '@enterprise-platform/contracts-inventory';
 
 type Tab =
   | 'dashboard'
@@ -462,6 +463,8 @@ export function InventoryScreen() {
       }
 
       const txCodes: string[] = [];
+      // Phiếu không có chứng từ nguồn: server tạo chứng từ Chờ duyệt (ISS-BE-006).
+      const pendingCodes: string[] = [];
       let totalSerialsAdded = 0;
 
       // Lô lưu ở server: phiếu nhập gửi kèm lô (tạo mới hoặc cộng vào lô cùng số
@@ -499,7 +502,7 @@ export function InventoryScreen() {
           // kho, khai riêng sau phiếu thì sê-ri chưa vào sổ kho. Số sê-ri lệch số
           // lượng thì server từ chối cả dòng, không ghi nửa vời.
           const serials = item.serialNumbers ?? [];
-          const tx = await receiveStock({
+          const result = await receiveStock({
             warehouseCode: wh,
             materialCode: item.materialCode,
             quantity: item.quantity,
@@ -509,16 +512,24 @@ export function InventoryScreen() {
             serials: serials.length > 0 ? [...serials] : undefined,
             counterparty: movement.counterparty,
           });
-          showInLedger([tx]);
-          txCodes.push(tx.transactionCode);
-          totalSerialsAdded += serials.length;
+          if (isPendingStockMovement(result)) {
+            pendingCodes.push(result.document.code);
+          } else {
+            showInLedger([result]);
+            txCodes.push(result.transactionCode);
+            totalSerialsAdded += serials.length;
+          }
         }
 
-        const refText = txCodes.join(', ');
+        const refText = [...txCodes, ...pendingCodes].join(', ');
         await openOrderFor(movement, refText);
-        return `Đã nhập kho ${lineItems.length} mặt hàng — chứng từ [${refText}]${
-          totalSerialsAdded > 0 ? `, đã nhập ${totalSerialsAdded} sê-ri vào kho` : ''
-        }.`;
+        return movementOutcomeMessage(
+          `Đã nhập kho ${txCodes.length} mặt hàng${
+            totalSerialsAdded > 0 ? `, đã nhập ${totalSerialsAdded} sê-ri vào kho` : ''
+          }`,
+          txCodes,
+          pendingCodes,
+        );
       }
 
       if (movement.kind === 'issue') {
@@ -536,29 +547,36 @@ export function InventoryScreen() {
               parentCode: movement.targetAssetCode,
               quantity: item.quantity,
               note: lineNote,
+              serials: item.serialNumbers?.length ? [...item.serialNumbers] : undefined,
             });
             showInLedger([tx]);
             txCodes.push(tx.transactionCode);
           } else {
-            const tx = await issueStock({
+            const result = await issueStock({
               warehouseCode: wh,
               materialCode: item.materialCode,
               quantity: item.quantity,
               note: lineNote,
               lots: lotAllocations(item),
+              // Hàng theo serial phải gửi đủ serial (ISS-BE-005).
+              serials: item.serialNumbers?.length ? [...item.serialNumbers] : undefined,
               counterparty: movement.counterparty,
             });
-            showInLedger([tx]);
-            txCodes.push(tx.transactionCode);
+            if (isPendingStockMovement(result)) {
+              pendingCodes.push(result.document.code);
+            } else {
+              showInLedger([result]);
+              txCodes.push(result.transactionCode);
+            }
           }
         }
 
-        const refText = txCodes.join(', ');
+        const refText = [...txCodes, ...pendingCodes].join(', ');
         await openOrderFor(movement, refText);
         if (movement.targetAssetCode) {
           return `Đã xuất kho ${lineItems.length} mặt hàng lắp đặt vào ${movement.targetAssetCode} — chứng từ [${refText}]. Số lượng đã được cộng vào "Đang sử dụng".`;
         }
-        return `Đã xuất kho ${lineItems.length} mặt hàng — chứng từ [${refText}].`;
+        return movementOutcomeMessage(`Đã xuất kho ${txCodes.length} mặt hàng`, txCodes, pendingCodes);
       }
 
       // Transfer
@@ -578,6 +596,7 @@ export function InventoryScreen() {
           quantity: item.quantity,
           note: lineNote,
           lots: lotAllocations(item),
+          serials: item.serialNumbers?.length ? [...item.serialNumbers] : undefined,
         });
         showInLedger([moved.out, moved.in]);
         txCodes.push(`${moved.out.transactionCode}/${moved.in.transactionCode}`);
@@ -625,21 +644,27 @@ export function InventoryScreen() {
       }
 
       // 2. Nạp tồn kho theo đúng kho của từng dòng (hỗ trợ nhiều kho khác nhau)
-      let importedCount = 0;
+      const importedCodes: string[] = [];
+      const pendingCodes: string[] = [];
       for (const item of importedItems) {
         const wh = item.warehouseCode || workspace?.warehouses[0]?.code;
         if (!wh) continue;
-        await receiveStock({
+        const result = await receiveStock({
           warehouseCode: wh,
           materialCode: item.materialCode,
           quantity: item.quantity,
           unitCost: item.unitCost,
           note: item.lineNote || 'Bổ sung dữ liệu đa kho từ tệp Excel',
         });
-        importedCount++;
+        if (isPendingStockMovement(result)) pendingCodes.push(result.document.code);
+        else importedCodes.push(result.transactionCode);
       }
 
-      return `Đã bổ sung thành công ${importedCount} vật tư vào hệ thống kho.`;
+      return movementOutcomeMessage(
+        `Đã bổ sung ${importedCodes.length} vật tư vào hệ thống kho`,
+        importedCodes,
+        pendingCodes,
+      );
     });
 
   useEffect(() => {
@@ -894,14 +919,16 @@ export function InventoryScreen() {
               onConfirm={(input) => {
                 const { code, id, name } = returnTarget;
                 return perform(async () => {
-                  const receipt = await returnItemToStock(code, input);
+                  const result = await returnItemToStock(code, input);
+                  const pending = isPendingStockMovement(result);
+                  const reference = pending ? result.document.code : result.transactionCode;
                   if (selectedAssetId === id) setSelectedAssetId(undefined);
 
                   if (input.procedureDefinitionId) {
                     try {
                       const order = await openMovementWorkOrder({
                         definitionId: input.procedureDefinitionId,
-                        title: `Tháo dỡ thiết bị ${code} (${name}) về kho ${input.warehouseCode} — chứng từ ${receipt.transactionCode}`,
+                        title: `Tháo dỡ thiết bị ${code} (${name}) về kho ${input.warehouseCode} — chứng từ ${reference}`,
                       });
                       setMovementOrder(order);
                     } catch (cause) {
@@ -913,7 +940,9 @@ export function InventoryScreen() {
                     }
                   }
 
-                  return `Đã tháo dỡ ${code} về kho ${input.warehouseCode} — phiếu ${receipt.transactionCode}.`;
+                  return pending
+                    ? `Đã gửi duyệt phiếu nhập ${reference} cho ${code} về kho ${input.warehouseCode}; tồn kho chỉ thay đổi sau khi được duyệt và ghi sổ.`
+                    : `Đã tháo dỡ ${code} về kho ${input.warehouseCode} — phiếu ${reference}.`;
                 }, { rethrow: true }).then(() => setReturnTarget(undefined));
               }}
             />
@@ -970,6 +999,7 @@ export function InventoryScreen() {
           {profileCode ? (
             <ItemProfileDialog
               code={profileCode}
+              assets={workspace.assets}
               catalog={settings?.['catalog.asset'].value}
               units={settings?.['catalog.unit'].value.units ?? []}
               busy={busy}
@@ -1365,17 +1395,21 @@ export function InventoryScreen() {
                 onReturn={canManage ? (asset) => setReturnTarget(asset) : undefined}
                 onBulkReturn={canManage ? (entries) =>
                   perform(async () => {
+                    const pendingCodes: string[] = [];
                     for (const entry of entries) {
-                      await returnItemToStock(entry.asset.code, {
+                      const result = await returnItemToStock(entry.asset.code, {
                         warehouseCode: entry.warehouseCode,
                         quantity: 1,
                         note: entry.note ? entry.note : undefined,
                       });
+                      if (isPendingStockMovement(result)) pendingCodes.push(result.document.code);
                       if (selectedAssetId === entry.asset.id) {
                         setSelectedAssetId(undefined);
                       }
                     }
-                    return `Đã tháo dỡ ${entries.length} thiết bị về kho thành công.`;
+                    return pendingCodes.length > 0
+                      ? `Đã tháo dỡ ${entries.length - pendingCodes.length} thiết bị về kho; đã gửi duyệt ${pendingCodes.length} phiếu nhập [${pendingCodes.join(', ')}].`
+                      : `Đã tháo dỡ ${entries.length} thiết bị về kho thành công.`;
                   }, { rethrow: true })
                 : undefined}
                 onRename={canManage ? (asset, name) =>
@@ -1397,6 +1431,7 @@ export function InventoryScreen() {
                 {selectedAsset ? (
                   <AssetDetail
                     asset={selectedAsset}
+                    assets={workspace.assets}
                     materials={workspace.materials}
                     childMaterials={workspace.assets
                       .filter((child) => child.parentId === selectedAsset.id)

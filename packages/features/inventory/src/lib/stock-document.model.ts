@@ -103,8 +103,15 @@ const SERIALS_REQUIRED: ReadonlySet<StockDocumentType> = new Set<StockDocumentTy
   'RECEIPT_SALES_RETURN',
 ]);
 
-export function requiresApproval(docType: StockDocumentType): boolean {
-  return APPROVAL_REQUIRED.has(docType);
+/** Nhập mua, xuất dự án không có chứng từ nguồn cũng phải duyệt (ISS-BE-006, như server). */
+const APPROVAL_REQUIRED_WITHOUT_SOURCE: ReadonlySet<StockDocumentType> = new Set<StockDocumentType>([
+  'RECEIPT_PURCHASE',
+  'ISSUE_PROJECT',
+]);
+
+export function requiresApproval(docType: StockDocumentType, sourceId?: string): boolean {
+  if (APPROVAL_REQUIRED.has(docType)) return true;
+  return APPROVAL_REQUIRED_WITHOUT_SOURCE.has(docType) && !sourceId?.trim();
 }
 
 export function requiresSerials(docType: StockDocumentType): boolean {
@@ -155,7 +162,8 @@ export const STOCK_DOCUMENT_ACTION_LABEL: Readonly<Record<StockDocumentAction, s
  * Bị từ chối thì chỉ sửa được (sửa xong quay về Nháp); chứng từ đảo không đảo lại.
  */
 export function availableDocumentActions(
-  document: Pick<StockDocument, 'docType' | 'status' | 'reversesDocumentId'>,
+  document: Pick<StockDocument, 'docType' | 'status' | 'reversesDocumentId'> &
+    Partial<Pick<StockDocument, 'sourceId'>>,
   capabilities: StockDocumentCapabilities,
 ): StockDocumentAction[] {
   const writer = capabilities.canWriteTransactions;
@@ -165,7 +173,7 @@ export function availableDocumentActions(
     case 'DRAFT':
       if (writer) {
         actions.push('edit');
-        actions.push(requiresApproval(document.docType) ? 'submit' : 'post');
+        actions.push(requiresApproval(document.docType, document.sourceId) ? 'submit' : 'post');
         actions.push('cancel');
       }
       break;
@@ -180,7 +188,8 @@ export function availableDocumentActions(
       if (writer) actions.push('post', 'cancel');
       break;
     case 'POSTED':
-      if (writer && !document.reversesDocumentId) actions.push('reverse');
+      // Đảo là quyết định của người duyệt (ISS-BE-006); server còn chặn người lập tự đảo.
+      if (approver && !document.reversesDocumentId) actions.push('reverse');
       break;
     case 'CANCELLED':
       break;

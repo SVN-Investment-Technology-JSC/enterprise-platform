@@ -398,7 +398,10 @@ export class PostgresInventoryReportStore implements InventoryReportStore {
   ): Promise<{ rows: StockApprovalReportRow[]; total: number }> {
     const pool = await this.poolFor(tenantId);
     const where = new Where();
-    where.add(`d.doc_type = ANY(${where.param(filter.docTypes)}::text[])`);
+    where.add(
+      `(d.doc_type = ANY(${where.param(filter.docTypes)}::text[])
+        OR (d.doc_type = ANY(${where.param(filter.sourceLessDocTypes)}::text[]) AND d.source_id IS NULL))`,
+    );
     where.add(`d.document_date BETWEEN ${where.param(filter.fromDate)}::date AND ${where.param(filter.toDate)}::date`);
     if (filter.warehouseCode) where.add(`w.code = ${where.param(filter.warehouseCode)}`);
     if (filter.status) where.add(`d.status = ${where.param(filter.status)}`);

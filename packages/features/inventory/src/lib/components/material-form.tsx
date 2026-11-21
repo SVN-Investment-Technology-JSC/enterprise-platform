@@ -146,6 +146,14 @@ export function MaterialForm({
 
   const { error, submit: send } = useFormSubmit('Không lưu được vật tư.');
 
+  // Tồn tối đa bằng 0 là không đặt trần; dịch vụ không có định mức tồn.
+  const minStockValue = Number(minStock) || 0;
+  const maxStockValue = Number(maxStock) || 0;
+  const stockBoundsError =
+    !isService && maxStockValue > 0 && minStockValue > maxStockValue
+      ? 'Tồn tối thiểu không được lớn hơn tồn tối đa.'
+      : null;
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const cleanCode = code.trim().toUpperCase();
@@ -162,6 +170,7 @@ export function MaterialForm({
     const warranty = warrantyMonths.trim();
     const price = purchasePrice.trim() === '' ? undefined : Number(purchasePrice);
     if (price !== undefined && (!Number.isFinite(price) || price < 0)) return;
+    if (stockBoundsError) return;
 
     void send(() => onSubmit({
       code: cleanCode,
@@ -170,8 +179,8 @@ export function MaterialForm({
       tradeCategory: tradeCategory || undefined,
       type: type.trim() || undefined,
       unit: cleanUnit,
-      minStock: isService ? 0 : Number(minStock) || 0,
-      maxStock: isService ? 0 : Number(maxStock) || 0,
+      minStock: isService ? 0 : minStockValue,
+      maxStock: isService ? 0 : maxStockValue,
       purchasePrice: price,
       isSerialized,
       kind,
@@ -337,8 +346,15 @@ export function MaterialForm({
                       type="number"
                       min={0}
                       value={maxStock}
+                      aria-invalid={stockBoundsError ? true : undefined}
+                      aria-describedby={stockBoundsError ? 'material-max-stock-error' : undefined}
                       onChange={(event) => setMaxStock(event.target.value)}
                     />
+                    {stockBoundsError ? (
+                      <small id="material-max-stock-error" className="text-xs font-normal text-red-600">
+                        {stockBoundsError}
+                      </small>
+                    ) : null}
                   </Label>
                 </>
               ) : null}

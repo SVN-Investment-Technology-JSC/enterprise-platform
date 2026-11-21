@@ -29,7 +29,7 @@ import type {
   ProcedureOption,
   ProcedureWorkOrder,
 } from '../inventory-api';
-import { loadLots, loadWarehouseStock } from '../inventory-api';
+import { loadLots, loadSerials, loadWarehouseStock } from '../inventory-api';
 import { QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
 import {
@@ -505,6 +505,9 @@ export function MovementForm({
   // Modal quản lý Sê-ri
   const [serialModalIndex, setSerialModalIndex] = useState<number | null>(null);
   const [serialDraft, setSerialDraft] = useState('');
+  /** Phiếu xuất, chuyển: serial Trong kho, Đạt tại kho nguồn để chọn (ISS-BE-005). */
+  const [serialCandidates, setSerialCandidates] = useState<readonly string[]>([]);
+  const serialRequest = useRef(0);
   const [lotModalIndex, setLotModalIndex] = useState<number | null>(null);
   const [lotsByMaterial, setLotsByMaterial] = useState<Record<string, Lot[]>>({});
   const [lotDraft, setLotDraft] = useState<Record<string, number>>({});
@@ -647,6 +650,28 @@ export function MovementForm({
     setSerialModalIndex(index);
     const it = items[index];
     setSerialDraft(it?.serialNumbers?.join('\n') ?? '');
+    setSerialCandidates([]);
+    if (!outbound || !it) return;
+    // Chỉ gợi ý serial đang Trong kho, Đạt tại kho xuất của dòng; server vẫn kiểm lại lúc ghi sổ.
+    const sourceId = workspace.warehouses.find((w) => w.code === (it.warehouseCode || warehouseCode))?.id;
+    const request = ++serialRequest.current;
+    void loadSerials(it.materialCode)
+      .then((rows) => {
+        if (request !== serialRequest.current) return;
+        setSerialCandidates(
+          rows
+            .filter(
+              (row) =>
+                row.stockState === 'IN_STOCK' &&
+                row.currentWarehouseId === sourceId &&
+                (row.qualityStatus ?? 'PASSED') === 'PASSED',
+            )
+            .map((row) => row.serialNumber),
+        );
+      })
+      .catch(() => {
+        if (request === serialRequest.current) setSerialCandidates([]);
+      });
   };
 
   const handleSaveSerials = () => {
@@ -1715,6 +1740,23 @@ export function MovementForm({
             </DialogHeader>
 
             <DialogBody className="flex flex-col gap-2">
+              {outbound ? (
+                <>
+                  <Label>Chọn sê-ri đang ở kho xuất</Label>
+                  <SearchableSelect
+                    options={serialCandidates
+                      .filter((serial) => !parseSerials(serialDraft).includes(serial))
+                      .map((serial) => ({ value: serial, label: serial }))}
+                    value=""
+                    placeholder="Tìm số sê-ri trong kho..."
+                    emptyText="Không còn sê-ri Trong kho, Đạt tại kho xuất"
+                    onChange={(serial) => {
+                      if (!serial) return;
+                      setSerialDraft((current) => (current.trim() ? `${current.trim()}\n${serial}` : serial));
+                    }}
+                  />
+                </>
+              ) : null}
               <Label>
                 Danh sách số Sê-ri (mỗi dòng một số, hoặc ngăn cách bằng dấu phẩy):
               </Label>

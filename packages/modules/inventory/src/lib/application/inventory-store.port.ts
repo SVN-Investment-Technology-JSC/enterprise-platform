@@ -113,6 +113,14 @@ export interface InventoryStore {
     /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
     hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
     /**
+     * Kho có tồn mà số serial Trong kho tại kho đó không khớp tồn (ISS-BE-005):
+     * rỗng nghĩa là bật theo dõi serial không làm lệch sổ.
+     */
+    unserializedStock(
+      tenantId: string,
+      code: string,
+    ): Promise<readonly { warehouseCode: string; onHand: number; inStockSerials: number }[]>;
+    /**
      * Mọi nơi đang trỏ vào mã này (bảng của Kho và cột material_id, material_code của các phân hệ khác);
      * rỗng nghĩa là mã chưa có liên kết nào và xoá được.
      */

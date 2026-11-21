@@ -104,6 +104,39 @@ describe('Form vật tư', () => {
   });
 });
 
+describe('Form vật tư: tồn tối thiểu và tồn tối đa', () => {
+  function fillRequired() {
+    fireEvent.change(screen.getByLabelText(/Mã SKU/), { target: { value: 'vt-1' } });
+    fireEvent.change(screen.getByLabelText(/Tên vật tư/), { target: { value: 'Cáp' } });
+    fireEvent.change(screen.getByLabelText(/Đơn vị tính/), { target: { value: 'Mét' } });
+  }
+
+  it('tối thiểu lớn hơn tối đa: báo lỗi tại ô Tồn tối đa và không gửi', () => {
+    const onSubmit = jest.fn();
+    render(<MaterialForm busy={false} onCancel={jest.fn()} onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(screen.getByLabelText(/Tồn tối thiểu/), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/Tồn tối đa/), { target: { value: '5' } });
+    const maxInput = screen.getByLabelText(/Tồn tối đa/);
+    expect(maxInput.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText('Tồn tối thiểu không được lớn hơn tồn tối đa.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Lưu|Thêm|Tạo|Xác nhận/ }));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('tối đa 0 là không giới hạn, gửi được', async () => {
+    const onSubmit = jest.fn().mockResolvedValue(undefined);
+    render(<MaterialForm busy={false} onCancel={jest.fn()} onSubmit={onSubmit} />);
+    fillRequired();
+    fireEvent.change(screen.getByLabelText(/Tồn tối thiểu/), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/Tồn tối đa/), { target: { value: '0' } });
+    expect(screen.queryByText('Tồn tối thiểu không được lớn hơn tồn tối đa.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Lưu|Thêm|Tạo|Xác nhận/ }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({ minStock: 10, maxStock: 0 });
+  });
+});
+
 describe('Form thiết bị', () => {
   it('lỗi của Kho hiện trong form thiết bị', async () => {
     const onSubmit = jest.fn().mockRejectedValue(new Error('Mã thiết bị TB-1 đã tồn tại.'));
