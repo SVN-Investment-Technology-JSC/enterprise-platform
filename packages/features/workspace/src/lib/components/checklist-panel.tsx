@@ -4,7 +4,7 @@ import {
   CHECKLIST_TITLE_MAX_LENGTH,
   MAX_CHECKLIST_ITEMS,
 } from '@enterprise-platform/contracts-workspace';
-import { Info, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Info, ListPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from '@enterprise-platform/shared-ui';
 import {
@@ -38,6 +38,7 @@ import * as api from '../workspace-api';
 import { formatShortDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ConfirmBox } from './confirm-box';
+import { Dialog } from './dialog';
 import { useDirectory } from './use-directory';
 
 const messageOf = (cause: unknown, fallback: string) =>
@@ -49,7 +50,11 @@ type ChecklistResult = { items: ChecklistEntry[] };
 export interface ChecklistApi {
   list: (id: string) => Promise<ChecklistResult>;
   add: (id: string, titles: readonly string[]) => Promise<ChecklistResult>;
-  update: (id: string, itemId: string, body: { title?: string; done?: boolean }) => Promise<ChecklistResult>;
+  update: (
+    id: string,
+    itemId: string,
+    body: { title?: string; done?: boolean },
+  ) => Promise<ChecklistResult>;
   remove: (id: string, itemId: string) => Promise<ChecklistResult>;
 }
 
@@ -116,6 +121,7 @@ export function ChecklistPanel({
   const [draft, setDraft] = useState('');
   /** Server đã tự chuyển việc sang tính theo checklist (sau lần thêm đầu tiên) nhưng `item` chưa kịp nạp lại. */
   const [switched, setSwitched] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [confirmEntry, setConfirmEntry] = useState<ChecklistEntry>();
   const addRef = useRef<HTMLInputElement>(null);
   /** Nút tên của từng dòng, và dòng sẽ nhận focus sau lần vẽ tới (`'add'` là ô thêm đầu việc). */
@@ -213,7 +219,8 @@ export function ChecklistPanel({
   // `updatedAt` đổi chỉ nạp lại ngầm: giữ danh sách cũ, chữ đang gõ và ô đang sửa tên.
   useEffect(() => loadRef.current(), [item.id, item.updatedAt]);
 
-  const method = alwaysTracked || switched ? 'checklist' : (item.progressMethod ?? 'manual');
+  const method =
+    alwaysTracked || switched ? 'checklist' : (item.progressMethod ?? 'manual');
   const closed = item.status === 'done' || item.status === 'cancelled';
   const total = items?.length ?? 0;
   const state = checklistPanelState({
@@ -411,6 +418,115 @@ export function ChecklistPanel({
 
   if (!state.visible && !failed) return null;
 
+  /** Một dòng đầu việc. `manage`: trong hộp quản lý (sửa tên, xoá); ngoài card chỉ tích và đọc. */
+  const renderRow = (entry: ChecklistEntry, manage: boolean) => {
+    const editing = manage && editingId === entry.id;
+    const pending = isTempChecklistId(entry.id);
+    const doneNote =
+      entry.done && (entry.doneBy || entry.doneAt)
+        ? `Tích bởi ${entry.doneBy ? directory.nameOf(entry.doneBy) : '—'}${entry.doneAt ? ` · ${formatShortDate(entry.doneAt)}` : ''}`
+        : '';
+    const nameClass = cn(
+      'min-w-0 text-[13px] leading-snug [overflow-wrap:anywhere]',
+      entry.done && 'text-muted-foreground line-through',
+    );
+    return (
+      <li
+        key={entry.id}
+        className={cn(
+          'group flex min-w-0 items-center gap-1.5',
+          pending && 'opacity-60',
+        )}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 group-hover:bg-accent focus-within:bg-accent">
+          <Checkbox
+            checked={entry.done}
+            disabled={!editable || pending}
+            aria-label={`${entry.done ? 'Bỏ tích' : 'Tích'} đầu việc ${entry.title}`}
+            onCheckedChange={(checked) => toggle(entry, checked)}
+          />
+          <div className="flex min-w-0 flex-1 flex-col">
+            {editing ? (
+              <Input
+                className="h-7 px-2 text-[13px]"
+                autoFocus
+                value={draft}
+                maxLength={CHECKLIST_TITLE_MAX_LENGTH}
+                aria-label={`Sửa tên đầu việc ${entry.title}`}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => saveEdit(entry)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.nativeEvent.isComposing)
+                    saveEdit(entry, true);
+                  if (event.key === 'Escape') {
+                    // Esc chỉ huỷ sửa tên, không để lan lên đóng hộp quản lý hay hộp chi tiết.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    cancelRef.current = true;
+                    focusTargetRef.current = entry.id;
+                    finishEdit();
+                  }
+                }}
+              />
+            ) : manage && editable && !pending ? (
+              <Button
+                type="button"
+                variant="ghost"
+                ref={(node: HTMLButtonElement | null) => {
+                  if (node) nameRefs.current.set(entry.id, node);
+                  else nameRefs.current.delete(entry.id);
+                }}
+                className={cn(
+                  nameClass,
+                  'h-auto w-full cursor-text justify-start whitespace-normal rounded px-0 py-0 text-left font-normal hover:bg-transparent',
+                )}
+                aria-label={`Sửa tên đầu việc ${entry.title}`}
+                onClick={() => startEdit(entry)}
+              >
+                {entry.title}
+              </Button>
+            ) : (
+              <span className={nameClass}>{entry.title}</span>
+            )}
+            {doneNote ? (
+              <small className="text-[11.5px] text-muted-foreground">
+                {doneNote}
+              </small>
+            ) : null}
+          </div>
+        </div>
+        {manage && editable && !editing && !pending ? (
+          <div className="flex flex-none gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+            <Tip content="Sửa tên">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-hidden
+                tabIndex={-1}
+                onClick={() => startEdit(entry)}
+              >
+                <Pencil aria-hidden />
+              </Button>
+            </Tip>
+            <Tip content="Xoá đầu việc">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="hover:bg-destructive/10 hover:text-destructive"
+                aria-label={`Xoá đầu việc ${entry.title}`}
+                onClick={() => requestRemove(entry)}
+              >
+                <Trash2 aria-hidden />
+              </Button>
+            </Tip>
+          </div>
+        ) : null}
+      </li>
+    );
+  };
+
   return (
     <section className={styles.panel} aria-label="Checklist tiến độ">
       <div className="mb-2.5 flex items-center gap-2.5">
@@ -418,12 +534,24 @@ export function ChecklistPanel({
         {total > 0 ? (
           <Badge
             variant="secondary"
-            className="ml-auto h-5 border-border px-2 tabular-nums"
+            className="h-5 border-border px-2 tabular-nums"
             role="img"
             aria-label={`${done} trên ${total} đầu việc đã xong`}
           >
             {done}/{total}
           </Badge>
+        ) : null}
+        {state.canAdd && items ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => setManageOpen(true)}
+          >
+            <ListPlus aria-hidden />
+            {total > 0 ? 'Quản lý' : 'Thêm đầu việc'}
+          </Button>
         ) : null}
       </div>
 
@@ -449,174 +577,11 @@ export function ChecklistPanel({
           ) : null}
 
           {total > 0 ? (
-            <ul className="m-0 mb-2.5 flex list-none flex-col gap-0.5 p-0">
-              {items.map((entry) => {
-                const editing = editingId === entry.id;
-                const pending = isTempChecklistId(entry.id);
-                const doneNote =
-                  entry.done && (entry.doneBy || entry.doneAt)
-                    ? `Tích bởi ${entry.doneBy ? directory.nameOf(entry.doneBy) : '—'}${entry.doneAt ? ` · ${formatShortDate(entry.doneAt)}` : ''}`
-                    : '';
-                const nameClass = cn(
-                  'min-w-0 text-[13px] leading-snug [overflow-wrap:anywhere]',
-                  entry.done && 'text-muted-foreground line-through',
-                );
-                return (
-                  <li
-                    key={entry.id}
-                    className={cn(
-                      'group flex min-w-0 items-center gap-1.5',
-                      pending && 'opacity-60',
-                    )}
-                  >
-                    <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 group-hover:bg-accent focus-within:bg-accent">
-                      <Checkbox
-                        checked={entry.done}
-                        disabled={!editable || pending}
-                        aria-label={`${entry.done ? 'Bỏ tích' : 'Tích'} đầu việc ${entry.title}`}
-                        onCheckedChange={(checked) => toggle(entry, checked)}
-                      />
-                      <div className="flex min-w-0 flex-1 flex-col">
-                        {editing ? (
-                          <Input
-                            className="h-7 px-2 text-[13px]"
-                            autoFocus
-                            value={draft}
-                            maxLength={CHECKLIST_TITLE_MAX_LENGTH}
-                            aria-label={`Sửa tên đầu việc ${entry.title}`}
-                            onChange={(event) => setDraft(event.target.value)}
-                            onBlur={() => saveEdit(entry)}
-                            onKeyDown={(event) => {
-                              if (
-                                event.key === 'Enter' &&
-                                !event.nativeEvent.isComposing
-                              )
-                                saveEdit(entry, true);
-                              if (event.key === 'Escape') {
-                                // Esc chỉ huỷ sửa tên, không để lan lên đóng cả hộp chi tiết công việc.
-                                event.preventDefault();
-                                event.stopPropagation();
-                                cancelRef.current = true;
-                                focusTargetRef.current = entry.id;
-                                finishEdit();
-                              }
-                            }}
-                          />
-                        ) : editable && !pending ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            ref={(node: HTMLButtonElement | null) => {
-                              if (node) nameRefs.current.set(entry.id, node);
-                              else nameRefs.current.delete(entry.id);
-                            }}
-                            className={cn(
-                              nameClass,
-                              'h-auto w-full cursor-text justify-start whitespace-normal rounded px-0 py-0 text-left font-normal hover:bg-transparent',
-                            )}
-                            aria-label={`Sửa tên đầu việc ${entry.title}`}
-                            onClick={() => startEdit(entry)}
-                          >
-                            {entry.title}
-                          </Button>
-                        ) : (
-                          <span className={nameClass}>{entry.title}</span>
-                        )}
-                        {doneNote ? (
-                          <small className="text-[11.5px] text-muted-foreground">
-                            {doneNote}
-                          </small>
-                        ) : null}
-                      </div>
-                    </div>
-                    {editable && !editing && !pending ? (
-                      <div className="flex flex-none gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                        <Tip content="Sửa tên">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-hidden
-                            tabIndex={-1}
-                            onClick={() => startEdit(entry)}
-                          >
-                            <Pencil aria-hidden />
-                          </Button>
-                        </Tip>
-                        <Tip content="Xoá đầu việc">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            className="hover:bg-destructive/10 hover:text-destructive"
-                            aria-label={`Xoá đầu việc ${entry.title}`}
-                            onClick={() => requestRemove(entry)}
-                          >
-                            <Trash2 aria-hidden />
-                          </Button>
-                        </Tip>
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
+            <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+              {items.map((entry) => renderRow(entry, false))}
             </ul>
-          ) : null}
-
-          {state.canAdd ? (
-            <div className="flex gap-2">
-              <Input
-                ref={addRef}
-                value={title}
-                maxLength={CHECKLIST_TITLE_MAX_LENGTH}
-                placeholder="Thêm đầu việc, Enter để thêm tiếp…"
-                aria-label="Tên đầu việc mới"
-                onChange={(event) => setTitle(event.target.value)}
-                onPaste={(event) => {
-                  const lines = splitChecklistLines(
-                    event.clipboardData.getData('text'),
-                  );
-                  if (lines.length < 2) return;
-                  event.preventDefault();
-                  // Chèn tại vị trí con trỏ: chữ trước con trỏ, các dòng dán, rồi chữ sau con trỏ.
-                  const start =
-                    event.currentTarget.selectionStart ?? title.length;
-                  const end = event.currentTarget.selectionEnd ?? start;
-                  addTitles(
-                    [
-                      ...splitChecklistLines(title.slice(0, start)),
-                      ...lines,
-                      ...splitChecklistLines(title.slice(end)),
-                    ],
-                    title,
-                  );
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                    event.preventDefault();
-                    addTitles([title], title);
-                  }
-                  // Có chữ nháp thì Esc chỉ xoá nháp; ô trống thì Esc đóng hộp như thường.
-                  if (event.key === 'Escape' && title) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setTitle('');
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!title.trim()}
-                onClick={() => addTitles([title], title)}
-              >
-                <Plus aria-hidden />
-                Thêm
-              </Button>
-            </div>
-          ) : null}
-          {total === 0 ? (
-            <p className="m-0 pt-3.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-muted-foreground">
+          ) : (
+            <p className="m-0 flex items-start gap-1.5 text-[12.5px] leading-snug text-muted-foreground">
               <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
               {switchNotice
                 ? 'Thêm đầu việc đầu tiên để chuyển sang tính tiến độ theo checklist: làm tới đâu tích tới đó.'
@@ -624,15 +589,93 @@ export function ChecklistPanel({
                   ? 'Chưa có đầu việc nào. Tiến độ sẽ tự tính theo số đầu việc đã tích.'
                   : 'Chưa có đầu việc nào.'}
             </p>
-          ) : null}
+          )}
           {state.reason ? (
-            <p className="m-0 pt-2.5 flex items-start gap-1.5 text-[12.5px] leading-snug text-muted-foreground">
+            <p className="m-0 flex items-start gap-1.5 pt-2.5 text-[12.5px] leading-snug text-muted-foreground">
               <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
               {state.reason}
             </p>
           ) : null}
         </>
       )}
+
+      <Dialog
+        open={manageOpen && state.canAdd}
+        title="Quản lý checklist"
+        subtitle="Thêm, sửa tên hoặc xoá đầu việc. Thay đổi được lưu ngay."
+        cancelLabel="Đóng"
+        guardDiscard={false}
+        hideFooter
+        onClose={() => {
+          if (editingRef.current) finishEdit();
+          setManageOpen(false);
+        }}
+        onSubmit={() => setManageOpen(false)}
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex gap-2">
+            <Input
+              ref={addRef}
+              autoFocus
+              value={title}
+              maxLength={CHECKLIST_TITLE_MAX_LENGTH}
+              placeholder="Thêm đầu việc, Enter để thêm tiếp…"
+              aria-label="Tên đầu việc mới"
+              onChange={(event) => setTitle(event.target.value)}
+              onPaste={(event) => {
+                const lines = splitChecklistLines(
+                  event.clipboardData.getData('text'),
+                );
+                if (lines.length < 2) return;
+                event.preventDefault();
+                // Chèn tại vị trí con trỏ: chữ trước con trỏ, các dòng dán, rồi chữ sau con trỏ.
+                const start =
+                  event.currentTarget.selectionStart ?? title.length;
+                const end = event.currentTarget.selectionEnd ?? start;
+                addTitles(
+                  [
+                    ...splitChecklistLines(title.slice(0, start)),
+                    ...lines,
+                    ...splitChecklistLines(title.slice(end)),
+                  ],
+                  title,
+                );
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  addTitles([title], title);
+                }
+                // Có chữ nháp thì Esc chỉ xoá nháp; ô trống thì Esc đóng hộp như thường.
+                if (event.key === 'Escape' && title) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setTitle('');
+                }
+              }}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!title.trim()}
+              onClick={() => addTitles([title], title)}
+            >
+              <Plus aria-hidden />
+              Thêm
+            </Button>
+          </div>
+          {total > 0 && items ? (
+            <ul className="m-0 flex max-h-[50vh] list-none flex-col gap-0.5 overflow-y-auto p-0">
+              {items.map((entry) => renderRow(entry, true))}
+            </ul>
+          ) : (
+            <p className="m-0 text-[12.5px] text-muted-foreground">
+              Chưa có đầu việc nào.
+            </p>
+          )}
+        </div>
+      </Dialog>
+
       <ConfirmBox
         open={confirmEntry !== undefined}
         title="Bạn có chắc chắn muốn xoá đầu việc đã tích này?"
