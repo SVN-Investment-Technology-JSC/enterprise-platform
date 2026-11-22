@@ -17,6 +17,7 @@ import {
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Button } from '../ui/button';
+import { cn } from '../utils';
 import { ProgressCell } from './inline-cells';
 import { progressCellMode } from '../progress-cell-rules';
 import { Tooltip } from './tooltip';
@@ -160,17 +161,23 @@ export function NodeHeader({
           </span>
         ) : null}
 
-        <div className={styles.nodeActions}>
-          <Button
-            type="button"
-            variant="outline"
-            aria-label={unread > 0 ? `Trao đổi, ${unread} tin chưa đọc` : 'Trao đổi'}
-            onClick={onOpenChat}
-          >
-            <MessageSquare size={14} /> Trao đổi
-            {unread > 0 ? <span className={styles.countBadge}>{unread}</span> : null}
-          </Button>
-          {onMore ? (
+        {(() => {
+          const chatButton = (
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={
+                unread > 0 ? `Trao đổi, ${unread} tin chưa đọc` : 'Trao đổi'
+              }
+              onClick={onOpenChat}
+            >
+              <MessageSquare size={14} /> Trao đổi
+              {unread > 0 ? (
+                <span className={styles.countBadge}>{unread}</span>
+              ) : null}
+            </Button>
+          );
+          const moreButton = onMore ? (
             <Tooltip content="Thêm thao tác">
               <Button
                 type="button"
@@ -185,23 +192,75 @@ export function NodeHeader({
                 <MoreHorizontal size={14} />
               </Button>
             </Tooltip>
-          ) : null}
-          {canEdit ? (
+          ) : null;
+          const editButton = canEdit ? (
             <Button type="button" variant="outline" onClick={onEdit}>
               <Pencil size={14} /> Chỉnh sửa
             </Button>
-          ) : null}
-          {canWrite ? (
-            <Button type="button" onClick={onAddChild}>
-              <Plus size={14} /> Thêm công việc con
-            </Button>
-          ) : null}
-          {quickAction ? (
-            <Button type="button" variant="outline" onClick={quickAction.onClick}>
-              {quickAction.label}
-            </Button>
-          ) : null}
-        </div>
+          ) : null;
+
+          // Trang dự án (chưa chọn việc): giữ một hàng như cũ.
+          if (!selected) {
+            return (
+              <div className={styles.nodeActions}>
+                {chatButton}
+                {moreButton}
+                {editButton}
+                {canWrite ? (
+                  <Button type="button" onClick={onAddChild}>
+                    <Plus size={14} /> Thêm công việc con
+                  </Button>
+                ) : null}
+                {quickAction ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={quickAction.onClick}
+                  >
+                    {quickAction.label}
+                  </Button>
+                ) : null}
+              </div>
+            );
+          }
+
+          // Hộp chi tiết việc: một thanh riêng. Bên trái là việc cần làm với công việc (nút chính nổi nhất), bên phải là
+          // các thao tác phụ (trao đổi, sửa, thêm).
+          const workflow = (
+            <>
+              {quickAction ? (
+                <Button type="button" onClick={quickAction.onClick}>
+                  {quickAction.label}
+                </Button>
+              ) : null}
+              {canWrite ? (
+                <Button
+                  type="button"
+                  variant={quickAction ? 'outline' : 'default'}
+                  onClick={onAddChild}
+                >
+                  <Plus size={14} /> Thêm công việc con
+                </Button>
+              ) : null}
+            </>
+          );
+          return (
+            <div
+              className={cn(styles.nodeActions, 'w-full justify-between')}
+              role="toolbar"
+              aria-label="Thao tác công việc"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {workflow}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {chatButton}
+                {editButton}
+                {moreButton}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {selected?.reversal ? (

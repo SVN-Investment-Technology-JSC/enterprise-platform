@@ -629,7 +629,11 @@ export function ChecklistPanel({
             </Button>
           </div>
           {rows.length > 0 ? (
-            <ul className="m-0 flex max-h-[50vh] list-none flex-col gap-1 overflow-y-auto p-0">
+            <ul
+              className="flex max-h-[50vh] list-none flex-col gap-1 overflow-y-auto"
+              // Chừa 4px quanh danh sách để vòng sáng khi focus ô nhập không bị khung cuộn cắt.
+              style={{ margin: '-4px', padding: '4px' }}
+            >
               {rows.map((row) => (
                 <li key={row.key} className="flex min-w-0 items-center gap-2">
                   <Input
@@ -651,8 +655,8 @@ export function ChecklistPanel({
                     <Button
                       type="button"
                       variant="ghost"
-                      size="icon-xs"
-                      className="hover:bg-destructive/10 hover:text-destructive"
+                      size="icon"
+                      className="border-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       aria-label={`Xoá đầu việc ${row.title}`}
                       onClick={() =>
                         setRows((list) =>
