@@ -4,16 +4,10 @@ const path = require('node:path');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  allowedDevOrigins: [
-    ...(process.env.DEV_ALLOWED_ORIGINS ?? '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-    '192.168.88.16',
-    '192.168.88.16:3000',
-    '192.168.88.16:3004',
-    '192.168.88.16:4200',
-  ],
+  allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean),
   basePath: '/modules/hrm',
   experimental: {
     // Trang chỉ nạp phần HRM mình dùng thay vì cả gói (antd, xlsx, mọi màn hình).
@@ -23,6 +17,8 @@ const nextConfig = {
   turbopack: {
     root: path.resolve(__dirname, '../..'),
   },
+  // Mã không dùng next/image; tắt bộ tối ưu ảnh để đóng endpoint /_next/image (ISS-OPS-002).
+  images: { unoptimized: true },
   output: process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   poweredByHeader: false,
   async rewrites() {

@@ -8,7 +8,13 @@ import type {
   MaintenanceMatrixRow,
   MaintenancePriority,
 } from '@enterprise-platform/contracts-maintenance';
-import { MinimalPopupForm, SearchableSelect, formatDate } from '@enterprise-platform/shared-ui';
+import {
+  MinimalPopupForm,
+  SearchableSelect,
+  formatDate,
+  SPREADSHEET_FILE_UNREADABLE_MESSAGE,
+  spreadsheetFileSizeError,
+} from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
   Download,
@@ -18,7 +24,7 @@ import {
   Search,
   Upload,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { excelSerialToIsoDate } from './matrix-import';
 import { procedureOptionsKeepingInUse, selectableProcedures } from '../procedure-options';
@@ -258,18 +264,21 @@ export function MaintenanceMatrixBoard({
     error?: string;
   }>({ loading: false });
 
-  // Khi mở Drawer hoặc chuyển tab, tự động nạp dữ liệu tương ứng
+  // Khi mở Drawer hoặc chuyển tab, tự động nạp dữ liệu tương ứng. Chỉ phụ thuộc mã thiết bị và tab để
+  // việc thay object `activeDrawer` (cùng thiết bị, cùng tab) không nạp lại.
+  const drawerAssetCode = activeDrawer?.asset.code;
+  const drawerTab = activeDrawer?.tab;
   useEffect(() => {
-    if (!activeDrawer) {
+    if (!drawerAssetCode) {
       setDrawerTasks({ loading: false });
       setDrawerHistory({ loading: false });
       return;
     }
 
-    const assetCode = activeDrawer.asset.code;
+    const assetCode = drawerAssetCode;
     let cancelled = false;
 
-    if (activeDrawer.tab === 'tasks') {
+    if (drawerTab === 'tasks') {
       setDrawerTasks({ loading: true });
       loadAssetTasks(assetCode)
         .then((list) => {
@@ -282,7 +291,7 @@ export function MaintenanceMatrixBoard({
               error: err instanceof Error ? err.message : 'Không đọc được đầu việc từ Kho.',
             });
         });
-    } else if (activeDrawer.tab === 'history') {
+    } else if (drawerTab === 'history') {
       setDrawerHistory({ loading: true });
       loadMaintenanceHistory({ assetCode, limit: 30 })
         .then((page) => {
@@ -300,7 +309,7 @@ export function MaintenanceMatrixBoard({
     return () => {
       cancelled = true;
     };
-  }, [activeDrawer?.asset.code, activeDrawer?.tab]);
+  }, [drawerAssetCode, drawerTab]);
 
   // Đọc phòng thủ: một phản hồi thiếu trường không được phép làm hỏng cả trang.
   const rows = useMemo(() => matrix.rows ?? [], [matrix]);
@@ -434,7 +443,7 @@ export function MaintenanceMatrixBoard({
       return next;
     });
     previousRowsRef.current = new Map(rows.map((row) => [row.asset.code, row]));
-  }, [rows]);
+  }, [rows, frequencies]);
 
   const dirty = useMemo(() => {
     return rows.some((row) => {
@@ -442,7 +451,7 @@ export function MaintenanceMatrixBoard({
       if (!draft) return false;
       return !sameDraft(draft, toDraft(row, frequencies));
     });
-  }, [drafts, rows]);
+  }, [drafts, rows, frequencies]);
 
   useEffect(() => {
     onDirtyChange?.(dirty);
@@ -460,15 +469,18 @@ export function MaintenanceMatrixBoard({
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
-  const mutate = (assetCode: string, change: (draft: Draft) => Draft) =>
-    setDrafts((current) => {
-      const next = new Map(current);
-      const row = rows.find((entry) => entry.asset.code === assetCode);
-      const existing = current.get(assetCode) ?? (row ? toDraft(row, frequencies) : undefined);
-      if (!existing) return current;
-      next.set(assetCode, change(existing));
-      return next;
-    });
+  const mutate = useCallback(
+    (assetCode: string, change: (draft: Draft) => Draft) =>
+      setDrafts((current) => {
+        const next = new Map(current);
+        const row = rows.find((entry) => entry.asset.code === assetCode);
+        const existing = current.get(assetCode) ?? (row ? toDraft(row, frequencies) : undefined);
+        if (!existing) return current;
+        next.set(assetCode, change(existing));
+        return next;
+      }),
+    [rows, frequencies],
+  );
 
   const toggle = (assetCode: string, frequency: MaintenanceFrequency) =>
     mutate(assetCode, (draft) => {
@@ -612,6 +624,12 @@ export function MaintenanceMatrixBoard({
   const importMatrix = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const sizeError = spreadsheetFileSizeError(file);
+    if (sizeError) {
+      alert(sizeError);
+      event.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
@@ -762,8 +780,8 @@ export function MaintenanceMatrixBoard({
           validRows,
           invalidRows,
         });
-      } catch (err: unknown) {
-        alert('Lỗi khi đọc file Excel: ' + (err instanceof Error ? err.message : String(err)));
+      } catch {
+        alert(SPREADSHEET_FILE_UNREADABLE_MESSAGE);
       } finally {
         if (event.target) event.target.value = '';
       }
@@ -851,28 +869,31 @@ export function MaintenanceMatrixBoard({
   };
 
   /** Áp một dòng nhập vào bản nháp của thiết bị (thiết bị phải đã có hàng trên ma trận). */
-  const applyImportRow = (vr: MatrixImportRow) =>
-    mutate(vr.assetCode, (prevDraft) => {
-      const nextFreqs = new Set(prevDraft.frequencies);
-      const nextDates = new Map(prevDraft.startDates);
+  const applyImportRow = useCallback(
+    (vr: MatrixImportRow) =>
+      mutate(vr.assetCode, (prevDraft) => {
+        const nextFreqs = new Set(prevDraft.frequencies);
+        const nextDates = new Map(prevDraft.startDates);
 
-      for (const f of vr.frequencies) {
-        nextFreqs.add(f);
-        if (vr.startDate) {
-          nextDates.set(f, vr.startDate);
-        } else if (!nextDates.has(f)) {
-          nextDates.set(f, defaultStartDate());
+        for (const f of vr.frequencies) {
+          nextFreqs.add(f);
+          if (vr.startDate) {
+            nextDates.set(f, vr.startDate);
+          } else if (!nextDates.has(f)) {
+            nextDates.set(f, defaultStartDate());
+          }
         }
-      }
 
-      return {
-        ...prevDraft,
-        frequencies: nextFreqs,
-        startDates: nextDates,
-        priority: vr.priority ?? prevDraft.priority,
-        procedureDefinitionId: vr.procedureDefinitionId ?? prevDraft.procedureDefinitionId,
-      };
-    });
+        return {
+          ...prevDraft,
+          frequencies: nextFreqs,
+          startDates: nextDates,
+          priority: vr.priority ?? prevDraft.priority,
+          procedureDefinitionId: vr.procedureDefinitionId ?? prevDraft.procedureDefinitionId,
+        };
+      }),
+    [mutate],
+  );
 
   // Thiết bị mới từ file: sau khi hàng của chúng xuất hiện (đã thêm vào ma trận và nạp lại) mới áp dữ liệu nhập.
   useEffect(() => {
@@ -882,7 +903,7 @@ export function MaintenanceMatrixBoard({
     if (ready.length === 0) return;
     ready.forEach(applyImportRow);
     setPendingImport((current) => current.filter((vr) => !present.has(vr.assetCode)));
-  }, [rows, pendingImport]);
+  }, [rows, pendingImport, applyImportRow]);
 
   const confirmImport = async () => {
     if (!importReview || importReview.validRows.length === 0) return;

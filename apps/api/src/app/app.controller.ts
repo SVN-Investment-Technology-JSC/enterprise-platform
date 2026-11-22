@@ -9,4 +9,14 @@ export class AppController {
   getData() {
     return this.appService.getData();
   }
+
+  @Get('health/live')
+  live() {
+    return this.appService.live();
+  }
+
+  @Get('health/ready')
+  ready() {
+    return this.appService.ready();
+  }
 }

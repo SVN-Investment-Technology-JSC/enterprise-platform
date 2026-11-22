@@ -47,8 +47,8 @@
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/contracts-integration": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
-    "@nestjs/common": "^11.2.1",
-    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/common": "^11.2.10",
+    "@nestjs/platform-express": "^11.2.10",
     "pg": "^8.23.0"
   },
   "devDependencies": {

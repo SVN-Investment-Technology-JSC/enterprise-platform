@@ -21,6 +21,8 @@ import {
 import type { PresenceSnapshot } from '@enterprise-platform/contracts-realtime';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
+const FILE_TOO_LARGE_MESSAGE = 'Tệp quá lớn, vượt giới hạn máy chủ cho phép. Hãy chọn tệp nhỏ hơn rồi thử lại.';
+
 export class ChatApiError extends Error {
   constructor(
     message: string,
@@ -37,6 +39,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const payload = (await response.json().catch(() => ({}))) as { message?: string | string[] };
     const message = Array.isArray(payload.message) ? payload.message[0] : payload.message;
     if (response.status === 401) throw new ChatApiError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 401);
+    // 413 có thể do gateway nginx trả (thân HTML, không có message) hoặc do API trả (thông điệp tiếng Anh).
+    if (response.status === 413) throw new ChatApiError(FILE_TOO_LARGE_MESSAGE, 413);
     throw new ChatApiError(message || `Máy chủ trả về lỗi (HTTP ${response.status}).`, response.status);
   }
   if (response.status === 204) return undefined as T;

@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { assertServiceEnvironment } from '@enterprise-platform/platform-module-access';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
@@ -7,6 +8,7 @@ import { configureCrmBodyParsers } from './app/crm-body-parsers';
 
 async function bootstrap() {
   try { process.loadEnvFile?.('.env'); } catch { /* environment can be injected by the runtime */ }
+  assertServiceEnvironment('crm-api');
   // Parser thân request tự cấu hình: route lưu bố cục mẫu báo giá nhận tới 2 MB, các route khác giữ 100 KB.
   const app = await NestFactory.create<NestExpressApplication>(CrmApiModule, { bodyParser: false });
   app.use(cookieParser());

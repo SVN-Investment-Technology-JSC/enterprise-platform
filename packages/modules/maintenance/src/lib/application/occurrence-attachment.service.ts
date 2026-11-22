@@ -1,5 +1,10 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
-import { S3ObjectStorage, TENANT_UPLOAD_URL_TTL_SECONDS, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
+import {
+  S3ObjectStorage,
+  TENANT_UPLOAD_URL_TTL_SECONDS,
+  type ObjectStoragePort,
+  type S3ObjectStorageOptions,
+} from '@enterprise-platform/adapter-storage';
 import { Injectable } from '@nestjs/common';
 import {
   MAINTENANCE_ATTACHMENT_MAX_BYTES,
@@ -15,16 +20,40 @@ import type { MaintenanceActor } from './maintenance-store.port.js';
 
 type Row = QueryResultRow & Record<string, unknown>;
 
+/**
+ * Cấu hình kho tệp đính kèm phiếu bảo trì. Production thiếu khoá truy cập hay địa chỉ kho thì lỗi ngay khi khởi động
+ * (ISS-OPS-015), không dùng khoá dev viết cứng; dev/test giữ giá trị MinIO local như cũ.
+ */
+export function occurrenceAttachmentStorageOptions(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): S3ObjectStorageOptions {
+  const production = env.NODE_ENV === 'production';
+  const missing: string[] = [];
+  const required = (name: string, developmentFallback: string): string => {
+    const value = env[name];
+    if (value?.trim()) return value;
+    if (production) missing.push(name);
+    return developmentFallback;
+  };
+  const options = {
+    internalEndpoint: required('S3_INTERNAL_ENDPOINT', env.S3_ENDPOINT ?? 'http://localhost:9010'),
+    publicEndpoint: required('S3_PUBLIC_ENDPOINT', env.S3_ENDPOINT ?? 'http://localhost:9010'),
+    region: env.S3_REGION ?? 'us-east-1',
+    bucket: env.S3_BUCKET ?? 'enterprise-platform',
+    accessKeyId: required('S3_ACCESS_KEY_ID', 'platform'),
+    secretAccessKey: required('S3_SECRET_ACCESS_KEY', 'platform-development-secret'),
+  };
+  if (missing.length) {
+    throw new Error(
+      `maintenance-api không khởi động được trong production: thiếu biến môi trường ${missing.join(', ')} của kho tệp đính kèm.`,
+    );
+  }
+  return options;
+}
+
 @Injectable()
 export class OccurrenceAttachmentService {
-  private readonly storage: ObjectStoragePort = new S3ObjectStorage({
-    internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
-    publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
-    region: process.env.S3_REGION ?? 'us-east-1',
-    bucket: process.env.S3_BUCKET ?? 'enterprise-platform',
-    accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'platform',
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? 'platform-development-secret',
-  });
+  private readonly storage: ObjectStoragePort = new S3ObjectStorage(occurrenceAttachmentStorageOptions());
 
   constructor(
     private readonly references: TenantDatabaseRegistry,

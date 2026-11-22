@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { isProductionEnvironment } from './required-environment';
 
 /** Tenant và database đã phân giải cho một lời gọi service-to-service. */
 export interface ServiceCaller {
@@ -126,7 +127,7 @@ export class ModuleAccess {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-service-token': process.env.INTERNAL_SERVICE_TOKEN ?? '',
+        'x-service-token': this.serviceToken(),
       },
       body: JSON.stringify({
         sessionId: principal.sessionId,
@@ -158,6 +159,23 @@ export class ModuleAccess {
     throw new ServiceUnavailableException({
       code: 'PLATFORM_ACCESS_UNAVAILABLE',
       message: 'Không thể xác minh quyền truy cập; yêu cầu bị từ chối an toàn.',
+    });
+  }
+
+  /**
+   * Token gửi kèm lời gọi nội bộ về Platform. Production thiếu `INTERNAL_SERVICE_TOKEN` thì báo lỗi rõ thay vì gửi chuỗi
+   * rỗng (Platform sẽ trả 401 và người dùng chỉ thấy bị từ chối); dev giữ hành vi cũ.
+   */
+  private serviceToken(): string {
+    const token = process.env.INTERNAL_SERVICE_TOKEN;
+    if (token?.trim()) return token;
+    if (!isProductionEnvironment()) return token ?? '';
+    this.logger.error(
+      `Thiếu biến môi trường INTERNAL_SERVICE_TOKEN (module ${this.options.moduleKey}): không gọi được API nội bộ của Platform.`,
+    );
+    throw new ServiceUnavailableException({
+      code: 'INTERNAL_SERVICE_TOKEN_MISSING',
+      message: 'Dịch vụ thiếu cấu hình INTERNAL_SERVICE_TOKEN nên không xác minh được quyền truy cập.',
     });
   }
 

@@ -90,6 +90,7 @@ import {
   firebaseAdminSender,
   webPushSender,
 } from '@enterprise-platform/platform-chat/push';
+import { assertServiceEnvironment, startFileHeartbeat } from '@enterprise-platform/platform-module-access/runtime';
 import type { Pool } from 'pg';
 
 try {
@@ -97,6 +98,7 @@ try {
 } catch {
   /* environment can be injected by the runtime */
 }
+assertServiceEnvironment('worker');
 
 const publisher = new RabbitMqPublisher(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
@@ -886,7 +888,26 @@ const timer = setInterval(() => {
 }, 1_000);
 void tick();
 
+// Nhịp tim cho HEALTHCHECK của container (ISS-OPS-014): chỉ ghi khi mọi consumer còn kênh RabbitMQ. Mất kết nối broker
+// (hoặc consumer đứt mà tiến trình chưa thoát) thì tệp cũ dần và Docker báo unhealthy. Lệnh kiểm nằm ở apps/worker/Dockerfile.
+const consumers = [
+  consumer,
+  hrmConsumer,
+  financeConsumer,
+  workspaceConsumer,
+  socialConsumer,
+  crmConsumer,
+  chatPushConsumer,
+  fcmPushConsumer,
+  procedureConsumer,
+];
+const stopHeartbeat = startFileHeartbeat({
+  file: process.env.WORKER_HEARTBEAT_FILE ?? '/tmp/worker.alive',
+  isHealthy: () => consumers.every((item) => item.isReady()),
+});
+
 async function shutdown() {
+  stopHeartbeat();
   clearInterval(timer);
   deletion.close();
   await Promise.all([

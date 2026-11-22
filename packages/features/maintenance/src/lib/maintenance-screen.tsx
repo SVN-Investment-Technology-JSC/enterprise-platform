@@ -272,14 +272,6 @@ export function MaintenanceScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    void reload();
-    void loadTenantHomePath().then(setHomePath);
-    void loadOrganizationUnitNames().then(setUnitNames);
-    void loadTenantMembers().then(setMembers);
-    void fetchMyCards();
-  }, [reload]);
-
   /**
    * Nạp thẻ Tổng quan của riêng người dùng. Lỗi nạp KHÔNG được coi là "chưa tuỳ chỉnh": nếu vậy lần chỉnh đầu tiên sẽ
    * lưu danh sách mặc định đè lên lựa chọn đã lưu. Khi lỗi, lưới vẫn hiện thẻ mặc định nhưng khoá Tuỳ chỉnh và có nút
@@ -294,6 +286,14 @@ export function MaintenanceScreen() {
       setMyCardsFailed(true);
     }
   }, []);
+
+  useEffect(() => {
+    void reload();
+    void loadTenantHomePath().then(setHomePath);
+    void loadOrganizationUnitNames().then(setUnitNames);
+    void loadTenantMembers().then(setMembers);
+    void fetchMyCards();
+  }, [reload, fetchMyCards]);
 
   // Dữ liệu Tổng quan không tự cập nhật nên dễ cũ (người khác vừa đóng phiếu): nạp lại mỗi lần quay về Tổng quan và khi
   // quay lại tab trình duyệt (tối đa mỗi 60 giây).

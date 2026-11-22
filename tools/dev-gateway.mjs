@@ -1,9 +1,9 @@
 // Gateway dev cổng 8080 không cần Docker: thay nginx của infrastructure/nginx/nginx.conf bằng một reverse proxy Node.
 // Dùng: pnpm dev:gateway   (đặt DEV_GATEWAY_PORT để đổi cổng, mặc định 8080)
 // Định tuyến giống nginx: /api/auth và /api/platform -> 3333, /api/realtime và /realtime/socket.io -> 3338,
-// /api/procedure|maintenance|inventory|workspace -> 3334|3335|3336|3337, /api/finance|shared|social|crm -> 3341|3342|3343|3344,
+// /api/procedure|maintenance|inventory|workspace -> 3334|3335|3336|3337, /api/hrm -> 3339,
+// /api/finance|shared|social|crm|correspondence -> 3341|3342|3343|3344|3345, /api/assistant -> 8010 (trợ lý Savina),
 // /modules/<module> -> web của module, còn lại -> web chính 3002.
-// /api/hrm do chính hrm-web (3008) chuyển tiếp sang hrm-api (3339) qua next.config.js.
 import http from 'node:http';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -17,11 +17,13 @@ export const ROUTES = [
   ['/api/maintenance/', 3335],
   ['/api/inventory/', 3336],
   ['/api/workspace/', 3337],
+  ['/api/hrm/', 3339],
   ['/api/finance/', 3341],
   ['/api/shared/', 3342],
   ['/api/social/', 3343],
   ['/api/crm/', 3344],
   ['/api/correspondence/', 3345],
+  ['/api/assistant/', 8010],
   ['/api/auth/', 3333],
   ['/api/platform/', 3333],
   ['/modules/procedure', 3003],

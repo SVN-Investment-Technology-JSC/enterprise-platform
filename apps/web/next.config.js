@@ -7,16 +7,13 @@ const nextConfig = {
   agentRules: false,
   // Next 16 chặn request dev đến từ origin khác localhost. Không khai báo thì
   // mở trang qua IP LAN sẽ không hydrate được và form rơi về submit GET thuần.
-  allowedDevOrigins: [
-    ...(process.env.DEV_ALLOWED_ORIGINS ?? '')
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-    '192.168.88.16',
-    '192.168.88.16:3000',
-    '192.168.88.16:3004',
-    '192.168.88.16:4200',
-  ],
+  // Danh sách origin dev (IP LAN, có thể kèm cổng) đặt trong DEV_ALLOWED_ORIGINS, cách nhau dấu phẩy.
+  allowedDevOrigins: (process.env.DEV_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean),
+  // Mã không dùng next/image; tắt bộ tối ưu ảnh để đóng endpoint /_next/image (ISS-OPS-002).
+  images: { unoptimized: true },
   output:
     process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   outputFileTracingRoot: path.join(__dirname, '../..'),

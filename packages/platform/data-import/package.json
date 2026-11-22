@@ -20,8 +20,8 @@
     "@enterprise-platform/contracts-data-import": "workspace:*",
     "@enterprise-platform/contracts-identity": "workspace:*",
     "@enterprise-platform/platform-identity": "workspace:*",
-    "@nestjs/common": "^11.2.1",
-    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/common": "^11.2.10",
+    "@nestjs/platform-express": "^11.2.10",
     "exceljs": "^4.4.0"
   },
   "devDependencies": {

@@ -54,7 +54,7 @@ Organization (loại đơn vị, đơn vị, vị trí và membership) nằm tro
 
 ## Identity và triển khai độc lập
 
-Platform Core ký JWT RS256 15 phút và xoay opaque refresh token 30 ngày. Principal là union `platform-admin | tenant-user`; các API module xác minh JWKS rồi gọi internal access-decision API để lấy quyền và tenant database. Quyết định được cache tối đa 30 giây và fail closed khi Platform Core không phản hồi.
+Platform Core ký JWT RS256 60 phút và xoay opaque refresh token 30 ngày. Principal là union `platform-admin | tenant-user`; các API module xác minh JWKS rồi gọi internal access-decision API để lấy quyền và tenant database. Quyết định không được cache (đổi quyền hay tắt module có hiệu lực ngay); khi Platform Core lỗi 5xx hoặc không kết nối được thì thử lại một lần rồi fail closed.
 
 Nginx giữ một origin: `/api/auth`, `/api/platform` đi Platform API; `/api/procedure`, `/api/maintenance` và `/api/inventory` đi các API module tương ứng. `/modules/procedure`, `/modules/maintenance` và `/modules/inventory` đi ba Next app độc lập. Procedure và Maintenance có health check/fallback bảo trì riêng; một module dừng không làm Platform hoặc module còn lại ngừng phục vụ.
 
@@ -134,7 +134,7 @@ Sau khi lệnh hoàn tất, mở:
 |---|---|
 | Gateway / trang chủ | `http://localhost:8080` |
 | Tenant login | `http://localhost:8080/` |
-| Platform Admin login | `http://localhost:8080/admin` |
+| Platform Admin login | `http://localhost:8080/login/admin` |
 | Procedure Engine | `http://localhost:8080/modules/procedure` |
 | Maintenance | `http://localhost:8080/modules/maintenance` |
 | Inventory | `http://localhost:8080/modules/inventory` |
