@@ -605,6 +605,7 @@ export function ChecklistPanel({
         subtitle="Thêm, sửa tên hoặc xoá đầu việc. Thay đổi được lưu ngay."
         cancelLabel="Đóng"
         guardDiscard={false}
+        centered
         hideFooter
         onClose={() => {
           if (editingRef.current) finishEdit();
