@@ -8,11 +8,17 @@ import type {
   SharedDocumentSummary,
   SharedDocumentVersion,
   SharedFolder,
+  SharedNasProvider,
+  SharedNasShareConfig,
   SharedShareGrant,
+  SharedStorageAccessMode,
+  SharedStorageLocation,
+  SharedStorageLocationUsage,
   SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
 import type { AccessFolder, ShareRecord } from './folder-access.js';
+import type { NasAccountRecord, NasRuleRecord } from './nas-rules.js';
 
 export const SHARED_STORE = Symbol('SHARED_STORE');
 
@@ -58,6 +64,8 @@ export interface DocumentInsert extends RecordMetaInput {
   readonly tags: readonly string[];
   readonly sourceLabel: string | null;
   readonly storageKey: string;
+  /** Kho giữ tệp; mặc định kho của nền tảng. */
+  readonly storageLocation?: SharedStorageLocation;
   readonly fileName: string;
   readonly contentType: string;
   readonly changeNote: string | null;
@@ -76,6 +84,8 @@ export interface VersionInsert {
   readonly documentId: string;
   readonly versionNo: number;
   readonly storageKey: string;
+  /** Kho giữ tệp; mặc định kho của nền tảng. */
+  readonly storageLocation?: SharedStorageLocation;
   readonly fileName: string;
   readonly contentType: string;
   readonly changeNote: string | null;
@@ -117,10 +127,77 @@ export interface TrashedFolder {
  * tệp trả về để tầng application xoá nốt trong kho đối tượng.
  */
 export interface PurgeResult {
+  /** Tệp ở kho của nền tảng. */
   readonly storageKeys: readonly string[];
+  /** Tệp ở kho ngoài của tenant. */
+  readonly externalKeys: readonly string[];
   readonly documents: number;
   readonly folders: number;
 }
+
+/** Khoá tệp cùng kho đang giữ nó. */
+export interface StoredObjectRef {
+  readonly key: string;
+  readonly location: SharedStorageLocation;
+}
+
+/** Một tệp còn ở kho của nền tảng, chờ chuyển sang kho ngoài. */
+export interface PlatformObject {
+  readonly versionId: string;
+  readonly key: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}
+
+/** Cấu hình kho ngoài đã lưu; khoá bí mật ở dạng đã mã hoá. */
+export interface StorageSettingsRow {
+  readonly enabled: boolean;
+  readonly label: string;
+  readonly accessMode: SharedStorageAccessMode;
+  readonly endpoint: string;
+  readonly publicEndpoint: string | null;
+  readonly region: string;
+  readonly bucket: string;
+  readonly pathStyle: boolean;
+  readonly accessKeyId: string;
+  readonly secretCiphertext: string;
+  readonly version: number;
+  readonly updatedBy: string;
+  readonly updatedAt: string;
+}
+
+export type StorageSettingsInput = Omit<StorageSettingsRow, 'version' | 'updatedBy' | 'updatedAt'>;
+
+/** Cấu hình kết nối NAS đã lưu; mật khẩu ở dạng đã mã hoá. */
+export interface NasConnectionRow {
+  readonly enabled: boolean;
+  readonly label: string;
+  readonly provider: SharedNasProvider;
+  readonly baseUrl: string;
+  readonly username: string;
+  readonly secretCiphertext: string;
+  readonly shares: readonly SharedNasShareConfig[];
+  readonly syncMinutes: number;
+  readonly lastSyncAt?: string;
+  readonly lastSyncOk?: boolean;
+  readonly lastSyncMessage?: string;
+  readonly version: number;
+  readonly updatedBy: string;
+  readonly updatedAt: string;
+}
+
+export type NasConnectionInput = Omit<
+  NasConnectionRow,
+  'lastSyncAt' | 'lastSyncOk' | 'lastSyncMessage' | 'version' | 'updatedBy' | 'updatedAt'
+>;
+
+export interface NasGroupRecord {
+  readonly name: string;
+  readonly description: string;
+  readonly members: number;
+}
+
+export type NasAccessAction = 'view' | 'download' | 'upload' | 'create_folder' | 'rename' | 'delete';
 
 export interface SharedStore {
   readonly diagnostics: {
@@ -197,6 +274,7 @@ export interface SharedStore {
       sizeBytes: number,
     ): Promise<SharedDocumentVersion | undefined>;
     storageKeyOf(tenantId: string, versionId: string): Promise<string | undefined>;
+    storageRefOf(tenantId: string, versionId: string): Promise<StoredObjectRef | undefined>;
     log(
       tenantId: string,
       userId: string,
@@ -228,5 +306,58 @@ export interface SharedStore {
   readonly storage: {
     /** Dung lượng đã dùng theo từng phân hệ, cộng mọi bảng tệp có trong DB tenant. */
     usageByModule(tenantId: string): Promise<StorageModuleUsage[]>;
+    /** Số tệp, dung lượng của Tài liệu chung theo nơi lưu. */
+    locationUsage(tenantId: string): Promise<Record<SharedStorageLocation, SharedStorageLocationUsage>>;
+    /** Tệp đã tải lên xong còn ở kho của nền tảng, cũ trước. */
+    platformObjects(tenantId: string, limit: number): Promise<PlatformObject[]>;
+    countPlatformObjects(tenantId: string): Promise<number>;
+    /** Ghi phiên bản đã nằm ở kho ngoài; `false` khi phiên bản không còn hoặc đã chuyển. */
+    markExternal(tenantId: string, versionId: string): Promise<boolean>;
+  };
+
+  readonly nas: {
+    connection(tenantId: string): Promise<NasConnectionRow | undefined>;
+    /** `undefined` khi `expectedVersion` không còn khớp. */
+    saveConnection(
+      tenantId: string,
+      userId: string,
+      input: NasConnectionInput,
+      expectedVersion?: number,
+    ): Promise<NasConnectionRow | undefined>;
+    recordSync(tenantId: string, status: { readonly ok: boolean; readonly message: string }): Promise<void>;
+    accounts(tenantId: string): Promise<NasAccountRecord[]>;
+    accountForUser(tenantId: string, erpUserId: string): Promise<NasAccountRecord | undefined>;
+    /**
+     * Thay toàn bộ bản sao người dùng, nhóm, quyền bằng bản mới đọc từ NAS, trong một
+     * transaction. Ghép tài khoản đi kèm `accounts` (tầng application đã giữ ghép tay).
+     */
+    replaceDirectory(
+      tenantId: string,
+      snapshot: {
+        readonly accounts: readonly NasAccountRecord[];
+        readonly groups: readonly NasGroupRecord[];
+        readonly rules: readonly NasRuleRecord[];
+      },
+    ): Promise<void>;
+    /** Ghép tay (hoặc bỏ ghép khi `erpUserId` rỗng); người đó đang ghép tài khoản khác thì gỡ ở tài khoản kia. */
+    linkAccount(tenantId: string, name: string, erpUserId: string | null): Promise<boolean>;
+    rules(tenantId: string): Promise<NasRuleRecord[]>;
+    groups(tenantId: string): Promise<NasGroupRecord[]>;
+    log(
+      tenantId: string,
+      userId: string,
+      entry: { readonly share: string; readonly path: string; readonly action: NasAccessAction; readonly detail?: string },
+    ): Promise<void>;
+  };
+
+  readonly storageSettings: {
+    get(tenantId: string): Promise<StorageSettingsRow | undefined>;
+    /** `undefined` khi `expectedVersion` không còn khớp (người khác vừa lưu). */
+    save(
+      tenantId: string,
+      userId: string,
+      input: StorageSettingsInput,
+      expectedVersion?: number,
+    ): Promise<StorageSettingsRow | undefined>;
   };
 }

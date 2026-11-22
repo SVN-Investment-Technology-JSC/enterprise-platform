@@ -1,12 +1,15 @@
 import { TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { isTenantAdmin, tenantActionHeld } from '@enterprise-platform/contracts-identity';
-import type { SharedActor } from '@enterprise-platform/module-shared';
+import { TenantStorageRouter, type SharedActor } from '@enterprise-platform/module-shared';
 import { ModuleAccess } from '@enterprise-platform/platform-module-access';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 
 /** Định danh actor của lời gọi nội bộ; không phải người dùng thật. */
 const SHARED_SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+
+/** Route chuyển tiếp tệp (`/v1/files/<phiếu>`): GET tải xuống, PUT tải lên. */
+const FILE_PROXY_ROUTE = /\/v1\/files\/[^/]+$/;
 
 interface SharedRequest extends Request {
   sharedActor?: SharedActor;
@@ -28,17 +31,26 @@ interface SharedRequest extends Request {
  * để đọc hay ghi tài liệu của người dùng. Gồm `POST /v1/internal/storage/capacity-check`
  * và `/v1/internal/filings/*`: phân hệ khác (Văn thư) lưu tệp, chỉ trong thư mục
  * gốc do chính phân hệ đó dựng (`FilingService`).
+ *
+ * Route chuyển tiếp tệp `/v1/files/<phiếu>` (kho ngoài ở chế độ `proxy`) không đi
+ * qua phiên người dùng: phiếu do service ký lúc người dùng đã qua guard xin URL,
+ * như URL ký sẵn của S3. Guard kiểm chữ ký, hạn, thao tác của phiếu rồi mở DB của
+ * tenant trong phiếu; không gắn actor nào, nên route này không gọi được API khác.
  */
 @Injectable()
 export class SharedAccessGuard implements CanActivate {
   private readonly access = new ModuleAccess({ moduleKey: 'shared' });
 
-  constructor(private readonly databases: TenantDatabaseRegistry) {}
+  constructor(
+    private readonly databases: TenantDatabaseRegistry,
+    private readonly storages: TenantStorageRouter,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<SharedRequest>();
     if (this.access.isHealthCheck(request)) return true;
     if (this.access.isInternal(request)) return this.authorizeService(request);
+    if (FILE_PROXY_ROUTE.test(request.path)) return this.authorizeFileTicket(request);
 
     this.access.requireCsrfForMutation(request);
     const principal = await this.access.tenantUser(request);
@@ -80,6 +92,25 @@ export class SharedAccessGuard implements CanActivate {
       canWriteDocuments,
       canDeleteDocuments,
     };
+    return true;
+  }
+
+  /** Phiếu hợp lệ thì bảo đảm DB của tenant đã đăng ký; phiếu hỏng trả 403. */
+  private async authorizeFileTicket(request: SharedRequest): Promise<boolean> {
+    const token = request.path.split('/').pop() ?? '';
+    const operation = request.method === 'PUT' ? 'put' : request.method === 'GET' || request.method === 'HEAD' ? 'get' : undefined;
+    const ticket = operation ? this.storages.verifyTicket(token, operation) : undefined;
+    if (!ticket) {
+      throw new ForbiddenException({
+        code: 'FILE_TICKET_INVALID',
+        message: 'Liên kết tệp không hợp lệ hoặc đã hết hạn.',
+      });
+    }
+    try {
+      this.databases.require(ticket.t);
+    } catch {
+      this.databases.register(await this.access.tenantDatabase(ticket.t));
+    }
     return true;
   }
 
