@@ -14,6 +14,7 @@ import {
 import { AppIcon } from '@enterprise-platform/shared-ui';
 import { FolderOpen, FolderPlus, HardDrive, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { ExternalStoragePanel } from './components/external-storage-panel';
 import { LibraryView, type LibraryAbilities, type LibraryRequest } from './components/library-view';
 import { meterTone, StorageView } from './components/storage-view';
 import {
@@ -158,7 +159,9 @@ export function SharedScreen() {
       }
     >
       {provisioning || !status ? null : view === 'storage' && capabilities.canManage ? (
-        <StorageView usage={usage} />
+        <StorageView usage={usage}>
+          <ExternalStoragePanel onChanged={reloadUsage} />
+        </StorageView>
       ) : (
         <LibraryView
           capabilities={capabilities}

@@ -111,3 +111,19 @@ export class SharedNotProvisionedError extends SharedError {
     Object.setPrototypeOf(this, SharedNotProvisionedError.prototype);
   }
 }
+
+/** Kho ngoài chưa cấu hình, cấu hình hỏng, hoặc máy chủ chưa có khoá giải mã. */
+export class SharedStorageUnavailableError extends SharedError {
+  constructor(message: string) {
+    super('EXTERNAL_STORAGE_UNAVAILABLE', message, 503);
+    Object.setPrototypeOf(this, SharedStorageUnavailableError.prototype);
+  }
+}
+
+/** Người khác vừa lưu cấu hình kho; tải lại trước khi sửa. */
+export class SharedStorageSettingsConflictError extends SharedError {
+  constructor() {
+    super('STORAGE_SETTINGS_CONFLICT', 'Cấu hình kho vừa được người khác thay đổi. Tải lại trang rồi sửa lại.', 409);
+    Object.setPrototypeOf(this, SharedStorageSettingsConflictError.prototype);
+  }
+}

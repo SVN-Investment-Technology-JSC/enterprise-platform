@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import {
   SHARED_TRASH_PATHS,
+  type SaveSharedExternalStorageRequest,
   type CompleteSharedUploadRequest,
   type CreateSharedDocumentRequest,
   type CreateSharedFolderRequest,
@@ -36,6 +37,7 @@ import { FilingService } from '../application/filing.service.js';
 import { FolderSharingService } from '../application/folder-sharing.service.js';
 import type { SharedActor } from '../application/shared-actor.js';
 import { StorageQuotaService } from '../application/storage-quota.service.js';
+import { StorageSettingsService } from '../application/storage-settings.service.js';
 import { SHARED_STORE, type SharedStore } from '../application/shared-store.port.js';
 import { SharedError, StorageQuotaExceededError } from '../domain/shared.error.js';
 
@@ -66,6 +68,7 @@ export class SharedController {
     private readonly quota: StorageQuotaService,
     private readonly filings: FilingService,
     @Inject(SHARED_STORE) private readonly store: SharedStore,
+    private readonly storageSettings: StorageSettingsService,
   ) {}
 
   /** Mức sẵn sàng của phân hệ và quyền của người đang đăng nhập (chỉ để ẩn hiện). */
@@ -90,6 +93,35 @@ export class SharedController {
   @Get('storage')
   storage(@Req() request: SharedRequest) {
     return this.execute(() => this.quota.usage(this.actor(request).tenantId));
+  }
+
+  /* ------------------------------------------------------- kho lưu trữ ngoài */
+
+  @Get('settings/storage')
+  externalStorage(@Req() request: SharedRequest) {
+    return this.execute(() => this.storageSettings.get(this.actor(request)));
+  }
+
+  @Put('settings/storage')
+  saveExternalStorage(@Req() request: SharedRequest, @Body() body: SaveSharedExternalStorageRequest) {
+    return this.execute(() => this.storageSettings.save(this.actor(request), body));
+  }
+
+  /** Thử kết nối với giá trị đang nhập (chưa lưu). Kết quả hỏng vẫn là 200 `{ ok: false }`. */
+  @Post('settings/storage/test')
+  @HttpCode(200)
+  testExternalStorage(@Req() request: SharedRequest, @Body() body: Partial<SaveSharedExternalStorageRequest> | undefined) {
+    return this.execute(() => this.storageSettings.test(this.actor(request), body));
+  }
+
+  /** Chuyển một lô tệp từ kho của nền tảng sang kho ngoài. */
+  @Post('settings/storage/transfer')
+  @HttpCode(200)
+  transferToExternalStorage(
+    @Req() request: SharedRequest,
+    @Body() body: { limit?: unknown; removePlatformCopy?: unknown } | undefined,
+  ) {
+    return this.execute(() => this.storageSettings.transfer(this.actor(request), body));
   }
 
   /**

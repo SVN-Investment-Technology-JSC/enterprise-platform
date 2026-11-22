@@ -9,6 +9,9 @@ import type {
   SharedDocumentVersion,
   SharedFolder,
   SharedShareGrant,
+  SharedStorageAccessMode,
+  SharedStorageLocation,
+  SharedStorageLocationUsage,
   SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
@@ -58,6 +61,8 @@ export interface DocumentInsert extends RecordMetaInput {
   readonly tags: readonly string[];
   readonly sourceLabel: string | null;
   readonly storageKey: string;
+  /** Kho giữ tệp; mặc định kho của nền tảng. */
+  readonly storageLocation?: SharedStorageLocation;
   readonly fileName: string;
   readonly contentType: string;
   readonly changeNote: string | null;
@@ -76,6 +81,8 @@ export interface VersionInsert {
   readonly documentId: string;
   readonly versionNo: number;
   readonly storageKey: string;
+  /** Kho giữ tệp; mặc định kho của nền tảng. */
+  readonly storageLocation?: SharedStorageLocation;
   readonly fileName: string;
   readonly contentType: string;
   readonly changeNote: string | null;
@@ -117,10 +124,46 @@ export interface TrashedFolder {
  * tệp trả về để tầng application xoá nốt trong kho đối tượng.
  */
 export interface PurgeResult {
+  /** Tệp ở kho của nền tảng. */
   readonly storageKeys: readonly string[];
+  /** Tệp ở kho ngoài của tenant. */
+  readonly externalKeys: readonly string[];
   readonly documents: number;
   readonly folders: number;
 }
+
+/** Khoá tệp cùng kho đang giữ nó. */
+export interface StoredObjectRef {
+  readonly key: string;
+  readonly location: SharedStorageLocation;
+}
+
+/** Một tệp còn ở kho của nền tảng, chờ chuyển sang kho ngoài. */
+export interface PlatformObject {
+  readonly versionId: string;
+  readonly key: string;
+  readonly contentType: string;
+  readonly sizeBytes: number;
+}
+
+/** Cấu hình kho ngoài đã lưu; khoá bí mật ở dạng đã mã hoá. */
+export interface StorageSettingsRow {
+  readonly enabled: boolean;
+  readonly label: string;
+  readonly accessMode: SharedStorageAccessMode;
+  readonly endpoint: string;
+  readonly publicEndpoint: string | null;
+  readonly region: string;
+  readonly bucket: string;
+  readonly pathStyle: boolean;
+  readonly accessKeyId: string;
+  readonly secretCiphertext: string;
+  readonly version: number;
+  readonly updatedBy: string;
+  readonly updatedAt: string;
+}
+
+export type StorageSettingsInput = Omit<StorageSettingsRow, 'version' | 'updatedBy' | 'updatedAt'>;
 
 export interface SharedStore {
   readonly diagnostics: {
@@ -197,6 +240,7 @@ export interface SharedStore {
       sizeBytes: number,
     ): Promise<SharedDocumentVersion | undefined>;
     storageKeyOf(tenantId: string, versionId: string): Promise<string | undefined>;
+    storageRefOf(tenantId: string, versionId: string): Promise<StoredObjectRef | undefined>;
     log(
       tenantId: string,
       userId: string,
@@ -228,5 +272,23 @@ export interface SharedStore {
   readonly storage: {
     /** Dung lượng đã dùng theo từng phân hệ, cộng mọi bảng tệp có trong DB tenant. */
     usageByModule(tenantId: string): Promise<StorageModuleUsage[]>;
+    /** Số tệp, dung lượng của Tài liệu chung theo nơi lưu. */
+    locationUsage(tenantId: string): Promise<Record<SharedStorageLocation, SharedStorageLocationUsage>>;
+    /** Tệp đã tải lên xong còn ở kho của nền tảng, cũ trước. */
+    platformObjects(tenantId: string, limit: number): Promise<PlatformObject[]>;
+    countPlatformObjects(tenantId: string): Promise<number>;
+    /** Ghi phiên bản đã nằm ở kho ngoài; `false` khi phiên bản không còn hoặc đã chuyển. */
+    markExternal(tenantId: string, versionId: string): Promise<boolean>;
+  };
+
+  readonly storageSettings: {
+    get(tenantId: string): Promise<StorageSettingsRow | undefined>;
+    /** `undefined` khi `expectedVersion` không còn khớp (người khác vừa lưu). */
+    save(
+      tenantId: string,
+      userId: string,
+      input: StorageSettingsInput,
+      expectedVersion?: number,
+    ): Promise<StorageSettingsRow | undefined>;
   };
 }

@@ -116,6 +116,27 @@ phân hệ này đo dung lượng đang dùng và chặn tải lên khi vượt.
 Biến môi trường: như `workspace-api` (database, platform access, S3,
 `TENANT_CORE_ORGANIZATION_CONTEXT_URL`) cộng `PLATFORM_TENANT_LIMITS_URL`.
 
+## Kho lưu trữ ngoài của tenant
+
+Mỗi tenant tự cấu hình được một kho S3 riêng (NAS Synology chạy MinIO, S3, R2…) ở tab
+**Dung lượng → Kho lưu trữ ngoài** (quản trị tenant sửa, quản trị kho xem). Bật thì tệp mới
+của Tài liệu chung và hồ sơ Văn thư lưu vào kho đó; mỗi phiên bản ghi nơi lưu của nó
+(`document_versions.storage_location`), nên tệp cũ vẫn mở được, và chuyển dần sang kho ngoài
+bằng nút "Chuyển tệp". Tệp ở kho ngoài không tính vào hạn mức dung lượng của nền tảng.
+
+- `proxy`: trình duyệt tải lên, tải xuống qua `/api/shared/v1/files/<phiếu>`; máy chủ chuyển
+  tiếp luồng, không lưu tệp. Kho chỉ cần máy chủ ERP thấy được (mạng nội bộ, Tailscale, VPN).
+- `direct`: URL ký sẵn trỏ thẳng tới địa chỉ công khai của kho (https, mở CORS cho tên miền ERP).
+
+Biến môi trường:
+
+- `SHARED_STORAGE_SECRET_KEY`: khoá gốc, ít nhất 32 ký tự. Mã hoá khoá truy cập kho của tenant
+  (AES-256-GCM) và ký phiếu chuyển tiếp. Trống thì tính năng tắt. Đổi khoá thì tenant phải nhập
+  lại secret key.
+- `SHARED_EXTERNAL_STORAGE_ALLOWED_HOSTS`: máy chủ kho được phép, cách nhau dấu phẩy (tên máy,
+  `*.đuôi`, IP, CIDR). Có danh sách thì chỉ những máy này (http hay https). Trống thì chỉ kho
+  công khai qua https, chặn địa chỉ nội bộ, để tenant không trỏ kho vào dịch vụ của nền tảng.
+
 ```bash
 pnpm dev:shared
 ```

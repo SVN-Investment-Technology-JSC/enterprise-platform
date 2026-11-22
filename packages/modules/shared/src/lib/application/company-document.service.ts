@@ -1,4 +1,4 @@
-import { S3ObjectStorage, type ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
+import { S3ObjectStorage } from '@enterprise-platform/adapter-storage';
 import {
   isSharedContentType,
   SHARED_CONFIDENTIALITY_LEVELS,
@@ -55,15 +55,16 @@ import {
   type FolderAccessService,
 } from './folder-access.js';
 import { isSharedManager, type SharedActor } from './shared-actor.js';
-import type { DocumentRow, PurgeResult, RecordMetaInput, SharedStore } from './shared-store.port.js';
+import type { DocumentRow, PurgeResult, RecordMetaInput, SharedStore, StoredObjectRef } from './shared-store.port.js';
 import type { StorageQuotaService } from './storage-quota.service.js';
+import { singleStorage, type SharedStorageRouter } from './storage-router.port.js';
 
 /**
  * Kho đối tượng của phân hệ, dựng từ biến môi trường. Hai đầu nối: server gọi
  * kho trong mạng nội bộ, còn URL ký sẵn phải mang host công khai cho trình
  * duyệt mở. Xem `DocumentService` của Workspace.
  */
-export function sharedObjectStorage(): ObjectStorageManagementPort {
+export function sharedObjectStorage(): S3ObjectStorage {
   return new S3ObjectStorage({
     internalEndpoint: process.env.S3_INTERNAL_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://minio:9000',
     publicEndpoint: process.env.S3_PUBLIC_ENDPOINT ?? process.env.S3_ENDPOINT ?? 'http://localhost:9010',
@@ -81,9 +82,11 @@ const FOLDER_LIMIT = 5000;
 /**
  * Tài liệu công ty.
  *
- * **Máy chủ không nhận hay gửi byte của tệp**: chỉ ghi siêu dữ liệu, sinh
- * `storage_key`, ký URL cho trình duyệt tự `PUT`/`GET` lên kho — cùng khuôn với
- * `DocumentService` của Workspace. Khác Workspace ở ba điểm:
+ * **Service không nhận hay gửi byte của tệp**: chỉ ghi siêu dữ liệu, sinh
+ * `storage_key`, ký URL cho trình duyệt tự `PUT`/`GET` — cùng khuôn với
+ * `DocumentService` của Workspace. Tệp nằm ở kho của nền tảng hoặc kho ngoài
+ * của tenant (`SharedStorageRouter`); mỗi phiên bản ghi nơi lưu của nó. Khác
+ * Workspace ở ba điểm:
  *
  * - không có khái niệm dự án; quyền đi theo chia sẻ thư mục (xem
  *   `folder-access.ts`), quyền phân hệ là trần của việc ghi và xoá;
@@ -98,7 +101,7 @@ export class CompanyDocumentService {
     private readonly store: SharedStore,
     private readonly quota: StorageQuotaService,
     private readonly access: FolderAccessService,
-    private readonly storage: ObjectStorageManagementPort = sharedObjectStorage(),
+    private readonly storages: SharedStorageRouter = singleStorage(sharedObjectStorage()),
   ) {}
 
   private readonly logger = new Logger(CompanyDocumentService.name);
@@ -313,7 +316,9 @@ export class CompanyDocumentService {
     const effectiveFrom = optionalDate(input.effectiveFrom, 'Hiệu lực từ');
     const meta = recordMeta(input);
     requireRange(effectiveFrom, meta.effectiveTo);
-    await this.quota.ensureCapacity(actor.tenantId, file.sizeBytes);
+    const target = await this.storages.forUpload(actor.tenantId);
+    // Kho ngoài là dung lượng của tenant, không tính vào hạn mức của nền tảng.
+    if (target.location === 'platform') await this.quota.ensureCapacity(actor.tenantId, file.sizeBytes);
 
     const storageKey = this.storageKey(actor, 1, file.fileName);
     const created = await this.store.documents.create(actor.tenantId, actor.userId, {
@@ -325,6 +330,7 @@ export class CompanyDocumentService {
       tags: parseTags(input.tags),
       sourceLabel: null,
       storageKey,
+      storageLocation: target.location,
       fileName: file.fileName,
       contentType: file.contentType,
       changeNote: optionalText(input.note, 'Ghi chú', 500),
@@ -339,7 +345,7 @@ export class CompanyDocumentService {
     return {
       document: created.document,
       version: created.version,
-      uploadUrl: await this.storage.createUploadUrl({
+      uploadUrl: await target.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -414,7 +420,8 @@ export class CompanyDocumentService {
     this.requireNotLockedByOther(actor, document);
     const changeNote = requireText(input?.changeNote, 'Ghi chú thay đổi', 500);
     const file = validateFile(input?.fileName, input?.contentType, input?.sizeBytes);
-    await this.quota.ensureCapacity(actor.tenantId, file.sizeBytes);
+    const target = await this.storages.forUpload(actor.tenantId);
+    if (target.location === 'platform') await this.quota.ensureCapacity(actor.tenantId, file.sizeBytes);
 
     const versions = await this.store.documents.listVersions(actor.tenantId, documentId);
     const versionNo = Math.max(0, ...versions.map((entry) => entry.versionNo)) + 1;
@@ -423,6 +430,7 @@ export class CompanyDocumentService {
       documentId,
       versionNo,
       storageKey,
+      storageLocation: target.location,
       fileName: file.fileName,
       contentType: file.contentType,
       changeNote,
@@ -434,7 +442,7 @@ export class CompanyDocumentService {
     });
     return {
       version,
-      uploadUrl: await this.storage.createUploadUrl({
+      uploadUrl: await target.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -494,16 +502,17 @@ export class CompanyDocumentService {
     if (preview && !SHARED_PREVIEWABLE_CONTENT_TYPES.includes(version.contentType)) {
       throw new SharedValidationError('Định dạng này chưa xem trước được, hãy tải xuống để mở.');
     }
-    const key = await this.store.documents.storageKeyOf(actor.tenantId, version.id);
-    if (!key) throw new SharedDocumentNotFoundError(version.id);
+    const stored = await this.store.documents.storageRefOf(actor.tenantId, version.id);
+    if (!stored) throw new SharedDocumentNotFoundError(version.id);
+    const storage = await this.storages.at(actor.tenantId, stored.location);
     await this.store.documents.log(actor.tenantId, actor.userId, {
       documentId,
       versionId: version.id,
       action: preview ? 'view' : 'download',
     });
     return {
-      downloadUrl: await this.storage.createDownloadUrl(
-        key,
+      downloadUrl: await storage.createDownloadUrl(
+        stored.key,
         SHARED_PRESIGNED_URL_TTL_SECONDS,
         // Tải về luôn là `attachment`: tệp HTML, SVG… không được mở thành trang trên tên miền kho.
         preview
@@ -688,8 +697,9 @@ export class CompanyDocumentService {
 
   /**
    * Nhân bản tài liệu trong cùng thư mục: một tài liệu mới có phiên bản đầu là
-   * bản hiện hành của tài liệu gốc. Tệp sao chép ngay trong kho, không qua máy
-   * chủ ứng dụng, và tính vào hạn mức dung lượng.
+   * bản hiện hành của tài liệu gốc. Cùng kho thì tệp sao chép ngay trong kho;
+   * tệp gốc ở kho của nền tảng mà tenant đã bật kho ngoài thì bản sao đi qua máy
+   * chủ sang kho ngoài. Bản sao ở kho của nền tảng tính vào hạn mức dung lượng.
    */
   async duplicate(actor: SharedActor, documentId: string): Promise<SharedDocumentSummary> {
     this.requireWrite(actor);
@@ -702,10 +712,11 @@ export class CompanyDocumentService {
     if (!source || source.sizeBytes == null) {
       throw new SharedValidationError('Phiên bản hiện hành chưa tải lên xong, chưa nhân bản được.');
     }
-    const sourceKey = await this.store.documents.storageKeyOf(actor.tenantId, source.id);
-    if (!sourceKey) throw new SharedDocumentNotFoundError(source.id);
+    const sourceRef = await this.store.documents.storageRefOf(actor.tenantId, source.id);
+    if (!sourceRef) throw new SharedDocumentNotFoundError(source.id);
     const sizeBytes = source.sizeBytes;
-    await this.quota.ensureCapacity(actor.tenantId, sizeBytes);
+    const target = await this.storages.forUpload(actor.tenantId);
+    if (target.location === 'platform') await this.quota.ensureCapacity(actor.tenantId, sizeBytes);
 
     const siblings = await this.store.documents.list(actor.tenantId, {
       folderId: document.folderId,
@@ -719,8 +730,8 @@ export class CompanyDocumentService {
       name = `${document.name.slice(0, 255 - tail.length)}${tail}`;
     }
 
-    const storageKey = this.storageKey(actor, 1, source.fileName);
-    await this.storage.copyObject({ from: sourceKey, to: storageKey });
+    const copy: StoredObjectRef = { key: this.storageKey(actor, 1, source.fileName), location: target.location };
+    await this.storages.copy(actor.tenantId, sourceRef, copy, source.contentType);
     let created: Awaited<ReturnType<SharedStore['documents']['create']>>;
     try {
       created = await this.store.documents.create(actor.tenantId, actor.userId, {
@@ -731,7 +742,8 @@ export class CompanyDocumentService {
         confidentiality: document.confidentiality,
         tags: document.tags,
         sourceLabel: document.sourceLabel ?? null,
-        storageKey,
+        storageKey: copy.key,
+        storageLocation: copy.location,
         fileName: source.fileName,
         contentType: source.contentType,
         changeNote: `Nhân bản từ "${document.name}"`.slice(0, 500),
@@ -743,7 +755,7 @@ export class CompanyDocumentService {
       });
     } catch (error) {
       // Chưa có dòng nào trỏ tới bản sao: dọn tệp vừa chép.
-      await this.removeFiles([storageKey]);
+      await this.removeFiles(actor.tenantId, [copy]);
       throw error;
     }
     await this.store.documents.completeVersion(actor.tenantId, created.version.id, sizeBytes);
@@ -766,7 +778,10 @@ export class CompanyDocumentService {
       const document = await this.trashedDocument(actor, access, id);
       result = await this.store.documents.purge(actor.tenantId, document.id, actor.userId);
     }
-    await this.removeFiles(result.storageKeys);
+    await this.removeFiles(actor.tenantId, [
+      ...result.storageKeys.map((key): StoredObjectRef => ({ key, location: 'platform' })),
+      ...result.externalKeys.map((key): StoredObjectRef => ({ key, location: 'external' })),
+    ]);
   }
 
   private async changeStatus(
@@ -884,17 +899,21 @@ export class CompanyDocumentService {
    * Xoá tệp trong kho đối tượng sau khi dòng cơ sở dữ liệu đã mất. Hỏng thì chỉ
    * ghi log: dòng đã xoá không hoàn lại được, tệp mồ côi dọn sau.
    */
-  private async removeFiles(keys: readonly string[]): Promise<void> {
-    if (keys.length === 0) return;
-    try {
-      const { failed } = await this.storage.deleteObjects(keys);
-      if (failed.length > 0) {
-        this.logger.error(`Kho không xoá được ${failed.length}/${keys.length} tệp: ${failed.join(', ')}`);
+  private async removeFiles(tenantId: string, objects: readonly StoredObjectRef[]): Promise<void> {
+    for (const location of ['platform', 'external'] as const) {
+      const keys = objects.filter((item) => item.location === location).map((item) => item.key);
+      if (keys.length === 0) continue;
+      try {
+        const storage = await this.storages.at(tenantId, location);
+        const { failed } = await storage.deleteObjects(keys);
+        if (failed.length > 0) {
+          this.logger.error(`Kho ${location} không xoá được ${failed.length}/${keys.length} tệp: ${failed.join(', ')}`);
+        }
+      } catch (error) {
+        this.logger.error(
+          `Không xoá được ${keys.length} tệp trong kho ${location}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
-    } catch (error) {
-      this.logger.error(
-        `Không xoá được ${keys.length} tệp trong kho: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
   }
 

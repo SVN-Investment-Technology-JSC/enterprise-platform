@@ -6,6 +6,10 @@ import {
   type CreateSharedVersionRequest,
   type EmptySharedTrashResult,
   type RestoreSharedTrashRequest,
+  type SaveSharedExternalStorageRequest,
+  type SharedExternalStorageSettings,
+  type SharedStorageTestResult,
+  type SharedStorageTransferResult,
   type SharedDocumentDetail,
   type SharedDocumentQuery,
   type SharedDocumentSummary,
@@ -63,6 +67,16 @@ export function errorMessage(cause: unknown, fallback: string): string {
 export const loadSharedStatus = () => request<SharedStatus>('/status', { cache: 'no-store' });
 
 export const loadStorageUsage = () => request<StorageUsage>('/storage', { cache: 'no-store' });
+
+/* Kho lưu trữ ngoài của tenant (NAS, S3 riêng). */
+export const loadExternalStorage = () =>
+  request<SharedExternalStorageSettings>('/settings/storage', { cache: 'no-store' });
+export const saveExternalStorage = (body: SaveSharedExternalStorageRequest) =>
+  request<SharedExternalStorageSettings>('/settings/storage', { method: 'PUT', body: JSON.stringify(body) });
+export const testExternalStorage = (body: Partial<SaveSharedExternalStorageRequest>) =>
+  request<SharedStorageTestResult>('/settings/storage/test', { method: 'POST', body: JSON.stringify(body) });
+export const transferToExternalStorage = (body: { limit?: number; removePlatformCopy?: boolean }) =>
+  request<SharedStorageTransferResult>('/settings/storage/transfer', { method: 'POST', body: JSON.stringify(body) });
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
 export async function loadTenantHomePath(): Promise<string> {

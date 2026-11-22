@@ -7,6 +7,7 @@ import type {
   SharedDocument,
   SharedDocumentVersion,
   SharedFolder,
+  SharedStorageLocation,
   SharedTrashItem,
   StorageModuleUsage,
   TenantStorageLimit,
@@ -36,6 +37,7 @@ import type { OrganizationSnapshot } from './organization.port.js';
 import type { SharedActor } from './shared-actor.js';
 import type { DocumentRow, SharedStore, TenantPerson } from './shared-store.port.js';
 import { StorageQuotaService } from './storage-quota.service.js';
+import { singleStorage, type SharedStorageRouter } from './storage-router.port.js';
 
 const TENANT = 'tenant-1';
 const GB = 1024 * 1024 * 1024;
@@ -72,6 +74,12 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
   const folders = new Map<string, SharedFolder>();
   const documents = new Map<string, DocumentRow>();
   const versions = new Map<string, SharedDocumentVersion & { storageKey: string }>();
+  /** Nơi lưu của từng khoá tệp (kho của nền tảng hay kho ngoài). */
+  const locations = new Map<string, SharedStorageLocation>();
+  const splitKeys = (keys: readonly string[]) => ({
+    storageKeys: keys.filter((key) => locations.get(key) !== 'external'),
+    externalKeys: keys.filter((key) => locations.get(key) === 'external'),
+  });
   const shares: ShareRecord[] = [];
   const people: TenantPerson[] = [];
   let sequence = 0;
@@ -284,7 +292,7 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
           folders.delete(memberId);
           folderTrash.delete(memberId);
         }
-        return { storageKeys, documents: removed, folders: Math.max(0, ids.size - 1) };
+        return { ...splitKeys(storageKeys), documents: removed, folders: Math.max(0, ids.size - 1) };
       },
     },
     documents: {
@@ -310,6 +318,7 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
           createdAt: now,
           storageKey: input.storageKey,
         };
+        locations.set(input.storageKey, input.storageLocation ?? 'platform');
         versions.set(version.id, version);
         const document: SharedDocument = {
           id: documentId,
@@ -365,7 +374,7 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
         documentTrash.delete(documentId);
       },
       purge: async (_tenant, documentId) => ({
-        storageKeys: dropDocument(documentId),
+        ...splitKeys(dropDocument(documentId)),
         documents: 1,
         folders: 0,
       }),
@@ -400,6 +409,7 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
           createdAt: now,
           storageKey: input.storageKey,
         };
+        locations.set(input.storageKey, input.storageLocation ?? 'platform');
         versions.set(version.id, version);
         return version;
       },
@@ -413,6 +423,10 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
         return next;
       },
       storageKeyOf: async (_tenant, versionId) => versions.get(versionId)?.storageKey,
+      storageRefOf: async (_tenant, versionId) => {
+        const key = versions.get(versionId)?.storageKey;
+        return key ? { key, location: locations.get(key) ?? 'platform' } : undefined;
+      },
       log: async () => undefined,
       accessLog: async () => [],
     },
@@ -496,9 +510,16 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
       },
     },
     people: { list: async () => people },
-    storage: { usageByModule: async () => usage },
+    storage: {
+      usageByModule: async () => usage,
+      locationUsage: async () => ({ platform: { files: 0, bytes: 0 }, external: { files: 0, bytes: 0 } }),
+      platformObjects: async () => [],
+      countPlatformObjects: async () => 0,
+      markExternal: async () => false,
+    },
+    storageSettings: { get: async () => undefined, save: async () => undefined },
   };
-  return { store, folders, documents, versions, shares, people };
+  return { store, folders, documents, versions, shares, people, locations };
 }
 
 /** Sơ đồ tổ chức giả: sửa trực tiếp `nodes`, `assignments`, `degraded` trong từng ca. */
@@ -550,7 +571,7 @@ function setup(
     clock,
     files,
     organization: organization.state,
-    service: new CompanyDocumentService(fake.store, quota, access, files.port),
+    service: new CompanyDocumentService(fake.store, quota, access, singleStorage(files.port)),
     sharing: new FolderSharingService(fake.store, access, organization.reader),
   };
 }
@@ -1450,8 +1471,8 @@ describe('FilingService – lưu hồ sơ của phân hệ khác', () => {
     return {
       ...fake,
       files,
-      filings: new FilingService(fake.store, quota, files.port),
-      service: new CompanyDocumentService(fake.store, quota, access, files.port),
+      filings: new FilingService(fake.store, quota, singleStorage(files.port)),
+      service: new CompanyDocumentService(fake.store, quota, access, singleStorage(files.port)),
     };
   }
 
@@ -1560,5 +1581,122 @@ describe('FilingService – lưu hồ sơ của phân hệ khác', () => {
     await expect(service.updateFolder(admin, root.id, { parentId: other.id })).rejects.toBeInstanceOf(
       SharedForbiddenError,
     );
+  });
+});
+
+describe('CompanyDocumentService – kho lưu trữ ngoài', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  /** Hai kho giả và bộ chọn kho bật/tắt được giữa chừng, như tenant đổi cấu hình. */
+  function routed(options: { openRoots?: boolean } = { openRoots: true }) {
+    const fake = fakeStore(undefined, options);
+    const quota = new StorageQuotaService(fake.store, { storageLimit: async () => undefined }, () => 0);
+    const ensureCapacity = jest.spyOn(quota, 'ensureCapacity');
+    const platform = fakeStorage();
+    const nas = fakeStorage();
+    const nasPort: ObjectStorageManagementPort = {
+      ...nas.port,
+      createUploadUrl: async (input) => `/api/shared/v1/files/put:${input.key}`,
+      createDownloadUrl: async (key, ttl, options) => {
+        await nas.port.createDownloadUrl(key, ttl, options);
+        return `/api/shared/v1/files/get:${key}`;
+      },
+    };
+    const state = { external: false };
+    const copies: string[] = [];
+    const router: SharedStorageRouter = {
+      forUpload: async () =>
+        state.external ? { location: 'external', storage: nasPort } : { location: 'platform', storage: platform.port },
+      at: async (_tenant, location) => (location === 'external' ? nasPort : platform.port),
+      copy: async (_tenant, from, to) => {
+        copies.push(`${from.location} -> ${to.location}`);
+        return {};
+      },
+    };
+    const access = new FolderAccessService(fake.store, fakeOrganization().reader, () => TODAY);
+    return {
+      ...fake,
+      platform,
+      nas,
+      state,
+      copies,
+      ensureCapacity,
+      service: new CompanyDocumentService(fake.store, quota, access, router),
+      filings: new FilingService(fake.store, quota, router),
+    };
+  }
+
+  it('bật kho ngoài: tệp mới ghi nơi lưu là kho ngoài, URL tải lên của kho ngoài, không tính hạn mức nền tảng', async () => {
+    const context = routed();
+    context.state.external = true;
+    const folder = await context.service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    expect(created.uploadUrl).toMatch(/^\/api\/shared\/v1\/files\/put:/);
+    const ref = await context.store.documents.storageRefOf(TENANT, created.version.id);
+    expect(ref?.location).toBe('external');
+    expect(context.ensureCapacity).not.toHaveBeenCalled();
+
+    const version = await context.service.addVersion(actor(), created.document.id, { ...pdf, changeNote: 'Bản ký' });
+    expect(version.uploadUrl).toMatch(/files\/put:/);
+    expect((await context.store.documents.storageRefOf(TENANT, version.version.id))?.location).toBe('external');
+  });
+
+  it('tệp cũ ở kho của nền tảng vẫn mở từ kho đó sau khi bật kho ngoài; tệp mới mở từ kho ngoài', async () => {
+    const context = routed();
+    const folder = await context.service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const old = await context.service.create(actor(), { folderId: folder.id, name: 'Cũ', ...pdf });
+    await context.service.completeUpload(actor(), old.document.id, old.version.id, pdf.sizeBytes);
+    expect(context.ensureCapacity).toHaveBeenCalledTimes(1);
+
+    context.state.external = true;
+    const fresh = await context.service.create(actor(), { folderId: folder.id, name: 'Mới', ...pdf });
+    await context.service.completeUpload(actor(), fresh.document.id, fresh.version.id, pdf.sizeBytes);
+
+    const oldTicket = await context.service.download(actor(), old.document.id);
+    expect(oldTicket.downloadUrl).toMatch(/^https:\/\/files\.example\/download\//);
+    const freshTicket = await context.service.download(actor(), fresh.document.id, undefined, 'preview');
+    expect(freshTicket.downloadUrl).toMatch(/files\/get:/);
+    expect(context.nas.downloads[0]?.options).toMatchObject({ inline: true, contentType: 'application/pdf' });
+  });
+
+  it('xoá vĩnh viễn xoá tệp ở đúng kho đang giữ nó', async () => {
+    const context = routed();
+    const folder = await context.service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    context.state.external = true;
+    await context.service.addVersion(actor(), created.document.id, { ...pdf, changeNote: 'Bản ký' });
+    await context.service.deleteDocument(deleter, created.document.id);
+    await context.service.purge(admin, 'document', created.document.id);
+    expect(context.platform.deleted.map((key) => /\/(v\d+)-/.exec(key)?.[1])).toEqual(['v1']);
+    expect(context.nas.deleted.map((key) => /\/(v\d+)-/.exec(key)?.[1])).toEqual(['v2']);
+  });
+
+  it('nhân bản tài liệu ở kho của nền tảng khi đã bật kho ngoài: bản sao chép sang kho ngoài', async () => {
+    const context = routed();
+    const folder = await context.service.createFolder(admin, { name: '3. HỢP ĐỒNG' });
+    const created = await context.service.create(actor(), { folderId: folder.id, name: 'HĐ', ...pdf });
+    await context.service.completeUpload(actor(), created.document.id, created.version.id, pdf.sizeBytes);
+    context.state.external = true;
+    context.ensureCapacity.mockClear();
+    const copy = await context.service.duplicate(actor(), created.document.id);
+    expect(context.copies).toEqual(['platform -> external']);
+    expect((await context.store.documents.storageRefOf(TENANT, copy.currentVersionId!))?.location).toBe('external');
+    expect(context.ensureCapacity).not.toHaveBeenCalled();
+  });
+
+  it('hồ sơ của Văn thư cũng lưu vào kho ngoài khi bật', async () => {
+    const context = routed();
+    context.state.external = true;
+    const filed = await context.filings.createDocument(TENANT, {
+      module: 'correspondence',
+      userId: 'user-clerk',
+      rootName: 'Văn thư',
+      path: [{ name: '2026' }],
+      name: 'CV 01',
+      ...pdf,
+    });
+    expect(filed.uploadUrl).toMatch(/files\/put:/);
+    expect((await context.store.documents.storageRefOf(TENANT, filed.versionId))?.location).toBe('external');
+    expect(context.ensureCapacity).not.toHaveBeenCalled();
   });
 });

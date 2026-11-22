@@ -604,6 +604,97 @@ export interface StorageUsage {
   readonly byModule: readonly StorageModuleUsage[];
 }
 
+/* ------------------------------------------------------- kho lưu trữ ngoài */
+
+/**
+ * Nơi đang giữ tệp của một phiên bản: kho của nền tảng (máy chủ ERP) hoặc kho S3
+ * riêng của tenant (NAS, MinIO, S3, R2… do tenant tự cấu hình).
+ */
+export const SHARED_STORAGE_LOCATIONS = ['platform', 'external'] as const;
+export type SharedStorageLocation = (typeof SHARED_STORAGE_LOCATIONS)[number];
+
+/**
+ * Cách trình duyệt tới kho ngoài:
+ * - `proxy`: máy chủ ERP chuyển tiếp từng luồng tệp, không lưu lại; kho chỉ cần
+ *   máy chủ ERP thấy được (mạng nội bộ, VPN, Tailscale).
+ * - `direct`: trình duyệt PUT/GET thẳng lên kho bằng URL ký sẵn; kho phải có địa
+ *   chỉ công khai HTTPS và mở CORS cho tên miền ERP.
+ */
+export const SHARED_STORAGE_ACCESS_MODES = ['proxy', 'direct'] as const;
+export type SharedStorageAccessMode = (typeof SHARED_STORAGE_ACCESS_MODES)[number];
+
+export const SHARED_STORAGE_ACCESS_MODE_LABELS: Record<SharedStorageAccessMode, string> = {
+  proxy: 'Qua máy chủ ERP',
+  direct: 'Trình duyệt nối thẳng tới kho',
+};
+
+/** Số tệp, dung lượng đang nằm ở một nơi lưu. */
+export interface SharedStorageLocationUsage {
+  readonly files: number;
+  readonly bytes: number;
+}
+
+/**
+ * Cấu hình kho ngoài trả về giao diện. Khoá bí mật không bao giờ trả về; chỉ
+ * báo đã lưu hay chưa.
+ */
+export interface SharedExternalStorageSettings {
+  /** Máy chủ đã đặt khoá mã hoá (`SHARED_STORAGE_SECRET_KEY`): chưa đặt thì chưa cấu hình được. */
+  readonly available: boolean;
+  /** Người xem được sửa (quản trị tenant). */
+  readonly editable: boolean;
+  /** Đã từng lưu cấu hình; tệp đã ở kho ngoài vẫn đọc theo cấu hình này kể cả khi tắt. */
+  readonly configured: boolean;
+  /** Bật: tệp mới lưu vào kho ngoài. Tắt: tệp mới về kho của nền tảng. */
+  readonly enabled: boolean;
+  readonly label: string;
+  readonly accessMode: SharedStorageAccessMode;
+  readonly endpoint: string;
+  readonly publicEndpoint: string;
+  readonly region: string;
+  readonly bucket: string;
+  readonly pathStyle: boolean;
+  readonly accessKeyId: string;
+  readonly hasSecret: boolean;
+  readonly updatedAt?: string;
+  readonly updatedByName?: string;
+  readonly version: number;
+  readonly usage: Readonly<Record<SharedStorageLocation, SharedStorageLocationUsage>>;
+}
+
+export interface SaveSharedExternalStorageRequest {
+  readonly enabled: boolean;
+  readonly label?: string;
+  readonly accessMode: SharedStorageAccessMode;
+  readonly endpoint: string;
+  readonly publicEndpoint?: string;
+  readonly region?: string;
+  readonly bucket: string;
+  readonly pathStyle?: boolean;
+  readonly accessKeyId: string;
+  /** Để trống thì giữ khoá đã lưu. */
+  readonly secretAccessKey?: string;
+  /** Phiên bản cấu hình lúc mở form, để hai người sửa cùng lúc không đè nhau. */
+  readonly version?: number;
+}
+
+export interface SharedStorageTestResult {
+  readonly ok: boolean;
+  readonly message: string;
+  readonly latencyMs?: number;
+}
+
+export interface SharedStorageTransferResult {
+  readonly moved: number;
+  readonly failed: number;
+  /** Số tệp còn ở kho của nền tảng sau lượt này. */
+  readonly remaining: number;
+  readonly errors: readonly string[];
+}
+
+/** Đường dẫn route chuyển tiếp tệp (chế độ `proxy`), sau tiền tố `api/shared`. */
+export const SHARED_FILE_PROXY_PATH = 'v1/files';
+
 /* -------------------------------------------------------------- trạng thái */
 
 export interface SharedCapabilities {

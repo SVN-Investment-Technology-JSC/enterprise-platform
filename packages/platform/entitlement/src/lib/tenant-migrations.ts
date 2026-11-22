@@ -859,6 +859,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
     { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
     { version: '0004-shared-system-folders', path: 'tenant/shared/0004-shared-system-folders.sql' },
+    { version: '0005-shared-external-storage', path: 'tenant/shared/0005-shared-external-storage.sql' },
   ],
   // Mạng nội bộ: bảng tin công ty.
   social: [
