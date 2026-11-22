@@ -193,16 +193,12 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
       : { label: 'Đang tắt', tone: styles.badgeWarn };
 
   return (
-    <section className={`${styles.panel} ${styles.storageCard} ${styles.storageWide}`} aria-label="Kho lưu trữ ngoài">
+    <section className={`${styles.panel} ${styles.storageCard}`} aria-label="Kho lưu trữ ngoài">
       <div className={styles.sectionTitle}>
         <h3>Kho lưu trữ ngoài</h3>
         <span className={`${styles.badge} ${status.tone}`}>{status.label}</span>
       </div>
-      <p className={styles.muted}>
-        Lưu tệp của Tài liệu chung và hồ sơ Văn thư vào kho S3 riêng của công ty (NAS Synology chạy MinIO, Amazon S3…).
-        Bật thì tệp mới lưu vào kho này; tệp cũ vẫn mở được và chuyển dần bằng nút bên dưới. Tệp ở kho ngoài không tính
-        vào dung lượng của gói.
-      </p>
+      <p className={styles.muted}>Tệp của Tài liệu công ty và Văn thư lưu vào kho S3 riêng (MinIO trên NAS, Amazon S3…).</p>
       <dl className={styles.facts}>
         <div>
           <dt>Trên máy chủ ERP</dt>
@@ -228,12 +224,9 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
       </dl>
 
       {!settings.available ? (
-        <p className={styles.notice}>
-          Máy chủ chưa bật tính năng kho lưu trữ ngoài. Quản trị nền tảng cần đặt biến SHARED_STORAGE_SECRET_KEY cho
-          shared-api.
-        </p>
+        <p className={styles.notice}>Máy chủ chưa bật tính năng này (thiếu SHARED_STORAGE_SECRET_KEY).</p>
       ) : !settings.editable ? (
-        <p className={styles.notice}>Chỉ quản trị tenant được thay đổi kho lưu trữ của công ty.</p>
+        <p className={styles.notice}>Chỉ quản trị tenant được sửa.</p>
       ) : null}
 
       <form
@@ -250,7 +243,7 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
             disabled={!editable}
             onChange={(event) => set('enabled', event.target.checked)}
           />
-          Bật: tệp mới lưu vào kho ngoài (tắt thì tệp mới về máy chủ ERP; tệp đã ở kho ngoài vẫn mở được)
+          Bật (tệp mới lưu vào kho này)
         </label>
         <div className={styles.fieldRow}>
           <Field label="Tên gọi">
@@ -345,7 +338,7 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
             disabled={!editable}
             onChange={(event) => set('pathStyle', event.target.checked)}
           />
-          Đường dẫn kiểu path-style (MinIO, NAS cần bật; Amazon S3 có thể tắt)
+          Path-style (MinIO, NAS cần bật)
         </label>
         {locationChanged && settings.usage.external.files > 0 ? (
           <p className={styles.warning}>
@@ -372,12 +365,9 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
 
       {editable && settings.enabled && (settings.usage.platform.files > 0 || transferNote) ? (
         <div className={styles.storageTransfer}>
-          <div className={styles.sectionTitle}>
-            <h3>Chuyển tệp cũ sang kho ngoài</h3>
-          </div>
           <p className={styles.muted}>
-            Còn {settings.usage.platform.files.toLocaleString('vi-VN')} tệp ({formatBytes(settings.usage.platform.bytes)})
-            ở máy chủ ERP. Mỗi tệp được chép, so đủ số byte rồi mới chuyển sang đọc từ kho ngoài.
+            Còn {settings.usage.platform.files.toLocaleString('vi-VN')} tệp ({formatBytes(settings.usage.platform.bytes)}) ở
+            máy chủ ERP.
           </p>
           <label className={styles.checkRow}>
             <input
@@ -386,7 +376,7 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
               disabled={Boolean(busy)}
               onChange={(event) => setRemovePlatformCopy(event.target.checked)}
             />
-            Xoá bản ở máy chủ ERP sau khi chuyển xong (bỏ chọn để giữ bản sao phòng khi cần quay lại)
+            Xoá bản ở máy chủ ERP sau khi chuyển
           </label>
           {transferNote ? <p role="status">{transferNote}</p> : null}
           {transferErrors.length > 0 ? (

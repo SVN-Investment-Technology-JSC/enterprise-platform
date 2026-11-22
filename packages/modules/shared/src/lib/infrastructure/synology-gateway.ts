@@ -39,7 +39,7 @@ const AUTH_MESSAGES: Readonly<Record<number, string>> = {
 /** Lỗi DSM → lỗi có câu tiếng Việt. */
 function failure(code: number, action: string): Error {
   if (code === 408) return new SharedNasNotFoundError();
-  if (code === 414 || code === 1805) return new SharedNasConflictError();
+  if (code === 414 || code === 1805 || code === 1003 || code === 1004) return new SharedNasConflictError();
   if (code === 412 || code === 418 || code === 419 || code === 420) return new SharedValidationError('Tên tệp hoặc đường dẫn không hợp lệ trên NAS.');
   if (code === 415 || code === 416) return new SharedNasUnavailableError('NAS đã hết dung lượng hoặc vượt hạn mức của thư mục.', 507);
   if (code === 105 || code === 403 || code === 407) {
@@ -208,18 +208,37 @@ export class SynologyGateway implements NasGateway {
   }
 
   async createFolder(credentials: NasCredentials, parentFullPath: string, name: string) {
-    await this.call(
-      credentials,
-      {
-        api: 'SYNO.FileStation.CreateFolder',
-        version: '2',
-        method: 'create',
-        folder_path: JSON.stringify(parentFullPath),
-        name: JSON.stringify(name),
-        force_parent: 'false',
-      },
-      'tạo thư mục',
-    );
+    try {
+      await this.call(
+        credentials,
+        {
+          api: 'SYNO.FileStation.CreateFolder',
+          version: '2',
+          method: 'create',
+          folder_path: JSON.stringify(parentFullPath),
+          name: JSON.stringify(name),
+          force_parent: 'false',
+        },
+        'tạo thư mục',
+      );
+    } catch (error) {
+      // DSM báo chung "không tạo được" (1100) cả khi đã có thư mục cùng tên: hỏi lại để báo cho đúng.
+      if (await this.exists(credentials, `${parentFullPath}/${name}`)) throw new SharedNasConflictError(`Đã có "${name}" trong thư mục này.`);
+      throw error;
+    }
+  }
+
+  private async exists(credentials: NasCredentials, fullPath: string): Promise<boolean> {
+    try {
+      const info = await this.call<{ files: { code?: number }[] }>(
+        credentials,
+        { api: 'SYNO.FileStation.List', version: '2', method: 'getinfo', path: JSON.stringify([fullPath]) },
+        'kiểm tra',
+      );
+      return info.files.length > 0 && !info.files[0]?.code;
+    } catch {
+      return false;
+    }
   }
 
   async rename(credentials: NasCredentials, fullPath: string, name: string) {
@@ -232,21 +251,47 @@ export class SynologyGateway implements NasGateway {
 
   /** Xoá chạy nền trên NAS; chờ tối đa 60 giây (thư mục lớn thì NAS xoá tiếp sau đó). Thùng rác của thư mục chia sẻ vẫn giữ bản xoá nếu NAS bật. */
   async remove(credentials: NasCredentials, fullPath: string) {
-    const started = await this.call<{ taskid: string }>(
+    await this.runTask(
       credentials,
-      { api: 'SYNO.FileStation.Delete', version: '2', method: 'start', path: JSON.stringify([fullPath]), recursive: 'true' },
+      'SYNO.FileStation.Delete',
+      { path: JSON.stringify([fullPath]), recursive: 'true' },
       'xoá',
     );
+  }
+
+  /**
+   * Chuyển tệp, thư mục vào thư mục khác trên NAS (chạy nền trên NAS, chờ tối đa 60 giây).
+   * Không ghi đè: đích đã có mục cùng tên thì báo trùng.
+   */
+  async move(credentials: NasCredentials, fullPaths: readonly string[], destinationFullPath: string) {
+    // DSM chỉ báo chung "không chuyển được" (1001) khi đích trùng tên: kiểm trước để báo đúng.
+    for (const path of fullPaths) {
+      const name = path.split('/').pop() ?? '';
+      if (await this.exists(credentials, `${destinationFullPath}/${name}`)) {
+        throw new SharedNasConflictError(`Thư mục đích đã có "${name}".`);
+      }
+    }
+    await this.runTask(
+      credentials,
+      'SYNO.FileStation.CopyMove',
+      { path: JSON.stringify(fullPaths), dest_folder_path: JSON.stringify(destinationFullPath), remove_src: 'true' },
+      'chuyển',
+    );
+  }
+
+  /** Thao tác chạy nền của File Station: `start` lấy taskid, rồi hỏi `status` tới khi xong. */
+  private async runTask(credentials: NasCredentials, api: string, params: Record<string, string>, action: string) {
+    const started = await this.call<{ taskid: string }>(credentials, { api, version: '2', method: 'start', ...params }, action);
     const deadline = Date.now() + DELETE_WAIT_MS;
     while (Date.now() < deadline) {
-      const status = await this.call<{ finished: boolean; errors?: { code: number }[] }>(
+      const status = await this.call<{ finished: boolean; errors?: { code: number }[]; error?: { code: number } }>(
         credentials,
-        { api: 'SYNO.FileStation.Delete', version: '2', method: 'status', taskid: JSON.stringify(started.taskid) },
-        'xoá',
+        { api, version: '2', method: 'status', taskid: JSON.stringify(started.taskid) },
+        action,
       );
       if (status.finished) {
-        const code = status.errors?.[0]?.code;
-        if (code) throw failure(code, 'xoá');
+        const code = status.errors?.[0]?.code ?? status.error?.code;
+        if (code) throw failure(code, action);
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -317,7 +362,8 @@ export class SynologyGateway implements NasGateway {
       `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
     const head = Buffer.from(
       field('path', folderFullPath) +
-        field('create_parents', 'false') +
+        // Tải cả cây thư mục: NAS tự tạo thư mục cha còn thiếu.
+        field('create_parents', 'true') +
         field('overwrite', options.overwrite ? 'true' : 'false') +
         `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName.replace(/"/g, '%22')}"\r\n` +
         'Content-Type: application/octet-stream\r\n\r\n',

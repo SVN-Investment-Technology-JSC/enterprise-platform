@@ -117,12 +117,14 @@ export const createNasFolder = (share: string, path: string, name: string) =>
   request<void>(`${nasShare(share)}/folders`, { method: 'POST', body: JSON.stringify({ path, name }) });
 export const renameNasEntry = (share: string, path: string, name: string) =>
   request<void>(`${nasShare(share)}/rename`, { method: 'POST', body: JSON.stringify({ path, name }) });
+export const moveNasEntries = (share: string, paths: readonly string[], to: string) =>
+  request<{ moved: number }>(`${nasShare(share)}/move`, { method: 'POST', body: JSON.stringify({ paths, to }) });
 export const deleteNasEntry = (share: string, path: string) =>
   request<void>(`${nasShare(share)}/delete`, { method: 'POST', body: JSON.stringify({ path }) });
 
 /** Tải một tệp lên NAS: xin phiếu, rồi `PUT` thân tệp qua route chuyển tiếp của máy chủ. */
-export async function uploadToNas(share: string, path: string, file: File): Promise<void> {
-  const body: CreateSharedNasUploadRequest = { path, fileName: file.name, sizeBytes: file.size };
+export async function uploadToNas(share: string, path: string, file: File, fileName = file.name): Promise<void> {
+  const body: CreateSharedNasUploadRequest = { path, fileName, sizeBytes: file.size };
   const ticket = await request<SharedNasUploadTicket>(`${nasShare(share)}/uploads`, { method: 'POST', body: JSON.stringify(body) });
   const response = await fetch(ticket.uploadUrl, { method: 'PUT', body: file, headers: { 'content-type': 'application/octet-stream' } });
   if (!response.ok) {

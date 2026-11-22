@@ -358,6 +358,36 @@ export class NasService {
     await this.store.nas.log(actor.tenantId, actor.userId, { share, path, action: 'rename', detail: name });
   }
 
+  /**
+   * Chuyển tệp, thư mục (kéo thả trong Kho NAS) vào thư mục khác của cùng thư mục chia sẻ.
+   * Không chuyển được thư mục vào chính nó hay thư mục con của nó; mục đã nằm sẵn ở đích thì bỏ qua.
+   */
+  async move(actor: SharedActor, share: string, input: { paths?: unknown; to?: unknown }): Promise<{ moved: number }> {
+    const context = await this.resolve(actor, share, 'write');
+    const destination = normalizeNasPath(input?.to);
+    const raw = Array.isArray(input?.paths) ? input.paths : [];
+    if (raw.length === 0 || raw.length > 200) throw new SharedValidationError('Chọn từ 1 đến 200 mục để chuyển.');
+    const paths = [...new Set(raw.map((value) => normalizeNasPath(value)))];
+    if (paths.some((path) => !path)) throw new SharedValidationError('Không chuyển được thư mục chia sẻ.');
+    for (const path of paths) {
+      if (destination === path || destination.startsWith(`${path}/`)) {
+        throw new SharedValidationError('Không chuyển được thư mục vào chính nó hay thư mục con của nó.');
+      }
+    }
+    const parentOf = (path: string) => path.split('/').slice(0, -1).join('/');
+    const moving = paths.filter((path) => parentOf(path) !== destination);
+    if (moving.length === 0) return { moved: 0 };
+    await this.gateway.move(
+      context.credentials,
+      moving.map((path) => nasFullPath(share, path)),
+      nasFullPath(share, destination),
+    );
+    for (const path of moving) {
+      await this.store.nas.log(actor.tenantId, actor.userId, { share, path, action: 'move', detail: destination || '/' });
+    }
+    return { moved: moving.length };
+  }
+
   async remove(actor: SharedActor, share: string, input: { path?: unknown }): Promise<void> {
     const context = await this.resolve(actor, share, 'write');
     const path = normalizeNasPath(input?.path);

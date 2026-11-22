@@ -861,6 +861,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0004-shared-system-folders', path: 'tenant/shared/0004-shared-system-folders.sql' },
     { version: '0005-shared-external-storage', path: 'tenant/shared/0005-shared-external-storage.sql' },
     { version: '0006-shared-nas-connector', path: 'tenant/shared/0006-shared-nas-connector.sql' },
+    { version: '0007-shared-nas-move-log', path: 'tenant/shared/0007-shared-nas-move-log.sql' },
   ],
   // Mạng nội bộ: bảng tin công ty.
   social: [

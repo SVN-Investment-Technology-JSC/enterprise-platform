@@ -277,10 +277,11 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
 
     it('nhật ký truy cập NAS', async () => {
       await store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'HĐ/a.pdf', action: 'download' });
+      await store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'HĐ/b.pdf', action: 'move', detail: 'Lưu trữ' });
       await expect(
         store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'x', action: 'hack' as never }),
       ).rejects.toBeDefined();
-      expect(await count('nas_access_logs')).toBe(1);
+      expect(await count('nas_access_logs')).toBe(2);
     });
   });
 

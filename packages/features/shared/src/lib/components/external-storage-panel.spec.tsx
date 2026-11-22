@@ -68,7 +68,7 @@ describe('ExternalStoragePanel', () => {
   it('quản trị kho không phải quản trị tenant chỉ xem, không có nút lưu', async () => {
     mocked.loadExternalStorage.mockResolvedValue(settings({ editable: false }));
     render(<ExternalStoragePanel />);
-    expect(await screen.findByText('Chỉ quản trị tenant được thay đổi kho lưu trữ của công ty.')).toBeTruthy();
+    expect(await screen.findByText('Chỉ quản trị tenant được sửa.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Lưu cấu hình' })).toBeNull();
     expect((screen.getByDisplayValue('erp-documents') as HTMLInputElement).disabled).toBe(true);
   });
