@@ -518,6 +518,18 @@ function fakeStore(usage: StorageModuleUsage[] = [], options: { openRoots?: bool
       markExternal: async () => false,
     },
     storageSettings: { get: async () => undefined, save: async () => undefined },
+    nas: {
+      connection: async () => undefined,
+      saveConnection: async () => undefined,
+      recordSync: async () => undefined,
+      accounts: async () => [],
+      accountForUser: async () => undefined,
+      replaceDirectory: async () => undefined,
+      linkAccount: async () => false,
+      rules: async () => [],
+      groups: async () => [],
+      log: async () => undefined,
+    },
   };
   return { store, folders, documents, versions, shares, people, locations };
 }

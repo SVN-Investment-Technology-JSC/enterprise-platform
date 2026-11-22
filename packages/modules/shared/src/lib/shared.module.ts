@@ -4,6 +4,7 @@ import { CompanyDocumentService } from './application/company-document.service.j
 import { FilingService } from './application/filing.service.js';
 import { FolderAccessService } from './application/folder-access.js';
 import { FolderSharingService } from './application/folder-sharing.service.js';
+import { NasService } from './application/nas.service.js';
 import { ORGANIZATION_READER, type OrganizationReader } from './application/organization.port.js';
 import {
   PLATFORM_LIMITS_READER,
@@ -15,6 +16,7 @@ import { StorageSettingsService } from './application/storage-settings.service.j
 import { HttpOrganizationReader } from './infrastructure/http-organization-reader.js';
 import { HttpPlatformLimits } from './infrastructure/http-platform-limits.js';
 import { PostgresSharedStore } from './infrastructure/postgres-shared-store.js';
+import { SynologyGateway } from './infrastructure/synology-gateway.js';
 import { TenantStorageRouter } from './infrastructure/tenant-storage-router.js';
 import { SharedFilesController } from './presentation/shared-files.controller.js';
 import { SharedController } from './presentation/shared.controller.js';
@@ -89,6 +91,13 @@ import { SharedController } from './presentation/shared.controller.js';
       useFactory: (store: SharedStore, quota: StorageQuotaService, storages: TenantStorageRouter) =>
         new FilingService(store, quota, storages),
       inject: [SHARED_STORE, StorageQuotaService, TenantStorageRouter],
+    },
+    {
+      // Một thực thể cho cả app: phiên đăng nhập NAS dùng lại giữa các lời gọi nằm trong gateway.
+      provide: NasService,
+      useFactory: (store: SharedStore, storages: TenantStorageRouter) =>
+        new NasService(store, new SynologyGateway(), storages, storages),
+      inject: [SHARED_STORE, TenantStorageRouter],
     },
     {
       provide: StorageSettingsService,

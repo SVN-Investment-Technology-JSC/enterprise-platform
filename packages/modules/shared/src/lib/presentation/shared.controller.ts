@@ -16,6 +16,10 @@ import {
 import {
   SHARED_TRASH_PATHS,
   type SaveSharedExternalStorageRequest,
+  type SaveSharedNasConnectionRequest,
+  type CreateSharedNasUploadRequest,
+  type LinkSharedNasAccountRequest,
+  type SharedDownloadMode,
   type CompleteSharedUploadRequest,
   type CreateSharedDocumentRequest,
   type CreateSharedFolderRequest,
@@ -35,6 +39,7 @@ import {
 import { CompanyDocumentService } from '../application/company-document.service.js';
 import { FilingService } from '../application/filing.service.js';
 import { FolderSharingService } from '../application/folder-sharing.service.js';
+import { NasService } from '../application/nas.service.js';
 import type { SharedActor } from '../application/shared-actor.js';
 import { StorageQuotaService } from '../application/storage-quota.service.js';
 import { StorageSettingsService } from '../application/storage-settings.service.js';
@@ -69,6 +74,7 @@ export class SharedController {
     private readonly filings: FilingService,
     @Inject(SHARED_STORE) private readonly store: SharedStore,
     private readonly storageSettings: StorageSettingsService,
+    private readonly nas: NasService,
   ) {}
 
   /** Mức sẵn sàng của phân hệ và quyền của người đang đăng nhập (chỉ để ẩn hiện). */
@@ -77,9 +83,12 @@ export class SharedController {
     return this.execute(async () => {
       const actor = this.actor(request);
       const schema = await this.store.diagnostics.schemaStatus(actor.tenantId);
+      // Bảng kết nối NAS chưa có (migration chưa tới) thì coi như chưa bật.
+      const nas = schema.tablesReady ? await this.store.nas.connection(actor.tenantId).catch(() => undefined) : undefined;
       return {
         tenantId: actor.tenantId,
         ...schema,
+        nasEnabled: Boolean(nas?.enabled),
         capabilities: {
           isTenantAdmin: actor.isTenantAdmin,
           canManage: actor.canManage,
@@ -112,6 +121,97 @@ export class SharedController {
   @HttpCode(200)
   testExternalStorage(@Req() request: SharedRequest, @Body() body: Partial<SaveSharedExternalStorageRequest> | undefined) {
     return this.execute(() => this.storageSettings.test(this.actor(request), body));
+  }
+
+  /* ------------------------------------------------------------- kết nối NAS */
+
+  @Get('settings/nas')
+  nasSettings(@Req() request: SharedRequest) {
+    return this.execute(() => this.nas.settings(this.actor(request)));
+  }
+
+  @Put('settings/nas')
+  saveNasSettings(@Req() request: SharedRequest, @Body() body: SaveSharedNasConnectionRequest) {
+    return this.execute(() => this.nas.save(this.actor(request), body));
+  }
+
+  /** Thử đăng nhập NAS với giá trị đang nhập; trả danh sách thư mục chia sẻ để chọn. */
+  @Post('settings/nas/test')
+  @HttpCode(200)
+  testNas(@Req() request: SharedRequest, @Body() body: Partial<SaveSharedNasConnectionRequest> | undefined) {
+    return this.execute(() => this.nas.test(this.actor(request), body));
+  }
+
+  @Post('settings/nas/sync')
+  @HttpCode(200)
+  syncNas(@Req() request: SharedRequest) {
+    return this.execute(() => this.nas.sync(this.actor(request)));
+  }
+
+  @Get('settings/nas/accounts')
+  nasAccounts(@Req() request: SharedRequest) {
+    return this.execute(() => this.nas.accounts(this.actor(request)));
+  }
+
+  @Put('settings/nas/accounts/:name')
+  linkNasAccount(@Req() request: SharedRequest, @Param('name') name: string, @Body() body: LinkSharedNasAccountRequest | undefined) {
+    return this.execute(() => this.nas.link(this.actor(request), name, body?.erpUserId));
+  }
+
+  /** Kho NAS của người đang xem: thư mục chia sẻ được vào và quyền trên từng thư mục. */
+  @Get('nas')
+  nasOverview(@Req() request: SharedRequest) {
+    return this.execute(() => this.nas.overview(this.actor(request)));
+  }
+
+  @Get('nas/shares/:share/entries')
+  nasEntries(
+    @Req() request: SharedRequest,
+    @Param('share') share: string,
+    @Query('path') path?: string,
+    @Query('offset') offset?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.execute(() => this.nas.list(this.actor(request), share, path, offset, limit));
+  }
+
+  @Get('nas/shares/:share/download')
+  nasDownload(
+    @Req() request: SharedRequest,
+    @Param('share') share: string,
+    @Query('path') path?: string,
+    @Query('mode') mode?: string,
+  ) {
+    const parsed: SharedDownloadMode = mode === 'preview' ? 'preview' : 'download';
+    return this.execute(() => this.nas.download(this.actor(request), share, path, parsed));
+  }
+
+  @Get('nas/shares/:share/permissions')
+  nasPermissions(@Req() request: SharedRequest, @Param('share') share: string) {
+    return this.execute(() => this.nas.permissions(this.actor(request), share));
+  }
+
+  @Post('nas/shares/:share/uploads')
+  nasUpload(@Req() request: SharedRequest, @Param('share') share: string, @Body() body: CreateSharedNasUploadRequest) {
+    return this.execute(() => this.nas.uploadTicket(this.actor(request), share, body));
+  }
+
+  @Post('nas/shares/:share/folders')
+  @HttpCode(204)
+  nasCreateFolder(@Req() request: SharedRequest, @Param('share') share: string, @Body() body: { path?: string; name?: string } | undefined) {
+    return this.execute(() => this.nas.createFolder(this.actor(request), share, body ?? {}));
+  }
+
+  @Post('nas/shares/:share/rename')
+  @HttpCode(204)
+  nasRename(@Req() request: SharedRequest, @Param('share') share: string, @Body() body: { path?: string; name?: string } | undefined) {
+    return this.execute(() => this.nas.rename(this.actor(request), share, body ?? {}));
+  }
+
+  @Post('nas/shares/:share/delete')
+  @HttpCode(204)
+  nasDelete(@Req() request: SharedRequest, @Param('share') share: string, @Body() body: { path?: string } | undefined) {
+    return this.execute(() => this.nas.remove(this.actor(request), share, body ?? {}));
   }
 
   /** Chuyển một lô tệp từ kho của nền tảng sang kho ngoài. */

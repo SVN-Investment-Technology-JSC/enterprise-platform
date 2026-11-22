@@ -14,6 +14,7 @@ import {
 } from '@enterprise-platform/contracts-shared';
 import { randomUUID } from 'node:crypto';
 import { sharedObjectStorage } from '../application/company-document.service.js';
+import type { NasTicketSigner } from '../application/nas.service.js';
 import type { SharedStore, StoredObjectRef } from '../application/shared-store.port.js';
 import type {
   ExternalStorageAdmin,
@@ -57,7 +58,7 @@ const PROBE_BODY = 'enterprise-platform storage probe';
  * hình kho ngoài mà máy chủ không giải mã được khoá thì báo lỗi, không lặng lẽ
  * quay về kho của nền tảng: tenant bật kho ngoài chính vì không muốn tệp nằm ở đó.
  */
-export class TenantStorageRouter implements SharedStorageRouter, ExternalStorageAdmin {
+export class TenantStorageRouter implements SharedStorageRouter, ExternalStorageAdmin, NasTicketSigner {
   private readonly platform: StreamingStorage;
   private readonly secrets: StorageSecrets | undefined;
   private readonly policy: EndpointPolicy;
@@ -122,6 +123,33 @@ export class TenantStorageRouter implements SharedStorageRouter, ExternalStorage
     return this.secrets?.verifyTicket(token, operation, this.now());
   }
 
+  /** URL tải tệp trên NAS qua route chuyển tiếp; `k` là đường dẫn đầy đủ trên NAS. */
+  nasDownloadUrl(input: { tenantId: string; fullPath: string; fileName: string; inline: boolean; contentType?: string }): string {
+    return this.ticketUrl({
+      t: input.tenantId,
+      k: input.fullPath,
+      o: 'get',
+      e: this.expiry(),
+      p: 'nas',
+      n: input.fileName,
+      c: input.contentType,
+      d: input.inline ? 'inline' : 'attachment',
+    });
+  }
+
+  /** URL tải lên NAS: `k` là thư mục đích, `n` tên tệp, `m` đúng số byte của tệp. */
+  nasUploadUrl(input: { tenantId: string; folderFullPath: string; fileName: string; sizeBytes: number }): string {
+    return this.ticketUrl({
+      t: input.tenantId,
+      k: input.folderFullPath,
+      o: 'put',
+      e: this.expiry(),
+      p: 'nas',
+      n: input.fileName,
+      m: input.sizeBytes,
+    });
+  }
+
   encryptSecret(plain: string): string {
     return this.requireSecrets().encrypt(plain);
   }
@@ -163,6 +191,14 @@ export class TenantStorageRouter implements SharedStorageRouter, ExternalStorage
     } catch (error) {
       return { ok: false, message: describeStorageError(error, this.probeTimeoutMs) };
     }
+  }
+
+  private expiry(): number {
+    return Math.floor(this.now() / 1000) + SHARED_PRESIGNED_URL_TTL_SECONDS;
+  }
+
+  private ticketUrl(ticket: FileTicket): string {
+    return `${this.proxyBase}/${SHARED_FILE_PROXY_PATH}/${this.requireSecrets().signTicket(ticket)}`;
   }
 
   private requireSecrets(): StorageSecrets {

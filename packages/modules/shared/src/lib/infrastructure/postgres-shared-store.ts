@@ -14,6 +14,10 @@ import type {
   SharedFolder,
   SharedFolderRole,
   SharedPrincipalType,
+  SharedNasLinkSource,
+  SharedNasProvider,
+  SharedNasRule,
+  SharedNasShareConfig,
   SharedShareGrant,
   SharedStorageAccessMode,
   SharedStorageLocation,
@@ -23,6 +27,7 @@ import type {
 } from '@enterprise-platform/contracts-shared';
 import type { Pool, PoolClient } from 'pg';
 import type { AccessFolder, ShareRecord } from '../application/folder-access.js';
+import type { NasAccountRecord, NasRuleRecord } from '../application/nas-rules.js';
 import type {
   BranchRestoreTarget,
   DocumentInsert,
@@ -32,6 +37,10 @@ import type {
   FolderInsert,
   FolderUpdate,
   PurgeResult,
+  NasAccessAction,
+  NasConnectionInput,
+  NasConnectionRow,
+  NasGroupRecord,
   SharedStore,
   StorageSettingsInput,
   StorageSettingsRow,
@@ -1272,6 +1281,179 @@ export class PostgresSharedStore implements SharedStore {
       }),
   };
 
+  readonly nas = {
+    connection: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasConnectionRecord>(`SELECT ${NAS_CONNECTION_COLUMNS} FROM shared_schema.nas_connection WHERE id = 1`);
+        return result.rows[0] ? mapNasConnection(result.rows[0]) : undefined;
+      }),
+
+    saveConnection: (tenantId: string, userId: string, input: NasConnectionInput, expectedVersion?: number) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasConnectionRecord>(
+          `INSERT INTO shared_schema.nas_connection AS c
+                  (id, enabled, label, provider, base_url, username, secret_ciphertext, shares, sync_minutes,
+                   version, updated_by, updated_at)
+           VALUES (1, $1, $2, $3, $4, $5, $6, $7::jsonb, $8, 1, $9, now())
+           ON CONFLICT (id) DO UPDATE SET
+                  enabled = EXCLUDED.enabled, label = EXCLUDED.label, provider = EXCLUDED.provider,
+                  base_url = EXCLUDED.base_url, username = EXCLUDED.username,
+                  secret_ciphertext = EXCLUDED.secret_ciphertext, shares = EXCLUDED.shares,
+                  sync_minutes = EXCLUDED.sync_minutes, version = c.version + 1,
+                  updated_by = EXCLUDED.updated_by, updated_at = now()
+            WHERE $10::int IS NULL OR c.version = $10::int
+           RETURNING ${NAS_CONNECTION_COLUMNS}`,
+          [
+            input.enabled,
+            input.label,
+            input.provider,
+            input.baseUrl,
+            input.username,
+            input.secretCiphertext,
+            JSON.stringify(input.shares),
+            input.syncMinutes,
+            userId,
+            expectedVersion ?? null,
+          ],
+        );
+        return result.rows[0] ? mapNasConnection(result.rows[0]) : undefined;
+      }),
+
+    recordSync: (tenantId: string, status: { ok: boolean; message: string }) =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `UPDATE shared_schema.nas_connection
+              SET last_sync_at = now(), last_sync_ok = $1, last_sync_message = left($2, 500)
+            WHERE id = 1`,
+          [status.ok, status.message],
+        );
+      }),
+
+    accounts: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasAccountRow>(`SELECT ${NAS_ACCOUNT_COLUMNS} FROM shared_schema.nas_accounts ORDER BY name`);
+        return result.rows.map(mapNasAccount);
+      }),
+
+    accountForUser: (tenantId: string, erpUserId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasAccountRow>(
+          `SELECT ${NAS_ACCOUNT_COLUMNS} FROM shared_schema.nas_accounts WHERE erp_user_id = $1`,
+          [erpUserId],
+        );
+        return result.rows[0] ? mapNasAccount(result.rows[0]) : undefined;
+      }),
+
+    replaceDirectory: (
+      tenantId: string,
+      snapshot: { accounts: readonly NasAccountRecord[]; groups: readonly NasGroupRecord[]; rules: readonly NasRuleRecord[] },
+    ) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          await client.query(`DELETE FROM shared_schema.nas_accounts WHERE NOT (name = ANY($1::text[]))`, [
+            snapshot.accounts.map((account) => account.name),
+          ]);
+          // Gỡ mọi ghép cũ trước, để chuyển một nhân sự sang tài khoản khác không vướng ràng buộc duy nhất.
+          await client.query(`UPDATE shared_schema.nas_accounts SET erp_user_id = NULL`);
+          for (const account of snapshot.accounts) {
+            await client.query(
+              `INSERT INTO shared_schema.nas_accounts
+                      (name, description, email, disabled, groups, erp_user_id, link_source, synced_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+               ON CONFLICT (name) DO UPDATE SET
+                      description = EXCLUDED.description, email = EXCLUDED.email, disabled = EXCLUDED.disabled,
+                      groups = EXCLUDED.groups, erp_user_id = EXCLUDED.erp_user_id,
+                      link_source = EXCLUDED.link_source, synced_at = now()`,
+              [
+                account.name,
+                account.description.slice(0, 500),
+                account.email ?? null,
+                account.disabled,
+                [...account.groups],
+                account.erpUserId ?? null,
+                account.linkSource,
+              ],
+            );
+          }
+          await client.query(`DELETE FROM shared_schema.nas_groups`);
+          for (const group of snapshot.groups) {
+            await client.query(
+              `INSERT INTO shared_schema.nas_groups (name, description, members) VALUES ($1, $2, $3)
+               ON CONFLICT (name) DO NOTHING`,
+              [group.name, group.description.slice(0, 500), group.members],
+            );
+          }
+          await client.query(`DELETE FROM shared_schema.nas_share_permissions`);
+          for (const rule of snapshot.rules) {
+            await client.query(
+              `INSERT INTO shared_schema.nas_share_permissions (share_name, principal_type, principal_name, rule)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (share_name, principal_type, principal_name) DO UPDATE SET rule = EXCLUDED.rule`,
+              [rule.share, rule.principalType, rule.principalName, rule.rule],
+            );
+          }
+        }),
+      ),
+
+    linkAccount: (tenantId: string, name: string, erpUserId: string | null) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          if (erpUserId) {
+            await client.query(
+              `UPDATE shared_schema.nas_accounts SET erp_user_id = NULL, link_source = 'manual'
+                WHERE erp_user_id = $1 AND name <> $2`,
+              [erpUserId, name],
+            );
+          }
+          const result = await client.query(
+            `UPDATE shared_schema.nas_accounts SET erp_user_id = $2, link_source = 'manual' WHERE name = $1`,
+            [name, erpUserId],
+          );
+          return (result.rowCount ?? 0) > 0;
+        }),
+      ),
+
+    rules: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{
+          share_name: string;
+          principal_type: 'user' | 'group';
+          principal_name: string;
+          rule: SharedNasRule;
+        }>(
+          `SELECT share_name, principal_type, principal_name, rule FROM shared_schema.nas_share_permissions
+            ORDER BY share_name, principal_type, principal_name`,
+        );
+        return result.rows.map((row) => ({
+          share: row.share_name,
+          principalType: row.principal_type,
+          principalName: row.principal_name,
+          rule: row.rule,
+        }));
+      }),
+
+    groups: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasGroupRecord>(
+          `SELECT name, description, members FROM shared_schema.nas_groups ORDER BY name`,
+        );
+        return result.rows.map((row) => ({ name: row.name, description: row.description, members: Number(row.members) }));
+      }),
+
+    log: (
+      tenantId: string,
+      userId: string,
+      entry: { share: string; path: string; action: NasAccessAction; detail?: string },
+    ) =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `INSERT INTO shared_schema.nas_access_logs (share_name, path, action, detail, created_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [entry.share, entry.path, entry.action, entry.detail ?? null, userId],
+        );
+      }),
+  };
+
   readonly storageSettings = {
     get: (tenantId: string) =>
       this.run(tenantId, async (pool) => {
@@ -1314,6 +1496,69 @@ export class PostgresSharedStore implements SharedStore {
         );
         return result.rows[0] ? mapStorageSettings(result.rows[0]) : undefined;
       }),
+  };
+}
+
+interface NasConnectionRecord {
+  enabled: boolean;
+  label: string;
+  provider: SharedNasProvider;
+  base_url: string;
+  username: string;
+  secret_ciphertext: string;
+  shares: SharedNasShareConfig[] | null;
+  sync_minutes: number;
+  last_sync_at: Date | null;
+  last_sync_ok: boolean | null;
+  last_sync_message: string | null;
+  version: number;
+  updated_by: string;
+  updated_at: Date;
+}
+
+const NAS_CONNECTION_COLUMNS = `enabled, label, provider, base_url, username, secret_ciphertext, shares, sync_minutes,
+       last_sync_at, last_sync_ok, last_sync_message, version, updated_by, updated_at`;
+
+function mapNasConnection(row: NasConnectionRecord): NasConnectionRow {
+  return {
+    enabled: row.enabled,
+    label: row.label,
+    provider: row.provider,
+    baseUrl: row.base_url,
+    username: row.username,
+    secretCiphertext: row.secret_ciphertext,
+    shares: Array.isArray(row.shares) ? row.shares : [],
+    syncMinutes: row.sync_minutes,
+    lastSyncAt: row.last_sync_at?.toISOString(),
+    lastSyncOk: row.last_sync_ok ?? undefined,
+    lastSyncMessage: row.last_sync_message ?? undefined,
+    version: row.version,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+interface NasAccountRow {
+  name: string;
+  description: string;
+  email: string | null;
+  disabled: boolean;
+  groups: string[];
+  erp_user_id: string | null;
+  link_source: SharedNasLinkSource;
+}
+
+const NAS_ACCOUNT_COLUMNS = `name, description, email, disabled, groups, erp_user_id, link_source`;
+
+function mapNasAccount(row: NasAccountRow): NasAccountRecord {
+  return {
+    name: row.name,
+    description: row.description,
+    email: row.email ?? undefined,
+    disabled: row.disabled,
+    groups: row.groups ?? [],
+    erpUserId: row.erp_user_id ?? undefined,
+    linkSource: row.link_source,
   };
 }
 

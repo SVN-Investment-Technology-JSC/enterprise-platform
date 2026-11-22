@@ -205,6 +205,85 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
     });
   });
 
+  describe('kết nối NAS', () => {
+    const connection = {
+      enabled: true,
+      label: 'NAS',
+      provider: 'synology' as const,
+      baseUrl: 'http://100.79.184.77:5000',
+      username: 'erp-connector',
+      secretCiphertext: 'v1.a.b.c',
+      shares: [{ name: 'SAVINA' }, { name: 'KINH DOANH', label: 'Kinh doanh' }],
+      syncMinutes: 15,
+    };
+
+    it('cấu hình: lưu, sửa theo phiên bản, ghi trạng thái đồng bộ', async () => {
+      expect(await store.nas.connection(TENANT)).toBeUndefined();
+      expect(await store.nas.saveConnection(TENANT, alice, connection)).toMatchObject({ ...connection, version: 1 });
+      await expect(store.nas.saveConnection(TENANT, bob, { ...connection, enabled: false }, 2)).resolves.toBeUndefined();
+      await store.nas.saveConnection(TENANT, bob, { ...connection, syncMinutes: 30 }, 1);
+      await store.nas.recordSync(TENANT, { ok: false, message: 'NAS không phản hồi.' });
+      expect(await store.nas.connection(TENANT)).toMatchObject({
+        syncMinutes: 30,
+        version: 2,
+        updatedBy: bob,
+        lastSyncOk: false,
+        lastSyncMessage: 'NAS không phản hồi.',
+        lastSyncAt: expect.any(String),
+      });
+      await expect(store.nas.saveConnection(TENANT, bob, { ...connection, syncMinutes: 2 })).rejects.toBeDefined();
+    });
+
+    it('bản sao người dùng, nhóm, quyền: thay trọn mỗi lượt; một nhân sự chỉ ghép một tài khoản', async () => {
+      const account = (name: string, patch: Record<string, unknown> = {}) => ({
+        name,
+        description: '',
+        disabled: false,
+        groups: ['users'],
+        linkSource: 'none' as const,
+        ...patch,
+      });
+      await store.nas.replaceDirectory(TENANT, {
+        accounts: [account('thuyptd', { erpUserId: alice, linkSource: 'auto', groups: ['users', 'Văn Thư'] }), account('baodt'), account('cu')],
+        groups: [{ name: 'users', description: '', members: 3 }, { name: 'Văn Thư', description: '', members: 1 }],
+        rules: [
+          { share: 'SAVINA', principalType: 'group', principalName: 'users', rule: 'read' },
+          { share: 'SAVINA', principalType: 'group', principalName: 'Văn Thư', rule: 'write' },
+        ],
+      });
+      expect(await store.nas.accountForUser(TENANT, alice)).toMatchObject({ name: 'thuyptd', groups: ['users', 'Văn Thư'], linkSource: 'auto' });
+
+      // Chuyển nhân sự sang tài khoản khác trong cùng lượt không vướng ràng buộc duy nhất.
+      await store.nas.replaceDirectory(TENANT, {
+        accounts: [account('thuyptd'), account('baodt', { erpUserId: alice, linkSource: 'auto' })],
+        groups: [{ name: 'users', description: '', members: 2 }],
+        rules: [{ share: 'SAVINA', principalType: 'group', principalName: 'users', rule: 'read' }],
+      });
+      expect((await store.nas.accounts(TENANT)).map((item) => item.name)).toEqual(['baodt', 'thuyptd']);
+      expect(await store.nas.accountForUser(TENANT, alice)).toMatchObject({ name: 'baodt' });
+      expect(await store.nas.rules(TENANT)).toEqual([{ share: 'SAVINA', principalType: 'group', principalName: 'users', rule: 'read' }]);
+      expect(await store.nas.groups(TENANT)).toEqual([{ name: 'users', description: '', members: 2 }]);
+
+      // Ghép tay: gỡ nhân sự khỏi tài khoản cũ; bỏ ghép tay vẫn đánh dấu là tay.
+      await expect(store.nas.linkAccount(TENANT, 'thuyptd', alice)).resolves.toBe(true);
+      expect(await store.nas.accounts(TENANT)).toEqual([
+        expect.objectContaining({ name: 'baodt', erpUserId: undefined, linkSource: 'manual' }),
+        expect.objectContaining({ name: 'thuyptd', erpUserId: alice, linkSource: 'manual' }),
+      ]);
+      await store.nas.linkAccount(TENANT, 'thuyptd', null);
+      expect(await store.nas.accountForUser(TENANT, alice)).toBeUndefined();
+      await expect(store.nas.linkAccount(TENANT, 'khong-co', bob)).resolves.toBe(false);
+    });
+
+    it('nhật ký truy cập NAS', async () => {
+      await store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'HĐ/a.pdf', action: 'download' });
+      await expect(
+        store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'x', action: 'hack' as never }),
+      ).rejects.toBeDefined();
+      expect(await count('nas_access_logs')).toBe(1);
+    });
+  });
+
   describe('xoá một tài liệu', () => {
     it('vào Thùng rác: biến khỏi danh sách, thư mục và dung lượng thư mục, nhưng vẫn tính vào dung lượng kho', async () => {
       const root = await folder('Xoá lẻ');

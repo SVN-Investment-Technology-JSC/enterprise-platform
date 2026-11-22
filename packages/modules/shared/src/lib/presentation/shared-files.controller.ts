@@ -6,13 +6,26 @@ import {
 import { SHARED_FILE_PROXY_PATH, SHARED_PREVIEWABLE_CONTENT_TYPES } from '@enterprise-platform/contracts-shared';
 import { Controller, Get, Logger, Param, Put, Req, Res } from '@nestjs/common';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { NasService } from '../application/nas.service.js';
 import { SharedError } from '../domain/shared.error.js';
 import { describeStorageError, TenantStorageRouter } from '../infrastructure/tenant-storage-router.js';
 
+/** Luồng tệp cùng các header cần chuyển cho trình duyệt, chung cho kho ngoài S3 và NAS. */
+interface ForwardedFile {
+  readonly body: Readable;
+  readonly contentType: string;
+  readonly contentLength?: number;
+  readonly contentRange?: string;
+  readonly etag?: string;
+  readonly lastModified?: string;
+}
+
 /**
- * Chuyển tiếp tệp giữa trình duyệt và kho ngoài của tenant (chế độ `proxy`), cho kho
- * chỉ máy chủ ERP thấy được (NAS trong mạng nội bộ, nối qua VPN hay Tailscale).
+ * Chuyển tiếp tệp giữa trình duyệt và kho chỉ máy chủ ERP thấy được (NAS trong mạng
+ * nội bộ, nối qua VPN hay Tailscale): kho ngoài S3 của tenant (chế độ `proxy`) và thư
+ * mục chia sẻ của NAS (Kho NAS, phiếu có `p: 'nas'`).
  *
  * Máy chủ không lưu tệp: tải lên đọc thân yêu cầu thành từng phần 8 MiB rồi ghi
  * thẳng lên kho, tải xuống mở luồng từ kho đổ thẳng về trình duyệt (kèm `Range`, để
@@ -25,7 +38,10 @@ import { describeStorageError, TenantStorageRouter } from '../infrastructure/ten
 export class SharedFilesController {
   private readonly logger = new Logger(SharedFilesController.name);
 
-  constructor(private readonly storages: TenantStorageRouter) {}
+  constructor(
+    private readonly storages: TenantStorageRouter,
+    private readonly nas: NasService,
+  ) {}
 
   @Get(':token')
   async download(@Param('token') token: string, @Req() request: IncomingMessage, @Res() response: ServerResponse): Promise<void> {
@@ -33,10 +49,18 @@ export class SharedFilesController {
     if (!ticket) return this.fail(response, 403, 'FILE_TICKET_INVALID', 'Liên kết tệp không hợp lệ hoặc đã hết hạn.');
     const range = typeof request.headers.range === 'string' ? request.headers.range : undefined;
 
-    let object;
+    let object: ForwardedFile;
     try {
-      const storage = await this.storages.streamsAt(ticket.t, 'external');
-      object = await storage.openStream(ticket.k, { range });
+      if (ticket.p === 'nas') {
+        const abort = new AbortController();
+        response.on('close', () => abort.abort());
+        const file = await this.nas.openDownload(ticket.t, ticket.k, range, abort.signal);
+        object = { ...file, contentType: file.contentType ?? 'application/octet-stream' };
+      } else {
+        const storage = await this.storages.streamsAt(ticket.t, 'external');
+        const opened = await storage.openStream(ticket.k, { range });
+        object = { ...opened, lastModified: opened.lastModified?.toUTCString() };
+      }
     } catch (error) {
       if (error instanceof ObjectNotFoundError) return this.fail(response, 404, 'FILE_NOT_FOUND', 'Không thấy tệp trong kho lưu trữ.');
       if (error instanceof ObjectRangeNotSatisfiableError) {
@@ -64,7 +88,7 @@ export class SharedFilesController {
     if (object.contentLength !== undefined) response.setHeader('Content-Length', String(object.contentLength));
     if (object.contentRange) response.setHeader('Content-Range', object.contentRange);
     if (object.etag) response.setHeader('ETag', object.etag);
-    if (object.lastModified) response.setHeader('Last-Modified', object.lastModified.toUTCString());
+    if (object.lastModified) response.setHeader('Last-Modified', object.lastModified);
     if (request.method === 'HEAD') {
       object.body.destroy();
       response.end();
@@ -84,6 +108,7 @@ export class SharedFilesController {
     const ticket = this.storages.verifyTicket(token, 'put');
     if (!ticket) return this.fail(response, 403, 'FILE_TICKET_INVALID', 'Liên kết tải lên không hợp lệ hoặc đã hết hạn.');
     const declared = Number(request.headers['content-length']);
+    if (ticket.p === 'nas') return this.uploadToNas(ticket, declared, request, response);
     if (ticket.m !== undefined && Number.isFinite(declared) && declared > ticket.m) {
       response.setHeader('Connection', 'close');
       return this.fail(response, 413, 'FILE_TOO_LARGE', 'Tệp lớn hơn mức cho phép.');
@@ -101,6 +126,31 @@ export class SharedFilesController {
       }
       if (request.destroyed && !request.complete) {
         this.logger.warn(`Trình duyệt ngắt giữa lúc tải lên ${ticket.k}.`);
+        return;
+      }
+      return this.storageFailure(response, error);
+    }
+  }
+
+  /** NAS nhận multipart có độ dài cố định: trình duyệt phải gửi đúng số byte đã khai lúc xin phiếu. */
+  private async uploadToNas(
+    ticket: { t: string; k: string; n?: string; m?: number },
+    declared: number,
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    if (!ticket.n || ticket.m === undefined || declared !== ticket.m) {
+      response.setHeader('Connection', 'close');
+      return this.fail(response, 400, 'FILE_SIZE_MISMATCH', 'Dung lượng tệp gửi lên khác với lúc xin tải lên; thử lại.');
+    }
+    const abort = new AbortController();
+    request.on('aborted', () => abort.abort());
+    try {
+      await this.nas.acceptUpload(ticket.t, ticket.k, ticket.n, request, ticket.m, abort.signal);
+      sendJson(response, 200, { sizeBytes: ticket.m });
+    } catch (error) {
+      if (request.destroyed && !request.complete) {
+        this.logger.warn(`Trình duyệt ngắt giữa lúc tải lên NAS ${ticket.k}/${ticket.n}.`);
         return;
       }
       return this.storageFailure(response, error);

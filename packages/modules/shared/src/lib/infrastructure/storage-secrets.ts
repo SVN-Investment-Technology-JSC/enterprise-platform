@@ -25,8 +25,10 @@ export interface FileTicket {
   /** Tên tệp cho `Content-Disposition`. */
   readonly n?: string;
   readonly d?: 'inline' | 'attachment';
-  /** Ghi tối đa ngần này byte. */
+  /** Ghi tối đa ngần này byte; với NAS là đúng số byte của tệp. */
   readonly m?: number;
+  /** Nguồn: trống là kho ngoài S3 của tenant; `nas` là thư mục chia sẻ của NAS (`k` là đường dẫn trên NAS). */
+  readonly p?: 'nas';
 }
 
 /**
