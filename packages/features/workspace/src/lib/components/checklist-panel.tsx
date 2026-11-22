@@ -4,7 +4,7 @@ import {
   CHECKLIST_TITLE_MAX_LENGTH,
   MAX_CHECKLIST_ITEMS,
 } from '@enterprise-platform/contracts-workspace';
-import { Info, ListPlus, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Info, ListPlus, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from '@enterprise-platform/shared-ui';
 import {
@@ -20,7 +20,6 @@ import {
   applyRestore,
   applyTitle,
   createSerialQueue,
-  focusIdAfterRemove,
   isTempChecklistId,
   makeTempChecklistItem,
   removeTempItems,
@@ -45,6 +44,14 @@ const messageOf = (cause: unknown, fallback: string) =>
   (cause as { message?: string })?.message || fallback;
 
 type ChecklistResult = { items: ChecklistEntry[] };
+
+/** Một dòng trong bản nháp của hộp quản lý; `id` rỗng là dòng mới chưa lưu. */
+interface DraftRow {
+  key: string;
+  id?: string;
+  title: string;
+  done: boolean;
+}
 
 /** Bốn lời gọi server của một loại công việc có checklist. */
 export interface ChecklistApi {
@@ -117,18 +124,14 @@ export function ChecklistPanel({
   const [items, setItems] = useState<readonly ChecklistEntry[]>();
   const [failed, setFailed] = useState(false);
   const [title, setTitle] = useState('');
-  const [editingId, setEditingId] = useState<string>();
-  const [draft, setDraft] = useState('');
+  /** Bản nháp trong hộp quản lý. */
+  const [rows, setRows] = useState<DraftRow[]>([]);
   /** Server đã tự chuyển việc sang tính theo checklist (sau lần thêm đầu tiên) nhưng `item` chưa kịp nạp lại. */
   const [switched, setSwitched] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
-  const [confirmEntry, setConfirmEntry] = useState<ChecklistEntry>();
+  const [confirmApply, setConfirmApply] = useState(false);
   const addRef = useRef<HTMLInputElement>(null);
-  /** Nút tên của từng dòng, và dòng sẽ nhận focus sau lần vẽ tới (`'add'` là ô thêm đầu việc). */
-  const nameRefs = useRef(new Map<string, HTMLButtonElement>());
-  const focusTargetRef = useRef<string | undefined>(undefined);
-  const cancelRef = useRef(false);
-  const editingRef = useRef<string | undefined>(undefined);
+  const draftSeqRef = useRef(0);
   /** Bản sao đồng bộ của `items` để các thao tác nối tiếp nhau đọc đúng trạng thái mới nhất. */
   const itemsRef = useRef<readonly ChecklistEntry[]>([]);
   const loadedRef = useRef(false);
@@ -163,10 +166,9 @@ export function ChecklistPanel({
     itemsRef.current = [];
     setItems(undefined);
     setTitle('');
-    setEditingId(undefined);
-    editingRef.current = undefined;
-    setConfirmEntry(undefined);
-    focusTargetRef.current = undefined;
+    setRows([]);
+    setManageOpen(false);
+    setConfirmApply(false);
     setFailed(false);
     setSwitched(false);
     loadedRef.current = false;
@@ -175,14 +177,6 @@ export function ChecklistPanel({
     generationRef.current += 1;
     queueRef.current = createSerialQueue();
   }, [item.id]);
-
-  // Trả focus về nút tên của dòng (hoặc ô thêm) sau khi lưu, huỷ sửa hoặc xoá, kẻo focus rơi về body.
-  useEffect(() => {
-    const target = focusTargetRef.current;
-    if (!target) return;
-    focusTargetRef.current = undefined;
-    (target === 'add' ? addRef.current : nameRefs.current.get(target))?.focus();
-  });
 
   // Server đã báo việc là `checklist` thì bỏ cờ tạm.
   useEffect(() => {
@@ -358,58 +352,103 @@ export function ChecklistPanel({
     );
   };
 
-  /** Dòng đã tích thì hỏi xác nhận (mất cả dấu vết người tích); dòng chưa tích xoá ngay. */
-  const requestRemove = (entry: ChecklistEntry) => {
-    if (isTempChecklistId(entry.id)) return;
-    if (entry.done) setConfirmEntry(entry);
-    else remove(entry);
-  };
-
-  const remove = (entry: ChecklistEntry) => {
-    if (isTempChecklistId(entry.id)) return;
-    const index = itemsRef.current.findIndex((other) => other.id === entry.id);
-    if (index < 0) return;
-    if (editingRef.current === entry.id) finishEdit();
-    focusTargetRef.current =
-      focusIdAfterRemove(itemsRef.current, entry.id) ?? 'add';
-    commit(applyRemove(itemsRef.current, entry.id));
-    void write(
-      () => apiRef.current.remove(item.id, entry.id),
-      'Không xoá được đầu việc.',
-      () => commit(applyRestore(itemsRef.current, entry, index)),
+  /** Mở hộp quản lý với bản nháp chép từ danh sách hiện tại; chỉ khi bấm "Cập nhật" mới gửi server. */
+  const openManage = () => {
+    setRows(
+      (items ?? []).map((entry) => ({
+        key: entry.id,
+        id: entry.id,
+        title: entry.title,
+        done: entry.done,
+      })),
     );
+    setTitle('');
+    setManageOpen(true);
   };
 
-  const startEdit = (entry: ChecklistEntry) => {
-    if (isTempChecklistId(entry.id)) return;
-    cancelRef.current = false;
-    editingRef.current = entry.id;
-    setEditingId(entry.id);
-    setDraft(entry.title);
-  };
-
-  const finishEdit = () => {
-    editingRef.current = undefined;
-    setEditingId(undefined);
-  };
-
-  const saveEdit = (entry: ChecklistEntry, refocus = false) => {
-    // Esc huỷ: ô nhập bị gỡ có thể kéo theo blur, đừng lưu lúc đó. Enter rồi blur: chỉ lưu một lần.
-    if (cancelRef.current) {
-      cancelRef.current = false;
+  const addDraft = (titles: string[]) => {
+    const list = titles
+      .map((entry) => entry.trim().slice(0, CHECKLIST_TITLE_MAX_LENGTH))
+      .filter(Boolean);
+    if (list.length === 0) return;
+    const room = MAX_CHECKLIST_ITEMS - rows.length;
+    if (room <= 0) {
+      toast.error(`Một công việc có tối đa ${MAX_CHECKLIST_ITEMS} đầu việc.`);
       return;
     }
-    if (editingRef.current !== entry.id) return;
-    const text = draft.trim().slice(0, CHECKLIST_TITLE_MAX_LENGTH);
-    if (refocus) focusTargetRef.current = entry.id;
-    finishEdit();
-    if (!text || text === entry.title) return;
-    commit(applyTitle(itemsRef.current, entry.id, text));
-    void write(
-      () => apiRef.current.update(item.id, entry.id, { title: text }),
-      'Không đổi được tên đầu việc.',
-      () => commit(applyTitle(itemsRef.current, entry.id, entry.title)),
+    if (list.length > room)
+      toast.error(
+        `Chỉ thêm được tối đa ${MAX_CHECKLIST_ITEMS} đầu việc; đã bỏ bớt phần dư.`,
+      );
+    setRows((current) => [
+      ...current,
+      ...list
+        .slice(0, room)
+        .map((text) => ({
+          key: `new-${++draftSeqRef.current}`,
+          title: text,
+          done: false,
+        })),
+    ]);
+    setTitle('');
+  };
+
+  /** Khác biệt giữa bản nháp và danh sách đang lưu. */
+  const current = items ?? [];
+  const removedRows = current.filter(
+    (entry) => !rows.some((row) => row.id === entry.id),
+  );
+  const renamedRows = rows.filter((row) => {
+    if (!row.id) return false;
+    const text = row.title.trim().slice(0, CHECKLIST_TITLE_MAX_LENGTH);
+    return (
+      text !== '' &&
+      text !== current.find((entry) => entry.id === row.id)?.title
     );
+  });
+  const addedRows = rows.filter((row) => !row.id && row.title.trim() !== '');
+  const hasChanges =
+    removedRows.length > 0 || renamedRows.length > 0 || addedRows.length > 0;
+
+  /** Áp bản nháp: xoá, đổi tên rồi thêm; hiện ngay trên card và gửi server lần lượt qua hàng đợi. */
+  const applyDraft = () => {
+    setConfirmApply(false);
+    setManageOpen(false);
+    for (const entry of removedRows) {
+      const index = itemsRef.current.findIndex(
+        (other) => other.id === entry.id,
+      );
+      if (index < 0) continue;
+      commit(applyRemove(itemsRef.current, entry.id));
+      void write(
+        () => apiRef.current.remove(item.id, entry.id),
+        'Không xoá được đầu việc.',
+        () => commit(applyRestore(itemsRef.current, entry, index)),
+      );
+    }
+    for (const row of renamedRows) {
+      const before = itemsRef.current.find((other) => other.id === row.id);
+      if (!before || !row.id) continue;
+      const text = row.title.trim().slice(0, CHECKLIST_TITLE_MAX_LENGTH);
+      const id = row.id;
+      commit(applyTitle(itemsRef.current, id, text));
+      void write(
+        () => apiRef.current.update(item.id, id, { title: text }),
+        'Không đổi được tên đầu việc.',
+        () => commit(applyTitle(itemsRef.current, id, before.title)),
+      );
+    }
+    if (addedRows.length > 0)
+      addTitles(
+        addedRows.map((row) => row.title),
+        '',
+      );
+  };
+
+  const submitDraft = () => {
+    if (!hasChanges) return;
+    if (removedRows.some((entry) => entry.done)) setConfirmApply(true);
+    else applyDraft();
   };
 
   const done = (items ?? []).filter((entry) => entry.done).length;
@@ -418,27 +457,19 @@ export function ChecklistPanel({
 
   if (!state.visible && !failed) return null;
 
-  /** Một dòng đầu việc. `manage`: trong hộp quản lý (sửa tên, xoá); ngoài card chỉ tích và đọc. */
-  const renderRow = (entry: ChecklistEntry, manage: boolean) => {
-    const editing = manage && editingId === entry.id;
+  /** Một dòng đầu việc trên card: tích và đọc; thêm, sửa, xoá nằm trong hộp quản lý. */
+  const renderRow = (entry: ChecklistEntry) => {
     const pending = isTempChecklistId(entry.id);
     const doneNote =
       entry.done && (entry.doneBy || entry.doneAt)
         ? `Tích bởi ${entry.doneBy ? directory.nameOf(entry.doneBy) : '—'}${entry.doneAt ? ` · ${formatShortDate(entry.doneAt)}` : ''}`
         : '';
-    const nameClass = cn(
-      'min-w-0 text-[13px] leading-snug [overflow-wrap:anywhere]',
-      entry.done && 'text-muted-foreground line-through',
-    );
     return (
       <li
         key={entry.id}
-        className={cn(
-          'group flex min-w-0 items-center gap-1.5',
-          pending && 'opacity-60',
-        )}
+        className={cn('flex min-w-0 items-center', pending && 'opacity-60')}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 group-hover:bg-accent focus-within:bg-accent">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-accent focus-within:bg-accent">
           <Checkbox
             checked={entry.done}
             disabled={!editable || pending}
@@ -446,48 +477,14 @@ export function ChecklistPanel({
             onCheckedChange={(checked) => toggle(entry, checked)}
           />
           <div className="flex min-w-0 flex-1 flex-col">
-            {editing ? (
-              <Input
-                className="h-7 px-2 text-[13px]"
-                autoFocus
-                value={draft}
-                maxLength={CHECKLIST_TITLE_MAX_LENGTH}
-                aria-label={`Sửa tên đầu việc ${entry.title}`}
-                onChange={(event) => setDraft(event.target.value)}
-                onBlur={() => saveEdit(entry)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.nativeEvent.isComposing)
-                    saveEdit(entry, true);
-                  if (event.key === 'Escape') {
-                    // Esc chỉ huỷ sửa tên, không để lan lên đóng hộp quản lý hay hộp chi tiết.
-                    event.preventDefault();
-                    event.stopPropagation();
-                    cancelRef.current = true;
-                    focusTargetRef.current = entry.id;
-                    finishEdit();
-                  }
-                }}
-              />
-            ) : manage && editable && !pending ? (
-              <Button
-                type="button"
-                variant="ghost"
-                ref={(node: HTMLButtonElement | null) => {
-                  if (node) nameRefs.current.set(entry.id, node);
-                  else nameRefs.current.delete(entry.id);
-                }}
-                className={cn(
-                  nameClass,
-                  'h-auto w-full cursor-text justify-start whitespace-normal rounded px-0 py-0 text-left font-normal hover:bg-transparent',
-                )}
-                aria-label={`Sửa tên đầu việc ${entry.title}`}
-                onClick={() => startEdit(entry)}
-              >
-                {entry.title}
-              </Button>
-            ) : (
-              <span className={nameClass}>{entry.title}</span>
-            )}
+            <span
+              className={cn(
+                'min-w-0 text-[13px] leading-snug [overflow-wrap:anywhere]',
+                entry.done && 'text-muted-foreground line-through',
+              )}
+            >
+              {entry.title}
+            </span>
             {doneNote ? (
               <small className="text-[11.5px] text-muted-foreground">
                 {doneNote}
@@ -495,34 +492,6 @@ export function ChecklistPanel({
             ) : null}
           </div>
         </div>
-        {manage && editable && !editing && !pending ? (
-          <div className="flex flex-none gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-            <Tip content="Sửa tên">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                aria-hidden
-                tabIndex={-1}
-                onClick={() => startEdit(entry)}
-              >
-                <Pencil aria-hidden />
-              </Button>
-            </Tip>
-            <Tip content="Xoá đầu việc">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                className="hover:bg-destructive/10 hover:text-destructive"
-                aria-label={`Xoá đầu việc ${entry.title}`}
-                onClick={() => requestRemove(entry)}
-              >
-                <Trash2 aria-hidden />
-              </Button>
-            </Tip>
-          </div>
-        ) : null}
       </li>
     );
   };
@@ -549,7 +518,7 @@ export function ChecklistPanel({
             variant="outline"
             size="sm"
             className="ml-auto"
-            onClick={() => setManageOpen(true)}
+            onClick={openManage}
           >
             <ListPlus aria-hidden />
             {total > 0 ? 'Quản lý' : 'Thêm đầu việc'}
@@ -580,7 +549,7 @@ export function ChecklistPanel({
 
           {total > 0 ? (
             <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
-              {items.map((entry) => renderRow(entry, false))}
+              {items.map((entry) => renderRow(entry))}
             </ul>
           ) : (
             <p className="m-0 flex items-start gap-1.5 text-[12.5px] leading-snug text-muted-foreground">
@@ -604,16 +573,13 @@ export function ChecklistPanel({
       <Dialog
         open={manageOpen && state.canAdd}
         title="Quản lý checklist"
-        subtitle="Thêm, sửa tên hoặc xoá đầu việc. Thay đổi được lưu ngay."
-        cancelLabel="Đóng"
-        guardDiscard={false}
+        subtitle="Thêm, sửa tên hoặc xoá đầu việc. Bấm Cập nhật để áp dụng cho công việc."
+        submitLabel="Cập nhật"
+        cancelLabel="Huỷ"
+        submitDisabled={!hasChanges}
         centered
-        hideFooter
-        onClose={() => {
-          if (editingRef.current) finishEdit();
-          setManageOpen(false);
-        }}
-        onSubmit={() => setManageOpen(false)}
+        onClose={() => setManageOpen(false)}
+        onSubmit={submitDraft}
       >
         <div className="flex flex-col gap-3">
           <div className="flex gap-2">
@@ -635,25 +601,16 @@ export function ChecklistPanel({
                 const start =
                   event.currentTarget.selectionStart ?? title.length;
                 const end = event.currentTarget.selectionEnd ?? start;
-                addTitles(
-                  [
-                    ...splitChecklistLines(title.slice(0, start)),
-                    ...lines,
-                    ...splitChecklistLines(title.slice(end)),
-                  ],
-                  title,
-                );
+                addDraft([
+                  ...splitChecklistLines(title.slice(0, start)),
+                  ...lines,
+                  ...splitChecklistLines(title.slice(end)),
+                ]);
               }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                   event.preventDefault();
-                  addTitles([title], title);
-                }
-                // Có chữ nháp thì Esc chỉ xoá nháp; ô trống thì Esc đóng hộp như thường.
-                if (event.key === 'Escape' && title) {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setTitle('');
+                  addDraft([title]);
                 }
               }}
             />
@@ -661,15 +618,54 @@ export function ChecklistPanel({
               type="button"
               variant="outline"
               disabled={!title.trim()}
-              onClick={() => addTitles([title], title)}
+              onClick={() => addDraft([title])}
             >
               <Plus aria-hidden />
               Thêm
             </Button>
           </div>
-          {total > 0 && items ? (
-            <ul className="m-0 flex max-h-[50vh] list-none flex-col gap-0.5 overflow-y-auto p-0">
-              {items.map((entry) => renderRow(entry, true))}
+          {rows.length > 0 ? (
+            <ul className="m-0 flex max-h-[50vh] list-none flex-col gap-1 overflow-y-auto p-0">
+              {rows.map((row) => (
+                <li key={row.key} className="flex min-w-0 items-center gap-2">
+                  <Checkbox
+                    checked={row.done}
+                    disabled
+                    aria-label={row.done ? 'Đã tích' : 'Chưa tích'}
+                  />
+                  <Input
+                    className="h-8"
+                    value={row.title}
+                    maxLength={CHECKLIST_TITLE_MAX_LENGTH}
+                    aria-label={`Tên đầu việc ${row.title}`}
+                    onChange={(event) =>
+                      setRows((list) =>
+                        list.map((other) =>
+                          other.key === row.key
+                            ? { ...other, title: event.target.value }
+                            : other,
+                        ),
+                      )
+                    }
+                  />
+                  <Tip content="Xoá đầu việc">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="hover:bg-destructive/10 hover:text-destructive"
+                      aria-label={`Xoá đầu việc ${row.title}`}
+                      onClick={() =>
+                        setRows((list) =>
+                          list.filter((other) => other.key !== row.key),
+                        )
+                      }
+                    >
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </Tip>
+                </li>
+              ))}
             </ul>
           ) : (
             <p className="m-0 text-[12.5px] text-muted-foreground">
@@ -680,16 +676,12 @@ export function ChecklistPanel({
       </Dialog>
 
       <ConfirmBox
-        open={confirmEntry !== undefined}
-        title="Bạn có chắc chắn muốn xoá đầu việc đã tích này?"
-        message="Đầu việc bị xoá khỏi checklist và tiến độ được tính lại."
-        confirmLabel="Xoá"
-        onConfirm={() => {
-          const entry = confirmEntry;
-          setConfirmEntry(undefined);
-          if (entry) remove(entry);
-        }}
-        onCancel={() => setConfirmEntry(undefined)}
+        open={confirmApply}
+        title="Bạn có chắc chắn muốn xoá các đầu việc đã tích?"
+        message="Đầu việc đã tích bị xoá khỏi checklist và tiến độ được tính lại."
+        confirmLabel="Xoá và cập nhật"
+        onConfirm={applyDraft}
+        onCancel={() => setConfirmApply(false)}
       />
     </section>
   );
