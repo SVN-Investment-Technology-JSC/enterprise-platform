@@ -6,7 +6,7 @@
  * Đã thay thế và sinh phiên bản mới ở Nháp (mục 5.2 kế hoạch).
  */
 import type { BusinessPlanDetail } from './business-plan.js';
-import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
+import type { AppliedDiscountPolicy, PriceSource, PricingStatus } from './pricing.js';
 import type { QuotePromotionSnapshot } from './promotions.js';
 import type { CustomFieldValue, QuoteFee, QuoteFormData, QuoteOrderAmountInput } from './quote-form.js';
 import type { QuoteLayout } from './quote-layout.js';
@@ -153,6 +153,8 @@ export interface QuoteLine {
   readonly overridden: boolean;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay của dòng (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   readonly unitPrice: number;
   readonly grossAmount: number;
   readonly discountAmount: number;
@@ -212,6 +214,11 @@ export interface QuoteVersion {
   readonly validUntil: string | null;
   readonly priceDate: string | null;
   readonly pricedOn: string | null;
+  /** Bảng giá người dùng chọn; rỗng thì chưa thêm được dòng. Mã, tên đọc kèm để hiển thị cả khi bảng đã ngừng áp dụng. */
+  readonly priceListId: string | null;
+  readonly priceListCode: string | null;
+  readonly priceListName: string | null;
+  readonly priceListStatus: PricingStatus | null;
   readonly note: string | null;
   readonly shipping: QuoteShipping;
   readonly totals: QuoteTotals;
@@ -330,6 +337,8 @@ export interface QuoteListQuery {
 }
 
 export interface CreateQuoteRequest {
+  /** Bảng giá; rỗng thì chọn sau (chưa chọn thì chưa thêm được dòng). */
+  readonly priceListId?: string | null;
   /** Lập từ cơ hội: khách và người phụ trách lấy theo cơ hội. */
   readonly opportunityId?: string | null;
   /** Lập thẳng cho khách (không qua cơ hội). */
@@ -360,6 +369,8 @@ export interface UpdateQuoteVersionRequest {
   readonly revision: number;
   readonly validUntil?: string | null;
   readonly priceDate?: string | null;
+  /** Đổi bảng giá thì tính lại mọi dòng (dòng ghi đè giữ ghi đè). `null` khi đã có dòng: `PRICE_LIST_REQUIRED`. */
+  readonly priceListId?: string | null;
   readonly note?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null; readonly cost?: number | null } | null;
   /** Đổi mã khi còn Nháp; trùng mã: 409. */
@@ -394,6 +405,8 @@ export interface SaveQuoteLineRequest {
   readonly unit?: string | null;
   readonly overrideUnitPrice?: number | null;
   readonly overrideDiscountPercent?: number | null;
+  /** Thuế suất sửa tay (0–100%, 2 chữ số thập phân); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate?: number | null;
 }
 
 /** Một mặt hàng trong lô thêm dòng; `revision` chung nằm ở `AddQuoteLinesRequest`. */
@@ -476,6 +489,8 @@ export interface CrmCatalogMaterial {
   readonly tradeCategory?: string | null;
   /** Giá bán khai ở Kho (cột Giá của màn Hàng hóa); rỗng là chưa khai. */
   readonly salePrice?: number | null;
+  /** Thuế suất khai ở Kho (%); rỗng là chưa khai (tính 10%). */
+  readonly vatRate?: number | null;
   /** Giá vốn bình quân hiện tại (ước tính); rỗng với dịch vụ. */
   readonly avgCost: number | null;
   /** Tồn khả dụng gộp các kho; rỗng với dịch vụ. */

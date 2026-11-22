@@ -17,7 +17,11 @@ import {
 import type { AuthenticatedPrincipal } from '@enterprise-platform/contracts-identity';
 import type { Request, Response } from 'express';
 import { BrandError, brandErrors } from './brand.errors.js';
-import { BrandIconService, type SvgViewer } from './brand-icon.service.js';
+import {
+  BrandIconService,
+  type SvgResult,
+  type SvgViewer,
+} from './brand-icon.service.js';
 import {
   parseOptionalVersion,
   parseStatuses,
@@ -110,6 +114,17 @@ export class BrandController {
     });
   }
 
+  /** Xoá vĩnh viễn icon đã lưu trữ (đặt trước `icons/:id`). */
+  @Delete('icons/:id/permanent')
+  @HttpCode(204)
+  purge(@Req() request: Request, @Param('id') id: string): Promise<void> {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      await this.brand.purge(admin, id);
+    });
+  }
+
   /** Lưu trữ icon (không xoá dữ liệu). */
   @Delete('icons/:id')
   archive(@Req() request: Request, @Param('id') id: string) {
@@ -151,6 +166,186 @@ export class BrandController {
         request.get('if-none-match'),
       ),
     );
+    this.sendSvgResponse(response, result);
+  }
+
+  @Get('slots')
+  listSlots(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.listSlots();
+    });
+  }
+
+  /** Các route `slots/groups` đặt trước `slots/:slot/...` để NestJS không bắt nhầm `groups` là `:slot`. */
+  @Get('slots/groups')
+  listSlotGroups(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.listSlotGroups();
+    });
+  }
+
+  @Post('slots/groups')
+  @HttpCode(201)
+  createSlotGroup(@Req() request: Request, @Body() body: unknown) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.createSlotGroup(admin, this.record(body));
+    });
+  }
+
+  @Put('slots/groups/:key')
+  updateSlotGroup(
+    @Req() request: Request,
+    @Param('key') key: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.updateSlotGroup(admin, key, this.record(body));
+    });
+  }
+
+  @Delete('slots/groups/:key')
+  deleteSlotGroup(@Req() request: Request, @Param('key') key: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.deleteSlotGroup(admin, key);
+    });
+  }
+
+  @Get('slots/definitions')
+  listSlotDefinitions(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.listSlotDefinitions();
+    });
+  }
+
+  @Post('slots/definitions')
+  @HttpCode(201)
+  createCustomSlot(@Req() request: Request, @Body() body: unknown) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.createCustomSlot(admin, this.record(body));
+    });
+  }
+
+  @Put('slots/definitions/:id')
+  updateCustomSlot(
+    @Req() request: Request,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.updateSlot(admin, id, this.record(body));
+    });
+  }
+
+  /** Khôi phục mặc định mọi trường đã sửa của vị trí có sẵn. */
+  @Delete('slots/definitions/:id/override')
+  resetSlotOverride(@Req() request: Request, @Param('id') id: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.resetSlotOverride(admin, id);
+    });
+  }
+
+  @Delete('slots/definitions/:id')
+  deleteCustomSlot(@Req() request: Request, @Param('id') id: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.deleteCustomSlot(admin, id);
+    });
+  }
+
+  /** Đặt trước `slots/:slot/svg` để NestJS không bắt nhầm `manifest` là `:slot`. */
+  @Get('slots/manifest')
+  async slotManifest(
+    @Req() request: Request,
+    @Res() response: Response,
+  ): Promise<void> {
+    const result = await this.run(async () =>
+      this.brand.slotManifest(
+        () => this.viewer(request),
+        request.get('if-none-match'),
+      ),
+    );
+    response.setHeader('ETag', result.etag);
+    response.setHeader('Cache-Control', result.cacheControl);
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (result.notModified) {
+      response.status(304).end();
+      return;
+    }
+    response.status(200).json(result.manifest);
+  }
+
+  @Get('slots/:slot/svg')
+  async slotSvg(
+    @Req() request: Request,
+    @Res() response: Response,
+    @Param('slot') slot: string,
+  ): Promise<void> {
+    const result = await this.run(async () =>
+      this.brand.readSlotSvg(
+        slot,
+        () => this.viewer(request),
+        request.get('if-none-match'),
+      ),
+    );
+    this.sendSvgResponse(response, result);
+  }
+
+  @Put('slots/:slot')
+  assignSlot(
+    @Req() request: Request,
+    @Param('slot') slot: string,
+    @Body() body: unknown,
+  ) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.assignSlot(admin, slot, this.record(body));
+    });
+  }
+
+  @Delete('slots/:slot')
+  clearSlot(@Req() request: Request, @Param('slot') slot: string) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.clearSlot(admin, slot);
+    });
+  }
+
+  @Get('standards')
+  standards(@Req() request: Request) {
+    return this.run(async () => {
+      await this.admin(request);
+      return this.brand.standards();
+    });
+  }
+
+  @Put('standards')
+  saveStandards(@Req() request: Request, @Body() body: unknown) {
+    return this.run(async () => {
+      const admin = await this.admin(request);
+      this.requireCsrf(request);
+      return this.brand.saveStandards(admin, this.record(body));
+    });
+  }
+
+  private sendSvgResponse(response: Response, result: SvgResult): void {
     response.setHeader('ETag', result.etag);
     response.setHeader('Cache-Control', result.cacheControl);
     response.setHeader('X-Content-Type-Options', 'nosniff');
@@ -169,23 +364,6 @@ export class BrandController {
       `inline; filename="${result.filename}"`,
     );
     response.send(result.body);
-  }
-
-  @Get('standards')
-  standards(@Req() request: Request) {
-    return this.run(async () => {
-      await this.admin(request);
-      return this.brand.standards();
-    });
-  }
-
-  @Put('standards')
-  saveStandards(@Req() request: Request, @Body() body: unknown) {
-    return this.run(async () => {
-      const admin = await this.admin(request);
-      this.requireCsrf(request);
-      return this.brand.saveStandards(admin, this.record(body));
-    });
   }
 
   private record(body: unknown): Record<string, unknown> {

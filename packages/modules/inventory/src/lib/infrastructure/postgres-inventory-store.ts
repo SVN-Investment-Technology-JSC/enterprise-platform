@@ -12,6 +12,7 @@ import type {
   CreateAssetRequest,
   CreateMaterialRequest,
   UpdateMaterialRequest,
+  InternalMaterialCatalogFingerprint,
   InternalMaterialCatalogItem,
   InternalMaterialCatalogQuery,
   MaterialKind,
@@ -139,6 +140,7 @@ function mapMaterial(row: Row): Material {
     assetCategory: opt(row.asset_category) as Material['assetCategory'],
     tradeMode: opt(row.trade_mode) as Material['tradeMode'],
     salePrice: row.sale_price == null ? undefined : Number(row.sale_price),
+    vatRate: row.vat_rate == null ? undefined : Number(row.vat_rate),
     tradeCategory: opt(row.trade_category),
     description: opt(row.description),
     createdAt: row.created_at ? iso(row.created_at) : undefined,
@@ -167,6 +169,7 @@ function mapCatalogItem(row: Row): InternalMaterialCatalogItem {
     isActive: Boolean(row.is_active),
     warrantyMonths: row.warranty_months == null ? null : Number(row.warranty_months),
     salePrice: row.sale_price == null ? null : Number(row.sale_price),
+    vatRate: row.vat_rate == null ? null : Number(row.vat_rate),
     tradeCategory: opt(row.trade_category) ?? null,
     avgCost: service ? null : num(row.avg_cost),
     availableByWarehouse: service ? null : byWarehouse,
@@ -428,9 +431,9 @@ export class PostgresInventoryStore implements InventoryStore {
             serial_number, manufacture_year, supplier, manufacturer,
             purchase_price, currency, is_active, kind, warranty_months,
             assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
-            trade_category, description, created_at)
+            trade_category, description, created_at, vat_rate)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $16, $17, $18, $19,
-                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()))
+                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()), $28)
       RETURNING *`,
         [
           input.code,
@@ -460,6 +463,7 @@ export class PostgresInventoryStore implements InventoryStore {
           input.description?.trim() || null,
           history?.isActive ?? true,
           history?.createdAt ?? null,
+          input.vatRate ?? null,
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -503,7 +507,8 @@ export class PostgresInventoryStore implements InventoryStore {
                 description = CASE WHEN $27::boolean THEN $28::text ELSE description END,
                 -- Chỉ điền dấu vết khai báo cho mã chưa có người tạo; vế phải đọc giá trị trước khi cập nhật.
                 created_by = CASE WHEN created_by IS NULL THEN $29::text ELSE created_by END,
-                created_at = CASE WHEN created_by IS NULL AND $30::timestamptz IS NOT NULL THEN $30::timestamptz ELSE created_at END
+                created_at = CASE WHEN created_by IS NULL AND $30::timestamptz IS NOT NULL THEN $30::timestamptz ELSE created_at END,
+                vat_rate = CASE WHEN $31::boolean THEN $32::numeric ELSE vat_rate END
           WHERE code = $1 AND kind IN ('STOCK', 'SERVICE')
       RETURNING *`,
         [
@@ -539,6 +544,9 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.description?.trim() || null,
           history?.createdBy?.trim() || null,
           history?.createdAt ?? null,
+          // `undefined` giữ nguyên, `null` xoá thuế suất VAT (về chưa khai).
+          patch.vatRate !== undefined,
+          patch.vatRate ?? null,
         ],
       );
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
@@ -668,7 +676,7 @@ export class PostgresInventoryStore implements InventoryStore {
       // Tra theo id, mã thì trả cả mã đã ngừng dùng: bên gọi đang giữ tham chiếu tới chúng.
       if (query.ids?.length) where.push(`m.id = ANY(${push([...query.ids])}::uuid[])`);
       if (query.codes?.length) where.push(`m.code = ANY(${push([...query.codes])}::text[])`);
-      if (!query.ids?.length && !query.codes?.length) where.push('m.is_active = true');
+      if (!query.ids?.length && !query.codes?.length && !query.includeInactive) where.push('m.is_active = true');
       if (query.search) {
         const pattern = push(`%${query.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`);
         where.push(`(m.code ILIKE ${pattern} OR m.name ILIKE ${pattern} OR m.trade_category ILIKE ${pattern})`);
@@ -681,7 +689,7 @@ export class PostgresInventoryStore implements InventoryStore {
       // có hàng; hết hàng ở mọi kho thì lấy giá bình quân cuối cùng còn ghi.
       const result = await pool.query<Row>(
         `SELECT m.id, m.code, m.name, m.unit, m.kind, m.category, m.is_serialized, m.is_active,
-                m.warranty_months, m.sale_price, m.trade_category, stock.stocks,
+                m.warranty_months, m.sale_price, m.vat_rate, m.trade_category, stock.stocks,
                 COALESCE(round(stock.value / NULLIF(stock.quantity, 0), 4), stock.fallback_avg, 0)
                   AS avg_cost
            FROM inventory_schema.materials m
@@ -705,6 +713,27 @@ export class PostgresInventoryStore implements InventoryStore {
         values,
       );
       return result.rows.map(mapCatalogItem);
+    },
+
+    catalogFingerprint: async (
+      tenantId: string,
+      kinds: readonly MaterialKind[],
+    ): Promise<InternalMaterialCatalogFingerprint> => {
+      const pool = await this.poolFor(tenantId);
+      // Giá, thuế suất rỗng ghi '<null>' để khác 0; danh mục rỗng ra md5('') cố định.
+      const result = await pool.query<{ count: string; fingerprint: string }>(
+        `SELECT count(*) AS count,
+                md5(COALESCE(string_agg(
+                  concat_ws('|', id::text, code, name, COALESCE(unit, ''),
+                            COALESCE(sale_price::text, '<null>'), COALESCE(vat_rate::text, '<null>'),
+                            is_active::text),
+                  E'\n' ORDER BY id), '')) AS fingerprint
+           FROM inventory_schema.materials
+          WHERE kind = ANY($1::text[])`,
+        [[...kinds]],
+      );
+      const row = result.rows[0];
+      return { count: Number(row?.count ?? 0), fingerprint: String(row?.fingerprint ?? '') };
     },
 
     tradeCategories: async (tenantId: string, kinds: readonly MaterialKind[]): Promise<string[]> => {

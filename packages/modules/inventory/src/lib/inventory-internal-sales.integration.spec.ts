@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import { InventoryApplication, type InventoryActor } from './application/inventory.application.js';
 import { StockDocumentService } from './application/stock-document.service.js';
@@ -435,6 +435,140 @@ integration('API nội bộ Kho cho Bán hàng (T1-24 đến T1-27)', () => {
       const events = await outbox('inventory.stock.issued', result.documentId);
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({ docType: 'ISSUE_OTHER', sourceType: 'crm_warranty', sourceId: warrantyId });
+    });
+  });
+
+  describe('GET internal/materials/fingerprint và includeInactive (A9)', () => {
+    const fingerprint = async (kinds?: string[]) => app.materialCatalogFingerprint(service, kinds);
+    const setColumn = async (code: string, column: string, value: unknown) => {
+      await pool.query(`UPDATE inventory_schema.materials SET ${column} = $2 WHERE code = $1`, [code, value]);
+    };
+
+    it('A9.1-A9.4: ổn định; đổi theo mã, tên, đơn vị, giá bán, trạng thái, thêm, xoá; không đổi theo mô tả, tồn', async () => {
+      await app.createMaterial(admin, { code: 'QA-FP-1', name: 'Mặt hàng vân tay', category: 'CONSUMABLE', unit: 'Cái', salePrice: 1000 });
+
+      // A9.1: gọi hai lần bằng nhau; mặc định là cả STOCK và SERVICE, kể cả mã ngừng dùng.
+      const base = await fingerprint();
+      expect(base.fingerprint).toMatch(/^[0-9a-f]{32}$/);
+      expect(await fingerprint()).toEqual(base);
+      expect(await fingerprint(['STOCK', 'SERVICE'])).toEqual(base);
+      const { rows } = await pool.query(`SELECT count(*)::int AS count FROM inventory_schema.materials WHERE kind IN ('STOCK', 'SERVICE')`);
+      expect(base.count).toBe(rows[0].count);
+      expect((await fingerprint(['SERVICE'])).fingerprint).not.toBe(base.fingerprint);
+
+      // A9.3: mô tả, tồn kho, mức tồn tối thiểu không vào dấu vân tay.
+      await setColumn('QA-FP-1', 'description', 'Mô tả mới');
+      await setColumn('QA-FP-1', 'min_stock', 7);
+      await app.receiveStock(clerk, { warehouseCode: 'QA-KHO', materialCode: 'QA-FP-1', quantity: 5, unitCost: 100 });
+      expect(await fingerprint()).toEqual(base);
+
+      // A9.2: từng trường đổi rồi trả lại thì dấu vân tay đổi rồi về như cũ.
+      const changes: [string, unknown, unknown][] = [
+        ['code', 'QA-FP-1B', 'QA-FP-1'],
+        ['name', 'Tên khác', 'Mặt hàng vân tay'],
+        ['unit', 'Hộp', 'Cái'],
+        ['sale_price', 1001, 1000],
+        ['vat_rate', 8, null],
+        ['is_active', false, true],
+      ];
+      for (const [column, changed, original] of changes) {
+        await setColumn('QA-FP-1', column, changed);
+        const after = await fingerprint();
+        expect({ column, changed: after.fingerprint !== base.fingerprint, count: after.count }).toEqual({
+          column,
+          changed: true,
+          count: base.count,
+        });
+        await setColumn(column === 'code' ? (changed as string) : 'QA-FP-1', column, original);
+        expect(await fingerprint()).toEqual(base);
+      }
+
+      // A9.4: giá rỗng khác giá 0.
+      await setColumn('QA-FP-1', 'sale_price', null);
+      const nullPrice = await fingerprint();
+      await setColumn('QA-FP-1', 'sale_price', 0);
+      const zeroPrice = await fingerprint();
+      expect(nullPrice.fingerprint).not.toBe(zeroPrice.fingerprint);
+      expect(nullPrice.fingerprint).not.toBe(base.fingerprint);
+      await setColumn('QA-FP-1', 'sale_price', 1000);
+
+      // Thuế suất VAT rỗng (chưa khai) khác 0%.
+      await setColumn('QA-FP-1', 'vat_rate', 0);
+      const zeroVat = await fingerprint();
+      expect(zeroVat.fingerprint).not.toBe(base.fingerprint);
+      await setColumn('QA-FP-1', 'vat_rate', null);
+      expect(await fingerprint()).toEqual(base);
+
+      // A9.2: thêm, xoá mặt hàng.
+      await app.createMaterial(admin, { code: 'QA-FP-2', name: 'Dịch vụ vân tay', category: 'SPARE_PART', unit: 'Lần', kind: 'SERVICE' });
+      const added = await fingerprint();
+      expect(added.count).toBe(base.count + 1);
+      expect(added.fingerprint).not.toBe(base.fingerprint);
+      expect((await fingerprint(['STOCK'])).count).toBe((await fingerprint()).count - (await fingerprint(['SERVICE'])).count);
+      await pool.query(`DELETE FROM inventory_schema.materials WHERE code = 'QA-FP-2'`);
+      expect(await fingerprint()).toEqual(base);
+    });
+
+    it('thuế suất VAT: lưu khi tạo, bỏ qua là giữ, null là xoá, có trong danh mục nội bộ và đổi dấu vân tay', async () => {
+      const created = await app.createMaterial(admin, {
+        code: 'QA-VAT-1', name: 'Mặt hàng VAT', category: 'CONSUMABLE', unit: 'Cái', salePrice: 1000, vatRate: 8.5,
+      });
+      expect(created.vatRate).toBe(8.5);
+      const catalogVat = async () =>
+        (await app.listMaterialCatalog(service, { codes: ['QA-VAT-1'], includeInactive: true })).materials[0]?.vatRate;
+      expect(await catalogVat()).toBe(8.5);
+      const before = await fingerprint();
+
+      const kept = await app.updateMaterial(admin, 'QA-VAT-1', { name: 'Mặt hàng VAT đổi tên' });
+      expect(kept.vatRate).toBe(8.5);
+      await app.updateMaterial(admin, 'QA-VAT-1', { name: 'Mặt hàng VAT' });
+      expect(await fingerprint()).toEqual(before);
+
+      const changed = await app.updateMaterial(admin, 'QA-VAT-1', { vatRate: 5 });
+      expect(changed.vatRate).toBe(5);
+      expect((await fingerprint()).fingerprint).not.toBe(before.fingerprint);
+
+      const cleared = await app.updateMaterial(admin, 'QA-VAT-1', { vatRate: null });
+      expect(cleared.vatRate).toBeUndefined();
+      expect(await catalogVat()).toBeNull();
+
+      await expect(app.updateMaterial(admin, 'QA-VAT-1', { vatRate: 100.01 })).rejects.toThrow('Thuế suất VAT');
+      await pool.query(`DELETE FROM inventory_schema.materials WHERE code = 'QA-VAT-1'`);
+    });
+
+    it('danh mục rỗng trả md5 của chuỗi rỗng và count 0', async () => {
+      const empty = await TestInventoryDatabase.create(INVENTORY_TEST_ADMIN_URL as string);
+      try {
+        const emptyApp = new InventoryApplication(
+          new PostgresInventoryStore(empty.references, empty.pools),
+          new PostgresStockDocumentStore(empty.references, empty.pools),
+        );
+        const result = await emptyApp.materialCatalogFingerprint(service);
+        expect(result).toEqual({ count: 0, fingerprint: createHash('md5').update('').digest('hex') });
+        expect(await emptyApp.materialCatalogFingerprint(service)).toEqual(result);
+      } finally {
+        await empty.drop();
+      }
+    }, 120_000);
+
+    it('A9.5: kind không hợp lệ thì 400', async () => {
+      expect((await rejection(fingerprint(['ASSET']))).statusCode).toBe(400);
+    });
+
+    it('A9.7: includeInactive=true có mặt hàng ngừng dùng; không truyền thì giữ hành vi cũ', async () => {
+      const defaults = await app.listMaterialCatalog(service, { kinds: ['STOCK', 'SERVICE'] });
+      expect(defaults.materials.map((item) => item.code)).not.toContain('QA-KHO-NGUNG');
+      expect(defaults.materials.every((item) => item.isActive)).toBe(true);
+
+      const all = await app.listMaterialCatalog(service, { kinds: ['STOCK', 'SERVICE'], includeInactive: true });
+      const retired = all.materials.find((item) => item.code === 'QA-KHO-NGUNG');
+      expect(retired).toMatchObject({ isActive: false, kind: 'STOCK' });
+      expect(all.materials.length).toBe(defaults.materials.length + 1);
+      expect(all.materials.find((item) => item.code === 'QA-KHO-BT')).toMatchObject({ kind: 'SERVICE', salePrice: null });
+
+      const first = await app.listMaterialCatalog(service, { kinds: ['STOCK', 'SERVICE'], includeInactive: true, limit: 1 });
+      expect(first.materials).toHaveLength(1);
+      expect(first.nextCursor).toBe(first.materials[0].code);
     });
   });
 });

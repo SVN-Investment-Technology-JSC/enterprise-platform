@@ -11,6 +11,8 @@ import {
   type IconDocument,
 } from '@enterprise-platform/shared-brand-icon';
 import { MinimalPopupForm, SearchableSelect } from '@enterprise-platform/shared-ui';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Hint } from '../components/hint';
 import {
   Braces,
@@ -207,22 +209,19 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
               const on = formats.includes(meta.id);
               return (
                 <Hint label={meta.hint} key={meta.id}>
-                  <button
+                  <Button
                     aria-checked={on}
-                    className={`inline-flex h-9 items-center gap-1.5 rounded border px-3 text-sm font-medium transition-colors ${
-                      on
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-[#d1d5db] bg-white text-[#4b5563] hover:bg-slate-50'
-                    }`}
+                    className={cn(on && 'border-blue-600 bg-blue-50 text-blue-700 hover:bg-blue-50')}
                     disabled={busy}
                     onClick={() => setFormats((current) => toggleFormat(current, meta.id))}
                     role="checkbox"
                     type="button"
+                    variant="outline"
                   >
                     <Icon aria-hidden size={16} />
                     {meta.label}
                     {on ? <Check aria-hidden className="-mr-0.5" size={14} /> : null}
-                  </button>
+                  </Button>
                 </Hint>
               );
             })}
@@ -271,7 +270,7 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
               <RowLabel>Icon favicon</RowLabel>
               <SearchableSelect
                 disabled={busy}
-                height={36}
+                height={32}
                 onChange={setFaviconPick}
                 options={docs.map((doc) => ({ value: doc.id, label: doc.name, badge: CATEGORY_LABELS[doc.category] }))}
                 placeholder="Chọn icon"
@@ -290,11 +289,8 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <div aria-label="Mã xem trước" className="inline-flex gap-1" role="tablist">
                   {COPY_TABS.map((tab) => (
-                    <button
+                    <Button
                       aria-selected={codeTab === tab.id}
-                      className={`h-7 rounded px-2.5 text-xs font-semibold transition-colors ${
-                        codeTab === tab.id ? 'bg-slate-800 !text-white' : 'text-slate-500 hover:bg-slate-100'
-                      }`}
                       key={tab.id}
                       onClick={() => {
                         setCodeTab(tab.id);
@@ -302,20 +298,17 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
                       }}
                       role="tab"
                       type="button"
+                      variant={codeTab === tab.id ? 'default' : 'ghost'}
                     >
                       {tab.label}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <Hint label={`Sao chép mã ${codeTab === 'svg' ? 'SVG' : 'TSX'}`}>
-                  <button
-                    className="inline-flex h-7 items-center gap-1.5 rounded border border-[#d1d5db] px-2.5 text-xs font-medium text-[#4b5563] transition-colors hover:bg-slate-100"
-                    onClick={handleCopy}
-                    type="button"
-                  >
+                  <Button onClick={handleCopy} type="button" variant="outline">
                     {copied ? <Check aria-hidden className="text-emerald-600" size={14} /> : <Copy aria-hidden size={14} />}
                     {copied ? 'Đã chép' : 'Sao chép'}
-                  </button>
+                  </Button>
                 </Hint>
               </div>
               <pre className="max-h-36 overflow-auto rounded border border-slate-200 bg-white p-2 text-[11px] leading-4 text-slate-700">
@@ -379,23 +372,13 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
         ) : null}
 
         <div className="flex justify-end gap-3 border-t border-[#e5e7eb] pt-4">
-          <button
-            className="h-10 rounded border border-[#d1d5db] bg-transparent px-4 text-sm font-medium text-[#4b5563] transition-colors hover:bg-[#e5e5e5] disabled:opacity-50"
-            disabled={busy}
-            onClick={onClose}
-            type="button"
-          >
+          <Button disabled={busy} onClick={onClose} type="button" variant="outline">
             {exported ? 'Đóng' : 'Hủy'}
-          </button>
-          <button
-            className="inline-flex h-10 items-center gap-2 rounded bg-blue-600 px-5 text-sm font-bold !text-white transition-colors hover:bg-blue-700 disabled:bg-blue-300"
-            disabled={!canDownload}
-            onClick={handleDownload}
-            type="button"
-          >
+          </Button>
+          <Button disabled={!canDownload} onClick={handleDownload} type="button">
             {busy ? <LoaderCircle aria-hidden className="animate-spin" size={16} /> : <Download aria-hidden size={16} />}
             {busy ? 'Đang xử lý…' : 'Tải về'}
-          </button>
+          </Button>
         </div>
       </div>
     </MinimalPopupForm>

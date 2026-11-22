@@ -26,6 +26,12 @@ export class WarehouseNotFoundError extends InventoryError {
   }
 }
 
+export class StocktakeNotFoundError extends InventoryError {
+  constructor(key: string) {
+    super('STOCKTAKE_NOT_FOUND', `Không tìm thấy đợt kiểm kê ${key}.`, 404);
+  }
+}
+
 export class MaterialNotFoundError extends InventoryError {
   constructor(materialCode: string) {
     super('MATERIAL_NOT_FOUND', `Không tìm thấy vật tư ${materialCode}.`, 404);

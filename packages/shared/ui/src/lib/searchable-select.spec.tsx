@@ -334,3 +334,24 @@ describe('SearchableSelect nút xoá', () => {
     expect(screen.queryByLabelText('Xoá tìm kiếm')).not.toBeNull();
   });
 });
+
+describe('SearchableSelect tìm theo badge', () => {
+  it('gõ mã nằm ở badge (ví dụ mã hợp đồng) vẫn ra lựa chọn', () => {
+    Element.prototype.scrollIntoView = jest.fn();
+    render(
+      <SearchableSelect
+        searchInDropdown
+        options={[
+          { value: 'c1', label: 'Hợp đồng theo báo giá BG1', badge: 'HD2600015', description: 'Khách A' },
+          { value: 'c2', label: 'Hợp đồng theo báo giá BG2', badge: 'HD2600002', description: 'Khách B' },
+        ]}
+        value=""
+      />,
+    );
+    fireEvent.click(screen.getByRole('textbox'));
+    fireEvent.change(screen.getByLabelText('Tìm trong danh sách'), { target: { value: 'hd2600015' } });
+    const filtered = screen.getAllByRole('option');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].textContent).toContain('HD2600015');
+  });
+});

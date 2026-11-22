@@ -51,6 +51,8 @@ export class InventoryController {
       canWriteTransactions: actor.canManage || actor.canWriteTransactions === true,
       canWriteQuality: actor.canWriteQuality ?? actor.canManage,
       canApproveDocuments: actor.canApproveDocuments ?? actor.canManage,
+      canCreateStocktake: actor.canCreateStocktake ?? actor.canManage,
+      canApproveStocktake: actor.canApproveStocktake ?? actor.canManage,
     };
   }
 

@@ -17,6 +17,7 @@ describe('giá vốn và lợi nhuận', () => {
       date: '2026-10-27',
       customerId: null,
       customerGroupId: null,
+      priceListId: 'l',
       lines: [{ materialId: CAP, quantity: 10, unit: 'Cái', override: { unitPrice: 950_000 } }],
       priceLists: [
         {
@@ -65,6 +66,7 @@ function line(materialId: string, quantity: number, unitPrice: number, extra: Pa
     overridden: false,
     overrideUnitPrice: null,
     overrideDiscountPercent: null,
+    overrideVatRate: null,
     unitPrice,
     grossAmount: lineAmount,
     discountAmount: 0,

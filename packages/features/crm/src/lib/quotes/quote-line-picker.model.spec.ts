@@ -7,6 +7,9 @@ import {
   lineErrorsHint,
   lineErrorsOf,
   setPicked,
+  setPickedOverridePrice,
+  setPickedOverrideVat,
+  vatPlaceholder,
   setPickedQuantity,
   type PickedMap,
 } from './quote-line-picker.model';
@@ -55,6 +58,45 @@ describe('chọn nhiều mặt hàng (TC-FB-01..04)', () => {
     expect(buildLines(picked)).toEqual({ ok: false, error: 'Số lượng phải lớn hơn 0.', invalidIds: ['b'] });
   });
 
+  it('C4.10: đơn giá ghi đè (mặt hàng chưa nhập giá ở Kho) gửi kèm dòng; sai thì báo lỗi', () => {
+    const picked = setPickedOverridePrice(setPicked(empty, [a, b], true), 'b', '12.500');
+    expect(buildLines(picked)).toEqual({
+      ok: true,
+      lines: [
+        { materialId: 'a', quantity: 1 },
+        { materialId: 'b', quantity: 1, overrideUnitPrice: 12500 },
+      ],
+    });
+    expect(buildLines(setPickedOverridePrice(picked, 'b', '-1'))).toEqual({ ok: false, error: 'Đơn giá ghi đè phải là số không âm.', invalidIds: ['b'] });
+  });
+
+  it('thuế suất sửa tay "8,5" gửi overrideVatRate 8.5; sai thì báo lỗi; mẫu thuế theo tổng đơn thì không gửi', () => {
+    const picked = setPickedOverrideVat(setPicked(empty, [a, b], true), 'b', '8,5');
+    expect(buildLines(picked)).toEqual({
+      ok: true,
+      lines: [
+        { materialId: 'a', quantity: 1 },
+        { materialId: 'b', quantity: 1, overrideVatRate: 8.5 },
+      ],
+    });
+    for (const bad of ['abc', '101', '8,555']) {
+      expect(buildLines(setPickedOverrideVat(picked, 'b', bad))).toMatchObject({ ok: false, invalidIds: ['b'] });
+    }
+    expect(buildLines(picked, { taxByOrder: true })).toEqual({
+      ok: true,
+      lines: [
+        { materialId: 'a', quantity: 1 },
+        { materialId: 'b', quantity: 1 },
+      ],
+    });
+  });
+
+  it('gợi ý ô thuế suất: thuế suất Kho (rỗng là 10%), chưa có thông tin thì "Theo bảng giá"', () => {
+    expect(vatPlaceholder({ vatRate: 8 })).toBe('Kho: 8%');
+    expect(vatPlaceholder({ vatRate: null })).toBe('Kho: 10%');
+    expect(vatPlaceholder({})).toBe('Theo bảng giá');
+  });
+
   it('chưa chọn gì thì báo chọn ít nhất một mặt hàng', () => {
     expect(buildLines(empty)).toMatchObject({ ok: false, error: 'Vui lòng chọn ít nhất một mặt hàng.' });
   });
@@ -78,6 +120,7 @@ describe('gợi ý khi thiếu giá bán', () => {
   it('có PRICE_NOT_FOUND thì gợi ý thêm dòng giá; lỗi khác thì không', () => {
     const missing = [{ line: 1, materialId: 'a', code: 'PRICE_NOT_FOUND', message: 'x' }];
     expect(lineErrorsHint(missing)).toContain('Cài đặt > Bảng giá');
+    expect(lineErrorsHint(missing)).toContain('Đơn giá ghi đè');
     expect(lineErrorsHint([{ line: 1, materialId: 'a', code: 'QUANTITY_INVALID', message: 'x' }])).toBeUndefined();
     expect(lineErrorsHint([])).toBeUndefined();
   });

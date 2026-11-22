@@ -26,6 +26,17 @@
   border-radius: var(--ep-radius-lg);
   background: var(--ep-accent-glow);
   color: var(--ep-accent-text);
+
+  // Có icon thương hiệu: icon lấp đầy ô, bỏ nền bọc ngoài.
+  &:has(> svg[data-brand-slot]) {
+    overflow: hidden;
+    background: transparent;
+
+    > svg {
+      width: 100%;
+      height: 100%;
+    }
+  }
 }
 
 .text {

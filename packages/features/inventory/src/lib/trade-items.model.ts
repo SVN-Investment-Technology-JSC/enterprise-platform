@@ -155,6 +155,34 @@ export function formatSalePrice(price?: number): string {
   return formatCurrencyVn(price, { showUnit: true });
 }
 
+/** Thuế suất VAT bên bán dùng khi mặt hàng chưa khai. */
+export const DEFAULT_SALE_VAT_RATE = 10;
+
+export const VAT_RATE_INVALID_MESSAGE = 'Thuế suất VAT phải từ 0 đến 100, tối đa 2 chữ số thập phân.';
+
+/** Thuế suất VAT hiển thị: `8,5%`; chưa khai (khác 0%) thì nói rõ bên bán sẽ tính mặc định. */
+export function formatVatRate(rate?: number | null): string {
+  if (rate === undefined || rate === null) return `Chưa khai (${DEFAULT_SALE_VAT_RATE}%)`;
+  return `${formatCurrencyVn(rate, { maxDecimals: 2 })}%`;
+}
+
+/** Thuế suất VAT hợp lệ: số từ 0 đến 100, tối đa 2 chữ số thập phân (khớp kiểm ở Kho). */
+export function isValidVatRate(rate: number): boolean {
+  return (
+    Number.isFinite(rate) && rate >= 0 && rate <= 100 && Math.abs(Math.round(rate * 100) - rate * 100) < 1e-6
+  );
+}
+
+/**
+ * Đọc ô nhập thuế suất VAT (giá trị chuẩn của `VnNumberInput`, vd. `8.5` khi gõ `8,5`).
+ * Rỗng là chưa khai (`value` undefined); sai thì `invalid`.
+ */
+export function parseVatRateInput(canonical: string): { value?: number; invalid: boolean } {
+  if (canonical.trim() === '') return { invalid: false };
+  const value = Number(canonical);
+  return isValidVatRate(value) ? { value, invalid: false } : { invalid: true };
+}
+
 // ---------------------------------------------------------------------------
 // Xuất / nhập Excel
 // ---------------------------------------------------------------------------

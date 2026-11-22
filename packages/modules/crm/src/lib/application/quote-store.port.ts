@@ -61,8 +61,6 @@ export interface QuoteHead {
   readonly customerId: string;
   readonly customerName: string;
   readonly customerGroupId: string | null;
-  /** Bảng giá khách đã chọn ở hồ sơ (D3-38). */
-  readonly customerPriceListId?: string | null;
   readonly ownerUserId: string;
   readonly status: QuoteStatus;
   readonly currentVersion: number;
@@ -100,6 +98,8 @@ export interface NewQuoteRecord {
    * hội sang giai đoạn Báo giá): store chọn tổ chức mặc định đang bật và chép thông tin của nó.
    */
   readonly organization?: QuoteOrganizationInput;
+  /** Bảng giá đã chọn (đã kiểm còn áp dụng); rỗng thì chọn sau, chưa chọn thì chưa thêm được dòng. */
+  readonly priceListId?: string | null;
 }
 
 /** Tổ chức báo giá trên phiên bản: id (rỗng là không chọn) và thông tin chữ in lên báo giá (rỗng là không có). */
@@ -143,6 +143,8 @@ export interface QuoteVersionWrite {
   readonly validUntil: string | null;
   readonly priceDate: string | null;
   readonly pricedOn: string | null;
+  /** Bảng giá của phiên bản; phiên bản mới chép từ phiên bản trước. */
+  readonly priceListId: string | null;
   readonly note: string | null;
   readonly shipping: QuoteShipping;
   readonly totals: QuoteTotals;
@@ -160,6 +162,8 @@ export interface QuoteVersionRef {
 export interface QuoteSubmission {
   readonly outcome: 'APPROVED' | 'PENDING';
   readonly reasons: readonly QuoteApprovalReason[];
+  /** Ghi chú vào lịch sử khi duyệt thẳng (`APPROVED`); rỗng: "Không vượt ngưỡng duyệt, duyệt thẳng". */
+  readonly approvedNote?: string | null;
   /** Có khi duyệt qua Quy trình: tạo liên kết chờ worker tạo phiên. */
   readonly procedure: { readonly definitionId: string; readonly title: string } | null;
   /** Sự kiện báo cần duyệt (khi `PENDING`). */

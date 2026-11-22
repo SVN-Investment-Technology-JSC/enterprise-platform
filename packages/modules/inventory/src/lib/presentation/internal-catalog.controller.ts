@@ -24,13 +24,26 @@ function list(value: string | undefined): string[] | undefined {
  * Danh mục mặt hàng cho phân hệ khác (T1-24). Route `internal/` đi qua xác thực
  * dịch vụ của guard inventory-api.
  *
- * `GET v1/internal/materials?search=&ids=&codes=&warehouseCode=&kind=&limit=&cursor=`
+ * `GET v1/internal/materials?search=&ids=&codes=&warehouseCode=&kind=&limit=&cursor=&includeInactive=`
  * trả `{ materials, nextCursor }`. Quy trình gọi không tham số và chỉ đọc
  * `code`, `name`, `unit`, `available` như trước.
+ *
+ * Module đăng ký controller này trước `InventoryController` để các route tĩnh
+ * như `internal/materials/fingerprint` không bị `internal/materials/:code` nuốt.
  */
 @Controller('v1')
 export class InternalCatalogController {
   constructor(private readonly app: InventoryApplication) {}
+
+  /**
+   * Dấu vân tay danh mục: `GET v1/internal/materials/fingerprint?kind=STOCK,SERVICE` trả
+   * `{ count, fingerprint }`, tính trên mọi mặt hàng kể cả ngừng dùng. Không truyền
+   * `kind` thì cả hàng hoá và dịch vụ.
+   */
+  @Get('internal/materials/fingerprint')
+  materialsFingerprint(@Req() request: InventoryRequest, @Query('kind') kind?: string) {
+    return this.execute(() => this.app.materialCatalogFingerprint(this.actor(request), list(kind)));
+  }
 
   @Get('internal/materials')
   listMaterials(
@@ -43,6 +56,7 @@ export class InternalCatalogController {
     @Query('limit') limit?: string,
     @Query('cursor') cursor?: string,
     @Query('tradeCategory') tradeCategory?: string,
+    @Query('includeInactive') includeInactive?: string,
   ) {
     return this.execute(() =>
       this.app.listMaterialCatalog(this.actor(request), {
@@ -54,6 +68,7 @@ export class InternalCatalogController {
         // muốn lấy cả dịch vụ thì truyền rõ `kind=STOCK,SERVICE`.
         kinds: (list(kind) ?? DEFAULT_CATALOG_KINDS) as MaterialKind[],
         tradeCategory,
+        includeInactive: includeInactive === 'true',
         limit: limit ? Number(limit) : undefined,
         cursor,
       }),

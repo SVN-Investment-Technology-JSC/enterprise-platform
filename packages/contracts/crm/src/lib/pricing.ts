@@ -2,8 +2,9 @@
  * Bảng giá, chính sách chiết khấu và kết quả tính giá (GĐ3a). Kiểu request,
  * response dùng chung giữa giao diện và API.
  *
- * Quy tắc tính (Q3 trong `docs/crm/plan_crm.md`): giá lấy theo thứ tự giá hợp
- * đồng, bảng giá nhóm khách, bảng giá chuẩn; chiết khấu cộng phần trăm trên giá
+ * Quy tắc tính (Q3 trong `docs/crm/plan_crm.md`, cập nhật ở
+ * `docs/crm_price_list_logic/plan.md`): giá lấy theo thứ tự giá hợp đồng, bảng
+ * giá người dùng chọn ở báo giá hoặc đơn; chiết khấu cộng phần trăm trên giá
  * gốc rồi cắt theo trần tổng; tiền làm tròn đến đồng theo từng dòng, kiểu xa số
  * 0; VAT tính trên thành tiền sau chiết khấu của từng dòng; phí vận chuyển là
  * một dòng dịch vụ có thuế suất riêng.
@@ -32,10 +33,45 @@ export const DISCOUNT_POLICY_RULES_MAX = 100;
 // Bảng giá
 // ---------------------------------------------------------------------------
 
+/**
+ * Loại bảng giá. `DEFAULT`: một bảng, lấy mặt hàng, đơn vị, giá, thuế suất từ Kho, không sửa trong CRM. `DERIVED`: theo tỷ lệ
+ * của bảng mặc định, từng dòng được nhập giá tay. `MANUAL`: bảng cũ nhập tay (không tạo mới được loại này).
+ */
+export const PRICE_LIST_TYPES = ['DEFAULT', 'DERIVED', 'MANUAL'] as const;
+export type PriceListType = (typeof PRICE_LIST_TYPES)[number];
+
+export const PRICE_LIST_TYPE_LABELS: Readonly<Record<PriceListType, string>> = {
+  DEFAULT: 'Mặc định',
+  DERIVED: 'Theo tỷ lệ',
+  MANUAL: 'Tự nhập',
+};
+
+/** Cách có giá của dòng: `SYNCED` lấy từ Kho (bảng mặc định), `RATIO` theo tỷ lệ, `MANUAL` giá tay. */
+export const PRICE_MODES = ['SYNCED', 'RATIO', 'MANUAL'] as const;
+export type PriceMode = (typeof PRICE_MODES)[number];
+
+export const PRICE_MODE_LABELS: Readonly<Record<PriceMode, string>> = {
+  SYNCED: 'Theo Kho',
+  RATIO: 'Theo tỷ lệ',
+  MANUAL: 'Giá tay',
+};
+
+/** Mã, tên của bảng giá mặc định khi đồng bộ lần đầu (trùng mã thì thêm `-1`, `-2`...). */
+export const DEFAULT_PRICE_LIST_CODE = 'BG-MAC-DINH';
+export const DEFAULT_PRICE_LIST_NAME = 'Bảng giá mặc định';
+/** Tỷ lệ giá so với bảng mặc định (%), 2 chữ số thập phân. */
+export const PRICE_LIST_RATIO_MIN = 0.01;
+export const PRICE_LIST_RATIO_MAX = 1000;
+export const PRICE_LIST_RATIO_DEFAULT = 100;
+
 export interface PriceListSummary {
   readonly id: string;
   readonly code: string;
   readonly name: string;
+  readonly listType: PriceListType;
+  /** Chỉ bảng `DERIVED`: tỷ lệ giá so với bảng mặc định (%). */
+  readonly ratioPercent: number | null;
+  /** Bảng chuẩn cũ (trước khi có bảng mặc định); bảng mới luôn `false`. Chỉ để hiển thị. */
   readonly isStandard: boolean;
   readonly currency: 'VND';
   /** `YYYY-MM-DD`, tính trọn ngày theo giờ Việt Nam. */
@@ -45,8 +81,8 @@ export interface PriceListSummary {
   readonly status: PricingStatus;
   readonly note: string | null;
   readonly itemCount: number;
-  /** Số khách hàng đang chọn bảng giá này (D3-38); bảng chuẩn luôn 0 (áp cho mọi khách chưa chọn bảng giá). */
-  readonly customerCount: number;
+  /** Số phiên bản báo giá và đơn bán đang dùng bảng giá này; lớn hơn 0 thì không xoá được. */
+  readonly usageCount: number;
   readonly updatedAt: string;
 }
 
@@ -56,28 +92,38 @@ export interface PriceListItem {
   readonly materialCode: string;
   readonly materialName: string;
   readonly unit: string;
-  readonly price: number;
+  /** Rỗng: "Chưa nhập giá ở Kho" (khác với 0). */
+  readonly price: number | null;
   readonly vatRate: number;
+  readonly priceMode: PriceMode;
+  /** Thuế suất nhập tay ở bảng theo tỷ lệ (giữ khi đồng bộ); bảng mặc định luôn `false` (thuế suất theo Kho). */
+  readonly vatManual: boolean;
+  /** Mặt hàng còn dùng ở Kho (chỉ để hiển thị; ngừng dùng vẫn chọn được khi báo giá). */
+  readonly sourceActive: boolean;
 }
 
 export interface PriceListDetail extends PriceListSummary {
   readonly items: readonly PriceListItem[];
 }
 
+/**
+ * Tạo, sửa bảng giá. Tạo mới luôn là `DERIVED` (cần có bảng mặc định) và sinh mọi dòng theo tỷ lệ; `isStandard` bị bỏ
+ * qua. Sửa bảng `DERIVED` đổi tỷ lệ thì tính lại các dòng theo tỷ lệ, giữ dòng giá tay. Bảng mặc định không sửa được.
+ */
 export interface SavePriceListRequest {
   readonly code: string;
   readonly name: string;
+  /** Bỏ qua (giữ cho bản giao diện cũ). */
   readonly isStandard?: boolean;
+  /** Rỗng khi tạo: 100. Bỏ qua với bảng `MANUAL`. */
+  readonly ratioPercent?: number | null;
   readonly validFrom: string;
   readonly validTo?: string | null;
   readonly status?: PricingStatus;
   readonly note?: string | null;
 }
 
-/**
- * Một dòng giá. Danh mục Kho chưa có API nội bộ (T1-24) nên mã, tên, đơn vị
- * lấy theo người nhập; khi có API thì server ghi đè mã, tên theo danh mục.
- */
+/** Dòng giá của bảng `MANUAL` (thêm, sửa, dán nhiều dòng). Bảng mặc định và bảng theo tỷ lệ không dùng. */
 export interface SavePriceListItemRequest {
   readonly materialId: string;
   readonly materialCode: string;
@@ -85,6 +131,19 @@ export interface SavePriceListItemRequest {
   readonly unit: string;
   readonly price: number;
   readonly vatRate?: number;
+}
+
+/** `PUT price-lists/:id/items/:itemId/manual-price` (bảng `DERIVED`): nhập giá tay. `DELETE` cùng đường: bỏ giá tay. */
+export interface SetManualPriceRequest {
+  readonly price: number;
+}
+
+/**
+ * `PUT price-lists/:id/items/:itemId/vat-rate` (chỉ bảng `DERIVED`): nhập thuế suất tay, giữ khi đồng bộ. `DELETE` cùng
+ * đường: bỏ thuế suất tay, về theo bảng mặc định. Bảng mặc định lấy thuế suất từ Kho, không sửa trong CRM.
+ */
+export interface SetVatRateRequest {
+  readonly vatRate: number;
 }
 
 export interface BulkPriceListItemsRequest {
@@ -181,6 +240,37 @@ export interface SaveDiscountPolicyRequest {
   readonly rules?: readonly DiscountPolicyRule[];
 }
 
+// ---------------------------------------------------------------------------
+// Đồng bộ bảng giá mặc định với Kho
+// ---------------------------------------------------------------------------
+
+export const PRICE_LIST_SYNC_REASONS = ['NO_DEFAULT', 'CATALOG_CHANGED'] as const;
+export type PriceListSyncReason = (typeof PRICE_LIST_SYNC_REASONS)[number];
+
+/** `GET pricing/catalog-sync` (quản trị CRM). Kho lỗi thì `needsSync = false`. */
+export interface PriceListSyncStatus {
+  readonly needsSync: boolean;
+  readonly reason: PriceListSyncReason | null;
+  readonly defaultPriceListId: string | null;
+  readonly lastSyncedAt: string | null;
+}
+
+/** `POST pricing/catalog-sync`: kết quả một lần đồng bộ. */
+export interface PriceListSyncResult {
+  readonly defaultPriceListId: string;
+  /** Dòng của bảng mặc định. */
+  readonly added: number;
+  readonly updated: number;
+  readonly removed: number;
+  /** Mặt hàng Kho chưa có đơn vị tính, không đưa vào bảng giá. */
+  readonly skippedWithoutUnit: number;
+  /** Số bảng theo tỷ lệ đã tính lại. */
+  readonly derivedListsUpdated: number;
+  /** Dòng giá tay ở bảng theo tỷ lệ bị bỏ vì mặt hàng không còn ở Kho. */
+  readonly manualPricesRemoved: number;
+  readonly syncedAt: string;
+}
+
 export interface PricingSettings {
   /** Trần tổng chiết khấu theo chính sách, phần trăm trên giá gốc. */
   readonly discountCapPercent: number;
@@ -195,8 +285,8 @@ export type PriceSource = (typeof PRICE_SOURCES)[number];
 
 export const PRICE_SOURCE_LABELS: Readonly<Record<PriceSource, string>> = {
   CONTRACT: 'Hợp đồng',
-  // Giữ mã cũ cho dữ liệu đã lưu; từ D3-38 là bảng giá chọn ở hồ sơ khách.
-  GROUP_LIST: 'Bảng giá của khách',
+  // Giữ mã cũ cho dữ liệu đã lưu; nay là bảng giá người dùng chọn ở báo giá, đơn.
+  GROUP_LIST: 'Bảng giá',
   STANDARD_LIST: 'Bảng giá chuẩn',
   MANUAL: 'Nhập tay',
 };
@@ -213,15 +303,17 @@ export interface QuotePreviewLine {
   readonly overrideUnitPrice?: number | null;
   /** Ghi đè phần trăm chiết khấu (thay cho chính sách); dòng được đánh dấu `overridden`. */
   readonly overrideDiscountPercent?: number | null;
+  /** Thuế suất sửa tay (%); không tính là ghi đè giá. Mẫu thuế theo tổng đơn thì bỏ qua (thuế dòng là 0). */
+  readonly overrideVatRate?: number | null;
 }
 
 export interface QuotePreviewRequest {
-  /** Khách hàng (phải nằm trong phạm vi dữ liệu); nhóm và bảng giá lấy theo hồ sơ khách. */
+  /** Khách hàng (phải nằm trong phạm vi dữ liệu); nhóm khách lấy theo hồ sơ khách (cho chính sách chiết khấu). */
   readonly customerId?: string | null;
   /** Dùng khi chưa chọn khách, để thử chính sách của một nhóm. */
   readonly customerGroupId?: string | null;
-  /** Dùng khi chưa chọn khách, để thử một bảng giá (không chuẩn); rỗng là bảng giá chuẩn. */
-  readonly priceListId?: string | null;
+  /** Bảng giá, bắt buộc (`PRICE_LIST_REQUIRED`); chọn khách không đổi bảng giá. */
+  readonly priceListId: string | null;
   /** Ngày tính giá `YYYY-MM-DD`; mặc định hôm nay theo giờ Việt Nam. */
   readonly date?: string | null;
   readonly lines: readonly QuotePreviewLine[];
@@ -269,6 +361,8 @@ export interface PricedLine {
   /** Thành tiền sau chiết khấu, trước VAT, làm tròn đến đồng. */
   readonly lineAmount: number;
   readonly vatRate: number;
+  /** Thuế suất của dòng do người dùng sửa tay. */
+  readonly vatOverridden: boolean;
   readonly vatAmount: number;
   readonly lineTotal: number;
 }

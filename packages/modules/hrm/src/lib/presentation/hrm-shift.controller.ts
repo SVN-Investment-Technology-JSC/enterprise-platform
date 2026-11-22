@@ -30,6 +30,10 @@ import { ruleTableExists } from '../infrastructure/hrm-work-schedule-resolve.js'
 import { requireText, requireUuid } from '../infrastructure/hrm-validation.js';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 
+/** Mặc định khớp cột `check_in_before_minutes` / `check_out_after_minutes` (migration 0003). */
+const DEFAULT_CHECK_IN_BEFORE_MINUTES = 120;
+const DEFAULT_CHECK_OUT_AFTER_MINUTES = 240;
+
 @Controller('v1')
 export class HrmShiftController {
   constructor(private readonly ctx: HrmContextService) {}
@@ -80,8 +84,9 @@ export class HrmShiftController {
       const created = await db.query(
         `INSERT INTO hrm_schema.shift_definitions (
         tenant_id, code, name, start_time, end_time, break_minutes, cross_midnight,
-        grace_late_minutes, grace_early_minutes, status, break_start_time, break_end_time
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        grace_late_minutes, grace_early_minutes, status, break_start_time, break_end_time,
+        check_in_before_minutes, check_out_after_minutes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       RETURNING *`,
         [
           tenantId,
@@ -96,6 +101,8 @@ export class HrmShiftController {
           body.status || 'ACTIVE',
           body.breakStartTime || null,
           body.breakEndTime || null,
+          body.checkInBeforeMinutes ?? DEFAULT_CHECK_IN_BEFORE_MINUTES,
+          body.checkOutAfterMinutes ?? DEFAULT_CHECK_OUT_AFTER_MINUTES,
         ],
       );
       await lifecycleAudit(db, tenantId, principal.userId, 'SHIFT_CREATED', created.rows[0].id, {
@@ -231,6 +238,8 @@ export class HrmShiftController {
         grace_early_minutes = COALESCE($9, grace_early_minutes),
         status = COALESCE($10, status),
         break_start_time = $11, break_end_time = $12,
+        check_in_before_minutes = COALESCE($13, check_in_before_minutes),
+        check_out_after_minutes = COALESCE($14, check_out_after_minutes),
         updated_at = GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
       WHERE tenant_id = $1 AND id = $2
       RETURNING *`,
@@ -247,6 +256,8 @@ export class HrmShiftController {
           body.status,
           merged.breakStartTime || null,
           merged.breakEndTime || null,
+          body.checkInBeforeMinutes,
+          body.checkOutAfterMinutes,
         ],
       );
     });
@@ -380,6 +391,15 @@ export class HrmShiftController {
     ])
       if (!Number.isInteger(n) || n < 0 || n >= end - start)
         throw new BadRequestException('Số phút cấu hình không hợp lệ');
+    // Khung chấm công: 0 đến 24 giờ mỗi phía. Không ràng buộc với độ dài ca vì khung nằm ngoài giờ ca.
+    for (const n of [
+      body.checkInBeforeMinutes ?? DEFAULT_CHECK_IN_BEFORE_MINUTES,
+      body.checkOutAfterMinutes ?? DEFAULT_CHECK_OUT_AFTER_MINUTES,
+    ])
+      if (!Number.isInteger(n) || n < 0 || n > 1440)
+        throw new BadRequestException(
+          'Khung chấm công trước/sau ca phải là số phút nguyên từ 0 đến 1440',
+        );
     if (body.breakMinutes) {
       if (!body.breakStartTime || !body.breakEndTime)
         throw new BadRequestException(
@@ -411,6 +431,8 @@ export class HrmShiftController {
       crossMidnight: Boolean(row.cross_midnight),
       graceLateMinutes: row.grace_late_minutes as number,
       graceEarlyMinutes: row.grace_early_minutes as number,
+      checkInBeforeMinutes: row.check_in_before_minutes as number,
+      checkOutAfterMinutes: row.check_out_after_minutes as number,
       status: row.status as any,
       deletedAt: row.deleted_at ? timestamp(row.deleted_at) : null,
       createdAt: timestamp(row.created_at),

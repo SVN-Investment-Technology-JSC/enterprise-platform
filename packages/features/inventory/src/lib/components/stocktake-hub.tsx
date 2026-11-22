@@ -62,14 +62,12 @@ function formatDateTime(value?: string): string {
 export interface StocktakeHubProps {
   workspace: InventoryWorkspace;
   busy?: boolean;
-  onSubmitMovement: (input: any) => Promise<void>;
   onNotice?: (msg: string) => void;
 }
 
 export function StocktakeHub({
   workspace,
   busy = false,
-  onSubmitMovement,
   onNotice,
 }: StocktakeHubProps) {
   const [sessions, setSessions] = useState<StocktakeSession[]>([]);
@@ -89,7 +87,7 @@ export function StocktakeHub({
 
   // Modals & Drawers
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
-  const { canManage } = useInventoryPermissions();
+  const { canCreateStocktake, canApproveStocktake } = useInventoryPermissions();
   const [drawerLine, setDrawerLine] = useState<StocktakeLine | null>(null);
   const [auditLine, setAuditLine] = useState<StocktakeLine | null>(null);
 
@@ -140,7 +138,7 @@ export function StocktakeHub({
   );
 
   const isReadOnly =
-    !canManage ||
+    !canCreateStocktake ||
     !selectedSession ||
     selectedSession.status === 'POSTED' ||
     selectedSession.status === 'CANCELLED' ||
@@ -291,17 +289,33 @@ export function StocktakeHub({
   // Duyệt và ghi sổ
   const handleApproveAndPost = async () => {
     if (!selectedSessionId) return;
-    const updated = await approveAndPostStocktake(selectedSessionId, 'Trưởng phòng Kho vận', onSubmitMovement);
-    setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (onNotice) onNotice(`Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Các bút toán cân kho đã được tự động sinh.`);
+    try {
+      // Server duyệt rồi tạo chứng từ điều chỉnh (nguồn kiểm kê) trong một transaction.
+      const updated = await approveAndPostStocktake(selectedSessionId);
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setLines(await loadStocktakeLines(selectedSessionId, workspace));
+      if (onNotice) {
+        onNotice(
+          updated.documentCode
+            ? `Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Chứng từ điều chỉnh ${updated.documentCode} đã ghi sổ.`
+            : `Đã duyệt & ghi sổ đợt kiểm kê ${updated.code}. Không có chênh lệch nên không cần điều chỉnh tồn.`,
+        );
+      }
+    } catch (err) {
+      alert('Không thể duyệt và ghi sổ: ' + (err instanceof Error ? err.message : 'Lỗi'));
+    }
   };
 
   // Hủy đợt
   const handleCancelSession = async () => {
     if (!selectedSessionId) return;
-    const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
-    setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
+    try {
+      const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
+    } catch (err) {
+      alert('Không thể hủy đợt kiểm kê: ' + (err instanceof Error ? err.message : 'Lỗi'));
+    }
   };
 
   // Xuất file mẫu Excel kiểm kê
@@ -427,7 +441,7 @@ export function StocktakeHub({
             <Button
               type="button"
               onClick={() => setOpenCreateDialog(true)}
-              disabled={!canManage}
+              disabled={!canCreateStocktake}
               className="font-bold"
             >
               <Plus size={15} /> Tạo đợt
@@ -550,7 +564,7 @@ export function StocktakeHub({
               {/* Action Toolbar buttons */}
               <div className="flex flex-wrap items-center gap-2">
                 {/* 1. Nút bắt đầu đếm nếu DRAFT */}
-                {canManage && selectedSession.status === 'DRAFT' ? (
+                {canCreateStocktake && selectedSession.status === 'DRAFT' ? (
                   <Button type="button" onClick={handleStartCounting} className="font-bold">
                     <Sparkles size={14} /> Chốt snapshot &amp; Bắt đầu đếm
                   </Button>
@@ -591,7 +605,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 5. Gửi duyệt (khi đang COUNTING) */}
-                {canManage && selectedSession.status === 'COUNTING' ? (
+                {canCreateStocktake && selectedSession.status === 'COUNTING' ? (
                   <Button
                     type="button"
                     onClick={handleSubmitApproval}
@@ -602,7 +616,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 6. Phê duyệt & Ghi sổ (khi PENDING_APPROVAL) */}
-                {canManage && selectedSession.status === 'PENDING_APPROVAL' ? (
+                {canApproveStocktake && selectedSession.status === 'PENDING_APPROVAL' ? (
                   <>
                     <Button
                       type="button"
@@ -630,7 +644,7 @@ export function StocktakeHub({
                 ) : null}
 
                 {/* 7. Hủy đợt nếu chưa POSTED */}
-                {canManage && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
+                {canCreateStocktake && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
                   <Popconfirm
                     title="Hủy đợt kiểm kê này?"
                     description="Hành động này sẽ hủy tiến độ kiểm kê hiện tại và lưu vào lịch sử hủy."
@@ -913,7 +927,7 @@ export function StocktakeHub({
       </div>
 
       {/* Popup Form Tạo đợt kiểm kê mới */}
-      {openCreateDialog && canManage ? (
+      {openCreateDialog && canCreateStocktake ? (
         <CreateStocktakeDialog
           workspace={workspace}
           busy={busy}

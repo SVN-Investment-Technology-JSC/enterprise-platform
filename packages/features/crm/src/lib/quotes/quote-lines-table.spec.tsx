@@ -243,4 +243,37 @@ describe('QuoteLinesTable (P3C4-04)', () => {
     setup({ costHidden: true });
     expect(within(row(1)).getAllByRole('cell')).toHaveLength(shown - 2);
   });
+
+  it('C4.2: chưa chọn bảng giá thì nút + khoá, menu không có Thêm, Chèn, có dòng nhắc', () => {
+    const { onAdd } = setup({ addBlockedText: 'Chọn bảng giá trước' });
+    const add = screen.getByRole('button', { name: 'Thêm dòng hàng' }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+    expect(screen.getByRole('note').textContent).toBe('Chọn bảng giá trước');
+    fireEvent.contextMenu(row(1));
+    expect(menuItems()).toEqual(['Hiệu chỉnh', 'Xoá']);
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it('C4.13: cột nguồn giá ghi "Bảng giá <mã>", "Hợp đồng <mã>", "Nhập tay"', () => {
+    cleanup();
+    render(
+      <QuoteLinesTable
+        title="Dòng hàng"
+        editable={false}
+        lines={[
+          fixtureLine({ id: 'p1', lineNo: 1, priceSource: 'GROUP_LIST', priceReferenceCode: 'BG-105' }),
+          fixtureLine({ id: 'p2', lineNo: 2, priceSource: 'CONTRACT', priceReferenceCode: 'HĐ-01' }),
+          fixtureLine({ id: 'p3', lineNo: 3, priceSource: 'MANUAL', priceReferenceCode: null }),
+        ]}
+        onAdd={jest.fn()}
+        onInsert={jest.fn()}
+        onEdit={jest.fn()}
+        onView={jest.fn()}
+        onRemove={jest.fn()}
+      />,
+    );
+    expect(row(1).textContent).toContain('Bảng giá BG-105');
+    expect(row(2).textContent).toContain('Hợp đồng HĐ-01');
+    expect(row(3).textContent).toContain('Nhập tay');
+  });
 });

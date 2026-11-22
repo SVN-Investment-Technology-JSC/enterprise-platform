@@ -34,6 +34,15 @@ function requiredInventoryPermission(request: Request): string | undefined {
     return 'inventory.document.approve';
   }
 
+  // Kiểm kê kho: duyệt, trả về đếm lại, ghi sổ cân kho là quyền của người duyệt;
+  // lập đợt, ghi số đếm, gửi duyệt, huỷ là quyền của người kiểm kê.
+  if (/\/stocktakes\/[^/]+\/(approve|reject|post)\/?$/.test(path)) {
+    return 'inventory.stocktake.approve';
+  }
+  if (path.includes('/stocktakes')) {
+    return 'inventory.stocktake.create';
+  }
+
   // Phát sinh tồn kho: nhập, xuất, chuyển kho, giữ chỗ vật tư, chứng từ kho.
   if (
     path.includes('/stock-documents') ||
@@ -93,7 +102,11 @@ export class InventoryAccessGuard implements CanActivate {
               ? 'Bạn không có quyền duyệt chứng từ kho.'
               : required === 'inventory.quality.write'
                 ? 'Bạn không có quyền đổi trạng thái chất lượng hàng.'
-                : 'Bạn không có quyền sửa danh mục kho.',
+                : required === 'inventory.stocktake.create'
+                  ? 'Bạn không có quyền lập và kiểm đếm đợt kiểm kê.'
+                  : required === 'inventory.stocktake.approve'
+                    ? 'Bạn không có quyền duyệt và ghi sổ kiểm kê kho.'
+                    : 'Bạn không có quyền sửa danh mục kho.',
       });
     }
 
@@ -106,6 +119,8 @@ export class InventoryAccessGuard implements CanActivate {
       canWriteTransactions: tenantActionHeld(held, 'inventory.transaction.write'),
       canApproveDocuments: tenantActionHeld(held, 'inventory.document.approve'),
       canWriteQuality: tenantActionHeld(held, 'inventory.quality.write'),
+      canCreateStocktake: tenantActionHeld(held, 'inventory.stocktake.create'),
+      canApproveStocktake: tenantActionHeld(held, 'inventory.stocktake.approve'),
     };
     return true;
   }
@@ -129,6 +144,9 @@ export class InventoryAccessGuard implements CanActivate {
       canApproveDocuments: false,
       // Đổi chất lượng cần người kiểm định thật, có lý do và người chịu trách nhiệm.
       canWriteQuality: false,
+      // Kiểm kê là việc của người kho: dịch vụ không lập, duyệt hay ghi sổ cân kho.
+      canCreateStocktake: false,
+      canApproveStocktake: false,
     };
     return true;
   }

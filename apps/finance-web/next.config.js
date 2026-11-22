@@ -26,6 +26,7 @@ const nextConfig = {
     // Chạy cục bộ không qua gateway: web tự chuyển tiếp API sang dịch vụ tương ứng.
     return [
       { source: '/api/auth/:path*', destination: `${apiBaseUrl}/api/auth/:path*`, basePath: false },
+      { source: '/api/platform/:path*', destination: `${apiBaseUrl}/api/platform/:path*`, basePath: false },
       { source: '/api/finance/:path*', destination: `${financeApiBaseUrl}/api/finance/:path*`, basePath: false },
     ];
   },

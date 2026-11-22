@@ -19,7 +19,6 @@ import {
   type ReserveStockRequest,
   type ReservedStock,
 } from './application/fulfillment.port.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import type { ProcedureClient } from './application/quote-store.port.js';
 import { QuoteConversionService } from './application/quote-conversion.service.js';
@@ -27,15 +26,15 @@ import { QuoteService } from './application/quote.service.js';
 import { SalesOrderService } from './application/sales-order.service.js';
 import { vietnamToday } from './application/pricing.service.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { CrmError } from './domain/crm.error.js';
 import { PostgresIntegrationRequests } from './infrastructure/integration-requests.js';
 import { applyReservationExpired, applyReservationReleased, applyStockIssued } from './infrastructure/inventory-events.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresContractStore, PostgresSalesSettingsStore } from './infrastructure/postgres-contract.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
-import { PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
+import { PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteConversionStore } from './infrastructure/postgres-quote-conversion.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
 import { PostgresQuoteStore } from './infrastructure/postgres-quote.store.js';
@@ -135,7 +134,6 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     ...extra,
   });
   const nv = actor(NV);
-  const admin = actor(randomUUID(), { canManage: true, canReadAll: true });
   const today = vietnamToday(new Date());
   const addDays = (days: number) => {
     const value = new Date(`${today}T00:00:00Z`);
@@ -151,6 +149,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
   let orderStore: PostgresSalesOrderStore;
   let timeline: CustomerTimelineService;
   let customerId: string;
+  let priceListId: string;
 
   beforeAll(async () => {
     handle = await createCrmTestDatabase();
@@ -191,9 +190,9 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     timeline = new CustomerTimelineService(new PostgresTimelineStore(handle.database), customerStore, scopes);
     void noProcedure;
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [
         { materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 },
         { materialId: BT, materialCode: 'QA-KHO-BT', materialName: 'Gói bảo trì', unit: 'Gói', price: 500_000, vatRate: 10 },
@@ -217,7 +216,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
 
   /** Báo giá đã khách chấp nhận: 10 cáp + 2 gói dịch vụ. */
   async function acceptedQuote() {
-    const created = await quotes.create(nv, { customerId });
+    const created = await quotes.create(nv, { customerId, priceListId });
     let detail = await quotes.addLine(nv, created.id, 1, { revision: created.version.revision, materialId: CAP, quantity: 10 });
     detail = await quotes.addLine(nv, created.id, 1, { revision: detail.version.revision, materialId: BT, quantity: 2 });
     detail = await quotes.submit(nv, created.id, 1, { revision: detail.version.revision });
@@ -229,6 +228,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
   async function directOrder(quantity: number, warehouse = 'KHO-1', withService = false) {
     return orders.create(nv, {
       customerId,
+      priceListId,
       warehouseCode: warehouse,
       lines: [{ materialId: CAP, quantity }, ...(withService ? [{ materialId: BT, quantity: 1 }] : [])],
     });
@@ -247,7 +247,8 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     expect(again).toMatchObject({ created: false, contractId: first.contractId });
 
     const order = await orders.get(nv, first.orderId);
-    expect(order).toMatchObject({ source: 'QUOTE', status: 'DRAFT', contractId: first.contractId, quoteId: quote.id });
+    // Đơn từ báo giá lấy bảng giá của phiên bản báo giá.
+    expect(order).toMatchObject({ source: 'QUOTE', status: 'DRAFT', contractId: first.contractId, quoteId: quote.id, priceListId, priceListCode: 'BG-CHUAN' });
     expect(order.lines.map((line) => [line.materialCode, line.quantity, line.unitPrice, line.discountPercent, line.vatRate, line.lineTotal])).toEqual(
       quote.version.lines.map((line) => [line.materialCode, line.quantity, line.unitPrice, line.discountPercent, line.vatRate, line.lineTotal]),
     );
@@ -273,6 +274,58 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     // TC-CUS-10 (phần GĐ4): dòng thời gian khách có báo giá, hợp đồng, đơn.
     const kinds = new Set((await timeline.list(nv, customerId, {})).items.map((entry) => entry.kind));
     expect(kinds).toEqual(new Set(['quote', 'contract', 'order']));
+  });
+
+  it('thuế suất sửa tay: lưu ở dòng báo giá, sang phiên bản mới, sang đơn từ báo giá; đơn trực tiếp lưu và đọc lại', async () => {
+    const created = await quotes.create(nv, { customerId, priceListId });
+    let detail = await quotes.addLine(nv, created.id, 1, {
+      revision: created.version.revision,
+      materialId: CAP,
+      quantity: 2,
+      overrideVatRate: 5,
+    });
+    detail = await quotes.addLine(nv, created.id, 1, { revision: detail.version.revision, materialId: BT, quantity: 1 });
+    expect(detail.version.lines.map((line) => [line.overrideVatRate, line.vatRate, line.overridden, line.vatAmount])).toEqual([
+      [5, 5, false, 100_000],
+      [null, 10, false, 50_000],
+    ]);
+    detail = await quotes.submit(nv, created.id, 1, { revision: detail.version.revision });
+    expect(detail.version.status).toBe('APPROVED');
+    const v2 = await quotes.revise(nv, created.id, 1, { revision: detail.version.revision });
+    expect(v2.version.versionNo).toBe(2);
+    expect(v2.version.lines[0]).toMatchObject({ overrideVatRate: 5, vatRate: 5 });
+    detail = await quotes.updateLine(nv, created.id, 2, v2.version.lines[0].id, {
+      revision: v2.version.revision,
+      materialId: CAP,
+      quantity: 2,
+      overrideVatRate: 8,
+    });
+    expect(detail.version.lines[0]).toMatchObject({ overrideVatRate: 8, vatRate: 8, vatAmount: 160_000 });
+    detail = await quotes.submit(nv, created.id, 2, { revision: detail.version.revision });
+    detail = await quotes.send(nv, created.id, 2, { revision: detail.version.revision });
+    const accepted = await quotes.accept(nv, created.id, 2, { revision: detail.version.revision });
+    const result = await conversion.convert(nv, accepted.id);
+    const order = await orders.get(nv, result.orderId);
+    // Đơn từ báo giá giữ thuế suất của báo giá.
+    expect(order.lines.map((line) => [line.materialCode, line.overrideVatRate, line.vatRate, line.vatAmount])).toEqual([
+      ['QA-KHO-CAP', 8, 8, 160_000],
+      ['QA-KHO-BT', null, 10, 50_000],
+    ]);
+    expect(order.totals.vatAmount).toBe(accepted.version.totals.vatAmount);
+
+    const direct = await orders.create(nv, {
+      customerId,
+      priceListId,
+      lines: [{ materialId: CAP, quantity: 1, overrideVatRate: 0 }, { materialId: BT, quantity: 1 }],
+    });
+    expect(direct.lines.map((line) => [line.overrideVatRate, line.vatRate, line.vatAmount])).toEqual([
+      [0, 0, 0],
+      [null, 10, 50_000],
+    ]);
+    expect((await orders.get(nv, direct.id)).totals.vatAmount).toBe(50_000);
+    await expect(
+      orders.create(nv, { customerId, priceListId, lines: [{ materialId: CAP, quantity: 1, overrideVatRate: 120 }] }),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('TC-QUO-12: báo giá chưa khách chấp nhận không chuyển được', async () => {
@@ -543,12 +596,12 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     });
     const active = await contracts.confirm(nv, frame.id, { revision: frame.revision });
     for (let index = 0; index < 2; index += 1) {
-      const order = await orders.create(nv, { contractId: frame.id, lines: [{ materialId: CAP, quantity: 3 }] });
+      const order = await orders.create(nv, { contractId: frame.id, priceListId, lines: [{ materialId: CAP, quantity: 3 }] });
       expect(order).toMatchObject({ source: 'CONTRACT', contractId: frame.id, contractCode: frame.code });
       expect(order.lines[0]).toMatchObject({ priceSource: 'CONTRACT', listPrice: 900_000, unitPrice: 900_000, priceReferenceCode: frame.code });
     }
     // Báo giá của cùng khách cũng lấy giá khung (khung đang hiệu lực).
-    const quote = await quotes.create(nv, { customerId });
+    const quote = await quotes.create(nv, { customerId, priceListId });
     const priced = await quotes.addLine(nv, quote.id, 1, { revision: quote.version.revision, materialId: CAP, quantity: 1 });
     expect(priced.version.lines[0]).toMatchObject({ priceSource: 'CONTRACT', listPrice: 900_000 });
 
@@ -573,7 +626,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
     const active = await contracts.confirm(nv, draft.id, { revision: draft.revision });
     const reservation = active.reservation;
     expect(reservation).toMatchObject({ status: 'HELD' });
-    let order = await orders.create(nv, { contractId: draft.id, lines: [{ materialId: CAP, quantity: 10 }] });
+    let order = await orders.create(nv, { contractId: draft.id, priceListId, lines: [{ materialId: CAP, quantity: 10 }] });
     order = await orders.confirm(nv, order.id, { revision: order.revision });
     expect(order.lines[0]).toMatchObject({ reservationSource: 'CONTRACT', reservationId: reservation?.reservationId });
     order = await orders.saveDelivery(nv, order.id, null, { revision: order.revision, plannedDate: addDays(1), lines: [{ orderLineId: order.lines[0].id, quantity: 4 }] });
@@ -633,7 +686,7 @@ integration('Bán hàng GĐ4: hợp đồng, đơn bán, giao hàng (PostgreSQL)
       lines: [{ materialId: CAP, quantity: 2, unitPrice: 900_000 }],
     });
     const otherActive = await contracts.confirm(nv, other.id, { revision: other.revision });
-    let otherOrder = await orders.create(nv, { contractId: other.id, lines: [{ materialId: CAP, quantity: 2 }] });
+    let otherOrder = await orders.create(nv, { contractId: other.id, priceListId, lines: [{ materialId: CAP, quantity: 2 }] });
     otherOrder = await orders.confirm(nv, otherOrder.id, { revision: otherOrder.revision });
     const released = { reservationCode: otherActive.reservation?.reservationCode, sourceType: 'crm_contract', sourceId: other.id, actorUserId: TK };
     expect(await applyReservationReleased(handle.database, tenantId, released)).toBe('applied');

@@ -20,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from './dialog';
+import { useCloseGuard } from './use-close-guard';
 
 const MAX_ITEMS = 200;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -257,12 +258,24 @@ export function BulkInitializeEmployeesDialog({
     }
   };
 
+  // Giá trị mặc định mỗi lần mở: tiền tố NV, bắt đầu 1, rộng 3, trạng thái Chính thức, chọn hết mọi người.
+  const dirty =
+    open &&
+    (prefix !== 'NV' ||
+      startText !== '1' ||
+      widthText !== '3' ||
+      joinDate !== '' ||
+      status !== 'OFFICIAL' ||
+      Object.keys(manualCodes).length > 0 ||
+      Object.keys(rowDates).length > 0 ||
+      (people.length > 0 && selected.size !== people.length));
+  const guard = useCloseGuard({ dirty, busy: saving, onClose });
+
   return (
     <Dialog
       open={open}
-      onOpenChange={(value) => {
-        if (!value && !saving) onClose();
-      }}
+      disablePointerDismissal
+      onOpenChange={(value) => (value ? undefined : guard.requestClose())}
     >
       <DialogContent className="sm:max-w-[960px] max-h-[90vh] p-0 flex flex-col overflow-hidden bg-white shadow-2xl rounded-xl">
         <DialogHeader className="shrink-0 p-5 border-b border-slate-200 bg-slate-50/80 flex flex-row items-start gap-3">
@@ -535,7 +548,7 @@ export function BulkInitializeEmployeesDialog({
               type="button"
               variant="outline"
               disabled={saving}
-              onClick={onClose}
+              onClick={guard.requestClose}
               className="text-xs h-8"
             >
               Hủy bỏ
@@ -553,6 +566,7 @@ export function BulkInitializeEmployeesDialog({
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

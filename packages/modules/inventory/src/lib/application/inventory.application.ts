@@ -21,6 +21,7 @@ import type {
   ImportMaterialsRequest,
   ImportMaterialsResult,
   CreateStockReservationRequest,
+  InternalMaterialCatalogFingerprint,
   InternalMaterialCatalogPage,
   InternalMaterialCatalogQuery,
   InternalWarehouseCatalogPage,
@@ -121,6 +122,16 @@ export interface InventoryActor {
    * trống = suy theo `canManage`.
    */
   readonly canWriteQuality?: boolean;
+  /**
+   * Lập đợt kiểm kê, ghi số đếm, gửi duyệt, huỷ (`inventory.stocktake.create`).
+   * Bỏ trống = suy theo `canManage`.
+   */
+  readonly canCreateStocktake?: boolean;
+  /**
+   * Duyệt, trả về đếm lại và ghi sổ cân kho (`inventory.stocktake.approve`).
+   * Bỏ trống = suy theo `canManage`.
+   */
+  readonly canApproveStocktake?: boolean;
 }
 
 @Injectable()
@@ -235,6 +246,18 @@ export class InventoryApplication {
     }
     const page = rows.slice(0, normalized.limit);
     return { materials: page, nextCursor: page[page.length - 1].code };
+  }
+
+  /**
+   * Dấu vân tay danh mục cho đồng bộ bảng giá của Bán hàng: tính trên mọi mặt hàng
+   * (kể cả ngừng dùng) của các nhóm `kinds`; không truyền thì cả hàng hoá và dịch vụ.
+   */
+  async materialCatalogFingerprint(
+    actor: InventoryActor,
+    kinds?: readonly string[],
+  ): Promise<InternalMaterialCatalogFingerprint> {
+    const normalized = [...new Set((kinds ?? []).map((kind) => requireMaterialKind(kind) as MaterialKind))];
+    return this.store.material.catalogFingerprint(actor.tenantId, normalized.length ? normalized : ['STOCK', 'SERVICE']);
   }
 
   /** Phân loại đang dùng trên mặt hàng (lọc khi chọn mặt hàng ở phân hệ khác); mặc định cả hàng hoá và dịch vụ. */
@@ -1759,6 +1782,7 @@ function requireTradeFields(input: {
   tradeMode?: unknown;
   tradeCategory?: unknown;
   salePrice?: unknown;
+  vatRate?: unknown;
   description?: unknown;
 }): void {
   requireTradeLabel(input.tradeMode, 'Cách sử dụng không hợp lệ.');
@@ -1770,6 +1794,21 @@ function requireTradeFields(input: {
   const price = input.salePrice;
   if (price != null && (typeof price !== 'number' || !Number.isFinite(price) || price < 0)) {
     throw new InventoryError('VALIDATION', 'Giá bán phải là số không âm.');
+  }
+  requireVatRate(input.vatRate);
+}
+
+/** Thuế suất VAT bán ra: rỗng là chưa khai, có thì từ 0 đến 100, tối đa 2 chữ số thập phân (cột NUMERIC(5,2)). */
+function requireVatRate(value: unknown): void {
+  if (value == null) return;
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 100 ||
+    Math.abs(Math.round(value * 100) - value * 100) > 1e-6
+  ) {
+    throw new InventoryError('VALIDATION', 'Thuế suất VAT phải từ 0 đến 100, tối đa 2 chữ số thập phân.');
   }
 }
 
@@ -1806,6 +1845,7 @@ function importPatch(row: ImportMaterialRow): UpdateMaterialRequest {
     tradeCategory: row.tradeCategory?.trim() || undefined,
     tradeMode: row.tradeMode?.trim() || undefined,
     salePrice: row.salePrice,
+    vatRate: row.vatRate ?? undefined,
     purchasePrice: row.purchasePrice,
     currency: row.currency?.trim() || undefined,
     description: row.description?.trim() || undefined,
@@ -1843,6 +1883,7 @@ function normalizeCatalogQuery(query: InternalMaterialCatalogQuery): InternalMat
     warehouseCode: query.warehouseCode?.trim() || undefined,
     kinds: kinds.length ? kinds : undefined,
     tradeCategory: query.tradeCategory?.trim().slice(0, 100) || undefined,
+    includeInactive: query.includeInactive === true || undefined,
     limit,
     cursor: query.cursor?.trim() || undefined,
   };

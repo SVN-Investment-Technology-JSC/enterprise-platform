@@ -6,6 +6,7 @@ import {
 } from '@enterprise-platform/adapter-database';
 import type {
   BrandIconStatus,
+  BrandSvgMode,
   IconCategory,
 } from '@enterprise-platform/shared-brand-icon';
 import {
@@ -15,11 +16,19 @@ import {
 import type {
   BrandStore,
   BrandTransaction,
+  CustomSlotInput,
+  CustomSlotRow,
   IconRow,
   IconStateInput,
   NewIconInput,
   NewVersionInput,
+  PublishedSlotEntry,
   SavedHeadInput,
+  SlotGroupInput,
+  SlotGroupRow,
+  SlotOverrideRow,
+  SlotOverrideValues,
+  SlotRow,
   StandardsRow,
   StandardsUpdateInput,
   VersionRow,
@@ -64,12 +73,40 @@ interface StandardsDbRow {
   updated_at: Date;
 }
 
+interface SlotDbRow {
+  slot: string;
+  icon_id: string;
+  icon_name: string;
+  icon_slug: string;
+  icon_status: BrandIconStatus;
+  published_version: number | null;
+  current_version: number;
+  updated_by: string | null;
+  updated_at: Date;
+}
+
+interface PublishedSlotDbRow {
+  slot: string;
+  icon_id: string;
+  icon_slug: string;
+  published_version: number;
+  spec_key: string;
+  svg_key: string;
+  mono_svg_key: string;
+  spec_sha256: string;
+  standards_version: number;
+}
+
 const ICON_COLUMNS =
   'id, slug, name, category, status, tags, current_version, published_version, created_by, created_at, updated_at';
 const VERSION_COLUMNS =
   'icon_id, version, spec_key, svg_key, mono_svg_key, spec_sha256, size_bytes, standards_version, note, created_by, created_at';
 const STANDARDS_COLUMNS =
   'current_version, spec_key, spec_sha256, size_bytes, updated_by, updated_at';
+const SLOT_SELECT = `SELECT s.slot, s.icon_id, i.name AS icon_name, i.slug AS icon_slug,
+         i.status AS icon_status, i.published_version, i.current_version, s.updated_by, s.updated_at
+    FROM brand_schema.icon_slots s
+    JOIN brand_schema.icons i ON i.id = s.icon_id`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -111,6 +148,97 @@ const toStandards = (row: StandardsDbRow): StandardsRow => ({
   updatedAt: iso(row.updated_at),
 });
 
+const toSlot = (row: SlotDbRow): SlotRow => ({
+  slot: row.slot,
+  iconId: row.icon_id,
+  iconName: row.icon_name,
+  iconSlug: row.icon_slug,
+  iconStatus: row.icon_status,
+  publishedVersion: row.published_version,
+  currentVersion: row.current_version,
+  updatedBy: row.updated_by,
+  updatedAt: iso(row.updated_at),
+});
+
+const toPublishedSlot = (row: PublishedSlotDbRow): PublishedSlotEntry => ({
+  slot: row.slot,
+  iconId: row.icon_id,
+  iconSlug: row.icon_slug,
+  publishedVersion: row.published_version,
+  specKey: row.spec_key,
+  svgKey: row.svg_key,
+  monoSvgKey: row.mono_svg_key,
+  specSha256: row.spec_sha256,
+  standardsVersion: row.standards_version,
+});
+
+interface CustomSlotDbRow {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly group_key: string;
+  readonly color_mode: BrandSvgMode;
+  readonly recommended_size: number;
+  readonly created_by: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+const toCustomSlot = (row: CustomSlotDbRow): CustomSlotRow => ({
+  id: row.id,
+  label: row.label,
+  description: row.description,
+  groupKey: row.group_key,
+  colorMode: row.color_mode,
+  recommendedSize: row.recommended_size,
+  createdBy: row.created_by,
+  createdAt: iso(row.created_at)!,
+  updatedAt: iso(row.updated_at)!,
+});
+
+interface SlotGroupDbRow {
+  readonly key: string;
+  readonly label: string;
+  readonly created_by: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+const toSlotGroup = (row: SlotGroupDbRow): SlotGroupRow => ({
+  key: row.key,
+  label: row.label,
+  createdBy: row.created_by,
+  createdAt: iso(row.created_at)!,
+  updatedAt: iso(row.updated_at)!,
+});
+
+interface SlotOverrideDbRow {
+  readonly slot_id: string;
+  readonly label: string | null;
+  readonly description: string | null;
+  readonly group_key: string | null;
+  readonly color_mode: BrandSvgMode | null;
+  readonly recommended_size: number | null;
+  readonly updated_by: string | null;
+  readonly updated_at: Date;
+}
+
+const toSlotOverride = (row: SlotOverrideDbRow): SlotOverrideRow => ({
+  slotId: row.slot_id,
+  label: row.label,
+  description: row.description,
+  groupKey: row.group_key,
+  colorMode: row.color_mode,
+  recommendedSize: row.recommended_size,
+  updatedBy: row.updated_by,
+  updatedAt: iso(row.updated_at)!,
+});
+
+const SLOT_OVERRIDE_COLUMNS =
+  'slot_id, label, description, group_key, color_mode, recommended_size, updated_by, updated_at';
+
+const SLOT_GROUP_COLUMNS = 'key, label, created_by, created_at, updated_at';
+
 const NO_STANDARDS: StandardsRow = {
   currentVersion: 0,
   specKey: null,
@@ -128,6 +256,8 @@ function translate(error: unknown): unknown {
   };
   if (code === '23505') {
     if (constraint === 'icons_pkey') return new BrandStoreConflictError('id');
+    if (constraint === 'slot_groups_pkey')
+      return new BrandStoreConflictError('key');
     if (constraint === 'icons_slug_key')
       return new BrandStoreConflictError('slug');
     return new BrandStoreConflictError('version');
@@ -171,7 +301,7 @@ class PgBrandTransaction implements BrandTransaction {
 
   async countIcons(): Promise<number> {
     const result = await this.client.query<{ total: number }>(
-      'SELECT count(*)::int AS total FROM brand_schema.icons',
+      "SELECT count(*)::int AS total FROM brand_schema.icons WHERE status <> 'archived'",
     );
     return result.rows[0]?.total ?? 0;
   }
@@ -276,6 +406,12 @@ class PgBrandTransaction implements BrandTransaction {
     return toIcon(result.rows[0]);
   }
 
+  async deleteIcon(id: string): Promise<void> {
+    await this.client.query('DELETE FROM brand_schema.icons WHERE id = $1', [
+      id,
+    ]);
+  }
+
   async lockStandards(): Promise<StandardsRow> {
     await this.client.query(
       'INSERT INTO brand_schema.standards (id, current_version) VALUES (1, 0) ON CONFLICT DO NOTHING',
@@ -302,6 +438,39 @@ class PgBrandTransaction implements BrandTransaction {
       ],
     );
     return toStandards(result.rows[0]);
+  }
+
+  async upsertSlot(
+    slot: string,
+    iconId: string,
+    actorId: string,
+    now: string,
+  ): Promise<SlotRow> {
+    const result = await this.client.query<SlotDbRow>(
+      `WITH upserted AS (
+         INSERT INTO brand_schema.icon_slots (slot, icon_id, updated_by, updated_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (slot) DO UPDATE
+           SET icon_id = EXCLUDED.icon_id,
+               updated_by = EXCLUDED.updated_by,
+               updated_at = EXCLUDED.updated_at
+         RETURNING slot, icon_id, updated_by, updated_at
+       )
+       SELECT u.slot, u.icon_id, i.name AS icon_name, i.slug AS icon_slug,
+              i.status AS icon_status, i.published_version, i.current_version, u.updated_by, u.updated_at
+         FROM upserted u
+         JOIN brand_schema.icons i ON i.id = u.icon_id`,
+      [slot, iconId, actorId, now],
+    );
+    return toSlot(result.rows[0]);
+  }
+
+  async deleteSlot(slot: string): Promise<boolean> {
+    const result = await this.client.query(
+      'DELETE FROM brand_schema.icon_slots WHERE slot = $1',
+      [slot],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async audit(
@@ -365,6 +534,216 @@ export class PgBrandStore implements BrandStore {
       `SELECT ${STANDARDS_COLUMNS} FROM brand_schema.standards WHERE id = 1`,
     );
     return result.rows[0] ? toStandards(result.rows[0]) : NO_STANDARDS;
+  }
+
+  async listSlots(): Promise<readonly SlotRow[]> {
+    const result = await this.pool.query<SlotDbRow>(
+      `${SLOT_SELECT} ORDER BY s.slot`,
+    );
+    return result.rows.map(toSlot);
+  }
+
+  async findSlot(slot: string): Promise<SlotRow | null> {
+    const result = await this.pool.query<SlotDbRow>(
+      `${SLOT_SELECT} WHERE s.slot = $1`,
+      [slot],
+    );
+    return result.rows[0] ? toSlot(result.rows[0]) : null;
+  }
+
+  async listPublishedSlotEntries(): Promise<readonly PublishedSlotEntry[]> {
+    const result = await this.pool.query<PublishedSlotDbRow>(
+      `SELECT s.slot, s.icon_id, i.slug AS icon_slug, i.published_version,
+              v.spec_key, v.svg_key, v.mono_svg_key, v.spec_sha256, v.standards_version
+         FROM brand_schema.icon_slots s
+         JOIN brand_schema.icons i ON i.id = s.icon_id
+         JOIN brand_schema.icon_versions v
+           ON v.icon_id = i.id AND v.version = i.published_version
+        WHERE i.status = 'published' AND i.published_version IS NOT NULL
+        ORDER BY s.slot`,
+    );
+    return result.rows.map(toPublishedSlot);
+  }
+
+  async listCustomSlots(): Promise<readonly CustomSlotRow[]> {
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `SELECT id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at
+         FROM brand_schema.custom_slots
+        ORDER BY created_at ASC`,
+    );
+    return result.rows.map(toCustomSlot);
+  }
+
+  async findCustomSlot(id: string): Promise<CustomSlotRow | null> {
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `SELECT id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at
+         FROM brand_schema.custom_slots
+        WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] ? toCustomSlot(result.rows[0]) : null;
+  }
+
+  async createCustomSlot(input: CustomSlotInput): Promise<CustomSlotRow> {
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `INSERT INTO brand_schema.custom_slots (id, label, description, group_key, color_mode, recommended_size, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at`,
+      [
+        input.id,
+        input.label,
+        input.description,
+        input.groupKey,
+        input.colorMode,
+        input.recommendedSize,
+        input.createdBy ?? null,
+      ],
+    );
+    return toCustomSlot(result.rows[0]);
+  }
+
+  async updateCustomSlot(
+    id: string,
+    patch: Partial<Omit<CustomSlotInput, 'id' | 'createdBy'>>,
+  ): Promise<CustomSlotRow | null> {
+    const existing = await this.findCustomSlot(id);
+    if (!existing) return null;
+    const label = patch.label ?? existing.label;
+    const description = patch.description ?? existing.description;
+    const groupKey = patch.groupKey ?? existing.groupKey;
+    const colorMode = patch.colorMode ?? existing.colorMode;
+    const recommendedSize = patch.recommendedSize ?? existing.recommendedSize;
+
+    const result = await this.pool.query<CustomSlotDbRow>(
+      `UPDATE brand_schema.custom_slots
+          SET label = $2, description = $3, group_key = $4, color_mode = $5, recommended_size = $6, updated_at = now()
+        WHERE id = $1
+        RETURNING id, label, description, group_key, color_mode, recommended_size, created_by, created_at, updated_at`,
+      [id, label, description, groupKey, colorMode, recommendedSize],
+    );
+    return result.rows[0] ? toCustomSlot(result.rows[0]) : null;
+  }
+
+  async deleteCustomSlot(id: string): Promise<boolean> {
+    return run(() =>
+      inTransaction(this.pool, async (client) => {
+        await client.query(`DELETE FROM brand_schema.icon_slots WHERE slot = $1`, [id]);
+        const result = await client.query(`DELETE FROM brand_schema.custom_slots WHERE id = $1`, [id]);
+        return (result.rowCount ?? 0) > 0;
+      }),
+    );
+  }
+
+  async listSlotOverrides(): Promise<readonly SlotOverrideRow[]> {
+    const result = await this.pool.query<SlotOverrideDbRow>(
+      `SELECT ${SLOT_OVERRIDE_COLUMNS} FROM brand_schema.slot_overrides ORDER BY slot_id ASC`,
+    );
+    return result.rows.map(toSlotOverride);
+  }
+
+  async findSlotOverride(slotId: string): Promise<SlotOverrideRow | null> {
+    const result = await this.pool.query<SlotOverrideDbRow>(
+      `SELECT ${SLOT_OVERRIDE_COLUMNS} FROM brand_schema.slot_overrides WHERE slot_id = $1`,
+      [slotId],
+    );
+    return result.rows[0] ? toSlotOverride(result.rows[0]) : null;
+  }
+
+  async saveSlotOverride(
+    slotId: string,
+    values: SlotOverrideValues,
+    updatedBy: string | null,
+  ): Promise<SlotOverrideRow | null> {
+    const empty =
+      values.label === null &&
+      values.description === null &&
+      values.groupKey === null &&
+      values.colorMode === null &&
+      values.recommendedSize === null;
+    if (empty) {
+      await this.deleteSlotOverride(slotId);
+      return null;
+    }
+    const result = await this.pool.query<SlotOverrideDbRow>(
+      `INSERT INTO brand_schema.slot_overrides
+         (slot_id, label, description, group_key, color_mode, recommended_size, updated_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+       ON CONFLICT (slot_id) DO UPDATE
+          SET label = EXCLUDED.label,
+              description = EXCLUDED.description,
+              group_key = EXCLUDED.group_key,
+              color_mode = EXCLUDED.color_mode,
+              recommended_size = EXCLUDED.recommended_size,
+              updated_by = EXCLUDED.updated_by,
+              updated_at = now()
+       RETURNING ${SLOT_OVERRIDE_COLUMNS}`,
+      [
+        slotId,
+        values.label,
+        values.description,
+        values.groupKey,
+        values.colorMode,
+        values.recommendedSize,
+        updatedBy,
+      ],
+    );
+    return toSlotOverride(result.rows[0]);
+  }
+
+  async deleteSlotOverride(slotId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brand_schema.slot_overrides WHERE slot_id = $1`,
+      [slotId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async listSlotGroups(): Promise<readonly SlotGroupRow[]> {
+    const result = await this.pool.query<SlotGroupDbRow>(
+      `SELECT ${SLOT_GROUP_COLUMNS} FROM brand_schema.slot_groups ORDER BY label ASC, key ASC`,
+    );
+    return result.rows.map(toSlotGroup);
+  }
+
+  async findSlotGroup(key: string): Promise<SlotGroupRow | null> {
+    const result = await this.pool.query<SlotGroupDbRow>(
+      `SELECT ${SLOT_GROUP_COLUMNS} FROM brand_schema.slot_groups WHERE key = $1`,
+      [key],
+    );
+    return result.rows[0] ? toSlotGroup(result.rows[0]) : null;
+  }
+
+  async createSlotGroup(input: SlotGroupInput): Promise<SlotGroupRow> {
+    return run(async () => {
+      const result = await this.pool.query<SlotGroupDbRow>(
+        `INSERT INTO brand_schema.slot_groups (key, label, created_by)
+         VALUES ($1, $2, $3)
+         RETURNING ${SLOT_GROUP_COLUMNS}`,
+        [input.key, input.label, input.createdBy ?? null],
+      );
+      return toSlotGroup(result.rows[0]);
+    });
+  }
+
+  async updateSlotGroup(
+    key: string,
+    label: string,
+  ): Promise<SlotGroupRow | null> {
+    const result = await this.pool.query<SlotGroupDbRow>(
+      `UPDATE brand_schema.slot_groups SET label = $2, updated_at = now()
+        WHERE key = $1
+        RETURNING ${SLOT_GROUP_COLUMNS}`,
+      [key, label],
+    );
+    return result.rows[0] ? toSlotGroup(result.rows[0]) : null;
+  }
+
+  async deleteSlotGroup(key: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brand_schema.slot_groups WHERE key = $1`,
+      [key],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   transaction<T>(work: (tx: BrandTransaction) => Promise<T>): Promise<T> {

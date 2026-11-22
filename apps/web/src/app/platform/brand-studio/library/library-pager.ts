@@ -6,8 +6,12 @@ export const PAGE_SIZE_OPTIONS: readonly number[] = [12, 24, 48, 96];
 export const DEFAULT_PAGE_SIZE = 24;
 
 /** Cỡ trang hợp lệ gần nhất; giá trị lạ (từ bộ nhớ cũ hoặc bị sửa tay) thì dùng mặc định. */
-export function normalizePageSize(value: unknown): number {
-  return typeof value === 'number' && PAGE_SIZE_OPTIONS.includes(value) ? value : DEFAULT_PAGE_SIZE;
+export function normalizePageSize(
+  value: unknown,
+  allowed: readonly number[] = PAGE_SIZE_OPTIONS,
+  fallback: number = DEFAULT_PAGE_SIZE,
+): number {
+  return typeof value === 'number' && allowed.includes(value) ? value : fallback;
 }
 
 export interface PageSlice<T> {
@@ -23,8 +27,18 @@ export interface PageSlice<T> {
 }
 
 /** Cắt một trang. Trang vượt cuối (xoá bớt icon, đổi bộ lọc) được kẹp về trang cuối thay vì ra trang trống. */
-export function paginate<T>(items: readonly T[], page: number, pageSize: number): PageSlice<T> {
-  const size = normalizePageSize(pageSize);
+export function paginate<T>(
+  items: readonly T[],
+  page: number,
+  pageSize: number,
+  /** Các cỡ trang cho phép; mặc định là cỡ của lưới icon. Danh sách dạng dòng có thể dùng bộ khác (10/20/50). */
+  allowed: readonly number[] = PAGE_SIZE_OPTIONS,
+): PageSlice<T> {
+  const size = normalizePageSize(
+    pageSize,
+    allowed,
+    allowed === PAGE_SIZE_OPTIONS ? DEFAULT_PAGE_SIZE : (allowed[0] ?? DEFAULT_PAGE_SIZE),
+  );
   const total = items.length;
   const pages = Math.max(1, Math.ceil(total / size));
   const current = Math.min(pages, Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1));
@@ -43,8 +57,8 @@ export function paginate<T>(items: readonly T[], page: number, pageSize: number)
 
 /** Đổi cỡ trang mà vẫn giữ icon đầu trang đang xem nằm trong trang mới, để người dùng không bị nhảy mất chỗ. */
 export function pageAfterSizeChange(page: number, oldSize: number, newSize: number): number {
-  const firstIndex = (Math.max(1, page) - 1) * normalizePageSize(oldSize);
-  return Math.floor(firstIndex / normalizePageSize(newSize)) + 1;
+  const firstIndex = (Math.max(1, page) - 1) * oldSize;
+  return Math.floor(firstIndex / newSize) + 1;
 }
 
 export type PageToken = number | 'gap-start' | 'gap-end';

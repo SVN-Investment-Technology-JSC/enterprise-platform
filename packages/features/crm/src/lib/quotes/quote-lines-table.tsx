@@ -22,6 +22,8 @@ import styles from './quote-workspace.module.scss';
 const quantityText = (value: number | null) => (value === null ? '' : value.toLocaleString('vi-VN', { maximumFractionDigits: 3 }));
 
 export const LINES_LOCKED_TEXT = 'Lưu báo giá để thêm dòng hàng';
+/** Nhãn ở cột VAT khi dòng có thuế suất sửa tay. */
+export const VAT_OVERRIDDEN_TAG = 'Sửa tay';
 
 /** Thao tác trên một dòng; bảng chỉ báo, màn cha làm. */
 export type QuoteLineCommand = 'add' | 'edit' | 'insert' | 'remove' | 'view';
@@ -128,7 +130,21 @@ function lineColumns(
     },
     { title: 'Đơn giá sau CK', dataIndex: 'unitPrice', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
     { title: 'Thành tiền', dataIndex: 'lineAmount', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
-    { title: 'VAT', key: 'vat', width: 120, align: 'right', render: (_: unknown, row) => `${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})` },
+    {
+      title: 'VAT',
+      key: 'vat',
+      width: 120,
+      align: 'right',
+      render: (_: unknown, row) =>
+        row.overrideVatRate != null ? (
+          <span className={salesStyles.cellWithPill} title="Thuế suất sửa tay ở dòng này">
+            {`${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})`}
+            <StatusPill tone="info">{VAT_OVERRIDDEN_TAG}</StatusPill>
+          </span>
+        ) : (
+          `${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})`
+        ),
+    },
     {
       title: 'Giá vốn ước tính',
       key: 'cost',
@@ -242,6 +258,7 @@ export function QuoteLinesTable({
   editable,
   busy = false,
   lockedText,
+  addBlockedText,
   emptyText,
   costHidden = false,
   discount,
@@ -260,6 +277,8 @@ export function QuoteLinesTable({
   busy?: boolean;
   /** Báo giá chưa có bản ghi (màn lập mới): khoá bảng kèm câu này; nút + vẫn bấm được. */
   lockedText?: string;
+  /** Chưa thêm dòng được (chưa chọn bảng giá): nút + và mục Thêm, Chèn khoá, hiện câu nhắc này. */
+  addBlockedText?: string;
   emptyText?: string;
   /** Người xem không có quyền xem giá vốn (`version.costHidden`): ẩn cột giá vốn, biên. */
   costHidden?: boolean;
@@ -285,6 +304,8 @@ export function QuoteLinesTable({
   const [removeBusy, setRemoveBusy] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canAdd = editable || Boolean(lockedText);
+  const addBlocked = Boolean(addBlockedText);
+  const menuItems = lineMenuItems(editable).filter((command) => !addBlocked || (command !== 'add' && command !== 'insert'));
 
   const focusRow = (id: string) =>
     Array.from(wrapRef.current?.querySelectorAll<HTMLElement>('tr[data-row-key]') ?? [])
@@ -297,7 +318,7 @@ export function QuoteLinesTable({
   };
   // Tìm mặt hàng nằm trong hộp chọn mở bằng nút +.
   const add = () => {
-    if (!canAdd || busy) return;
+    if (!canAdd || busy || addBlocked) return;
     onAdd('');
   };
   const open = (line: QuoteLine) => (editable ? onEdit(line) : onView(line));
@@ -360,7 +381,15 @@ export function QuoteLinesTable({
         <h3 className={styles.linesTitle}>{title}</h3>
         {canAdd ? (
           <>
-            <button type="button" className={salesStyles.buttonPrimary} aria-label="Thêm dòng hàng" title="Thêm dòng hàng" disabled={busy} onClick={add}>
+            <button
+              type="button"
+              className={salesStyles.buttonPrimary}
+              aria-label="Thêm dòng hàng"
+              title={addBlockedText ?? 'Thêm dòng hàng'}
+              aria-describedby={addBlocked ? 'quote-lines-blocked' : undefined}
+              disabled={busy || addBlocked}
+              onClick={add}
+            >
               <Plus size={14} />
             </button>
           </>
@@ -379,6 +408,11 @@ export function QuoteLinesTable({
         ) : null}
       </div>
       {note}
+      {addBlockedText ? (
+        <p id="quote-lines-blocked" className={styles.locked} role="note">
+          {addBlockedText}
+        </p>
+      ) : null}
       {discount && editable && !discount.enabled ? (
         <p id="quote-discount-hint" className={salesStyles.muted}>
           {discount.hint}
@@ -416,7 +450,7 @@ export function QuoteLinesTable({
         </div>
       )}
       {children}
-      {menu ? <LineContextMenu menu={menu} items={lineMenuItems(editable)} onPick={(command) => run(command, menu.line)} onClose={closeMenu} /> : null}
+      {menu ? <LineContextMenu menu={menu} items={menuItems} onPick={(command) => run(command, menu.line)} onClose={closeMenu} /> : null}
       {removing ? (
         <CrmDialog
           open

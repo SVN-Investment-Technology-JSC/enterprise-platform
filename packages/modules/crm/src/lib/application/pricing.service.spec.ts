@@ -3,20 +3,14 @@ import { CrmNotFoundError } from '../domain/crm.error.js';
 import type { PricingPolicy, PricingPriceList } from '../domain/pricing-engine.js';
 import type { CrmActor } from './crm-actor.js';
 import { DiscountPolicyService, discountPolicyRecord } from './discount-policy.service.js';
-import { PriceListService, priceListRecord } from './price-list.service.js';
-import type {
-  CatalogMaterial,
-  CatalogReader,
-  DiscountPolicyStore,
-  PriceListStore,
-  PricingStore,
-} from './pricing-store.port.js';
+import type { CatalogMaterial, CatalogReader, DiscountPolicyStore, PricingStore } from './pricing-store.port.js';
 import { PricingService, vietnamToday } from './pricing.service.js';
 
 const TENANT = 'tenant-1';
 const CAP = '11111111-1111-4111-8111-111111111111';
 const VIP = '33333333-3333-4333-8333-333333333333';
 const CUSTOMER = '55555555-5555-4555-8555-555555555555';
+const LIST = '77777777-7777-4777-8777-777777777777';
 
 const seller: CrmActor = { ...CRM_NO_CAPABILITIES, tenantId: TENANT, userId: 'u-1', displayName: 'NV1', canWriteOpportunity: true };
 const manager: CrmActor = { ...seller, userId: 'u-2', displayName: 'QTBH', canManage: true };
@@ -31,91 +25,6 @@ class FakeCatalogReader implements CatalogReader {
     return [...this.known];
   }
 }
-
-function priceListStore(): jest.Mocked<PriceListStore> {
-  return {
-    listPriceLists: jest.fn().mockResolvedValue([]),
-    getPriceList: jest.fn().mockResolvedValue({ id: 'list-1', items: [] }),
-    createPriceList: jest.fn().mockResolvedValue('99999999-9999-4999-8999-999999999999'),
-    updatePriceList: jest.fn().mockResolvedValue(true),
-    deletePriceList: jest.fn().mockResolvedValue(true),
-    addItem: jest.fn().mockResolvedValue('item-1'),
-    updateItem: jest.fn().mockResolvedValue(true),
-    deleteItem: jest.fn().mockResolvedValue(true),
-    upsertItems: jest.fn().mockResolvedValue(true),
-  };
-}
-
-describe('PriceListService', () => {
-  const id = '99999999-9999-4999-8999-999999999999';
-
-  it('chỉ crm.manage được tạo, sửa, xoá; ai có crm.read cũng xem được', async () => {
-    const store = priceListStore();
-    const service = new PriceListService(store, new FakeCatalogReader());
-    const request = { code: 'bg-chuan', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' };
-    await expect(service.create(seller, request)).rejects.toMatchObject({ statusCode: 403 });
-    await expect(service.remove(seller, id)).rejects.toMatchObject({ statusCode: 403 });
-    await expect(service.addItem(seller, id, {} as never)).rejects.toMatchObject({ statusCode: 403 });
-    await expect(service.list(seller)).resolves.toEqual([]);
-    expect(store.createPriceList).not.toHaveBeenCalled();
-
-    await service.create(manager, request);
-    expect(store.createPriceList).toHaveBeenCalledWith(
-      TENANT,
-      expect.objectContaining({ code: 'BG-CHUAN', isStandard: true, validFrom: '2026-01-01', validTo: null, status: 'ACTIVE' }),
-      'u-2',
-    );
-  });
-
-  it('kiểm hiệu lực, mã, nhóm của bảng chuẩn', () => {
-    expect(() => priceListRecord({ code: 'A', name: 'A', validFrom: '2026-12-31', validTo: '2026-12-01' })).toThrow(
-      expect.objectContaining({ code: 'INVALID_VALIDITY' }),
-    );
-    expect(() => priceListRecord({ code: 'Bảng giá', name: 'A', validFrom: '2026-01-01' })).toThrow(
-      expect.objectContaining({ code: 'INVALID_CODE' }),
-    );
-    expect(() => priceListRecord({ code: 'A', name: 'A', validFrom: '' })).toThrow(expect.objectContaining({ code: 'REQUIRED' }));
-  });
-
-  it('dòng giá: kiểm đơn giá, thuế suất; mã, tên lấy theo danh mục khi danh mục biết mặt hàng', async () => {
-    const store = priceListStore();
-    const catalog = new FakeCatalogReader([{ id: CAP, code: 'QA-KHO-CAP', name: 'Cáp đồng', unit: 'Cái', category: 'Thiết bị' }]);
-    const service = new PriceListService(store, catalog);
-    await service.addItem(manager, id, { materialId: CAP, materialCode: 'gõ tay', materialName: 'gõ tay', unit: 'Cái', price: 1_000_000 });
-    expect(store.addItem).toHaveBeenCalledWith(
-      TENANT,
-      id,
-      { materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 },
-      'u-2',
-    );
-    await expect(
-      service.addItem(manager, id, { materialId: CAP, materialCode: 'X', materialName: 'X', unit: 'Cái', price: -1 }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-    await expect(
-      service.addItem(manager, id, { materialId: CAP, materialCode: 'X', materialName: 'X', unit: 'Cái', price: 1, vatRate: 101 }),
-    ).rejects.toMatchObject({ statusCode: 400 });
-    await expect(
-      service.addItem(manager, id, { materialId: 'abc', materialCode: 'X', materialName: 'X', unit: 'Cái', price: 1 }),
-    ).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
-  });
-
-  it('dán nhiều dòng: báo số dòng lỗi, chặn trùng mặt hàng và đơn vị', async () => {
-    const service = new PriceListService(priceListStore(), new FakeCatalogReader());
-    const item = { materialId: CAP, materialCode: 'X', materialName: 'X', unit: 'Cái', price: 1 };
-    await expect(service.upsertItems(manager, id, { items: [item, { ...item, price: -5 }] })).rejects.toMatchObject({
-      message: expect.stringMatching(/^Dòng 2: /),
-    });
-    await expect(service.upsertItems(manager, id, { items: [item, item] })).rejects.toMatchObject({ code: 'DUPLICATE_ITEM' });
-  });
-
-  it('không có bảng giá thì 404', async () => {
-    const store = priceListStore();
-    store.getPriceList.mockResolvedValue(undefined);
-    const service = new PriceListService(store, new FakeCatalogReader());
-    await expect(service.get(seller, id)).rejects.toBeInstanceOf(CrmNotFoundError);
-    await expect(service.get(seller, 'not-a-uuid')).rejects.toBeInstanceOf(CrmNotFoundError);
-  });
-});
 
 describe('DiscountPolicyService', () => {
   const tiers = [
@@ -205,9 +114,8 @@ describe('DiscountPolicyService', () => {
 
 describe('PricingService.preview', () => {
   const standard: PricingPriceList = {
-    id: 'list-1',
-    code: 'BG-CHUAN',
-    isStandard: true,
+    id: LIST,
+    code: 'BG-105',
     validFrom: '2026-01-01',
     validTo: null,
     status: 'ACTIVE',
@@ -233,25 +141,60 @@ describe('PricingService.preview', () => {
       discountCapPercent: jest.fn().mockResolvedValue(10),
       saveDiscountCapPercent: jest.fn().mockResolvedValue(undefined),
       priceListsForPricing: jest.fn().mockResolvedValue([standard]),
+      priceListRef: jest.fn().mockResolvedValue({
+        id: LIST,
+        code: 'BG-105',
+        name: 'Bảng 105',
+        listType: 'DERIVED',
+        status: 'ACTIVE',
+        validFrom: '2026-01-01',
+        validTo: null,
+      }),
       policiesForPricing: jest.fn().mockResolvedValue([vipPolicy]),
       contractPricesForPricing: jest.fn().mockResolvedValue([]),
       pricedMaterials: jest.fn().mockResolvedValue([]),
     };
-    const customers = { get: jest.fn().mockResolvedValue({ id: CUSTOMER, groupId: VIP, priceListId: 'list-kh' } as CustomerDetail) };
+    const customers = { get: jest.fn().mockResolvedValue({ id: CUSTOMER, groupId: VIP } as CustomerDetail) };
     const service = new PricingService(store, customers, new FakeCatalogReader(), () => new Date('2026-12-31T18:30:00Z'));
     return { store, customers, service };
   }
 
-  it('ngày mặc định là hôm nay theo giờ Việt Nam; nhóm và bảng giá lấy theo hồ sơ khách (đã kiểm phạm vi)', async () => {
+  it('A8.2: ngày mặc định là hôm nay theo giờ Việt Nam; dùng bảng đã chọn, nhóm khách lấy theo hồ sơ khách', async () => {
     const { store, customers, service } = setup();
     const result = await service.preview(seller, {
       customerId: CUSTOMER,
+      priceListId: LIST,
       lines: [{ materialId: CAP, quantity: 10, unit: 'Cái' }],
     });
     expect(customers.get).toHaveBeenCalledWith(seller, CUSTOMER);
-    expect(store.priceListsForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', 'list-kh', [CAP]);
+    expect(store.priceListsForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', LIST, [CAP]);
     expect(result).toMatchObject({ date: '2027-01-01', customerGroupId: VIP });
-    expect(result.lines[0]).toMatchObject({ discountPercent: 3, lineAmount: 9_700_000 });
+    expect(result.lines[0]).toMatchObject({ priceSource: 'GROUP_LIST', priceReferenceCode: 'BG-105', discountPercent: 3, lineAmount: 9_700_000 });
+  });
+
+  it('A8.1: không có bảng giá thì PRICE_LIST_REQUIRED', async () => {
+    const { service } = setup();
+    for (const priceListId of [undefined, null, '']) {
+      await expect(
+        service.preview(seller, { priceListId, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] } as never),
+      ).rejects.toMatchObject({ statusCode: 400, code: 'PRICE_LIST_REQUIRED', message: 'Vui lòng chọn bảng giá trước khi thêm dòng hàng.' });
+    }
+  });
+
+  it('bảng giá sai dạng, không có, ngừng áp dụng hoặc ngoài hiệu lực thì 400', async () => {
+    const { store, service } = setup();
+    const preview = (priceListId: string) =>
+      service.preview(seller, { priceListId, date: '2026-06-01', lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] });
+    await expect(preview('abc')).rejects.toMatchObject({ code: 'INVALID_REFERENCE', message: 'Bảng giá không hợp lệ.' });
+    store.priceListRef.mockResolvedValueOnce(undefined);
+    await expect(preview(LIST)).rejects.toMatchObject({ code: 'PRICE_LIST_NOT_FOUND', message: 'Bảng giá không tồn tại.' });
+    store.priceListRef.mockResolvedValueOnce({ id: LIST, code: 'BG-105', name: 'B', listType: 'DERIVED', status: 'INACTIVE', validFrom: '2026-01-01', validTo: null });
+    await expect(preview(LIST)).rejects.toMatchObject({
+      code: 'PRICE_LIST_NOT_EFFECTIVE',
+      message: 'Bảng giá BG-105 không áp dụng tại ngày tính giá.',
+    });
+    store.priceListRef.mockResolvedValueOnce({ id: LIST, code: 'BG-105', name: 'B', listType: 'DERIVED', status: 'ACTIVE', validFrom: '2026-07-01', validTo: null });
+    await expect(preview(LIST)).rejects.toMatchObject({ code: 'PRICE_LIST_NOT_EFFECTIVE' });
   });
 
   it('TC-PRC-03: hợp đồng khung của khách đứng trước bảng giá (nguồn "Hợp đồng")', async () => {
@@ -259,25 +202,43 @@ describe('PricingService.preview', () => {
     store.contractPricesForPricing.mockResolvedValue([
       { contractId: 'k1', contractCode: 'HD2600001', materialId: CAP, unit: 'Cái', price: 900_000, vatRate: 10, validFrom: '2026-01-01', validTo: null },
     ]);
-    const result = await service.preview(seller, { customerId: CUSTOMER, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] });
+    const result = await service.preview(seller, { customerId: CUSTOMER, priceListId: LIST, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] });
     expect(store.contractPricesForPricing).toHaveBeenCalledWith(TENANT, '2027-01-01', CUSTOMER, [CAP]);
     expect(result.lines[0]).toMatchObject({ listPrice: 900_000, priceSource: 'CONTRACT', priceReferenceCode: 'HD2600001' });
   });
 
-  it('khách ngoài phạm vi trả 404 từ CustomerService', async () => {
+  it('A8.3: khách ngoài phạm vi trả 404 từ CustomerService', async () => {
     const { customers, service } = setup();
     customers.get.mockRejectedValue(new CrmNotFoundError('Không tìm thấy khách hàng.'));
     await expect(
-      service.preview(seller, { customerId: CUSTOMER, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] }),
+      service.preview(seller, { customerId: CUSTOMER, priceListId: LIST, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái' }] }),
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('dòng sai: số lượng 0 trả "Số lượng phải lớn hơn 0", thiếu dòng trả 400', async () => {
     const { service } = setup();
     await expect(
-      service.preview(seller, { lines: [{ materialId: CAP, quantity: 0, unit: 'Cái' }] }),
+      service.preview(seller, { priceListId: LIST, lines: [{ materialId: CAP, quantity: 0, unit: 'Cái' }] }),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Số lượng phải lớn hơn 0.' });
-    await expect(service.preview(seller, { lines: [] })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(service.preview(seller, { priceListId: LIST, lines: [] })).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('thử tính giá nhận thuế suất sửa tay của dòng; sai thì 400 kèm số dòng', async () => {
+    const { service } = setup();
+    const result = await service.preview(seller, {
+      priceListId: LIST,
+      lines: [
+        { materialId: CAP, quantity: 1, unit: 'Cái', overrideVatRate: 8 },
+        { materialId: CAP, quantity: 1, unit: 'Cái' },
+      ],
+    });
+    expect(result.lines.map((line) => [line.vatRate, line.vatOverridden, line.overridden, line.vatAmount])).toEqual([
+      [8, true, false, 80_000],
+      [10, false, false, 100_000],
+    ]);
+    await expect(
+      service.preview(seller, { priceListId: LIST, lines: [{ materialId: CAP, quantity: 1, unit: 'Cái', overrideVatRate: 8.125 }] }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_LINE', details: { line: 1 } });
   });
 
   it('trần chiết khấu: ai cũng đọc, chỉ crm.manage sửa', async () => {

@@ -6,6 +6,7 @@ import {
   guessDefaultKind,
   parseAmount,
   parseImportDate,
+  parseVatRateCell,
   sheetFromRecords,
   tradeTemplateGuide,
   tradeTemplateRows,
@@ -182,6 +183,32 @@ describe('Nhập hàng hóa: đọc số và ngày', () => {
     expect(parseAmount('12,5')).toBe(12.5);
     expect(parseAmount('45000')).toBe(45000);
     expect(parseAmount('abc')).toBeNaN();
+  });
+
+  it('đọc thuế suất VAT theo điểm phần trăm; ô phần trăm của Excel (0,08) và ngoài 0 đến 100 là sai', () => {
+    expect(parseVatRateCell(8)).toBe(8);
+    expect(parseVatRateCell(0)).toBe(0);
+    expect(parseVatRateCell('8,5')).toBe(8.5);
+    expect(parseVatRateCell('10%')).toBe(10);
+    expect(parseVatRateCell('')).toBeUndefined();
+    expect(parseVatRateCell(0.08)).toBeNaN();
+    expect(parseVatRateCell(101)).toBeNaN();
+    expect(parseVatRateCell('8,555')).toBeNaN();
+    expect(parseVatRateCell('abc')).toBeNaN();
+  });
+
+  it('cột "Thuế suất VAT" được ghép tự động và đưa vào dòng nhập; sai thì báo đúng dòng', () => {
+    const sheet = sheetFromRecords([
+      { Mã: 'VT-1', Tên: 'Cáp', 'Đơn vị': 'Mét', 'Thuế suất VAT (%)': '8,5' },
+      { Mã: 'VT-2', Tên: 'Ống', 'Đơn vị': 'Cái', 'Thuế suất VAT (%)': '' },
+      { Mã: 'VT-3', Tên: 'Dây', 'Đơn vị': 'Cái', 'Thuế suất VAT (%)': 120 },
+    ]);
+    const options = baseOptions(sheet as never);
+    expect(options.mapping.vat).toBe('Thuế suất VAT (%)');
+    const rows = buildImportRows(sheet, { ...options, defaultKind: 'GOODS' });
+    expect(rows[0].input?.vatRate).toBe(8.5);
+    expect(rows[1].input?.vatRate).toBeUndefined();
+    expect(rows[2]).toMatchObject({ line: 4, error: 'Thuế suất VAT phải từ 0 đến 100, tối đa 2 chữ số thập phân.' });
   });
 
   it('đọc ngày dd/mm/yyyy và yyyy-mm-dd; ngày sai là undefined', () => {

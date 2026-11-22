@@ -40,6 +40,11 @@ const nextConfig = {
         basePath: false,
       },
       {
+        source: '/api/platform/:path*',
+        destination: `${apiBaseUrl}/api/platform/:path*`,
+        basePath: false,
+      },
+      {
         source: '/api/hrm/:path*',
         destination: `${hrmApiBaseUrl}/api/hrm/:path*`,
         basePath: false,

@@ -59,6 +59,8 @@ export interface OrderLineRecord {
   readonly overridden: boolean;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay (%); đơn từ báo giá chép từ dòng báo giá. */
+  readonly overrideVatRate: number | null;
   readonly unitPrice: number;
   readonly grossAmount: number;
   readonly discountAmount: number;
@@ -77,6 +79,8 @@ export interface OrderHeaderRecord {
   readonly deliveryAddress: string | null;
   readonly note: string | null;
   readonly priceDate: string | null;
+  /** Bảng giá (bắt buộc khi đơn có dòng); đơn từ báo giá lấy theo phiên bản báo giá. */
+  readonly priceListId: string | null;
   readonly shipping: { readonly amount: number; readonly vatRate: number };
   readonly totals: SalesOrderTotals;
 }

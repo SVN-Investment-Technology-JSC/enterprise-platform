@@ -35,6 +35,9 @@
   "references": [
     {
       "path": "../../contracts/realtime/tsconfig.lib.json"
+    },
+    {
+      "path": "../brand-icon/tsconfig.lib.json"
     }
   ]
 }

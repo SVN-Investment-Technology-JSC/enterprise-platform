@@ -5,7 +5,7 @@ import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useState } from 'react';
 import { formatQuantity } from '../fulfillment.model';
-import { parseNumber } from '../pricing/pricing.model';
+import { formatPercent, parseNumber, parseVatRate } from '../pricing/pricing.model';
 import { formatMoney } from '../sales.model';
 import styles from '../sales.module.scss';
 import { CatalogPager, CatalogSearchBar, useCatalogSearch } from './catalog-search';
@@ -15,9 +15,12 @@ export interface PickedMaterial {
   readonly material: CrmCatalogMaterial;
   /** Rỗng khi cho phép bỏ trống (giá khung không số lượng). */
   readonly quantity: number | null;
-  /** Có khi hộp thoại hỏi giá (dòng hợp đồng). */
+  /** Có khi hộp thoại hỏi giá: giá khung (dòng hợp đồng) hoặc đơn giá ghi đè (dòng đơn bán). */
   readonly unitPrice: number | null;
+  /** Thuế suất của giá khung (chỉ dòng hợp đồng, `withPrice`). */
   readonly vatRate: number | null;
+  /** Thuế suất sửa tay (chỉ dòng đơn bán, `withOverridePrice`); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
 }
 
 /**
@@ -27,12 +30,18 @@ export interface PickedMaterial {
 export function MaterialPickerDialog({
   title,
   withPrice = false,
+  withOverridePrice = false,
   quantityOptional = false,
   onClose,
   onPick,
 }: {
   title: string;
   withPrice?: boolean;
+  /**
+   * Ô "Đơn giá ghi đè" và "Thuế suất (%)" tuỳ chọn (dòng đơn bán): bỏ trống là theo giá, thuế suất của hợp đồng hoặc
+   * bảng giá.
+   */
+  withOverridePrice?: boolean;
   quantityOptional?: boolean;
   onClose: () => void;
   onPick: (picked: PickedMaterial) => Promise<void>;
@@ -41,7 +50,9 @@ export function MaterialPickerDialog({
   const [selected, setSelected] = useState<CrmCatalogMaterial>();
   const [quantity, setQuantity] = useState(quantityOptional ? '' : '1');
   const [price, setPrice] = useState('');
+  const [overridePrice, setOverridePrice] = useState('');
   const [vat, setVat] = useState('10');
+  const [overrideVat, setOverrideVat] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -68,13 +79,20 @@ export function MaterialPickerDialog({
     }
     const unitPrice = withPrice ? parseNumber(price) : undefined;
     if (withPrice && (unitPrice === undefined || unitPrice < 0)) return setError('Vui lòng nhập giá khung không âm.');
+    const override = withOverridePrice && overridePrice.trim() ? parseNumber(overridePrice) : undefined;
+    if (withOverridePrice && overridePrice.trim() && (override === undefined || override < 0)) {
+      return setError('Đơn giá ghi đè phải là số không âm.');
+    }
+    const parsedVat = withOverridePrice && overrideVat.trim() ? parseVatRate(overrideVat) : undefined;
+    if (parsedVat && !parsedVat.ok) return setError(parsedVat.error);
     setSaving(true);
     try {
       await onPick({
         material: selected,
         quantity: amount ?? null,
-        unitPrice: unitPrice ?? null,
+        unitPrice: unitPrice ?? override ?? null,
         vatRate: withPrice ? (parseNumber(vat) ?? null) : null,
+        overrideVatRate: parsedVat?.ok ? parsedVat.value : null,
       });
     } finally {
       setSaving(false);
@@ -114,6 +132,29 @@ export function MaterialPickerDialog({
               <input className={styles.input} inputMode="decimal" value={vat} onChange={(event) => setVat(event.target.value)} />
             </Field>
           </>
+        ) : null}
+        {withOverridePrice ? (
+          <Field label="Đơn giá ghi đè (VND)" hint="Bỏ trống: theo giá hợp đồng hoặc bảng giá. Mặt hàng chưa nhập giá ở Kho cần nhập ô này.">
+            <input
+              className={styles.input}
+              inputMode="decimal"
+              aria-label="Đơn giá ghi đè"
+              value={overridePrice}
+              onChange={(event) => setOverridePrice(event.target.value)}
+            />
+          </Field>
+        ) : null}
+        {withOverridePrice ? (
+          <Field label="Thuế suất (%)" hint="Bỏ trống: theo bảng giá hoặc hợp đồng. Từ 0 đến 100, tối đa 2 chữ số thập phân.">
+            <input
+              className={styles.input}
+              inputMode="decimal"
+              aria-label="Thuế suất"
+              placeholder={selected && selected.vatRate !== undefined ? `Kho: ${formatPercent(selected.vatRate ?? 10)}` : 'Theo bảng giá'}
+              value={overrideVat}
+              onChange={(event) => setOverrideVat(event.target.value)}
+            />
+          </Field>
         ) : null}
       </div>
     </CrmDialog>

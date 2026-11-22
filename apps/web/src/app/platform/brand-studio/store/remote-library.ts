@@ -134,6 +134,63 @@ export async function removeManyFromServer(ids: readonly string[]): Promise<numb
   return targets.length;
 }
 
+/** Khôi phục icon đã lưu trữ về bản nháp. */
+export async function restoreOnServer(id: string): Promise<IconDocument | null> {
+  const before = remoteStore.getSummary(id);
+  if (!before || before.status !== 'archived') return null;
+  const archived = remoteStore.getSnapshot().archivedDocs.find((doc) => doc.id === id);
+  if (archived) remoteStore.begin(id, { ...archived, status: 'draft' });
+  try {
+    remoteStore.commit(await api.restoreIcon(id));
+  } catch (error) {
+    remoteStore.revert(id);
+    throw error;
+  }
+  return remoteStore.getDoc(id) ?? null;
+}
+
+export async function restoreManyOnServer(ids: readonly string[]): Promise<number> {
+  const targets = ids.filter((id) => remoteStore.getSummary(id)?.status === 'archived');
+  const failures: string[] = [];
+  await runPool(targets, BATCH_CONCURRENCY, async (id) => {
+    try {
+      await restoreOnServer(id);
+    } catch (error) {
+      failures.push(api.errorMessage(error));
+    }
+  });
+  throwBatchFailure(targets.length, failures, 'Đã khôi phục');
+  return targets.length;
+}
+
+/** Xoá vĩnh viễn icon đã lưu trữ khỏi máy chủ. */
+export async function purgeFromServer(id: string): Promise<void> {
+  const before = remoteStore.getSummary(id);
+  if (!before || before.status !== 'archived') return;
+  remoteStore.begin(id, null);
+  try {
+    await api.purgeIcon(id);
+    remoteStore.purgeCommit(id);
+  } catch (error) {
+    remoteStore.revert(id);
+    throw error;
+  }
+}
+
+export async function purgeManyFromServer(ids: readonly string[]): Promise<number> {
+  const targets = ids.filter((id) => remoteStore.getSummary(id)?.status === 'archived');
+  const failures: string[] = [];
+  await runPool(targets, BATCH_CONCURRENCY, async (id) => {
+    try {
+      await purgeFromServer(id);
+    } catch (error) {
+      failures.push(api.errorMessage(error));
+    }
+  });
+  throwBatchFailure(targets.length, failures, 'Đã xoá vĩnh viễn');
+  return targets.length;
+}
+
 export async function duplicateOnServer(id: string): Promise<IconDocument | null> {
   const source = remoteStore.getDoc(id);
   if (!source) return null;

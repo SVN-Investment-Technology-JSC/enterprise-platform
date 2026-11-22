@@ -14,6 +14,7 @@ import { Button } from './button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
 import { LeaveField, LeaveSwitch } from './leave-form-controls';
+import { useCloseGuard } from './use-close-guard';
 
 export const TIME_MODE_OPTIONS: { value: HrmRequestTimeMode; label: string; hint: string }[] = [
   {
@@ -134,6 +135,23 @@ export function RequestTypeDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  const snapshot = JSON.stringify([
+    name,
+    code,
+    description,
+    timeMode,
+    requiresAttachment,
+    requiresTransport,
+    active,
+    fields,
+  ]);
+  const [initialSnapshot] = useState(snapshot);
+  const guard = useCloseGuard({
+    dirty: snapshot !== initialSnapshot,
+    busy,
+    onClose,
+  });
+
   const patchField = (index: number, next: Partial<FieldRow>) =>
     setFields((current) => current.map((f, i) => (i === index ? { ...f, ...next } : f)));
 
@@ -197,12 +215,7 @@ export function RequestTypeDialog({
   const modeHint = TIME_MODE_OPTIONS.find((o) => o.value === timeMode)?.hint;
 
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-    >
+    <Dialog {...guard.dialogProps}>
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden bg-white p-0 sm:max-w-[720px]">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
           <DialogTitle className="text-base font-bold text-slate-900">
@@ -438,7 +451,7 @@ export function RequestTypeDialog({
             </div>
           ) : null}
           <div className="flex shrink-0 items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
-            <Button type="button" variant="outline" disabled={busy} onClick={onClose} className="h-8 text-xs">
+            <Button type="button" variant="outline" disabled={busy} onClick={guard.requestClose} className="h-8 text-xs">
               Hủy
             </Button>
             <Button
@@ -451,6 +464,7 @@ export function RequestTypeDialog({
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

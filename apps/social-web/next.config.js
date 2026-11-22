@@ -28,6 +28,12 @@ const nextConfig = {
       { source: '/emoji-data/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=86400' }] },
     ];
   },
+  async rewrites() {
+    const apiBaseUrl = (process.env.API_BASE_URL ?? 'http://localhost:3333').trim().replace(/\/$/, '');
+    return [
+      { source: '/api/platform/:path*', destination: `${apiBaseUrl}/api/platform/:path*`, basePath: false },
+    ];
+  },
 };
 
 module.exports = nextConfig;

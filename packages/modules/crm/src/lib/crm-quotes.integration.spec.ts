@@ -17,7 +17,6 @@ import { OpportunityService } from './application/opportunity.service.js';
 import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
 import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteApprovalSettingsService } from './application/quote-approval-settings.service.js';
 import { QuoteFormService } from './application/quote-form.service.js';
@@ -25,14 +24,13 @@ import type { ProcedureClient, StartProcedureInstance } from './application/quot
 import { QuoteService } from './application/quote.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { procedureUnavailable } from './infrastructure/http-procedure-client.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresTimelineStore } from './infrastructure/postgres-activity.store.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import {
   PostgresDiscountPolicyStore,
-  PostgresPriceListStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
@@ -128,6 +126,7 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
   let timeline: CustomerTimelineService;
   let links: PostgresApprovalLinks;
   let customerId: string;
+  let priceListId: string;
 
   beforeAll(async () => {
     handle = await createCrmTestDatabase();
@@ -157,9 +156,9 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
       { snapshot: async () => ORGANIZATION },
     );
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [
         { materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 },
         { materialId: BT, materialCode: 'QA-KHO-BT', materialName: 'Gói bảo trì', unit: 'Gói', price: 500_000, vatRate: 10 },
@@ -183,7 +182,7 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
 
   /** Báo giá Nháp có một dòng `QA-KHO-CAP` × 10, tuỳ chọn chiết khấu ghi đè. */
   async function draftQuote(discount?: number) {
-    const created = await quotes.create(nv1, { customerId });
+    const created = await quotes.create(nv1, { customerId, priceListId });
     return quotes.addLine(nv1, created.id, created.currentVersion, {
       revision: created.version.revision,
       materialId: CAP,
@@ -468,7 +467,15 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     });
 
     const quoteId = page.items[0].id;
-    let detail = await quotes.addLine(nv1, quoteId, 1, { revision: (await quotes.get(nv1, quoteId)).version.revision, materialId: CAP, quantity: 1 });
+    // Báo giá tự tạo khi sang giai đoạn Báo giá chưa có bảng giá: chọn trước khi thêm dòng.
+    const auto = await quotes.get(nv1, quoteId);
+    expect(auto.version.priceListId).toBeNull();
+    await expect(
+      quotes.addLine(nv1, quoteId, 1, { revision: auto.version.revision, materialId: CAP, quantity: 1 }),
+    ).rejects.toMatchObject({ code: 'PRICE_LIST_REQUIRED' });
+    const chosen = await quotes.updateVersion(nv1, quoteId, 1, { revision: auto.version.revision, priceListId });
+    expect(chosen.version).toMatchObject({ priceListId, priceListCode: 'BG-CHUAN', priceListName: 'Bảng giá chuẩn', priceListStatus: 'ACTIVE' });
+    let detail = await quotes.addLine(nv1, quoteId, 1, { revision: chosen.version.revision, materialId: CAP, quantity: 1 });
     detail = await quotes.submit(nv1, quoteId, 1, { revision: detail.version.revision });
     detail = await quotes.send(nv1, quoteId, 1, { revision: detail.version.revision });
     detail = await quotes.accept(nv1, quoteId, 1, { revision: detail.version.revision });
@@ -564,10 +571,10 @@ integration('Bán hàng GĐ3b: báo giá, phiên bản, duyệt qua Quy trình (
     for (const stage of ['CONTACTED', 'DISCOVERY', 'QUOTING'] as const) await opportunities.changeStage(nv1, opportunity.id, { stage });
     const [draftId] = (await quotes.list(nv1, { opportunityId: opportunity.id })).items.map((item) => item.id);
     // Báo giá thứ hai của cơ hội đang Chờ duyệt qua Quy trình; thứ ba đã Khách chấp nhận thì giữ nguyên.
-    const pendingQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id });
+    const pendingQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id, priceListId });
     const withLine = await quotes.addLine(nv1, pendingQuote.id, 1, { revision: pendingQuote.version.revision, materialId: CAP, quantity: 10, overrideDiscountPercent: 12 });
     await quotes.submit(nv1, pendingQuote.id, 1, { revision: withLine.version.revision });
-    const acceptedQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id });
+    const acceptedQuote = await quotes.create(nv1, { customerId, opportunityId: opportunity.id, priceListId });
     let accepted = await quotes.addLine(nv1, acceptedQuote.id, 1, { revision: acceptedQuote.version.revision, materialId: CAP, quantity: 1 });
     accepted = await quotes.submit(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });
     accepted = await quotes.send(nv1, acceptedQuote.id, 1, { revision: accepted.version.revision });

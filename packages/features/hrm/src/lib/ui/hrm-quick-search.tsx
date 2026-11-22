@@ -30,6 +30,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { AppIcon, type AppIconProps } from '@enterprise-platform/shared-ui';
 import type { HrmAction } from '@enterprise-platform/contracts-identity';
 import type { HrmEmployeeProfile } from '@enterprise-platform/contracts-hrm';
 import {
@@ -84,6 +85,7 @@ interface PageItem {
   readonly group: string;
   readonly hint?: string;
   readonly icon: LucideIcon;
+  readonly slot?: AppIconProps['slot'];
   readonly permissions?: readonly HrmAction[];
 }
 
@@ -101,6 +103,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'attendance_monitor',
+    slot: 'sidebar.hrm.attendance-monitor',
     label: 'Giám sát chấm công',
     href: '/attendance-monitor',
     group: 'Trang',
@@ -110,6 +113,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'approvals',
+    slot: 'sidebar.hrm.approvals',
     label: 'Đơn từ cần xử lý',
     href: '/approvals',
     group: 'Trang',
@@ -125,6 +129,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'my_work',
+    slot: 'sidebar.hrm.my-work',
     label: 'Công của tôi',
     href: '/my-work',
     group: 'Trang',
@@ -134,6 +139,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'requests',
+    slot: 'sidebar.hrm.requests',
     label: 'Đơn từ của tôi',
     href: '/requests',
     group: 'Trang',
@@ -143,6 +149,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'profile',
+    slot: 'sidebar.hrm.profile',
     label: 'Hồ sơ cá nhân',
     href: '/profile',
     group: 'Trang',
@@ -152,6 +159,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'payslips',
+    slot: 'sidebar.hrm.payroll',
     label: 'Phiếu lương',
     href: '/profile?view=payslips',
     group: 'Trang',
@@ -181,6 +189,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'timekeeping',
+    slot: 'sidebar.hrm.timekeeping',
     label: 'Bảng công tổng hợp',
     href: '/timekeeping',
     group: 'Trang',
@@ -199,6 +208,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'leave',
+    slot: 'sidebar.hrm.leave',
     label: 'Phép năm và nghỉ bù',
     href: '/leave',
     group: 'Trang',
@@ -208,6 +218,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'leave_adjustments',
+    slot: 'sidebar.hrm.leave',
     label: 'Lịch sử điều chỉnh phép',
     href: '/leave?view=adjustments',
     group: 'Trang',
@@ -217,6 +228,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'payroll',
+    slot: 'sidebar.hrm.payroll',
     label: 'Bảng lương và chi trả',
     href: '/payroll',
     group: 'Trang',
@@ -226,6 +238,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'advances',
+    slot: 'sidebar.hrm.payroll',
     label: 'Tạm ứng và thu hồi',
     href: '/payroll?view=advances',
     group: 'Trang',
@@ -235,6 +248,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'fleet',
+    slot: 'sidebar.hrm.fleet',
     label: 'Lịch xe và điều xe',
     href: '/fleet',
     group: 'Trang',
@@ -244,6 +258,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'fleet_vehicles',
+    slot: 'sidebar.hrm.fleet',
     label: 'Danh mục phương tiện xe',
     href: '/fleet?view=vehicles',
     group: 'Trang',
@@ -253,6 +268,7 @@ const PAGES: readonly PageItem[] = [
   },
   {
     id: 'fleet_drivers',
+    slot: 'sidebar.hrm.fleet',
     label: 'Danh sách tài xế',
     href: '/fleet?view=drivers',
     group: 'Trang',
@@ -596,7 +612,11 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
         (page): ResultRow => ({
           key: `page:${page.id}`,
           group: 'Trang',
-          icon: <page.icon size={15} aria-hidden />,
+          icon: page.slot ? (
+            <AppIcon slot={page.slot} fallback={page.icon} size={15} />
+          ) : (
+            <page.icon size={15} aria-hidden />
+          ),
           label: page.label,
           hint: page.hint,
           target: { kind: 'page', href: page.href },
@@ -839,7 +859,7 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
                   onClick={() => pick(row)}
                 >
                   <span
-                    className={`size-7 rounded-md flex items-center justify-center shrink-0 ${
+                    className={`size-7 rounded-md flex items-center justify-center shrink-0 has-[>svg[data-brand-slot]]:overflow-hidden has-[>svg[data-brand-slot]]:bg-transparent has-[>svg[data-brand-slot]]:group-hover:bg-transparent [&>svg[data-brand-slot]]:size-full ${
                       isSelected
                         ? 'bg-amber-100 text-amber-800'
                         : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'

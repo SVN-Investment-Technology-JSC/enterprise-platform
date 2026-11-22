@@ -76,6 +76,24 @@ $danger: #dc2626;
     width: 24px;
     height: 24px;
   }
+
+  // Có icon thương hiệu: icon tự mang nền và bo góc nên thay luôn cho nút tròn vàng, đổ bóng theo hình icon.
+  &:has(> svg[data-brand-slot]),
+  &:has(> svg[data-brand-slot]):hover {
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    border-radius: 14px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  &:has(> svg[data-brand-slot]) > svg {
+    width: 100%;
+    height: 100%;
+    border-radius: 14px;
+    filter: drop-shadow(0 8px 14px rgb(15 23 42 / 28%));
+  }
 }
 
 /* Ngăn kéo bên phải của màn hình đang mở thì nhường chỗ: nút này nằm đúng nút Gửi của ngăn kéo. */
@@ -90,6 +108,11 @@ $danger: #dc2626;
 
 .launcherPulse {
   animation: launcherShake 0.6s ease 2, launcherGlow 1.3s ease-out 2;
+
+  // Icon thương hiệu không có nút tròn nền vàng nên chỉ lắc, không phát vòng sáng quanh khung.
+  &:has(> svg[data-brand-slot]) {
+    animation: launcherShake 0.6s ease 2;
+  }
 }
 
 @keyframes launcherShake {
@@ -212,6 +235,17 @@ $danger: #dc2626;
   svg {
     width: 17px;
     height: 17px;
+  }
+
+  // Có icon thương hiệu: icon tự mang nền và bo góc nên lấp đầy ô, bỏ nền bọc ngoài.
+  &.headerIconFilled {
+    overflow: hidden;
+    background: transparent;
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
   }
 }
 

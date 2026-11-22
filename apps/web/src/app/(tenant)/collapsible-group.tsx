@@ -40,7 +40,11 @@ export function CollapsibleGroup({
         onClick={() => setOpen((value) => !value)}
         className="flex w-full cursor-pointer items-center gap-3 bg-[#fafbfc] px-5 py-3.5 text-left text-[#18181b]"
       >
-        <span aria-hidden className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`}>
+        {/* Có icon thương hiệu thì icon lấp đầy ô, bỏ nền màu bọc ngoài; icon lucide dự phòng giữ ô màu như cũ. */}
+        <span
+          aria-hidden
+          className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone} has-[>svg[data-brand-slot]]:overflow-hidden has-[>svg[data-brand-slot]]:bg-transparent [&>svg[data-brand-slot]]:size-full`}
+        >
           {icon}
         </span>
         <span id={headingId} className="flex-1 text-[14px] font-semibold">

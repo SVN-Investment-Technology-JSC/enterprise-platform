@@ -6,19 +6,17 @@ import type { CrmActor } from './application/crm-actor.js';
 import { CustomerService } from './application/customer.service.js';
 import { CrmDataScopeService } from './application/data-scope.js';
 import { DiscountPolicyService } from './application/discount-policy.service.js';
-import { PriceListService } from './application/price-list.service.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
 import { QuoteFormService } from './application/quote-form.service.js';
 import type { ApprovalLinks } from './application/quote-store.port.js';
 import { QuoteService } from './application/quote.service.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import {
   PostgresDiscountPolicyStore,
-  PostgresPriceListStore,
   PostgresPricingStore,
 } from './infrastructure/postgres-pricing.store.js';
 import { PostgresQuoteFormStore } from './infrastructure/postgres-quote-form.store.js';
@@ -82,6 +80,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
   let phase1Quotes: QuoteService;
   let form: QuoteFormService;
   let customerId: string;
+  let priceListId: string;
   let lineTemplateId: string;
   let orderTemplateId: string;
   let defaultTypeId: string;
@@ -113,9 +112,9 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     phase1Quotes = build(false);
     form = new QuoteFormService(formStore);
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     await new DiscountPolicyService(new PostgresDiscountPolicyStore(handle.database)).create(admin, {
@@ -138,7 +137,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
   }, 60_000);
 
   async function draft(service: QuoteService, extra: Record<string, unknown> = {}, quantity = 10) {
-    const created = await service.create(nv1, { customerId, ...extra });
+    const created = await service.create(nv1, { customerId, priceListId, ...extra });
     return service.addLine(nv1, created.id, created.currentVersion, {
       revision: created.version.revision,
       materialId: CAP,
@@ -160,7 +159,11 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
       `INSERT INTO crm_schema.quotes (code, customer_id, owner_user_id) VALUES ('BG2600001', $1, $2) RETURNING id`,
       [customerId, NV1],
     );
-    await handle.pool.query(`INSERT INTO crm_schema.quote_versions (quote_id, version_no) VALUES ($1, 1)`, [old.rows[0].id]);
+    // Bảng giá của báo giá cũ do migration 0039 gán sẵn.
+    await handle.pool.query(`INSERT INTO crm_schema.quote_versions (quote_id, version_no, price_list_id) VALUES ($1, 1, $2)`, [
+      old.rows[0].id,
+      priceListId,
+    ]);
     const loaded = await quotes.get(nv1, old.rows[0].id);
     expect(loaded.version.form).toMatchObject({
       templateId: null,
@@ -342,10 +345,10 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     // Chưa cấu hình mẫu: mã mới vẫn là BG<yy><5 chữ số> từ quote_code_seq; mã cũ vẫn hợp lệ.
     const legacySettings = await form.codeSettings(nv1);
     expect(legacySettings).toMatchObject({ pattern: null });
-    const legacy = await quotes.create(nv1, { customerId });
+    const legacy = await quotes.create(nv1, { customerId, priceListId });
     expect(legacy.code).toMatch(/^BG\d{7}$/);
     expect(legacy.code).toBe(legacySettings.next);
-    const typed = await quotes.create(nv1, { customerId, code: 'BG2699999' });
+    const typed = await quotes.create(nv1, { customerId, priceListId, code: 'BG2699999' });
     expect(typed.code).toBe('BG2699999');
 
     await expect(form.saveCodeSettings(nv1, { pattern: '{yyyymmdd}/BG//{seq}' })).rejects.toMatchObject({ statusCode: 403 });
@@ -364,24 +367,24 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     const peeked = (await form.codeSettings(nv1)).next;
     expect(number(peeked)).toBe(number(second) + 1);
     expect((await form.codeSettings(nv1)).next).toBe(peeked);
-    const created = await quotes.create(nv1, { customerId });
+    const created = await quotes.create(nv1, { customerId, priceListId });
     expect(created.code).toMatch(/^\d{8}\/BG\/\/\d+$/);
     expect(number(created.code)).toBe(number(second) + 1);
     expect(created.code).toBe(peeked);
     // Dùng mã đã sinh cho báo giá mới; dùng lại lần hai bị từ chối.
-    const usingGenerated = await quotes.create(nv1, { customerId, code: first });
+    const usingGenerated = await quotes.create(nv1, { customerId, priceListId, code: first });
     expect(usingGenerated.code).toBe(first);
-    await expect(quotes.create(nv1, { customerId, code: first })).rejects.toMatchObject({
+    await expect(quotes.create(nv1, { customerId, priceListId, code: first })).rejects.toMatchObject({
       statusCode: 409,
       code: 'QUOTE_CODE_EXISTS',
       message: 'Mã báo giá đã tồn tại. Vui lòng nhập mã khác hoặc bấm sinh lại.',
     });
-    await expect(quotes.create(nv1, { customerId, code: 'BG2699999' })).rejects.toMatchObject({ statusCode: 409 });
-    await expect(quotes.create(nv1, { customerId, code: 'mã có dấu' })).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_QUOTE_CODE' });
+    await expect(quotes.create(nv1, { customerId, priceListId, code: 'BG2699999' })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(quotes.create(nv1, { customerId, priceListId, code: 'mã có dấu' })).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_QUOTE_CODE' });
     // Sinh lại trong lúc có mã trùng nhập tay: số kế tiếp trùng một mã đã có thì bỏ qua.
     const next = number((await form.generateCode(nv1)).code);
     const day = first.split('/BG//')[0];
-    await quotes.create(nv1, { customerId, code: `${day}/BG//${next + 1}` });
+    await quotes.create(nv1, { customerId, priceListId, code: `${day}/BG//${next + 1}` });
     expect(number((await form.generateCode(nv1)).code)).toBe(next + 2);
 
     // Đổi mã khi Nháp: trùng 409, không trùng được; ghi nhật ký.
@@ -399,7 +402,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
 
     // Bỏ mẫu: trở về mã cũ, quote_code_seq không bị phá (số kế tiếp liền sau số đã dùng).
     await form.saveCodeSettings(admin, { pattern: null });
-    const back = await quotes.create(nv1, { customerId });
+    const back = await quotes.create(nv1, { customerId, priceListId });
     expect(Number(back.code.slice(4))).toBe(Number(legacy.code.slice(4)) + 1);
   });
 
@@ -436,12 +439,12 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     expect(off.active).toBe(false);
     expect((await form.listTemplates(nv1, false)).map((template) => template.id)).not.toContain(created.id);
     expect((await form.listTemplates(nv1, true)).map((template) => template.id)).toContain(created.id);
-    await expect(quotes.create(nv1, { customerId, templateId: created.id })).rejects.toMatchObject({
+    await expect(quotes.create(nv1, { customerId, priceListId, templateId: created.id })).rejects.toMatchObject({
       statusCode: 400,
       code: 'TEMPLATE_INACTIVE',
       message: 'Mẫu báo giá này đã tắt, vui lòng chọn mẫu khác.',
     });
-    await expect(quotes.create(nv1, { customerId, templateId: randomUUID() })).rejects.toMatchObject({ statusCode: 400, code: 'TEMPLATE_NOT_FOUND' });
+    await expect(quotes.create(nv1, { customerId, priceListId, templateId: randomUUID() })).rejects.toMatchObject({ statusCode: 400, code: 'TEMPLATE_NOT_FOUND' });
     await expect(quotes.addLine(nv1, mixed.id, 1, { revision: discounted.version.revision, materialId: CAP, quantity: 1 })).resolves.toBeDefined();
 
     // Mẫu mặc định: luôn có một, luôn đang bật; chọn mẫu khác làm mặc định thì mẫu cũ bỏ cờ.
@@ -453,18 +456,18 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     ).rejects.toMatchObject({ statusCode: 409, code: 'DEFAULT_TEMPLATE_INACTIVE' });
     await form.updateTemplate(admin, orderTemplateId, { name: 'Chiết khấu trên tổng giá trị đơn hàng', discountMode: 'ORDER', taxMode: 'ORDER', isDefault: true });
     expect((await form.listTemplates(nv1, true)).filter((template) => template.isDefault).map((template) => template.id)).toEqual([orderTemplateId]);
-    const withNewDefault = await quotes.create(nv1, { customerId });
+    const withNewDefault = await quotes.create(nv1, { customerId, priceListId });
     expect(withNewDefault.version.form).toMatchObject({ templateId: orderTemplateId, discountMode: 'ORDER' });
     await form.updateTemplate(admin, lineTemplateId, { name: 'Báo giá theo dòng (mặc định)', discountMode: 'LINE', taxMode: 'LINE', isDefault: true });
 
     // Loại báo giá.
     const type = await form.createType(admin, { name: 'Báo giá dự án', description: 'Dự án lớn' });
     await expect(form.createType(admin, { name: 'BÁO GIÁ DỰ ÁN' })).rejects.toMatchObject({ statusCode: 409, code: 'QUOTE_TYPE_NAME_EXISTS' });
-    const withType = await quotes.create(nv1, { customerId, quoteTypeId: type.id, quoteName: 'Cung cấp cáp đồng', quoteDate: '2026-11-02' });
+    const withType = await quotes.create(nv1, { customerId, priceListId, quoteTypeId: type.id, quoteName: 'Cung cấp cáp đồng', quoteDate: '2026-11-02' });
     expect(withType.version.form).toMatchObject({ quoteTypeId: type.id, quoteTypeName: 'Báo giá dự án', quoteName: 'Cung cấp cáp đồng', quoteDate: '2026-11-02' });
     expect(withType).toMatchObject({ quoteName: 'Cung cấp cáp đồng' });
     await form.updateType(admin, type.id, { name: 'Báo giá dự án', active: false });
-    await expect(quotes.create(nv1, { customerId, quoteTypeId: type.id })).rejects.toMatchObject({ statusCode: 400, code: 'QUOTE_TYPE_INACTIVE' });
+    await expect(quotes.create(nv1, { customerId, priceListId, quoteTypeId: type.id })).rejects.toMatchObject({ statusCode: 400, code: 'QUOTE_TYPE_INACTIVE' });
     await expect(form.updateType(admin, defaultTypeId, { name: 'Báo đơn giá và số lượng', isDefault: false })).rejects.toMatchObject({
       statusCode: 409,
       code: 'DEFAULT_TYPE_REQUIRED',
@@ -498,7 +501,7 @@ integration('Bán hàng GĐI: báo giá theo mẫu, mã báo giá, chiết khấ
     await expect(
       quotes.updateVersion(viewer, mine.id, 1, { revision: mine.version.revision, quoteName: 'Sửa trộm' }),
     ).rejects.toMatchObject({ statusCode: 403 });
-    await expect(quotes.create(viewer, { customerId })).rejects.toMatchObject({ statusCode: 403 });
+    await expect(quotes.create(viewer, { customerId, priceListId })).rejects.toMatchObject({ statusCode: 403 });
     // Chọn mẫu hay loại giả: 400, không ghi.
     await expect(quotes.updateVersion(nv1, mine.id, 1, { revision: mine.version.revision, templateId: 'khong-phai-uuid' })).rejects.toMatchObject({ statusCode: 400 });
     expect((await quotes.get(nv1, mine.id)).version.revision).toBe(mine.version.revision);

@@ -4,9 +4,23 @@ import { usePathname, useRouter } from 'next/navigation';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
 import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
+import { AppIcon, type AppIconProps } from '@enterprise-platform/shared-ui';
 import { FinanceCrumbsProvider } from './finance-crumbs';
 import { financeNavigation, getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
 import { FinancePermissionsProvider, useFinancePermissions } from './finance-permissions';
+
+const FINANCE_NAV_SLOT: Partial<Record<string, AppIconProps['slot']>> = {
+  dashboard: 'nav.dashboard',
+  receipts: 'sidebar.finance.receipts',
+  payments: 'sidebar.finance.payments',
+  transfers: 'sidebar.finance.transfers',
+  accounts: 'sidebar.finance.accounts',
+  reports: 'nav.reports',
+  settings: 'nav.settings',
+};
+
+/** Các mục đã nối slot từ trước giữ cỡ 16px; mục mới giữ đúng cỡ 18px của icon cũ. */
+const FINANCE_NAV_SLOT_LEGACY_SIZE: ReadonlySet<string> = new Set(['dashboard', 'reports', 'settings']);
 
 const COLLAPSED_KEY = 'finance_sidebar_collapsed';
 
@@ -60,7 +74,20 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
         .filter((item) => permissions.canOpenPage(item.href))
         .map((item) => {
           const Icon = item.icon;
-          return { id: item.id, label: item.label, icon: <Icon className={`size-[18px] ${item.tone}`} aria-hidden /> };
+          const slot = FINANCE_NAV_SLOT[item.id];
+          return {
+            id: item.id,
+            label: item.label,
+            icon: slot ? (
+              <AppIcon
+                slot={slot}
+                fallback={Icon}
+                className={`${FINANCE_NAV_SLOT_LEGACY_SIZE.has(item.id) ? 'size-4' : 'size-[18px]'} ${item.tone}`}
+              />
+            ) : (
+              <Icon className={`size-[18px] ${item.tone}`} aria-hidden />
+            ),
+          };
         }),
     [permissions],
   );

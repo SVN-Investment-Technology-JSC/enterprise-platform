@@ -7,7 +7,7 @@
  * giá vốn thực tế.
  */
 import type { CrmHistoryEntry, CrmReservationStatus } from './contracts.js';
-import type { AppliedDiscountPolicy, PriceSource } from './pricing.js';
+import type { AppliedDiscountPolicy, PriceSource, PricingStatus } from './pricing.js';
 import type { QuoteShipping } from './quotes.js';
 import type { OrderCreditRequest, OrderReceivableBalance } from './receivables.js';
 
@@ -142,6 +142,8 @@ export interface SalesOrderLine {
   readonly overridden: boolean;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay của dòng (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   readonly unitPrice: number;
   readonly grossAmount: number;
   readonly discountAmount: number;
@@ -245,6 +247,11 @@ export interface SalesOrderDetail extends SalesOrderSummary {
   readonly infoNotedBy: string | null;
   readonly infoNotedAt: string | null;
   readonly priceDate: string | null;
+  /** Bảng giá; đơn từ báo giá lấy theo phiên bản báo giá và không đổi được. */
+  readonly priceListId: string | null;
+  readonly priceListCode: string | null;
+  readonly priceListName: string | null;
+  readonly priceListStatus: PricingStatus | null;
   readonly shipping: Omit<QuoteShipping, 'cost'>;
   readonly totals: SalesOrderTotals;
   readonly revision: number;
@@ -281,6 +288,8 @@ export interface SaveSalesOrderLineRequest {
   readonly unit?: string | null;
   readonly overrideUnitPrice?: number | null;
   readonly overrideDiscountPercent?: number | null;
+  /** Thuế suất sửa tay (0–100%, 2 chữ số thập phân); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate?: number | null;
   /**
    * Kho giữ hàng của dòng (D3-37); rỗng là theo kho mặc định của đơn. Dịch vụ không dùng.
    */
@@ -297,6 +306,8 @@ export interface CreateSalesOrderRequest {
   readonly deliveryAddress?: string | null;
   readonly note?: string | null;
   readonly priceDate?: string | null;
+  /** Bảng giá, bắt buộc khi đơn có dòng (`PRICE_LIST_REQUIRED`); đơn từ báo giá bỏ qua. */
+  readonly priceListId?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null } | null;
   readonly lines?: readonly SaveSalesOrderLineRequest[];
 }
@@ -308,6 +319,8 @@ export interface UpdateSalesOrderRequest {
   readonly deliveryAddress?: string | null;
   readonly note?: string | null;
   readonly priceDate?: string | null;
+  /** Bảng giá, bắt buộc khi đơn có dòng (`PRICE_LIST_REQUIRED`); đơn từ báo giá bỏ qua. */
+  readonly priceListId?: string | null;
   readonly shipping?: { readonly amount: number; readonly vatRate?: number | null } | null;
   /** Thay toàn bộ dòng (chỉ đơn Nháp, không phải đơn từ báo giá); bỏ trống thì giữ dòng. */
   readonly lines?: readonly SaveSalesOrderLineRequest[];

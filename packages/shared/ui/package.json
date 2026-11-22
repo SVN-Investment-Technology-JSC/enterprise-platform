@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "@enterprise-platform/contracts-realtime": "workspace:*",
+    "@enterprise-platform/shared-brand-icon": "workspace:*",
     "antd": "^6.6.4",
     "dayjs": "^1.11.23",
     "lucide-react": "^1.31.0",

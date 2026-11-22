@@ -8,19 +8,18 @@ import type { DocumentStorage } from './application/document-store.port.js';
 import { OpportunityService } from './application/opportunity.service.js';
 import { CachedPipelineConfig } from './application/pipeline-config.cache.js';
 import type { CatalogMaterial, CatalogReader } from './application/pricing-store.port.js';
-import { PriceListService } from './application/price-list.service.js';
 import { PromotionService } from './application/promotion.service.js';
 import { QuoteDocumentService } from './application/quote-document.service.js';
 import { QuoteService } from './application/quote.service.js';
 import type { ApprovalLinks } from './application/quote-store.port.js';
 import { createCrmTestDatabase, crmIntegrationEnabled, type CrmTestDatabaseHandle } from './crm-test-support.js';
+import { seedPriceList } from './crm-test-price-lists.js';
 import type { ReportingLineSnapshot } from './domain/reporting-line.js';
-import { PendingCatalogReader } from './infrastructure/pending-catalog-reader.js';
 import { PostgresCustomerStore } from './infrastructure/postgres-customer.store.js';
 import { PostgresDocumentStore } from './infrastructure/postgres-document.store.js';
 import { PostgresOpportunityStore } from './infrastructure/postgres-opportunity.store.js';
 import { PostgresPipelineConfigReader } from './infrastructure/postgres-pipeline-config.store.js';
-import { PostgresPriceListStore, PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
+import { PostgresPricingStore } from './infrastructure/postgres-pricing.store.js';
 import { PostgresPromotionStore } from './infrastructure/postgres-promotion.store.js';
 import { PostgresQuoteDocumentStore } from './infrastructure/postgres-quote-document.store.js';
 import { PostgresQuoteSettingsStore } from './infrastructure/postgres-quote-settings.store.js';
@@ -99,6 +98,7 @@ integration('Bán hàng GĐI: khuyến mãi của báo giá (P2I-11) và tài li
   let opportunities: OpportunityService;
   let storage: FakeStorage;
   let customerId: string;
+  let priceListId: string;
   let foreignCustomerId: string;
 
   beforeAll(async () => {
@@ -131,9 +131,9 @@ integration('Bán hàng GĐI: khuyến mãi của báo giá (P2I-11) và tài li
     documents = new DocumentService(documentStore, storage, scopes);
     refs = new QuoteDocumentService(new PostgresQuoteDocumentStore(handle.database), documentStore, storage, scopes);
 
-    const lists = new PriceListService(new PostgresPriceListStore(handle.database), new PendingCatalogReader());
-    const list = await lists.create(admin, { code: 'BG-CHUAN', name: 'Bảng giá chuẩn', isStandard: true, validFrom: '2026-01-01' });
-    await lists.upsertItems(admin, list.id, {
+    priceListId = await seedPriceList(handle.pool, {
+      code: 'BG-CHUAN',
+      name: 'Bảng giá chuẩn',
       items: [{ materialId: CAP, materialCode: 'QA-KHO-CAP', materialName: 'Cáp đồng', unit: 'Cái', price: 1_000_000, vatRate: 10 }],
     });
     customerId = (await customers.create(nv1, { name: 'Công ty Khuyến Mãi', ownerUserId: NV1 })).id;
@@ -150,7 +150,7 @@ integration('Bán hàng GĐI: khuyến mãi của báo giá (P2I-11) và tài li
     promotions.createCatalog(admin, { kind: 'DISCOUNT_POLICY', code, name: `Chính sách ${code}`, discountType: 'AMOUNT', value: 1_000_000, ...extra } as never);
 
   async function quoteOf(opportunityId: string | undefined, owner = nv1) {
-    const created = await quotes.create(owner, { customerId: owner === nv1 ? customerId : foreignCustomerId, ...(opportunityId ? { opportunityId } : {}) });
+    const created = await quotes.create(owner, { priceListId, customerId: owner === nv1 ? customerId : foreignCustomerId, ...(opportunityId ? { opportunityId } : {}) });
     return quotes.addLine(owner, created.id, created.currentVersion, { revision: created.version.revision, materialId: CAP, quantity: 10 });
   }
 

@@ -59,25 +59,26 @@ import { ReceivablesPage } from './receivables/receivables-page';
 import { WarrantyDetail } from './warranty/warranty-detail';
 import { WarrantyPage } from './warranty/warranty-page';
 import { ReportsPage } from './reports/reports-page';
+import { PriceListSyncBanner } from './pricing/price-list-sync-banner';
 import salesStyles from './sales.module.scss';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { AppIcon, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { TasksPage } from './tasks/tasks-page';
 import { parseQuoteSub } from './tasks/tasks.model';
 
 const ICONS: Record<CrmView, ReactNode> = {
-  overview: <LayoutDashboard size={16} />,
-  tasks: <ClipboardCheck size={16} />,
-  customers: <Users size={16} />,
-  leads: <UserPlus size={16} />,
-  opportunities: <Target size={16} />,
-  activities: <CalendarClock size={16} />,
-  quotes: <FileText size={16} />,
-  contracts: <FileSignature size={16} />,
-  orders: <ShoppingCart size={16} />,
-  receivables: <Wallet size={16} />,
-  warranty: <ShieldCheck size={16} />,
-  reports: <ChartColumn size={16} />,
-  settings: <Settings size={16} />,
+  overview: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} size={16} />,
+  tasks: <AppIcon slot="sidebar.crm.tasks" fallback={ClipboardCheck} size={16} />,
+  customers: <AppIcon slot="nav.users" fallback={Users} size={16} />,
+  leads: <AppIcon slot="sidebar.crm.leads" fallback={UserPlus} size={16} />,
+  opportunities: <AppIcon slot="sidebar.crm.opportunities" fallback={Target} size={16} />,
+  activities: <AppIcon slot="sidebar.crm.activities" fallback={CalendarClock} size={16} />,
+  quotes: <AppIcon slot="sidebar.crm.quotes" fallback={FileText} size={16} />,
+  contracts: <AppIcon slot="sidebar.crm.contracts" fallback={FileSignature} size={16} />,
+  orders: <AppIcon slot="sidebar.crm.orders" fallback={ShoppingCart} size={16} />,
+  receivables: <AppIcon slot="sidebar.crm.receivables" fallback={Wallet} size={16} />,
+  warranty: <AppIcon slot="sidebar.crm.warranty" fallback={ShieldCheck} size={16} />,
+  reports: <AppIcon slot="nav.reports" fallback={ChartColumn} size={16} />,
+  settings: <AppIcon slot="nav.settings" fallback={Settings} size={16} />,
 };
 
 /**
@@ -191,6 +192,7 @@ export function CrmScreen() {
           {provisioning ? (
             <p className={styles.notice}>Dữ liệu CRM của tenant đang được khởi tạo.</p>
           ) : null}
+          {tablesReady ? <PriceListSyncBanner canManage={capabilities.isTenantAdmin || capabilities.canManage} /> : null}
         </>
       }
     >

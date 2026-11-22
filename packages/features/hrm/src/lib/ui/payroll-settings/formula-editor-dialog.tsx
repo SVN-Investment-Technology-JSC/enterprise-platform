@@ -11,6 +11,7 @@ import { Button } from '../button';
 import { Input } from '../input';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
 import { InfoNote, SettingsField } from '../settings-kit';
+import { useCloseGuard } from '../use-close-guard';
 import { PayrollDryRunPanel } from '../payroll-dry-run-panel';
 import {
   PAYROLL_SYSTEM_INPUTS,
@@ -85,6 +86,19 @@ export function FormulaEditorDialog({
     source ? (source.config_json.components || []).map((c) => ({ ...c })) : defaultComponents(),
   );
 
+  const snapshot = JSON.stringify([
+    reason,
+    effectiveFrom,
+    salaryType,
+    standardMinutes,
+    standardMode,
+    standardWorkdays,
+    inputs,
+    components,
+  ]);
+  const [initialSnapshot] = useState(snapshot);
+  const guard = useCloseGuard({ dirty: snapshot !== initialSnapshot, busy, onClose });
+
   function update(index: number, patch: Partial<Component>) {
     setComponents((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
@@ -98,7 +112,7 @@ export function FormulaEditorDialog({
   const paramCount = inputs.split(/[;\n]/).filter((s) => s.trim()).length;
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+    <Dialog {...guard.dialogProps}>
       <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col overflow-hidden bg-white p-0 sm:max-w-[1180px]">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12 @xl:px-5">
           <DialogTitle className="text-base font-bold text-slate-900">{title}</DialogTitle>
@@ -402,7 +416,7 @@ export function FormulaEditorDialog({
               </InfoNote>
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button type="button" variant="outline" onClick={onClose} className="h-9 px-4 text-xs">
+              <Button type="button" variant="outline" onClick={guard.requestClose} className="h-9 px-4 text-xs">
                 Hủy bỏ
               </Button>
               <Button type="submit" disabled={busy} className="h-9 gap-1.5 px-4 text-xs font-semibold">
@@ -413,6 +427,7 @@ export function FormulaEditorDialog({
           </div>
         </form>
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

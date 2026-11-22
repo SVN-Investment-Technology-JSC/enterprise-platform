@@ -127,7 +127,7 @@ export function PaletteEditor({
               <div className="min-w-0 flex-1">
                 <CommitField
                   aria-label={`Tên màu ${token.label}`}
-                  className="h-7 border-transparent px-1.5 font-medium hover:border-slate-200"
+                  className="border-transparent px-1.5 font-medium hover:border-slate-200"
                   maxLength={LABEL_MAX}
                   onCommit={(next) => apply(renameToken(palette, token.key, next, docs))}
                   value={token.label}

@@ -1,5 +1,12 @@
 import type { CrmWarehouseOption } from '@enterprise-platform/contracts-crm';
-import type { CatalogMaterial, CatalogMaterialStock, CatalogReader } from '../application/pricing-store.port.js';
+import type {
+  CatalogFingerprint,
+  CatalogMaterial,
+  CatalogMaterialStock,
+  CatalogPage,
+  CatalogReader,
+  CatalogSyncReader,
+} from '../application/pricing-store.port.js';
 import { CrmError } from '../domain/crm.error.js';
 
 /** Kho không trả lời: không đoán giá vốn hay tồn. */
@@ -29,7 +36,9 @@ interface WireMaterial {
   availableByWarehouse?: unknown;
   warrantyMonths?: unknown;
   salePrice?: unknown;
+  vatRate?: unknown;
   tradeCategory?: unknown;
+  isActive?: unknown;
 }
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim() : null);
@@ -66,7 +75,9 @@ function toMaterial(row: WireMaterial): CatalogMaterial | null {
     availableByWarehouse: stocks,
     warrantyMonths: number(row.warrantyMonths),
     salePrice: number(row.salePrice),
+    vatRate: number(row.vatRate),
     tradeCategory: text(row.tradeCategory),
+    ...(typeof row.isActive === 'boolean' ? { isActive: row.isActive } : {}),
   };
 }
 
@@ -75,7 +86,7 @@ function toMaterial(row: WireMaterial): CatalogMaterial | null {
  * (header `x-service-token`, `x-tenant-id`), không đọc schema của Kho. Lỗi mạng,
  * token, 5xx đều thành 503 `INVENTORY_UNAVAILABLE`.
  */
-export class HttpInventoryCatalogReader implements CatalogReader {
+export class HttpInventoryCatalogReader implements CatalogReader, CatalogSyncReader {
   constructor(
     private readonly baseUrl: string = process.env['INVENTORY_API_URL'] ?? 'http://localhost:3336/api/inventory',
     private readonly token: () => string | undefined = () => process.env['INTERNAL_SERVICE_TOKEN'],
@@ -106,6 +117,37 @@ export class HttpInventoryCatalogReader implements CatalogReader {
       cursor: options.cursor ?? '',
       tradeCategory: options.tradeCategory ?? '',
     });
+  }
+
+  /** Dấu vân tay danh mục (`GET /v1/internal/materials/fingerprint?kind=`), tính cả mặt hàng ngừng dùng. */
+  async catalogFingerprint(tenantId: string, kinds: readonly string[]): Promise<CatalogFingerprint> {
+    const body = await this.get<{ count?: unknown; fingerprint?: unknown }>(tenantId, '/v1/internal/materials/fingerprint', {
+      kind: kinds.length ? kinds.join(',') : ALL_KINDS,
+    });
+    const count = number(body?.count);
+    const fingerprint = text(body?.fingerprint);
+    if (count === null || fingerprint === null) throw inventoryUnavailable();
+    return { count, fingerprint };
+  }
+
+  /** Một trang danh mục theo mã (`cursor` là mã cuối trang trước); `includeInactive` lấy cả mặt hàng ngừng dùng. */
+  async catalogPage(
+    tenantId: string,
+    query: { readonly kinds: readonly string[]; readonly cursor: string | null; readonly limit: number; readonly includeInactive: boolean },
+  ): Promise<CatalogPage> {
+    const body = await this.get<{ materials?: unknown; nextCursor?: unknown }>(tenantId, '/v1/internal/materials', {
+      kind: query.kinds.length ? query.kinds.join(',') : ALL_KINDS,
+      limit: String(query.limit),
+      cursor: query.cursor ?? '',
+      includeInactive: query.includeInactive ? 'true' : '',
+    });
+    if (!Array.isArray(body?.materials)) throw inventoryUnavailable();
+    return {
+      materials: (body.materials as WireMaterial[])
+        .map(toMaterial)
+        .filter((material): material is CatalogMaterial => material !== null),
+      nextCursor: typeof body.nextCursor === 'string' && body.nextCursor ? body.nextCursor : null,
+    };
   }
 
   /** `GET /v1/internal/material-trade-categories?kind=`. */

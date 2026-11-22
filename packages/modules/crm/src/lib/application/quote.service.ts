@@ -52,7 +52,7 @@ import type { PlanAttachment } from './business-plan-store.port.js';
 import type { CrmActor } from './crm-actor.js';
 import type { CrmDataScopeService } from './data-scope.js';
 import type { ReportingLineReader } from './organization-scope.port.js';
-import { boundedNumber } from './price-list.service.js';
+import { boundedNumber, priceListRequired, requireSelectablePriceList } from './price-list.service.js';
 import { vietnamToday } from './pricing.service.js';
 import type { CatalogMaterial, CatalogReader, PricingStore } from './pricing-store.port.js';
 import type {
@@ -95,6 +95,8 @@ interface LineDraft {
   readonly quantity: number;
   readonly overrideUnitPrice: number | null;
   readonly overrideDiscountPercent: number | null;
+  /** Thuế suất sửa tay (%); rỗng là theo bảng giá hoặc hợp đồng. */
+  readonly overrideVatRate: number | null;
   /** Giá vốn đã biết ở lần tính trước, dùng khi danh mục không còn mặt hàng. */
   readonly previousUnitCost: number | null;
 }
@@ -253,6 +255,11 @@ export class QuoteService {
     const template = await this.pickTemplate(actor.tenantId, request?.templateId);
     const type = await this.pickType(actor.tenantId, request?.quoteTypeId);
     const organization = await this.organizationOnCreate(actor.tenantId, request);
+    // Bảng giá chọn lúc lập (không bắt buộc): phải đang bật, còn hiệu lực hôm nay (báo giá mới chưa có ngày tính giá).
+    const priceListId =
+      request?.priceListId === undefined || request.priceListId === null || request.priceListId === ''
+        ? null
+        : (await requireSelectablePriceList(this.pricing, actor.tenantId, request.priceListId, this.today())).id;
     const id = await this.quotes.createQuote(
       actor.tenantId,
       {
@@ -267,6 +274,7 @@ export class QuoteService {
         // Trường tuỳ biến: kiểm kiểu và lựa chọn; bắt buộc chỉ ép khi lưu (báo giá mới chưa có dòng hàng).
         customFields: await this.customFields({}, request?.customFields, false, actor.tenantId),
         ...(organization ? { organization } : {}),
+        priceListId,
         form: this.form
           ? {
               templateId: template?.id ?? null,
@@ -335,15 +343,34 @@ export class QuoteService {
       if (validUntil && validUntil < this.today()) {
         throw new CrmValidationError('INVALID_DATE', 'Hạn hiệu lực không được trước hôm nay.');
       }
+      const priceDate = request.priceDate === undefined ? version.priceDate : optionalDate(request.priceDate, 'ngày tính giá');
       return {
         lines,
         validUntil,
-        priceDate: request.priceDate === undefined ? version.priceDate : optionalDate(request.priceDate, 'ngày tính giá'),
+        priceDate,
+        priceListId: await this.priceListChange(actor.tenantId, version.priceListId, request.priceListId, priceDate),
         note: request.note === undefined ? version.note : optionalText(request.note, 4000, 'ghi chú'),
         shipping: request.shipping === undefined ? version.shipping : shippingOf(request.shipping),
         ...(await this.formChange(actor, quote, request)),
       };
     });
+  }
+
+  /**
+   * Bảng giá khi sửa: không gửi là giữ; `null` hoặc rỗng là bỏ chọn (còn dòng thì `price` báo `PRICE_LIST_REQUIRED`);
+   * chọn bảng khác thì kiểm đang bật, còn hiệu lực tại ngày tính giá. Đổi bảng hay đổi ngày thì `price` tính lại mọi
+   * dòng theo bảng đó, dòng ghi đè giữ ghi đè.
+   */
+  private async priceListChange(
+    tenantId: string,
+    current: string | null,
+    requested: unknown,
+    priceDate: string | null,
+  ): Promise<string | null> {
+    if (requested === undefined) return current;
+    if (requested === null || requested === '') return null;
+    if (typeof requested === 'string' && requested.toLowerCase() === current) return current;
+    return (await requireSelectablePriceList(this.pricing, tenantId, requested, priceDate ?? this.today())).id;
   }
 
   /**
@@ -463,6 +490,7 @@ export class QuoteService {
 
   async addLine(actor: CrmActor, id: string, versionNo: unknown, request: SaveQuoteLineRequest): Promise<QuoteDetail> {
     return this.edit(actor, id, versionNo, request?.revision, async (quote, lines) => {
+      if (!quote.version.priceListId) throw priceListRequired();
       if (lines.length >= QUOTE_LINES_MAX) {
         throw new CrmValidationError('TOO_MANY_LINES', `Mỗi phiên bản báo giá tối đa ${QUOTE_LINES_MAX} dòng.`);
       }
@@ -496,6 +524,7 @@ export class QuoteService {
             `Báo giá ở trạng thái "${QUOTE_STATUS_LABELS[quote.version.status]}", không sửa được.`,
           );
         }
+        if (!quote.version.priceListId) throw priceListRequired();
         at = lines.length;
         if (beforeLineNo !== null) {
           at = quote.version.lines.findIndex((line) => line.lineNo === beforeLineNo);
@@ -598,8 +627,8 @@ export class QuoteService {
 
   /**
    * Tìm mặt hàng để thêm dòng, theo trang (xếp theo mã; `cursor` là mã cuối của trang trước). `kind`: lọc nhóm
-   * (STOCK, SERVICE). Có `quoteId`: chỉ mặt hàng có giá bán cho báo giá đó tại ngày tính giá (bảng giá của khách, bảng
-   * giá chuẩn, hợp đồng khung của khách; đúng ĐVT), để không chọn phải mặt hàng sẽ báo "Chưa có giá bán".
+   * (STOCK, SERVICE). Có `quoteId`: chỉ mặt hàng có dòng trong bảng giá đã chọn của phiên bản tại ngày tính giá, cộng
+   * hợp đồng khung của khách (đúng ĐVT); phiên bản chưa chọn bảng giá thì danh sách rỗng.
    */
   async catalogMaterials(
     actor: CrmActor,
@@ -633,6 +662,7 @@ export class QuoteService {
         category: material.category,
         tradeCategory: material.tradeCategory ?? null,
         salePrice: material.salePrice ?? null,
+        vatRate: material.vatRate ?? null,
         avgCost: material.avgCost ?? null,
         totalAvailable: material.totalAvailable ?? null,
         availableByWarehouse: material.availableByWarehouse ?? null,
@@ -673,9 +703,11 @@ export class QuoteService {
     },
   ): Promise<{ materials: CatalogMaterial[]; nextCursor: string | null }> {
     const quote = await this.requireEditable(actor, quoteId, versionNoOf(versionNo));
+    // Chưa chọn bảng giá thì chưa thêm được dòng: không liệt kê mặt hàng nào.
+    if (!quote.version.priceListId) return { materials: [], nextCursor: null };
     const rows = await this.pricing.pricedMaterials(actor.tenantId, {
       date: quote.version.priceDate ?? this.today(),
-      customerPriceListId: quote.head.customerPriceListId ?? null,
+      priceListId: quote.version.priceListId,
       customerId: quote.head.customerId,
       search: query.search,
       limit: query.limit + 1,
@@ -720,12 +752,19 @@ export class QuoteService {
       throw new CrmConflictError('QUOTE_EXPIRED', 'Báo giá đã quá hạn hiệu lực; vui lòng đổi hạn trước khi gửi duyệt.');
     }
     const { reasons, attachment } = await this.evaluate(actor, id, quote.version, true);
-    if (!reasons.length) {
+    // Không vượt ngưỡng, hoặc quản trị viên tenant gửi duyệt: duyệt thẳng, vẫn lưu lý do cần duyệt để đối chiếu.
+    if (!reasons.length || actor.isTenantAdmin) {
       await this.quotes.submit(
         actor.tenantId,
         id,
         base,
-        { outcome: 'APPROVED', reasons, procedure: null, approvalRequested: null },
+        {
+          outcome: 'APPROVED',
+          reasons,
+          procedure: null,
+          approvalRequested: null,
+          approvedNote: reasons.length ? 'Quản trị viên gửi duyệt, duyệt thẳng' : null,
+        },
         actor.userId,
       );
       return this.get(actor, id);
@@ -940,6 +979,7 @@ export class QuoteService {
         quantity: line.quantity,
         overrideUnitPrice: line.overrideUnitPrice,
         overrideDiscountPercent: line.overrideDiscountPercent,
+        overrideVatRate: line.overrideVatRate,
         previousUnitCost: line.estUnitCost,
       }),
     );
@@ -957,9 +997,17 @@ export class QuoteService {
     next: QuoteChange,
   ): Promise<QuoteVersionWrite> {
     const date = next.priceDate ?? this.today();
+    // Có dòng thì phải có bảng giá, và bảng đó phải còn bật, còn hiệu lực tại ngày tính giá (bảng bị tắt hoặc đổi ngày
+    // tính giá ra ngoài hiệu lực: `PRICE_LIST_NOT_EFFECTIVE`). Phiên bản chưa có dòng thì không cần.
+    if (next.lines.length) {
+      if (!next.priceListId) throw priceListRequired();
+      await requireSelectablePriceList(this.pricing, tenantId, next.priceListId, date);
+    }
     const materialIds = [...new Set(next.lines.map((line) => line.materialId))];
     const [priceLists, policies, cap, known, contractPrices] = await Promise.all([
-      this.pricing.priceListsForPricing(tenantId, date, quote.head.customerPriceListId ?? null, materialIds),
+      materialIds.length && next.priceListId
+        ? this.pricing.priceListsForPricing(tenantId, date, next.priceListId, materialIds)
+        : Promise.resolve([]),
       this.pricing.policiesForPricing(tenantId, date),
       this.pricing.discountCapPercent(tenantId),
       materialIds.length ? this.catalog.materials(tenantId, materialIds) : Promise.resolve(new Map<string, CatalogMaterial>()),
@@ -986,14 +1034,18 @@ export class QuoteService {
       category: line.category,
       quantity: line.quantity,
       unit: line.unit,
-      override: { unitPrice: line.overrideUnitPrice, discountPercent: line.overrideDiscountPercent },
+      override: {
+        unitPrice: line.overrideUnitPrice,
+        discountPercent: line.overrideDiscountPercent,
+        vatRate: line.overrideVatRate,
+      },
     }));
     const shipping = next.shipping;
     const priced = priceQuote({
       date,
       customerId: quote.head.customerId,
       customerGroupId: quote.head.customerGroupId,
-      customerPriceListId: quote.head.customerPriceListId ?? null,
+      priceListId: next.priceListId,
       lines: inputs,
       priceLists,
       policies,
@@ -1040,6 +1092,7 @@ export class QuoteService {
         overridden: pricedLine.overridden,
         overrideUnitPrice: line.overrideUnitPrice,
         overrideDiscountPercent: line.overrideDiscountPercent,
+        overrideVatRate: line.overrideVatRate,
         unitPrice: pricedLine.unitPriceAfterDiscount,
         grossAmount: pricedLine.grossAmount,
         discountAmount: pricedLine.discountAmount,
@@ -1061,6 +1114,7 @@ export class QuoteService {
       validUntil: next.validUntil,
       priceDate: next.priceDate,
       pricedOn: date,
+      priceListId: next.priceListId,
       note: next.note,
       shipping,
       totals,
@@ -1093,7 +1147,7 @@ export class QuoteService {
       materialKind: material.kind ?? 'STOCK',
       category: material.category,
       quantity: quantityOf(request.quantity),
-      ...overridesOf(request, { overrideUnitPrice: null, overrideDiscountPercent: null }),
+      ...overridesOf(request, { overrideUnitPrice: null, overrideDiscountPercent: null, overrideVatRate: null }),
       previousUnitCost: null,
     };
   }
@@ -1208,6 +1262,7 @@ function unchanged(quote: EditableQuote): Omit<QuoteChange, 'lines'> {
   return {
     validUntil: version.validUntil,
     priceDate: version.priceDate,
+    priceListId: version.priceListId,
     note: version.note,
     shipping: version.shipping,
     form: {
@@ -1270,10 +1325,13 @@ function quantityOf(value: unknown): number {
   return boundedNumber(number, 0, QUANTITY_MAX, 'số lượng', 3);
 }
 
-function overridesOf(
-  request: SaveQuoteLineRequest,
-  current: { overrideUnitPrice: number | null; overrideDiscountPercent: number | null },
-): { overrideUnitPrice: number | null; overrideDiscountPercent: number | null } {
+interface LineOverrides {
+  overrideUnitPrice: number | null;
+  overrideDiscountPercent: number | null;
+  overrideVatRate: number | null;
+}
+
+function overridesOf(request: SaveQuoteLineRequest, current: LineOverrides): LineOverrides {
   const read = (value: unknown, max: number, label: string, decimals: number, fallback: number | null) =>
     value === undefined ? fallback : value === null || value === '' ? null : boundedNumber(value, 0, max, label, decimals);
   const overrideUnitPrice = read(request.overrideUnitPrice, AMOUNT_MAX, 'đơn giá ghi đè', 2, current.overrideUnitPrice);
@@ -1287,7 +1345,8 @@ function overridesOf(
   if (overrideUnitPrice !== null && overrideDiscountPercent !== null) {
     throw new CrmValidationError('OVERRIDE_CONFLICT', 'Chỉ ghi đè đơn giá hoặc chiết khấu, không ghi đè cả hai.');
   }
-  return { overrideUnitPrice, overrideDiscountPercent };
+  const overrideVatRate = read(request.overrideVatRate, 100, 'thuế suất sửa tay', 2, current.overrideVatRate);
+  return { overrideUnitPrice, overrideDiscountPercent, overrideVatRate };
 }
 
 function shippingOf(value: UpdateQuoteVersionRequest['shipping']): QuoteShipping {

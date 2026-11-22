@@ -9,6 +9,7 @@ import type { LinkableProject } from '../workspace-projects';
 import { Button } from './button';
 import { CreateRequestForm, type RequestFormResult, type RequestKind } from './create-request-form';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './dialog';
+import { useCloseGuard } from './use-close-guard';
 
 /** Các loại đơn được tạo hộ. Khớp danh sách cho phép ở máy chủ (nghỉ phép, tăng ca, công tác, giải trình công). */
 export const PROXY_KIND_OPTIONS: readonly { value: ProxyKind; label: string; title: string }[] = [
@@ -106,8 +107,21 @@ export function ProxyRequestDialog(props: ProxyRequestDialogProps) {
     }
   }
 
+  // Bước chọn: dirty khi đã chọn nhân viên hoặc nhập lý do. Bước form: chỉ dirty khi người dùng đã sửa form tạo đơn.
+  const formKey = `${kind}:${employeeId}`;
+  const [formDirtyKey, setFormDirtyKey] = useState('');
+  const guard = useCloseGuard({
+    dirty:
+      open && (step === 'pick' || !selected ? employeeId !== '' || reason.trim() !== '' : formDirtyKey === formKey),
+    onClose: () => onOpenChange(false),
+  });
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      disablePointerDismissal
+      onOpenChange={(next) => (next ? onOpenChange(true) : guard.requestClose())}
+    >
       <DialogContent className="max-w-3xl overflow-hidden bg-white p-0">
         {step === 'pick' || !selected ? (
           <div className="flex flex-col">
@@ -167,7 +181,7 @@ export function ProxyRequestDialog(props: ProxyRequestDialogProps) {
               ) : null}
             </div>
             <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
-              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={guard.requestClose}>
                 Hủy
               </Button>
               <Button
@@ -197,12 +211,14 @@ export function ProxyRequestDialog(props: ProxyRequestDialogProps) {
               loading: balancesLoading,
               onBehalf: { reason: trimmed, employeeName: `${selected.fullName} (${selected.employeeCode})` },
             }}
-            onCancel={() => onOpenChange(false)}
+            onCancel={guard.requestClose}
+            onDirtyChange={() => setFormDirtyKey(formKey)}
             onSubmitted={props.onSubmitted}
             onAbandoned={props.onAbandoned}
           />
         )}
       </DialogContent>
+      {guard.confirm}
     </Dialog>
   );
 }

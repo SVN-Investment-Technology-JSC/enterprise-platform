@@ -118,6 +118,8 @@ export interface CreateMaterialRequest {
   readonly tradeMode?: TradeMode;
   /** Giá bán mặc định (VND); bỏ trống là chưa khai, khác 0. */
   readonly salePrice?: number;
+  /** Thuế suất VAT bán ra (%), 0 đến 100, tối đa 2 chữ số thập phân; bỏ trống là chưa khai (bên bán coi là 10%), khác 0. */
+  readonly vatRate?: number | null;
   /** Phân loại hàng hóa hoặc dịch vụ, lấy từ danh mục `catalog.trade` trong Cài đặt. */
   readonly tradeCategory?: string;
   /** Mô tả, ghi chú; bỏ trống là chưa khai. */
@@ -169,6 +171,8 @@ export interface UpdateMaterialRequest {
   readonly description?: string;
   readonly tradeMode?: TradeMode;
   readonly salePrice?: number;
+  /** Thuế suất VAT bán ra (%); bỏ qua là giữ nguyên, `null` là xoá (về chưa khai). */
+  readonly vatRate?: number | null;
   readonly tradeCategory?: string;
   /** Loại vật tư, giá trị lấy từ danh mục trong Cài đặt. */
   readonly type?: AssetType;
@@ -542,6 +546,8 @@ export interface Material {
   readonly assetCategory?: 'INDUSTRIAL' | 'IT_OFFICE' | 'TOOL_PPE' | 'VEHICLE';
   readonly tradeMode?: TradeMode;
   readonly salePrice?: number;
+  /** Thuế suất VAT bán ra (%); không có là chưa khai (bên bán coi là 10%), khác 0. */
+  readonly vatRate?: number;
   /** Phân loại hàng hóa hoặc dịch vụ; không có là chưa khai. */
   readonly tradeCategory?: string;
   /** Mô tả, ghi chú của mặt hàng; không có là chưa khai. */
@@ -1365,6 +1371,8 @@ export interface StocktakeLine {
   readonly isSerialized?: boolean;
   readonly isLotTracked?: boolean;
   readonly systemQuantity: number;
+  /** Tồn thực tế hiện tại của kho (chỉ có khi đợt chưa ghi sổ), để thấy biến động sau snapshot. */
+  readonly currentQuantity?: number;
   readonly countRound1?: number;
   readonly countRound2?: number;
   readonly actualQuantity?: number;
@@ -1404,7 +1412,52 @@ export interface StocktakeSession {
   readonly totalVarianceValue: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly createdBy?: string;
+  readonly submittedBy?: string;
+  readonly submittedAt?: string;
+  readonly postedAt?: string;
+  /** Lý do khi quản lý trả đợt về đếm lại (lần trả gần nhất). */
+  readonly rejectReason?: string;
+  readonly cancelReason?: string;
+  /** Chứng từ điều chỉnh sinh ra khi ghi sổ; trống nếu chưa ghi sổ hoặc đợt không có chênh lệch. */
+  readonly documentId?: string;
+  readonly documentCode?: string;
   readonly lines?: readonly StocktakeLine[];
+}
+
+export interface StocktakeListQuery {
+  readonly warehouseCode?: string;
+  readonly status?: StocktakeStatus;
+  readonly search?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface StocktakePage {
+  readonly items: readonly StocktakeSession[];
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+}
+
+export interface UpdateStocktakeLinesRequest {
+  readonly lines: readonly UpdateStocktakeLineInput[];
+}
+
+/** Trả về đếm lại, huỷ đợt: bắt buộc có lý do. */
+export interface StocktakeReasonRequest {
+  readonly reason: string;
+}
+
+export interface StocktakeLinesResult {
+  readonly session: StocktakeSession;
+  readonly lines: readonly StocktakeLine[];
+}
+
+export interface StocktakePostResult {
+  readonly session: StocktakeSession;
+  /** Chứng từ điều chỉnh đã ghi sổ; trống khi đợt không có dòng chênh lệch. */
+  readonly document?: StockDocument;
 }
 
 export interface CreateStocktakeRequest {
@@ -1626,6 +1679,12 @@ export interface InternalMaterialCatalogQuery {
   readonly kinds?: readonly MaterialKind[];
   /** Đúng phân loại này (không phân biệt hoa thường). */
   readonly tradeCategory?: string;
+  /**
+   * Trả cả mặt hàng ngừng dùng (`includeInactive=true`). Mặc định chỉ mặt hàng
+   * đang dùng, trừ khi tra theo `ids`, `codes`. Đồng bộ bảng giá của Bán hàng cần
+   * cả mặt hàng ngừng dùng.
+   */
+  readonly includeInactive?: boolean;
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -1658,6 +1717,8 @@ export interface InternalMaterialCatalogItem {
   readonly warrantyMonths: number | null;
   /** Giá bán khai trong danh mục hàng hoá (cột Giá ở màn Hàng hóa của Kho); null là chưa khai. */
   readonly salePrice: number | null;
+  /** Thuế suất VAT bán ra (%) khai ở mặt hàng; null là chưa khai (bên bán coi là 10%), khác 0. */
+  readonly vatRate: number | null;
   /** Phân loại hàng hoá hoặc dịch vụ (cột Phân loại ở màn Hàng hóa của Kho); null là chưa khai. */
   readonly tradeCategory: string | null;
   /**
@@ -1675,6 +1736,21 @@ export interface InternalMaterialCatalogPage {
   readonly materials: readonly InternalMaterialCatalogItem[];
   /** Có khi còn trang sau (chỉ khi gọi với `limit`). */
   readonly nextCursor: string | null;
+}
+
+/**
+ * `GET v1/internal/materials/fingerprint?kind=STOCK,SERVICE`: dấu vân tay của
+ * danh mục mặt hàng (kể cả ngừng dùng) thuộc các nhóm `kind`, mặc định cả hàng
+ * hoá và dịch vụ. Bên gọi so với lần đồng bộ trước để biết danh mục có đổi không.
+ *
+ * `fingerprint` là md5 (hex) của `id|code|name|unit|sale_price|vat_rate|is_active` từng
+ * mặt hàng, xếp theo `id`, nối bằng xuống dòng. Chỉ đổi khi mã, tên, đơn vị, giá bán,
+ * thuế suất VAT, trạng thái đổi hoặc thêm, xoá mặt hàng; giá hoặc thuế suất rỗng khác 0. Danh mục rỗng trả
+ * md5 của chuỗi rỗng và `count = 0`.
+ */
+export interface InternalMaterialCatalogFingerprint {
+  readonly count: number;
+  readonly fingerprint: string;
 }
 
 /** Một dòng của yêu cầu xuất. */
@@ -2086,4 +2162,71 @@ export interface AuditorCandidate {
   readonly position?: string;
   readonly email?: string;
   readonly hasWarehouseAccess: boolean;
+}
+
+// ============================================================================
+// Xuất/nhập kho: danh sách gộp chứng từ và bút toán cũ (`GET /v1/stock-movements`)
+// ============================================================================
+
+/** `document`: một chứng từ kho. `legacy`: bút toán sổ kho từ trước khi có chứng từ. */
+export const STOCK_MOVEMENT_KINDS = ['document', 'legacy'] as const;
+
+export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number];
+
+/** Nguồn phát sinh khi chứng từ hoặc bút toán không ghi nguồn. */
+export const STOCK_MOVEMENT_MANUAL_SOURCE = 'manual';
+
+export interface StockMovementEntry {
+  readonly kind: StockMovementKind;
+  /** Id chứng từ (`document`) hoặc id bút toán (`legacy`). */
+  readonly id: string;
+  /** Số chứng từ hoặc mã bút toán. */
+  readonly code: string;
+  /** Loại chứng từ (`StockDocumentType`) hoặc loại bút toán (`TransactionType`). */
+  readonly type: string;
+  readonly status: StockDocumentStatus;
+  readonly warehouseCode: string;
+  /** Kho đích của chứng từ điều chuyển. */
+  readonly targetWarehouseCode?: string;
+  /** Thời điểm ghi sổ; chứng từ chưa ghi sổ lấy thời điểm lập. */
+  readonly occurredAt: string;
+  /** Ngày chứng từ hoặc ngày ghi bút toán (giờ Việt Nam), dạng YYYY-MM-DD. */
+  readonly movementDate: string;
+  /** Nguồn phát sinh đã chuẩn hoá: chữ thường, trống thành `manual`. */
+  readonly sourceType: string;
+  readonly sourceId?: string;
+  readonly lineCount: number;
+  readonly quantityTotal: number;
+  /** Mặt hàng của dòng đầu tiên, để nhận diện nhanh trên danh sách. */
+  readonly materialCode?: string;
+  readonly materialName?: string;
+  readonly createdBy: string;
+  readonly note?: string;
+}
+
+export interface StockMovementListQuery {
+  /** Số chứng từ, mã bút toán, mã hoặc tên mặt hàng. */
+  readonly search?: string;
+  /** Bỏ trống lấy cả chứng từ lẫn bút toán cũ. */
+  readonly kind?: StockMovementKind;
+  /** Lọc theo loại chứng từ; khi có thì không trả bút toán cũ. */
+  readonly docType?: StockDocumentType;
+  readonly status?: StockDocumentStatus;
+  /** Khớp kho đi hoặc kho đích của chứng từ điều chuyển. */
+  readonly warehouseCode?: string;
+  readonly sourceType?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly limit?: number;
+  readonly offset?: number;
+}
+
+export interface StockMovementPage {
+  readonly rows: readonly StockMovementEntry[];
+  /** Tổng số dòng khớp bộ lọc, không phụ thuộc trang. */
+  readonly total: number;
+  readonly limit: number;
+  readonly offset: number;
+  /** Số chứng từ đang Chờ duyệt (theo kho nếu có lọc kho), để hiện trên nhãn tab. */
+  readonly pendingCount: number;
 }

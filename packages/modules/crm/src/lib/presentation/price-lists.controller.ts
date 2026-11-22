@@ -2,18 +2,26 @@ import type {
   BulkPriceListItemsRequest,
   PriceListDetail,
   PriceListSummary,
+  PriceListSyncResult,
+  PriceListSyncStatus,
   PricingResult,
   PricingSettings,
   QuotePreviewRequest,
   SavePriceListItemRequest,
   SavePriceListRequest,
+  SetManualPriceRequest,
+  SetVatRateRequest,
 } from '@enterprise-platform/contracts-crm';
 import { Body, Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Put, Req } from '@nestjs/common';
+import { PriceListSyncService } from '../application/price-list-sync.service.js';
 import { PriceListService } from '../application/price-list.service.js';
 import { PricingService } from '../application/pricing.service.js';
 import { crmActor, runCrm, type CrmRequest } from './crm-http.js';
 
-/** Bảng giá: đọc với `crm.read`, ghi với `crm.manage` (kiểm ở service). */
+/**
+ * Bảng giá: đọc với `crm.read`, ghi với quản trị bán hàng (kiểm ở service). Thêm, sửa, xoá dòng chỉ cho bảng nhập tay
+ * cũ; bảng theo tỷ lệ nhập hoặc bỏ giá tay, thuế suất tay; bảng mặc định lấy hết theo Kho, không sửa.
+ */
 @Controller('v1')
 export class PriceListsController {
   constructor(@Inject(PriceListService) private readonly lists: PriceListService) {}
@@ -78,12 +86,70 @@ export class PriceListsController {
   removeItem(@Req() request: CrmRequest, @Param('id') id: string, @Param('itemId') itemId: string): Promise<PriceListDetail> {
     return runCrm(() => this.lists.removeItem(crmActor(request), id, itemId));
   }
+
+  /** Bảng theo tỷ lệ: nhập giá tay cho dòng. */
+  @Put('price-lists/:id/items/:itemId/manual-price')
+  setManualPrice(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: SetManualPriceRequest,
+  ): Promise<PriceListDetail> {
+    return runCrm(() => this.lists.setManualPrice(crmActor(request), id, itemId, body ?? ({} as never)));
+  }
+
+  /** Bảng theo tỷ lệ: bỏ giá tay, dòng về giá theo tỷ lệ. */
+  @Delete('price-lists/:id/items/:itemId/manual-price')
+  clearManualPrice(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ): Promise<PriceListDetail> {
+    return runCrm(() => this.lists.clearManualPrice(crmActor(request), id, itemId));
+  }
+
+  /** Bảng theo tỷ lệ: nhập thuế suất tay cho dòng (giữ khi đồng bộ). */
+  @Put('price-lists/:id/items/:itemId/vat-rate')
+  setVatRate(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: SetVatRateRequest,
+  ): Promise<PriceListDetail> {
+    return runCrm(() => this.lists.setVatRate(crmActor(request), id, itemId, body ?? ({} as never)));
+  }
+
+  /** Bảng theo tỷ lệ: bỏ thuế suất tay, dòng về thuế suất của bảng mặc định. */
+  @Delete('price-lists/:id/items/:itemId/vat-rate')
+  clearVatRate(
+    @Req() request: CrmRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ): Promise<PriceListDetail> {
+    return runCrm(() => this.lists.clearVatRate(crmActor(request), id, itemId));
+  }
 }
 
-/** Trần chiết khấu và thử tính giá. */
+/** Trần chiết khấu, thử tính giá, đồng bộ bảng giá mặc định với Kho. */
 @Controller('v1')
 export class PricingController {
-  constructor(@Inject(PricingService) private readonly pricing: PricingService) {}
+  constructor(
+    @Inject(PricingService) private readonly pricing: PricingService,
+    @Inject(PriceListSyncService) private readonly sync: PriceListSyncService,
+  ) {}
+
+  /** Bảng giá mặc định có cần đồng bộ với Kho không (quản trị bán hàng). */
+  @Get('pricing/catalog-sync')
+  catalogSyncStatus(@Req() request: CrmRequest): Promise<PriceListSyncStatus> {
+    return runCrm(() => this.sync.status(crmActor(request)));
+  }
+
+  /** Đồng bộ bảng giá mặc định với Kho và tính lại các bảng theo tỷ lệ. */
+  @Post('pricing/catalog-sync')
+  @HttpCode(200)
+  syncCatalog(@Req() request: CrmRequest): Promise<PriceListSyncResult> {
+    return runCrm(() => this.sync.sync(crmActor(request)));
+  }
 
   @Get('pricing/settings')
   settings(@Req() request: CrmRequest): Promise<PricingSettings> {
