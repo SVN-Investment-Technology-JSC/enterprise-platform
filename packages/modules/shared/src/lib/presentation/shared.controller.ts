@@ -208,6 +208,12 @@ export class SharedController {
     return this.execute(() => this.nas.rename(this.actor(request), share, body ?? {}));
   }
 
+  @Post('nas/shares/:share/move')
+  @HttpCode(200)
+  nasMove(@Req() request: SharedRequest, @Param('share') share: string, @Body() body: { paths?: string[]; to?: string } | undefined) {
+    return this.execute(() => this.nas.move(this.actor(request), share, body ?? {}));
+  }
+
   @Post('nas/shares/:share/delete')
   @HttpCode(204)
   nasDelete(@Req() request: SharedRequest, @Param('share') share: string, @Body() body: { path?: string } | undefined) {

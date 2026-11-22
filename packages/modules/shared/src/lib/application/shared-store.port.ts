@@ -197,7 +197,7 @@ export interface NasGroupRecord {
   readonly members: number;
 }
 
-export type NasAccessAction = 'view' | 'download' | 'upload' | 'create_folder' | 'rename' | 'delete';
+export type NasAccessAction = 'view' | 'download' | 'upload' | 'create_folder' | 'rename' | 'move' | 'delete';
 
 export interface SharedStore {
   readonly diagnostics: {

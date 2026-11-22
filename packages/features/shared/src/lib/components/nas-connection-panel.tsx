@@ -9,7 +9,7 @@ import {
   type SharedNasShareConfig,
 } from '@enterprise-platform/contracts-shared';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as api from '../shared-api';
 import styles from '../shared.module.scss';
 import { Field, SelectField } from './dialog';
@@ -26,7 +26,6 @@ interface Draft {
 }
 
 const PROVIDER_OPTIONS = Object.entries(SHARED_NAS_PROVIDER_LABELS).map(([value, label]) => ({ value, label }));
-const LINK_LABELS = { auto: 'Tự ghép', manual: 'Ghép tay', none: 'Chưa ghép' } as const;
 
 function draftOf(settings: SharedNasConnectionSettings): Draft {
   return {
@@ -41,10 +40,17 @@ function draftOf(settings: SharedNasConnectionSettings): Draft {
   };
 }
 
+function Card({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <section className={`${styles.panel} ${styles.storageCard}`} aria-label={label}>
+      {children}
+    </section>
+  );
+}
+
 /**
- * Kết nối NAS: địa chỉ NAS, tài khoản dịch vụ, thư mục chia sẻ ánh xạ vào ERP, chu kỳ
- * đồng bộ người dùng, nhóm, quyền; và bảng ghép tài khoản NAS với nhân sự ERP. Quản trị
- * kho xem, quản trị tenant sửa. Mật khẩu không bao giờ hiện lại.
+ * Kết nối NAS: địa chỉ DSM, tài khoản kết nối, thư mục chia sẻ hiện trong Kho NAS, chu kỳ
+ * đồng bộ người dùng, nhóm, quyền. Quản trị kho xem, quản trị tenant sửa; mật khẩu không hiện lại.
  */
 export function NasConnectionPanel() {
   const [settings, setSettings] = useState<SharedNasConnectionSettings>();
@@ -53,10 +59,6 @@ export function NasConnectionPanel() {
   const [busy, setBusy] = useState<'test' | 'save' | 'sync'>();
   const [test, setTest] = useState<{ ok: boolean; message: string }>();
   const [available, setAvailable] = useState<readonly string[]>([]);
-  const [accounts, setAccounts] = useState<readonly SharedNasAccount[]>();
-  const [people, setPeople] = useState<readonly SharedDirectoryPerson[]>([]);
-  const [onlyUnlinked, setOnlyUnlinked] = useState(false);
-  const [filter, setFilter] = useState('');
 
   const reload = useCallback(async () => {
     try {
@@ -64,11 +66,6 @@ export function NasConnectionPanel() {
       setSettings(next);
       setDraft(draftOf(next));
       setLoadError(undefined);
-      if (next.configured) {
-        const [list, directory] = await Promise.all([api.loadNasAccounts(), api.loadDirectory().catch(() => undefined)]);
-        setAccounts(list);
-        setPeople(directory?.people ?? []);
-      }
     } catch (cause) {
       setLoadError(api.errorMessage(cause, 'Không tải được kết nối NAS.'));
     }
@@ -78,30 +75,8 @@ export function NasConnectionPanel() {
     void reload();
   }, [reload]);
 
-  const personOptions = useMemo(
-    () =>
-      people.map((person) => ({
-        value: person.userId,
-        label: person.displayName,
-        description: [person.email, person.unitNames.join(', ')].filter(Boolean).join(' · ') || undefined,
-      })),
-    [people],
-  );
-
-  if (loadError) {
-    return (
-      <section className={`${styles.panel} ${styles.storageCard} ${styles.storageWide}`} aria-label="Kết nối NAS">
-        <p className={styles.alert}>{loadError}</p>
-      </section>
-    );
-  }
-  if (!settings || !draft) {
-    return (
-      <section className={`${styles.panel} ${styles.storageCard} ${styles.storageWide}`} aria-label="Kết nối NAS">
-        <p className={styles.muted}>Đang tải…</p>
-      </section>
-    );
-  }
+  if (loadError) return <Card label="Kết nối NAS"><p className={styles.alert}>{loadError}</p></Card>;
+  if (!settings || !draft) return <Card label="Kết nối NAS"><p className={styles.muted}>Đang tải…</p></Card>;
 
   const editable = settings.editable && settings.available;
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => setDraft((current) => (current ? { ...current, [key]: value } : current));
@@ -139,7 +114,7 @@ export function NasConnectionPanel() {
     setBusy('save');
     try {
       await api.saveNasSettings(request());
-      toast.success(draft.enabled ? 'Đã lưu và đồng bộ với NAS.' : 'Đã lưu: Kho NAS đang tắt.');
+      toast.success('Đã lưu kết nối NAS.');
       setTest(undefined);
       await reload();
     } catch (cause) {
@@ -152,52 +127,27 @@ export function NasConnectionPanel() {
   const sync = async () => {
     setBusy('sync');
     try {
-      const result = await api.syncNas();
-      toast.success(result.message);
-      await reload();
+      toast.success((await api.syncNas()).message);
     } catch (cause) {
       toast.error(api.errorMessage(cause, 'Đồng bộ với NAS thất bại.'));
-      await reload();
     } finally {
+      await reload();
       setBusy(undefined);
     }
   };
 
-  const link = async (name: string, erpUserId: string | null) => {
-    try {
-      setAccounts(await api.linkNasAccount(name, erpUserId));
-    } catch (cause) {
-      toast.error(api.errorMessage(cause, 'Không ghép được tài khoản.'));
-    }
-  };
-
-  const keyword = filter.trim().toLowerCase();
-  const shownAccounts = (accounts ?? []).filter(
-    (account) =>
-      (!onlyUnlinked || !account.erpUserId) &&
-      (!keyword ||
-        account.name.toLowerCase().includes(keyword) ||
-        (account.erpUserName ?? '').toLowerCase().includes(keyword) ||
-        account.groups.some((group) => group.toLowerCase().includes(keyword))),
-  );
-
   return (
-    <section className={`${styles.panel} ${styles.storageCard} ${styles.storageWide}`} aria-label="Kết nối NAS">
+    <Card label="Kết nối NAS">
       <div className={styles.sectionTitle}>
         <h3>Kết nối NAS</h3>
         <span className={`${styles.badge} ${!settings.configured ? styles.badgeInfo : settings.enabled ? styles.badgeSuccess : styles.badgeWarn}`}>
           {!settings.configured ? 'Chưa cấu hình' : settings.enabled ? 'Đang bật' : 'Đang tắt'}
         </span>
       </div>
-      <p className={styles.muted}>
-        Hiện thẳng các thư mục chia sẻ của NAS công ty trong mục Kho NAS: tệp chỉ nằm trên NAS, không sao chép. Người dùng,
-        nhóm và quyền từng thư mục lấy từ NAS theo chu kỳ; mỗi người vào được thư mục nào là theo tài khoản NAS được ghép
-        với họ. Tài khoản kết nối cần thuộc nhóm administrators của NAS để đọc được quyền.
-      </p>
       {!settings.available ? (
-        <p className={styles.notice}>Máy chủ chưa bật khoá mã hoá (SHARED_STORAGE_SECRET_KEY). Liên hệ quản trị nền tảng.</p>
+        <p className={styles.notice}>Máy chủ chưa bật tính năng này (thiếu SHARED_STORAGE_SECRET_KEY).</p>
       ) : !settings.editable ? (
-        <p className={styles.notice}>Chỉ quản trị tenant được thay đổi kết nối NAS.</p>
+        <p className={styles.notice}>Chỉ quản trị tenant được sửa.</p>
       ) : null}
 
       <form
@@ -209,7 +159,7 @@ export function NasConnectionPanel() {
       >
         <label className={styles.checkRow}>
           <input type="checkbox" checked={draft.enabled} disabled={!editable} onChange={(event) => set('enabled', event.target.checked)} />
-          Bật Kho NAS cho công ty
+          Bật Kho NAS
         </label>
         <div className={styles.fieldRow}>
           <Field label="Tên hiển thị">
@@ -228,15 +178,10 @@ export function NasConnectionPanel() {
           </SelectField>
         </div>
         <div className={styles.fieldRow}>
-          <Field label="Địa chỉ NAS (DSM)" required>
+          <Field label="Địa chỉ NAS" required>
             <input value={draft.baseUrl} maxLength={500} placeholder="http://100.64.10.20:5000" disabled={!editable} onChange={(event) => set('baseUrl', event.target.value)} />
           </Field>
-          <Field label="Đồng bộ quyền sau (phút)">
-            <input type="number" min={5} max={1440} value={draft.syncMinutes} disabled={!editable} onChange={(event) => set('syncMinutes', event.target.value)} />
-          </Field>
-        </div>
-        <div className={styles.fieldRow}>
-          <Field label="Tài khoản kết nối" required>
+          <Field label="Tài khoản" required>
             <input value={draft.username} maxLength={255} autoComplete="off" disabled={!editable} onChange={(event) => set('username', event.target.value)} />
           </Field>
           <Field label="Mật khẩu" required={!settings.hasSecret}>
@@ -245,17 +190,20 @@ export function NasConnectionPanel() {
               value={draft.password}
               maxLength={500}
               autoComplete="new-password"
-              placeholder={settings.hasSecret ? 'Đã lưu; để trống nếu giữ nguyên' : ''}
+              placeholder={settings.hasSecret ? 'Đã lưu' : ''}
               disabled={!editable}
               onChange={(event) => set('password', event.target.value)}
             />
           </Field>
+          <Field label="Đồng bộ quyền (phút)">
+            <input type="number" min={5} max={1440} value={draft.syncMinutes} disabled={!editable} onChange={(event) => set('syncMinutes', event.target.value)} />
+          </Field>
         </div>
 
-        <div className={styles.field} role="group" aria-label="Thư mục chia sẻ ánh xạ">
-          <span className={styles.fieldLabel}>Thư mục chia sẻ ánh xạ vào ERP</span>
+        <div className={styles.field} role="group" aria-label="Thư mục hiện trong Kho NAS">
+          <span className={styles.fieldLabel}>Thư mục hiện trong Kho NAS</span>
           {shareNames.length === 0 ? (
-            <span className={styles.muted}>Bấm Thử kết nối để lấy danh sách thư mục chia sẻ của NAS.</span>
+            <span className={styles.muted}>Bấm Thử kết nối để lấy danh sách thư mục.</span>
           ) : (
             shareNames.map((name) => {
               const chosen = draft.shares.find((share) => share.name === name);
@@ -270,7 +218,7 @@ export function NasConnectionPanel() {
                       aria-label={`Tên hiển thị của ${name}`}
                       value={chosen.label ?? ''}
                       maxLength={120}
-                      placeholder="Tên hiển thị (trống là tên gốc)"
+                      placeholder="Tên hiển thị"
                       disabled={!editable}
                       onChange={(event) => setShareLabel(name, event.target.value)}
                     />
@@ -286,103 +234,148 @@ export function NasConnectionPanel() {
             {test.message}
           </p>
         ) : null}
-        {editable ? (
-          <div className={styles.storageActions}>
-            <button type="button" className={styles.buttonGhost} disabled={Boolean(busy)} onClick={() => void runTest()}>
-              {busy === 'test' ? 'Đang thử…' : 'Thử kết nối'}
-            </button>
-            <button type="submit" className={styles.buttonPrimary} disabled={Boolean(busy)}>
-              {busy === 'save' ? 'Đang lưu…' : 'Lưu kết nối'}
-            </button>
-          </div>
-        ) : null}
-      </form>
-
-      {settings.configured ? (
-        <div className={styles.storageTransfer}>
-          <div className={styles.sectionTitle}>
-            <h3>Đồng bộ người dùng, nhóm, quyền</h3>
-          </div>
-          <p className={styles.muted}>
-            {settings.lastSync
-              ? `${settings.lastSync.ok ? 'Lần gần nhất' : 'Lần gần nhất lỗi'} lúc ${new Date(settings.lastSync.at).toLocaleString('vi-VN')}: ${settings.lastSync.message}`
-              : 'Chưa đồng bộ lần nào.'}{' '}
-            {settings.linkedAccounts}/{settings.accounts} tài khoản NAS đã ghép nhân sự.
-          </p>
-          <div className={styles.storageActions}>
-            <button type="button" className={styles.buttonGhost} disabled={Boolean(busy) || !settings.enabled} onClick={() => void sync()}>
+        <div className={styles.storageActions}>
+          {editable ? (
+            <>
+              <button type="button" className={styles.buttonGhost} disabled={Boolean(busy)} onClick={() => void runTest()}>
+                {busy === 'test' ? 'Đang thử…' : 'Thử kết nối'}
+              </button>
+              <button type="submit" className={styles.buttonPrimary} disabled={Boolean(busy)}>
+                {busy === 'save' ? 'Đang lưu…' : 'Lưu'}
+              </button>
+            </>
+          ) : null}
+          {settings.enabled ? (
+            <button type="button" className={styles.buttonGhost} disabled={Boolean(busy)} onClick={() => void sync()}>
               {busy === 'sync' ? 'Đang đồng bộ…' : 'Đồng bộ ngay'}
             </button>
-          </div>
-
-          <div className={styles.sectionTitle}>
-            <h3>Ghép tài khoản NAS với nhân sự ERP</h3>
-          </div>
-          <p className={styles.muted}>
-            Tự ghép theo thư điện tử và cách đặt tên tài khoản (tên + chữ đầu họ, tên đệm). Ghép tay sẽ giữ nguyên qua các lần
-            đồng bộ; bỏ trống để không cho người đó vào Kho NAS.
-          </p>
-          <div className={styles.storageActions}>
-            <input
-              className={styles.nasFilter}
-              value={filter}
-              placeholder="Tìm tài khoản, nhân sự, nhóm"
-              aria-label="Tìm tài khoản NAS"
-              onChange={(event) => setFilter(event.target.value)}
-            />
-            <label className={styles.checkRow}>
-              <input type="checkbox" checked={onlyUnlinked} onChange={(event) => setOnlyUnlinked(event.target.checked)} />
-              Chỉ hiện chưa ghép
-            </label>
-          </div>
-          <div className={styles.tableScroll}>
-            <table className={styles.storageTable}>
-              <thead>
-                <tr>
-                  <th>Tài khoản NAS</th>
-                  <th>Nhóm</th>
-                  <th>Nhân sự ERP</th>
-                  <th>Cách ghép</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shownAccounts.map((account) => (
-                  <tr key={account.name}>
-                    <td>
-                      {account.name}
-                      {account.disabled ? <span className={`${styles.badge} ${styles.badgeWarn}`}> Đã khoá</span> : null}
-                    </td>
-                    <td>{account.groups.filter((group) => group !== 'users').join(', ')}</td>
-                    <td className={styles.nasPersonCell}>
-                      <SearchableSelect
-                        options={personOptions}
-                        value={account.erpUserId ?? ''}
-                        placeholder={account.erpUserName ?? 'Chọn nhân sự'}
-                        clearable
-                        height={32}
-                        disabled={!settings.editable}
-                        onChange={(value) => void link(account.name, value || null)}
-                      />
-                    </td>
-                    <td>
-                      <span className={`${styles.badge} ${account.linkSource === 'none' || !account.erpUserId ? styles.badgeWarn : styles.badgeInfo}`}>
-                        {account.erpUserId ? LINK_LABELS[account.linkSource] : account.linkSource === 'manual' ? 'Bỏ ghép' : 'Chưa ghép'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {shownAccounts.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className={styles.muted}>
-                      {accounts?.length ? 'Không có tài khoản khớp bộ lọc.' : 'Chưa có tài khoản nào; lưu kết nối rồi đồng bộ.'}
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          ) : null}
         </div>
-      ) : null}
-    </section>
+        {settings.lastSync ? (
+          <p className={settings.lastSync.ok ? styles.muted : styles.alert}>
+            Đồng bộ lúc {new Date(settings.lastSync.at).toLocaleString('vi-VN')}
+            {settings.lastSync.ok ? ` · ${settings.linkedAccounts}/${settings.accounts} tài khoản đã ghép` : `: ${settings.lastSync.message}`}
+          </p>
+        ) : null}
+      </form>
+    </Card>
+  );
+}
+
+const LINK_LABELS = { auto: 'Tự ghép', manual: 'Ghép tay', none: 'Chưa ghép' } as const;
+
+/** Ghép tài khoản NAS với nhân sự ERP: tự ghép theo thư điện tử, cách đặt tên; còn lại ghép tay. */
+export function NasAccountsPanel() {
+  const [accounts, setAccounts] = useState<readonly SharedNasAccount[]>();
+  const [people, setPeople] = useState<readonly SharedDirectoryPerson[]>([]);
+  const [editable, setEditable] = useState(false);
+  const [loadError, setLoadError] = useState<string>();
+  const [onlyUnlinked, setOnlyUnlinked] = useState(false);
+  const [filter, setFilter] = useState('');
+
+  useEffect(() => {
+    Promise.all([api.loadNasSettings(), api.loadNasAccounts(), api.loadDirectory().catch(() => undefined)])
+      .then(([settings, list, directory]) => {
+        setEditable(settings.editable);
+        setAccounts(list);
+        setPeople(directory?.people ?? []);
+      })
+      .catch((cause) => setLoadError(api.errorMessage(cause, 'Không tải được tài khoản NAS.')));
+  }, []);
+
+  const personOptions = useMemo(
+    () =>
+      people.map((person) => ({
+        value: person.userId,
+        label: person.displayName,
+        description: [person.email, person.unitNames.join(', ')].filter(Boolean).join(' · ') || undefined,
+      })),
+    [people],
+  );
+
+  if (loadError) return <Card label="Tài khoản NAS"><p className={styles.alert}>{loadError}</p></Card>;
+  if (!accounts) return <Card label="Tài khoản NAS"><p className={styles.muted}>Đang tải…</p></Card>;
+
+  const link = async (name: string, erpUserId: string | null) => {
+    try {
+      setAccounts(await api.linkNasAccount(name, erpUserId));
+    } catch (cause) {
+      toast.error(api.errorMessage(cause, 'Không ghép được tài khoản.'));
+    }
+  };
+
+  const keyword = filter.trim().toLowerCase();
+  const shown = accounts.filter(
+    (account) =>
+      (!onlyUnlinked || !account.erpUserId) &&
+      (!keyword ||
+        account.name.toLowerCase().includes(keyword) ||
+        (account.erpUserName ?? '').toLowerCase().includes(keyword) ||
+        account.groups.some((group) => group.toLowerCase().includes(keyword))),
+  );
+  const linked = accounts.filter((account) => account.erpUserId).length;
+
+  return (
+    <Card label="Tài khoản NAS">
+      <div className={styles.sectionTitle}>
+        <h3>Tài khoản NAS</h3>
+        <span className={`${styles.badge} ${linked === accounts.length ? styles.badgeSuccess : styles.badgeWarn}`}>
+          {linked}/{accounts.length} đã ghép
+        </span>
+      </div>
+      <div className={styles.storageActions}>
+        <input className={styles.nasFilter} value={filter} placeholder="Tìm tài khoản, nhân sự, nhóm" aria-label="Tìm tài khoản NAS" onChange={(event) => setFilter(event.target.value)} />
+        <label className={styles.checkRow}>
+          <input type="checkbox" checked={onlyUnlinked} onChange={(event) => setOnlyUnlinked(event.target.checked)} />
+          Chỉ hiện chưa ghép
+        </label>
+      </div>
+      <div className={styles.tableScroll}>
+        <table className={styles.storageTable}>
+          <thead>
+            <tr>
+              <th>Tài khoản NAS</th>
+              <th>Nhóm</th>
+              <th>Nhân sự ERP</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((account) => (
+              <tr key={account.name}>
+                <td>
+                  {account.name}
+                  {account.disabled ? <span className={`${styles.badge} ${styles.badgeWarn}`}> Đã khoá</span> : null}
+                </td>
+                <td>{account.groups.filter((group) => group !== 'users').join(', ')}</td>
+                <td className={styles.nasPersonCell}>
+                  <SearchableSelect
+                    options={personOptions}
+                    value={account.erpUserId ?? ''}
+                    placeholder={account.erpUserName ?? 'Chọn nhân sự'}
+                    clearable
+                    height={32}
+                    disabled={!editable}
+                    onChange={(value) => void link(account.name, value || null)}
+                  />
+                </td>
+                <td>
+                  <span className={`${styles.badge} ${account.erpUserId ? styles.badgeInfo : styles.badgeWarn}`}>
+                    {account.erpUserId ? LINK_LABELS[account.linkSource] : 'Chưa ghép'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {shown.length === 0 ? (
+              <tr>
+                <td colSpan={4} className={styles.muted}>
+                  {accounts.length ? 'Không có tài khoản khớp bộ lọc.' : 'Chưa có tài khoản; lưu kết nối NAS rồi đồng bộ.'}
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

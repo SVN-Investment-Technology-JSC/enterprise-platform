@@ -64,6 +64,8 @@ export interface NasGateway {
   createFolder(credentials: NasCredentials, parentFullPath: string, name: string): Promise<void>;
   rename(credentials: NasCredentials, fullPath: string, name: string): Promise<void>;
   remove(credentials: NasCredentials, fullPath: string): Promise<void>;
+  /** Chuyển các mục vào thư mục đích; đích có mục cùng tên thì báo trùng, không ghi đè. */
+  move(credentials: NasCredentials, fullPaths: readonly string[], destinationFullPath: string): Promise<void>;
   download(credentials: NasCredentials, fullPath: string, options?: { range?: string; signal?: AbortSignal }): Promise<NasFileStream>;
   upload(
     credentials: NasCredentials,

@@ -14,11 +14,10 @@ import {
 import { AppIcon } from '@enterprise-platform/shared-ui';
 import { FolderOpen, FolderPlus, HardDrive, Server, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { ExternalStoragePanel } from './components/external-storage-panel';
 import { LibraryView, type LibraryAbilities, type LibraryRequest } from './components/library-view';
-import { NasConnectionPanel } from './components/nas-connection-panel';
 import { NasView } from './components/nas-view';
-import { meterTone, StorageView } from './components/storage-view';
+import { StorageSettings } from './components/storage-settings';
+import { meterTone } from './components/storage-view';
 import {
   errorMessage,
   loadCurrentUserId,
@@ -168,12 +167,9 @@ export function SharedScreen() {
       }
     >
       {provisioning || !status ? null : view === 'storage' && capabilities.canManage ? (
-        <StorageView usage={usage}>
-          <ExternalStoragePanel onChanged={reloadUsage} />
-          <NasConnectionPanel />
-        </StorageView>
+        <StorageSettings usage={usage} onChanged={reloadUsage} />
       ) : view === 'nas' && status.nasEnabled ? (
-        <NasView canManage={capabilities.canManage} />
+        <NasView />
       ) : (
         <LibraryView
           capabilities={capabilities}

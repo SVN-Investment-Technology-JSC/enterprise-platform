@@ -135,6 +135,29 @@ describe('SynologyGateway', () => {
     await expect(gateway.rename(credentials, '/SAVINA/a.pdf', 'b.pdf')).rejects.toThrow(/hết dung lượng/);
   });
 
+  it('chuyển mục: đích trùng tên thì báo trùng trước khi gọi NAS; không trùng thì chạy tác vụ tới khi xong', async () => {
+    const started: URLSearchParams[] = [];
+    let polls = 0;
+    const dsm = fakeDsm({
+      'SYNO.FileStation.List.getinfo': (params) =>
+        JSON.parse(params.get('path')!)[0] === '/SAVINA/Đích/trung.pdf'
+          ? { success: true, data: { files: [{ name: 'trung.pdf' }] } }
+          : { success: true, data: { files: [{ code: 408 }] } },
+      'SYNO.FileStation.CopyMove.start': (params) => {
+        started.push(params);
+        return { success: true, data: { taskid: 'T1' } };
+      },
+      'SYNO.FileStation.CopyMove.status': () => ({ success: true, data: { finished: ++polls >= 2 } }),
+    });
+    const gateway = new SynologyGateway(dsm.fetcher);
+    await expect(gateway.move(credentials, ['/SAVINA/A/trung.pdf'], '/SAVINA/Đích')).rejects.toBeInstanceOf(SharedNasConflictError);
+    expect(started).toHaveLength(0);
+    await gateway.move(credentials, ['/SAVINA/A/moi.pdf'], '/SAVINA/Đích');
+    expect(started[0]!.get('remove_src')).toBe('true');
+    expect(JSON.parse(started[0]!.get('dest_folder_path')!)).toBe('/SAVINA/Đích');
+    expect(polls).toBe(2);
+  });
+
   it('tải xuống: chuyển Range, trả luồng; DSM trả JSON lỗi hay 404 thì báo rõ', async () => {
     const dsm = fakeDsm({
       'SYNO.FileStation.Download.download': (params, init) => {

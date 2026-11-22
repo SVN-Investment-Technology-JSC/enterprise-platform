@@ -142,6 +142,7 @@ function setup(options: { connection?: Partial<NasConnectionRow> | null } = {}) 
     createFolder: async (_c, parent, name) => void calls.push(`mkdir ${parent} ${name}`),
     rename: async (_c, path, name) => void calls.push(`rename ${path} ${name}`),
     remove: async (_c, path) => void calls.push(`remove ${path}`),
+    move: async (_c, paths, to) => void calls.push(`move ${paths.join(',')} -> ${to}`),
     download: async () => ({ body: Readable.from([]), partial: false }),
     upload: async (credentials: NasCredentials, folder, name, _body, size) =>
       void calls.push(`upload ${credentials.password} ${folder} ${name} ${size}`),
@@ -285,6 +286,17 @@ describe('NasService – duyệt và thao tác tệp', () => {
       'remove /SAVINA/HỢP ĐỒNG/Năm 2027',
     ]);
     await expect(service.remove(actor(), 'SAVINA', { path: '' })).rejects.toThrow(/thư mục chia sẻ/);
+  });
+
+  it('chuyển mục: cần quyền ghi; không chuyển thư mục vào chính nó; mục đã ở đích thì bỏ qua; ghi nhật ký', async () => {
+    const { service, calls, state } = await synced();
+    await expect(service.move(actor(), 'SAVINA', { paths: ['A/x.pdf', 'B/y.pdf', 'Đích/z.pdf'], to: 'Đích' })).resolves.toEqual({ moved: 2 });
+    expect(calls.at(-1)).toBe('move /SAVINA/A/x.pdf,/SAVINA/B/y.pdf -> /SAVINA/Đích');
+    expect(state.logs.filter((log) => log.action === 'move').map((log) => log.path)).toEqual(['A/x.pdf', 'B/y.pdf']);
+    await expect(service.move(actor(), 'SAVINA', { paths: ['Đích/z.pdf'], to: 'Đích' })).resolves.toEqual({ moved: 0 });
+    await expect(service.move(actor(), 'SAVINA', { paths: ['A'], to: 'A/con' })).rejects.toThrow(/chính nó/);
+    await expect(service.move(actor(), 'SAVINA', { paths: [''], to: 'A' })).rejects.toBeInstanceOf(SharedValidationError);
+    await expect(service.move(actor({ userId: 'u-bao' }), 'SAVINA', { paths: ['A/x.pdf'], to: 'B' })).rejects.toThrow(/chỉ có quyền đọc/);
   });
 
   it('route chuyển tiếp dùng mật khẩu đã giải mã của kết nối', async () => {

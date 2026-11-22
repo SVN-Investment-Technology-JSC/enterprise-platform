@@ -1009,6 +1009,64 @@
   gap: 4px;
 }
 
+.nasRow[draggable='true'] {
+  cursor: grab;
+}
+
+.nasRow[data-drop='true'] td {
+  background: var(--ep-accent-soft);
+}
+
+.nasRow[data-drop='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--ep-accent-strong);
+}
+
+.nasCrumbs button[data-drop='true'] {
+  background: var(--ep-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--ep-accent-strong);
+}
+
+.nasEmpty {
+  padding: 28px 6px !important;
+  color: var(--ep-text-muted);
+  text-align: center;
+}
+
+/* Trang Dung lượng chia tab. */
+.storageSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.storageTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.storageTab {
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ep-text-sub);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ep-text);
+  }
+
+  &[data-active='true'] {
+    border-bottom-color: var(--ep-accent-strong);
+    color: var(--ep-text);
+  }
+}
+
 .nasShareRow {
   display: grid;
   grid-template-columns: minmax(160px, 260px) minmax(0, 320px);
