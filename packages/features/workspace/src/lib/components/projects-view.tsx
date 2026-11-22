@@ -85,6 +85,8 @@ import { TabWork } from './tab-work';
 import { useProgressReport } from './use-progress-report';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
+import { ChecklistPanel } from './checklist-panel';
+import { canEditChecklist, canShowChecklist } from '../checklist-access';
 import { WorkItemForm } from './work-item-form';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
@@ -1488,7 +1490,17 @@ export function ProjectsView({
             onOpen={openItem}
             onAdd={() => onAction('add-child', selected)}
           />
+          {canShowChecklist(selectedItem, detail.items) ? (
+            <ChecklistPanel
+              item={selectedItem}
+              canEdit={canEditChecklist({ item: selectedItem, userId: me, canWrite, canManage })}
+              userId={me}
+              onChanged={reloadAfterProgress}
+            />
+          ) : null}
           <TabOverview
+            // Mở việc khác thì tab phụ về mặc định.
+            key={selectedItem.id}
             project={detail.project}
             items={detail.items}
             members={detail.members}
@@ -1499,7 +1511,6 @@ export function ProjectsView({
             canManageMembers={canManageMembers}
             onManageMembers={() => setMembersOpen(true)}
             canEditProgress={canWrite && !selectedItem.reversal}
-            onProgressChanged={reloadAfterProgress}
             onReportQuantity={reportQuantity}
             dependencies={detail.dependencies}
             // Việc đã huỷ hiệu lực là hồ sơ đóng: không nối thêm phụ thuộc.
@@ -1517,16 +1528,19 @@ export function ProjectsView({
             onUnlinkRef={(workItemId, referenceId) =>
               run(() => api.unlinkWorkItem(workItemId, referenceId), 'Không gỡ được liên kết.')
             }
-          />
-          {/* Tài liệu đã gắn vào công việc này. */}
-          <DocumentPanel
-            projectId={detail.project.id}
-            linkedTo={{ entityType: 'work_item', entityId: selectedItem.id }}
-            canWrite={canWrite && canWriteDocuments}
-            canDelete={canDelete && !archived}
-            currentUserId={me}
-            compact
-            workItems={detail.items}
+            // Tài liệu đã gắn vào công việc này, đặt thành một tab.
+            renderDocuments={(onCount) => (
+              <DocumentPanel
+                projectId={detail.project.id}
+                linkedTo={{ entityType: 'work_item', entityId: selectedItem.id }}
+                canWrite={canWrite && canWriteDocuments}
+                canDelete={canDelete && !archived}
+                currentUserId={me}
+                compact
+                workItems={detail.items}
+                onCount={onCount}
+              />
+            )}
           />
         </WorkItemDialog>
       ) : null}

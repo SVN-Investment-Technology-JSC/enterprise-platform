@@ -16,6 +16,7 @@ import {
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
 import { ProgressCell } from './inline-cells';
 import { progressCellMode } from '../progress-cell-rules';
 import { Tooltip } from './tooltip';
@@ -118,13 +119,15 @@ export function NodeHeader({
           {pathOf(project, items, selected).map((crumb, index, all) =>
             index < all.length - 1 ? (
               <span key={crumb.key} className={styles.nodePathItem}>
-                <button
+                <Button
                   type="button"
-                  className={styles.crumbLink}
+                  variant="link"
+                  size="xs"
+                  className="h-auto max-w-[32ch] justify-start truncate p-0 font-normal text-muted-foreground hover:text-foreground"
                   onClick={() => onSelect(crumb.node)}
                 >
                   {crumb.label}
-                </button>
+                </Button>
                 <span className={styles.crumbSep} aria-hidden>
                   ›
                 </span>
@@ -158,20 +161,21 @@ export function NodeHeader({
         ) : null}
 
         <div className={styles.nodeActions}>
-          <button
+          <Button
             type="button"
-            className={styles.buttonGhost}
+            variant="outline"
             aria-label={unread > 0 ? `Trao đổi, ${unread} tin chưa đọc` : 'Trao đổi'}
             onClick={onOpenChat}
           >
             <MessageSquare size={14} /> Trao đổi
             {unread > 0 ? <span className={styles.countBadge}>{unread}</span> : null}
-          </button>
+          </Button>
           {onMore ? (
             <Tooltip content="Thêm thao tác">
-              <button
+              <Button
                 type="button"
-                className={styles.buttonGhost}
+                variant="outline"
+                size="icon"
                 aria-label="Thêm thao tác"
                 onClick={(event) => {
                   const box = event.currentTarget.getBoundingClientRect();
@@ -179,23 +183,23 @@ export function NodeHeader({
                 }}
               >
                 <MoreHorizontal size={14} />
-              </button>
+              </Button>
             </Tooltip>
           ) : null}
           {canEdit ? (
-            <button type="button" className={styles.buttonGhost} onClick={onEdit}>
+            <Button type="button" variant="outline" onClick={onEdit}>
               <Pencil size={14} /> Chỉnh sửa
-            </button>
+            </Button>
           ) : null}
           {canWrite ? (
-            <button type="button" className={styles.buttonPrimary} onClick={onAddChild}>
+            <Button type="button" onClick={onAddChild}>
               <Plus size={14} /> Thêm công việc con
-            </button>
+            </Button>
           ) : null}
           {quickAction ? (
-            <button type="button" className={styles.buttonGhost} onClick={quickAction.onClick}>
+            <Button type="button" variant="outline" onClick={quickAction.onClick}>
               {quickAction.label}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -233,13 +237,15 @@ export function NodeHeader({
               return (
                 <span>
                   <b>Công việc điều chỉnh:</b>{' '}
-                  <button
+                  <Button
                     type="button"
-                    className={styles.crumbLink}
+                    variant="link"
+                    size="xs"
+                    className="h-auto max-w-[32ch] justify-start truncate p-0 font-normal text-muted-foreground hover:text-foreground"
                     onClick={() => onSelect({ kind: 'work-item', id: adjustment.id })}
                   >
                     {adjustment.code}
-                  </button>
+                  </Button>
                 </span>
               );
             return selected.reversal.adjustmentRequested ? (
@@ -256,9 +262,15 @@ export function NodeHeader({
           {(() => {
             const original = items.find((item) => item.id === selected.adjustmentOfId);
             return original ? (
-              <button type="button" className={styles.crumbLink} onClick={() => onSelect({ kind: 'work-item', id: original.id })}>
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                className="h-auto max-w-[32ch] justify-start truncate p-0 font-normal text-muted-foreground hover:text-foreground"
+                onClick={() => onSelect({ kind: 'work-item', id: original.id })}
+              >
                 {original.code}
-              </button>
+              </Button>
             ) : (
               'một công việc'
             );

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BLOCKED_REASON_MAX_LENGTH,
   type StandaloneTask,
+  type StandaloneTaskChecklistItem,
   type StandaloneTaskProgressReport,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
@@ -39,6 +40,7 @@ function makeStore() {
   const reasonUpdates: { id: string; reason: string }[] = [];
   const reversals: { id: string; notifyProcedure: boolean; adjustmentRequested: boolean }[] = [];
   const reports: StandaloneTaskProgressReport[] = [];
+  const checklist: StandaloneTaskChecklistItem[] = [];
   let removed: string | undefined;
 
   const withCounts = (task: StandaloneTask | undefined): StandaloneTask | undefined => {
@@ -67,6 +69,43 @@ function makeStore() {
   const store = {
     settings: { get: async () => undefined },
     standaloneTask: {
+      listChecklist: async (_tenant: string, taskId: string) => checklist.filter((item) => item.taskId === taskId),
+      addChecklistItems: async (_tenant: string, taskId: string, titles: readonly string[]) =>
+        titles.map((title) => {
+          const item: StandaloneTaskChecklistItem = {
+            id: randomUUID(),
+            taskId,
+            title,
+            done: false,
+            sortOrder: checklist.length,
+          };
+          checklist.push(item);
+          return item;
+        }),
+      updateChecklistItem: async (
+        _tenant: string,
+        taskId: string,
+        itemId: string,
+        patch: { title?: string; done?: boolean },
+        actorUserId: string,
+      ) => {
+        const index = checklist.findIndex((item) => item.id === itemId && item.taskId === taskId);
+        if (index < 0) return undefined;
+        const current = checklist[index] as StandaloneTaskChecklistItem;
+        checklist[index] = {
+          ...current,
+          title: patch.title ?? current.title,
+          done: patch.done ?? current.done,
+          doneBy: patch.done === undefined ? current.doneBy : patch.done ? actorUserId : undefined,
+        };
+        return checklist[index];
+      },
+      removeChecklistItem: async (_tenant: string, taskId: string, itemId: string) => {
+        const index = checklist.findIndex((item) => item.id === itemId && item.taskId === taskId);
+        if (index < 0) return false;
+        checklist.splice(index, 1);
+        return true;
+      },
       listProgressReports: async () => [...reports].reverse(),
       addProgressReport: async (_tenant: string, input: Record<string, unknown>) => {
         const report = { id: `r${reports.length + 1}`, createdAt: '2026-11-15T00:00:00.000Z', ...input } as StandaloneTaskProgressReport;
@@ -215,6 +254,7 @@ function makeStore() {
     created,
     reversals,
     reports,
+    checklist,
     removed: () => removed,
   };
 }
@@ -811,5 +851,78 @@ describe('StandaloneTaskService.reportProgress — ca biên sau rà soát', () =
   it('không nhập tay số % cho việc đang Chờ duyệt', async () => {
     const { service, id } = await seeded('review');
     await expect(service.update(actor(DOER), id, { manualProgressPercent: 40 })).rejects.toThrow(/Chờ duyệt/);
+  });
+});
+
+describe('StandaloneTaskService đầu việc (checklist)', () => {
+  it('người thực hiện thêm đầu việc: tiến độ về 0%, tích 1/2 thì 50% và việc sang Đang làm', async () => {
+    const { service, id, tasks, reports } = await seeded();
+    const items = await service.addChecklistItems(actor(DOER), id, ['  Soạn nháp ', 'Gửi duyệt', '']);
+    expect(items.map((item) => item.title)).toEqual(['Soạn nháp', 'Gửi duyệt']);
+    expect(tasks.get(id)).toMatchObject({ progressPercent: 0 });
+    const after = await service.updateChecklistItem(actor(DOER), id, items[0]!.id, { done: true });
+    expect(after.filter((item) => item.done)).toHaveLength(1);
+    expect(tasks.get(id)).toMatchObject({ status: 'in_progress', progressPercent: 50 });
+    expect(reports.at(-1)).toMatchObject({ percent: 50, description: 'Đầu việc đã xong: 1/2.' });
+  });
+
+  it('tích hết thì dừng ở Chờ duyệt với người thực hiện; bỏ tích thì quay lại Đang làm', async () => {
+    const { service, id, tasks } = await seeded('in_progress');
+    const [only] = await service.addChecklistItems(actor(DOER), id, ['Việc duy nhất']);
+    await service.updateChecklistItem(actor(DOER), id, only!.id, { done: true });
+    expect(tasks.get(id)).toMatchObject({ status: 'review', progressPercent: 100 });
+    await service.updateChecklistItem(actor(HELPER), id, only!.id, { done: false });
+    expect(tasks.get(id)).toMatchObject({ status: 'in_progress', progressPercent: 0 });
+  });
+
+  it('người giao (không phải người thực hiện) chỉ đổi phần trăm, không đổi trạng thái', async () => {
+    const { service, id, tasks, statusCalls } = await seeded('in_progress');
+    const [only] = await service.addChecklistItems(actor(BOSS), id, ['Việc duy nhất']);
+    await service.updateChecklistItem(actor(BOSS), id, only!.id, { done: true });
+    expect(tasks.get(id)).toMatchObject({ status: 'in_progress', progressPercent: 100 });
+    expect(statusCalls).toHaveLength(0);
+  });
+
+  it('xoá đầu việc đã tích thì tính lại; xoá hết về 0%', async () => {
+    const { service, id, tasks } = await seeded('in_progress');
+    const [a, b] = await service.addChecklistItems(actor(DOER), id, ['A', 'B']);
+    await service.updateChecklistItem(actor(DOER), id, a!.id, { done: true });
+    await service.removeChecklistItem(actor(DOER), id, a!.id);
+    expect(tasks.get(id)).toMatchObject({ progressPercent: 0 });
+    await service.removeChecklistItem(actor(DOER), id, b!.id);
+    expect(tasks.get(id)).toMatchObject({ progressPercent: 0 });
+  });
+
+  it('có đầu việc thì không báo phần trăm trực tiếp', async () => {
+    const { service, id } = await seeded('in_progress');
+    await service.addChecklistItems(actor(DOER), id, ['A']);
+    await expect(service.reportProgress(actor(DOER), id, { percent: 30 })).rejects.toThrow(/đầu việc/);
+  });
+
+  it('người theo dõi, người ngoài cây việc chỉ xem; người ngoài không liên quan nhận 404', async () => {
+    const { service, id } = await seeded('in_progress');
+    await expect(service.addChecklistItems(actor(WATCHER), id, ['A'])).rejects.toBeDefined();
+    await expect(service.checklist(actor(WATCHER), id)).resolves.toEqual([]);
+    await expect(service.checklist(actor(STRANGER), id)).rejects.toBeDefined();
+  });
+
+  it('việc đã đóng, đã huỷ hoặc có việc con thì chỉ đọc', async () => {
+    const closed = await seeded('done');
+    await expect(closed.service.addChecklistItems(actor(DOER), closed.id, ['A'])).rejects.toThrow(/mở lại/);
+    const parent = await seeded('in_progress');
+    await parent.service.create(actor(BOSS), { title: 'Con', assigneeUserId: DOER, parentId: parent.id });
+    await expect(parent.service.addChecklistItems(actor(DOER), parent.id, ['A'])).rejects.toThrow(/việc con/);
+  });
+
+  it('kiểm đầu vào: tên trống, quá nhiều, đầu việc không thuộc việc này', async () => {
+    const { service, id } = await seeded('in_progress');
+    await expect(service.addChecklistItems(actor(DOER), id, [' '])).rejects.toThrow(/ít nhất một/);
+    await expect(
+      service.addChecklistItems(actor(DOER), id, Array.from({ length: 51 }, (_, index) => `Việc ${index}`)),
+    ).rejects.toThrow(/tối đa/);
+    await expect(service.updateChecklistItem(actor(DOER), id, randomUUID(), { done: true })).rejects.toThrow(/Không tìm thấy/);
+    await expect(service.removeChecklistItem(actor(DOER), id, randomUUID())).rejects.toThrow(/Không tìm thấy/);
+    const [item] = await service.addChecklistItems(actor(DOER), id, ['A']);
+    await expect(service.updateChecklistItem(actor(DOER), id, item!.id, {})).rejects.toThrow(/Không có gì/);
   });
 });

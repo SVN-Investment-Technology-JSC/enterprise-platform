@@ -2775,26 +2775,6 @@
   min-width: 0;
 }
 
-.crumbLink {
-  max-width: 32ch;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  background: none;
-  color: var(--ep-text-muted);
-  font: inherit;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-
-  &:hover,
-  &:focus-visible {
-    color: var(--ep-text);
-    text-decoration: underline;
-    outline: none;
-  }
-}
-
 .crumbSep {
   color: var(--ep-text-muted);
 }
@@ -6389,29 +6369,6 @@
   padding: 10px 14px 10px 20px;
   background: #0a5fc7;
   color: #ffffff;
-
-  button {
-    display: inline-flex;
-    padding: 6px;
-    border: 0;
-    border-radius: var(--ep-radius);
-    background: rgb(255 255 255 / 14%);
-    color: #ffffff;
-    cursor: pointer;
-
-    &:hover {
-      background: rgb(255 255 255 / 26%);
-    }
-  }
-}
-
-.itemDialogHead .itemDialogBack {
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px 4px 8px;
-  font-size: 12.5px;
-  font-weight: 600;
 }
 
 .itemDialogHeading {
@@ -6426,12 +6383,20 @@
 .itemDialogBody {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 20rem;
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
-  align-items: start;
-  align-content: start;
   flex: 1;
   min-height: 0;
   padding: 16px;
+  overflow: hidden;
+}
+
+/*
+ * Màn rộng: hai cột cuộn riêng. Cột phải (lịch sử hoạt động) dài mấy cũng không kéo dài cột chính, và khối đầu cùng
+ * checklist ở cột chính không bị đẩy xuống khi người dùng đọc nhật ký.
+ */
+.itemDialogMain,
+.itemDialogAside {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -6440,6 +6405,17 @@
 @media (width <=1000px) {
   .itemDialogBody {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    align-items: start;
+    align-content: start;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .itemDialogMain,
+  .itemDialogAside {
+    overflow-y: visible;
   }
 }
 
@@ -6449,6 +6425,36 @@
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+}
+
+/* Thanh tab của các khối phụ (Chi tiết, Lịch sử tiến độ, Phụ thuộc, Tài liệu): một thẻ, chỉ tab đang mở chiếm chỗ. */
+.itemTabs {
+  flex: none;
+  gap: 0;
+  padding: 0 18px 14px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+}
+
+.itemTabBody {
+  padding-top: 14px;
+}
+
+.quantityNote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft, rgb(0 0 0 / 3%));
+  font-size: 13px;
+
+  p {
+    margin: 0;
+  }
 }
 
 .childList {
@@ -11587,6 +11593,10 @@ button.kpiCard {
 }
 
 /* Trang Tài liệu: khung bảng chiếm hết chiều cao còn lại, đầu bảng đứng yên, chỉ phần thân cuộn. */
+.documentListInline .tableScroll {
+  max-height: 20rem;
+}
+
 .documentListFill {
   display: flex;
   flex-direction: column;
@@ -11756,45 +11766,6 @@ button.kpiCard {
 /* Lớp tiến độ dự kiến trong thanh của ProgressCell (nằm dưới lớp thực tế vì vẽ trước). */
 .progressBar > .progressExpected {
   background: #bfdbfe;
-}
-
-/* Đầu việc của công việc tính tiến độ theo đầu việc. */
-.checklist {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0 0 10px;
-  padding: 0;
-  list-style: none;
-
-  li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-}
-
-.checklistDone {
-  color: var(--ep-text-sub);
-  text-decoration: line-through;
-}
-
-.checklistAdd {
-  display: flex;
-  gap: 8px;
-
-  input {
-    flex: 1;
-  }
 }
 
 /* Dòng tổng ở đầu sổ chứng từ của dự án. */

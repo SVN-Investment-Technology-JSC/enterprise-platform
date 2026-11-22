@@ -1174,6 +1174,46 @@ export class WorkspaceController {
     return this.execute(async () => ({ items: await this.standaloneTasks.progressReports(this.actor(request), id) }));
   }
 
+  /** Đầu việc của Công việc khác: tiến độ việc không có việc con tính theo tỷ lệ đầu việc đã tích. */
+  @Get('standalone-tasks/:id/checklist')
+  listStandaloneTaskChecklist(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(async () => ({ items: await this.standaloneTasks.checklist(this.actor(request), id) }));
+  }
+
+  @Post('standalone-tasks/:id/checklist')
+  addStandaloneTaskChecklist(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: { titles?: readonly string[] },
+  ) {
+    return this.execute(async () => ({
+      items: await this.standaloneTasks.addChecklistItems(this.actor(request), id, body?.titles ?? []),
+    }));
+  }
+
+  @Patch('standalone-tasks/:id/checklist/:itemId')
+  updateStandaloneTaskChecklist(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: { title?: string; done?: boolean },
+  ) {
+    return this.execute(async () => ({
+      items: await this.standaloneTasks.updateChecklistItem(this.actor(request), id, itemId, body ?? {}),
+    }));
+  }
+
+  @Delete('standalone-tasks/:id/checklist/:itemId')
+  removeStandaloneTaskChecklist(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+  ) {
+    return this.execute(async () => ({
+      items: await this.standaloneTasks.removeChecklistItem(this.actor(request), id, itemId),
+    }));
+  }
+
   /** Huỷ hiệu lực việc đã hoàn thành (người giao). */
   @Post('standalone-tasks/:id/reverse')
   @HttpCode(200)
