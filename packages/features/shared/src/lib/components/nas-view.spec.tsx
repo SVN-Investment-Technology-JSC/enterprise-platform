@@ -70,7 +70,7 @@ describe('NasView', () => {
   });
 
   it('thư mục chỉ đọc thì không có nút ghi', async () => {
-    mocked.loadNasOverview.mockResolvedValue({ ...overview, shares: [overview.shares[1]!] });
+    mocked.loadNasOverview.mockResolvedValue({ ...overview, shares: overview.shares.slice(1) });
     mocked.listNasEntries.mockResolvedValue(listing({ share: 'KINH DOANH', access: 'read', canWrite: false }));
     render(<NasView canManage />);
     expect(await screen.findByText('Quyền của bạn: Chỉ đọc (nhóm users).')).toBeTruthy();
@@ -120,12 +120,12 @@ describe('NasConnectionPanel', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'KINH DOANH' }));
     fireEvent.click(screen.getByRole('button', { name: 'Lưu kết nối' }));
     await waitFor(() => expect(mocked.saveNasSettings).toHaveBeenCalled());
-    expect(mocked.saveNasSettings.mock.calls[0]![0]).toMatchObject({
+    expect(mocked.saveNasSettings).toHaveBeenCalledWith(expect.objectContaining({
       baseUrl: 'http://100.79.184.77:5000',
       password: undefined,
       shares: [{ name: 'SAVINA' }, { name: 'KINH DOANH' }],
       version: 3,
-    });
+    }));
   });
 
   it('bảng ghép tài khoản: lọc chưa ghép, hiện cách ghép', async () => {

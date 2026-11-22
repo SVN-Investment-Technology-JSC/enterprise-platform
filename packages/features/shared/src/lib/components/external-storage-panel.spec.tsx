@@ -48,13 +48,13 @@ describe('ExternalStoragePanel', () => {
     fireEvent.change(screen.getByDisplayValue('NAS văn phòng'), { target: { value: 'NAS mới' } });
     fireEvent.click(screen.getByRole('button', { name: 'Lưu cấu hình' }));
     await waitFor(() => expect(mocked.saveExternalStorage).toHaveBeenCalled());
-    expect(mocked.saveExternalStorage.mock.calls[0]![0]).toMatchObject({
+    expect(mocked.saveExternalStorage).toHaveBeenCalledWith(expect.objectContaining({
       label: 'NAS mới',
       accessMode: 'proxy',
       bucket: 'erp-documents',
       secretAccessKey: undefined,
       version: 2,
-    });
+    }));
   });
 
   it('thử kết nối hiện kết quả của máy chủ', async () => {

@@ -54,12 +54,14 @@ export function NasView({ canManage }: { readonly canManage: boolean }) {
       .catch((cause) => setError(api.errorMessage(cause, 'Không tải được Kho NAS.')));
   }, []);
 
+  /** `offset` > 0 là tải thêm, nối vào danh sách đang có. */
   const load = useCallback(
-    async (target: SharedNasShare, folder: string, append = false) => {
+    async (target: SharedNasShare, folder: string, offset = 0) => {
+      const append = offset > 0;
       setLoading(true);
       setListError(undefined);
       try {
-        const next = await api.listNasEntries(target.name, folder, append ? (listing?.entries.length ?? 0) : 0);
+        const next = await api.listNasEntries(target.name, folder, offset);
         setListing((current) => (append && current ? { ...next, entries: [...current.entries, ...next.entries] } : next));
       } catch (cause) {
         setListError(api.errorMessage(cause, 'Không đọc được thư mục trên NAS.'));
@@ -68,14 +70,13 @@ export function NasView({ canManage }: { readonly canManage: boolean }) {
         setLoading(false);
       }
     },
-    [listing?.entries.length],
+    [],
   );
 
   useEffect(() => {
     if (share) void load(share, path);
     setPermissions(undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [share, path]);
+  }, [share, path, load]);
 
   if (error) return <p className={styles.alert}>{error}</p>;
   if (!overview) return <p className={styles.muted}>Đang tải…</p>;
@@ -363,7 +364,7 @@ export function NasView({ canManage }: { readonly canManage: boolean }) {
         </div>
         {loading ? <p className={styles.muted}>Đang đọc thư mục trên NAS…</p> : null}
         {listing && listing.offset + listing.entries.length < listing.total && share ? (
-          <button type="button" className={styles.buttonGhost} disabled={loading} onClick={() => void load(share, path, true)}>
+          <button type="button" className={styles.buttonGhost} disabled={loading} onClick={() => void load(share, path, listing.entries.length)}>
             Xem thêm ({listing.total - listing.entries.length} mục)
           </button>
         ) : null}
