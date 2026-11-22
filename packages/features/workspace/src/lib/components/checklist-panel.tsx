@@ -530,7 +530,9 @@ export function ChecklistPanel({
   return (
     <section className={styles.panel} aria-label="Checklist tiến độ">
       <div className="mb-2.5 flex items-center gap-2.5">
-        <h3 className="m-0 font-semibold">Checklist tiến độ</h3>
+        <h3 className="m-0 font-semibold" style={{ margin: 0 }}>
+          Checklist tiến độ
+        </h3>
         {total > 0 ? (
           <Badge
             variant="secondary"
