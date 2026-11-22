@@ -606,7 +606,7 @@ function TaskDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const blockedPrompt = useBlockedReasonPrompt();
-  /** Người đang đăng nhập (để dòng vừa tích hiện ngay "Tích bởi") và số đầu việc của checklist (`undefined` khi chưa nạp). */
+  /** Người đang đăng nhập (để dòng vừa tích hiện ngay "Hoàn thành bởi") và số đầu việc của checklist (`undefined` khi chưa nạp). */
   const [me, setMe] = useState('');
   const [checklistCount, setChecklistCount] = useState<number>();
   /** Tiến độ của việc lá đi qua luồng báo cáo tiến độ: dưới 100% lưu ngay, 100% mở hộp báo cáo, server đổi trạng thái theo số. */

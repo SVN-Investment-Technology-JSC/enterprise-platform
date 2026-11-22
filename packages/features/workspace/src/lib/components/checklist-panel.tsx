@@ -109,7 +109,7 @@ export function ChecklistPanel({
 }: {
   item: ChecklistSubject;
   canEdit: boolean;
-  /** Người đang đăng nhập, để dòng vừa tích hiện ngay "Tích bởi" trước khi server trả về. */
+  /** Người đang đăng nhập, để dòng vừa tích hiện ngay "Hoàn thành bởi" trước khi server trả về. */
   userId?: string;
   onChanged?: () => void | Promise<void>;
   /** Lời gọi server; mặc định là của việc trong dự án. */
@@ -382,13 +382,11 @@ export function ChecklistPanel({
       );
     setRows((current) => [
       ...current,
-      ...list
-        .slice(0, room)
-        .map((text) => ({
-          key: `new-${++draftSeqRef.current}`,
-          title: text,
-          done: false,
-        })),
+      ...list.slice(0, room).map((text) => ({
+        key: `new-${++draftSeqRef.current}`,
+        title: text,
+        done: false,
+      })),
     ]);
     setTitle('');
   };
@@ -407,6 +405,12 @@ export function ChecklistPanel({
     );
   });
   const addedRows = rows.filter((row) => !row.id && row.title.trim() !== '');
+  /** Có đầu việc đã hoàn thành bị xoá hoặc đổi tên: hỏi lại vì mất dấu vết người hoàn thành. */
+  const touchesDone =
+    removedRows.some((entry) => entry.done) ||
+    renamedRows.some(
+      (row) => current.find((entry) => entry.id === row.id)?.done,
+    );
   const hasChanges =
     removedRows.length > 0 || renamedRows.length > 0 || addedRows.length > 0;
 
@@ -447,7 +451,7 @@ export function ChecklistPanel({
 
   const submitDraft = () => {
     if (!hasChanges) return;
-    if (removedRows.some((entry) => entry.done)) setConfirmApply(true);
+    if (touchesDone) setConfirmApply(true);
     else applyDraft();
   };
 
@@ -462,7 +466,7 @@ export function ChecklistPanel({
     const pending = isTempChecklistId(entry.id);
     const doneNote =
       entry.done && (entry.doneBy || entry.doneAt)
-        ? `Tích bởi ${entry.doneBy ? directory.nameOf(entry.doneBy) : '—'}${entry.doneAt ? ` · ${formatShortDate(entry.doneAt)}` : ''}`
+        ? `Hoàn thành bởi ${entry.doneBy ? directory.nameOf(entry.doneBy) : '—'}${entry.doneAt ? ` · ${formatShortDate(entry.doneAt)}` : ''}`
         : '';
     return (
       <li
@@ -628,11 +632,6 @@ export function ChecklistPanel({
             <ul className="m-0 flex max-h-[50vh] list-none flex-col gap-1 overflow-y-auto p-0">
               {rows.map((row) => (
                 <li key={row.key} className="flex min-w-0 items-center gap-2">
-                  <Checkbox
-                    checked={row.done}
-                    disabled
-                    aria-label={row.done ? 'Đã tích' : 'Chưa tích'}
-                  />
                   <Input
                     className="h-8"
                     value={row.title}
@@ -677,9 +676,14 @@ export function ChecklistPanel({
 
       <ConfirmBox
         open={confirmApply}
-        title="Bạn có chắc chắn muốn xoá các đầu việc đã tích?"
-        message="Đầu việc đã tích bị xoá khỏi checklist và tiến độ được tính lại."
-        confirmLabel="Xoá và cập nhật"
+        title="Bạn có chắc chắn muốn thay đổi đầu việc đã hoàn thành?"
+        message={
+          removedRows.some((entry) => entry.done)
+            ? 'Đầu việc đã hoàn thành bị xoá hoặc đổi tên sẽ không còn khớp với phần việc đã làm; tiến độ được tính lại.'
+            : 'Đầu việc đã hoàn thành được đổi tên sẽ không còn khớp với phần việc đã làm.'
+        }
+        confirmLabel="Cập nhật"
+        tone="warning"
         onConfirm={applyDraft}
         onCancel={() => setConfirmApply(false)}
       />
