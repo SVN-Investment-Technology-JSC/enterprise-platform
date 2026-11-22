@@ -1,3 +1,68 @@
+/*
+ * Tailwind v4 cho các thành phần shadcn/ui của Workspace. Cố ý KHÔNG nạp `preflight.css` (lớp reset của Tailwind): phần
+ * lớn giao diện Workspace là SCSS module và đã có reset riêng bên dưới; nạp preflight sẽ đổi hình dạng các màn cũ.
+ * Chỉ nạp theme (biến) và utilities. Utilities nằm trong `@layer` nên thua mọi luật SCSS không có lớp: an toàn cho màn cũ.
+ */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+@source '../../../../packages/features/workspace';
+@source '../../../../packages/shared/ui';
+
+/*
+ * Token shadcn trỏ về token `--ep-*` của ModuleShell (có giá trị dự phòng cho phần render ngoài khung, như cổng nổi).
+ * `inline` để tiện ích đọc thẳng biến `--ep-*` tại chỗ dùng.
+ */
+@theme inline {
+  --color-border: var(--ep-border-strong, #e5e7eb);
+  --color-input: var(--ep-border-strong, #e5e7eb);
+  --color-ring: var(--ep-accent-strong, #d9ab00);
+  --color-background: var(--ep-surface, #ffffff);
+  --color-foreground: var(--ep-text, #18181b);
+
+  --color-primary: var(--ep-accent, #ffc90a);
+  --color-primary-foreground: #1a1a1a;
+
+  --color-secondary: var(--ep-surface-soft, #fafbfc);
+  --color-secondary-foreground: var(--ep-text, #18181b);
+
+  --color-destructive: var(--ep-danger, #b91c1c);
+  --color-destructive-foreground: #ffffff;
+
+  --color-success: var(--ep-success, #047857);
+
+  --color-muted: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  --color-muted-foreground: var(--ep-text-muted, #6b7280);
+
+  --color-accent: var(--ep-accent-soft, rgb(255 201 10 / 12%));
+  --color-accent-foreground: var(--ep-text, #18181b);
+
+  --color-card: var(--ep-surface, #ffffff);
+  --color-card-foreground: var(--ep-text, #18181b);
+
+  --color-popover: var(--ep-surface, #ffffff);
+  --color-popover-foreground: var(--ep-text, #18181b);
+}
+
+/*
+ * Thay phần preflight cần cho thành phần shadcn: nút / ô nhập không nền, không viền mặc định của trình duyệt. Nằm trong
+ * `@layer base` nên mọi tiện ích (border, bg-*, p-*) vẫn ghi đè được.
+ */
+@layer base {
+  [data-slot='button'],
+  [data-slot='input'],
+  [data-slot='checkbox'],
+  [data-slot='tabs-trigger'] {
+    margin: 0;
+    padding: 0;
+    border: 0 solid;
+    background-color: transparent;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   font-family:
@@ -47,15 +112,21 @@ a {
   text-decoration: inherit;
 }
 
-button,
-input,
-optgroup,
-select,
-textarea {
-  font-family: inherit;
-  font-size: 100%;
-  line-height: 1.15;
-  margin: 0;
+/*
+ * Reset cỡ chữ của nút và ô nhập. Đặt trong `@layer base` để thua các tiện ích Tailwind (text-[13px]...) nhưng vẫn
+ * thắng giá trị mặc định của trình duyệt; các luật SCSS không có lớp vẫn thắng như trước.
+ */
+@layer base {
+  button,
+  input,
+  optgroup,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: 100%;
+    line-height: 1.15;
+    margin: 0;
+  }
 }
 
 /*

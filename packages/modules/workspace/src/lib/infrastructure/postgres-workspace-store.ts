@@ -80,6 +80,7 @@ import type {
   WorkItemStatus,
   WorkItemFieldChange,
   StandaloneTaskFieldChange,
+  StandaloneTaskChecklistItem,
   StandaloneTaskProgressReport,
   WorkItemChecklistItem,
   WorkItemProgressMethod,
@@ -305,6 +306,20 @@ function mapChecklistItem(row: Row): WorkItemChecklistItem {
   return {
     id: str(row.id),
     workItemId: str(row.work_item_id),
+    title: str(row.title),
+    done: row.done === true,
+    doneAt: row.done_at ? iso(row.done_at) : undefined,
+    doneBy: opt(row.done_by),
+    sortOrder: num(row.sort_order),
+  };
+}
+
+const STANDALONE_CHECKLIST_COLUMNS = `id, task_id, title, done, done_at, done_by, sort_order`;
+
+function mapStandaloneChecklistItem(row: Row): StandaloneTaskChecklistItem {
+  return {
+    id: str(row.id),
+    taskId: str(row.task_id),
     title: str(row.title),
     done: row.done === true,
     doneAt: row.done_at ? iso(row.done_at) : undefined,
@@ -5278,6 +5293,74 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         [taskId],
       );
       return result.rows.map(mapStandaloneReport);
+    },
+
+    listChecklist: async (tenantId: string, taskId: string): Promise<StandaloneTaskChecklistItem[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT ${STANDALONE_CHECKLIST_COLUMNS} FROM workspace_schema.standalone_task_checklist_items
+          WHERE task_id = $1 ORDER BY sort_order, created_at, id`,
+        [taskId],
+      );
+      return result.rows.map(mapStandaloneChecklistItem);
+    },
+
+    addChecklistItems: async (
+      tenantId: string,
+      taskId: string,
+      titles: readonly string[],
+    ): Promise<StandaloneTaskChecklistItem[]> => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const next = await client.query<Row>(
+          `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next
+             FROM workspace_schema.standalone_task_checklist_items WHERE task_id = $1`,
+          [taskId],
+        );
+        const start = num(next.rows[0]?.next);
+        const created: StandaloneTaskChecklistItem[] = [];
+        for (const [index, title] of titles.entries()) {
+          const result = await client.query<Row>(
+            `INSERT INTO workspace_schema.standalone_task_checklist_items (task_id, title, sort_order)
+             VALUES ($1, $2, $3) RETURNING ${STANDALONE_CHECKLIST_COLUMNS}`,
+            [taskId, title, start + index],
+          );
+          created.push(mapStandaloneChecklistItem(result.rows[0] as Row));
+        }
+        return created;
+      });
+    },
+
+    updateChecklistItem: async (
+      tenantId: string,
+      taskId: string,
+      itemId: string,
+      patch: { readonly title?: string; readonly done?: boolean },
+      actorUserId: string,
+    ): Promise<StandaloneTaskChecklistItem | undefined> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.standalone_task_checklist_items
+            SET title   = COALESCE($3, title),
+                done    = COALESCE($4, done),
+                done_at = CASE WHEN $4::boolean IS NULL THEN done_at
+                               WHEN $4::boolean THEN COALESCE(done_at, now()) ELSE NULL END,
+                done_by = CASE WHEN $4::boolean IS NULL THEN done_by
+                               WHEN $4::boolean THEN COALESCE(done_by, $5::uuid) ELSE NULL END
+          WHERE id = $2 AND task_id = $1
+          RETURNING ${STANDALONE_CHECKLIST_COLUMNS}`,
+        [taskId, itemId, patch.title ?? null, patch.done ?? null, actorUserId],
+      );
+      return result.rows[0] ? mapStandaloneChecklistItem(result.rows[0]) : undefined;
+    },
+
+    removeChecklistItem: async (tenantId: string, taskId: string, itemId: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query(
+        `DELETE FROM workspace_schema.standalone_task_checklist_items WHERE id = $2 AND task_id = $1`,
+        [taskId, itemId],
+      );
+      return (result.rowCount ?? 0) > 0;
     },
 
     changeStatus: async (

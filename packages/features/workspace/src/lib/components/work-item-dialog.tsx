@@ -10,6 +10,7 @@ import {
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
 import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
@@ -75,16 +76,29 @@ export function WorkItemDialog({
         <header className={styles.itemDialogHead}>
           {back ? (
             <Tooltip content={`Quay lại ${back.label}`}>
-              <button type="button" className={styles.itemDialogBack} onClick={back.onBack}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="flex-none bg-white/15 font-semibold text-white hover:bg-white/25 hover:text-white"
+                onClick={back.onBack}
+              >
                 <ArrowLeft size={15} /> {back.label}
-              </button>
+              </Button>
             </Tooltip>
           ) : null}
           <span className={styles.itemDialogHeading}>{heading}</span>
           <Tooltip content="Đóng (Esc)">
-            <button type="button" aria-label="Đóng" onClick={onClose}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="bg-white/15 text-white hover:bg-white/25 hover:text-white"
+              aria-label="Đóng"
+              onClick={onClose}
+            >
               <X size={16} />
-            </button>
+            </Button>
           </Tooltip>
         </header>
         <div className={styles.itemDialogBody}>
@@ -117,12 +131,14 @@ export function ChildItems({
     .sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code, 'vi'));
   const done = children.filter((item) => item.status === 'done').length;
 
+  // Chưa có việc con thì không chiếm chỗ: nút "Thêm công việc con" đã có ở khối đầu.
+  if (children.length === 0) return null;
+
   return (
     <section className={styles.panel}>
       <h3>
         Công việc con <span className={styles.muted}>· {`${done}/${children.length}`}</span>
       </h3>
-      {children.length === 0 ? <p className={styles.muted}>Chưa có việc con.</p> : null}
       <ul className={styles.childList}>
         {children.map((child) => {
           const tone = workItemStatusTone(child);
@@ -144,9 +160,9 @@ export function ChildItems({
         })}
       </ul>
       {canAdd ? (
-        <button type="button" className={styles.linkButton} onClick={onAdd}>
+        <Button type="button" variant="ghost" size="sm" onClick={onAdd}>
           <Plus size={13} /> Thêm việc con
-        </button>
+        </Button>
       ) : null}
     </section>
   );

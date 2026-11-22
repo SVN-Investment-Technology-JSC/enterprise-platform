@@ -7,6 +7,7 @@ import type {
   WorkItemFieldChange,
   WorkItemStatusHistoryEntry,
 } from '@enterprise-platform/contracts-workspace';
+import { mergeFieldEdits } from '../activity-merge';
 import { branchOf } from '../project-tree.model';
 import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
 import {
@@ -88,7 +89,16 @@ function groupEntries(entries: readonly WorkItemStatusHistoryEntry[]): DayBlock[
     if (last && last.workItemId === entry.workItemId) last.entries.push(entry);
     else day.blocks.push({ workItemId: entry.workItemId, entries: [entry] });
   }
-  return days;
+  // Các dòng sửa thông tin lặp của cùng người trong cùng phút gộp thành một dòng (chỉ là cách hiển thị).
+  const merged: DayBlock[] = [];
+  for (const day of days) {
+    const blocks = day.blocks.flatMap((block) => {
+      const entries = mergeFieldEdits(block.entries);
+      return entries.length > 0 ? [{ workItemId: block.workItemId, entries }] : [];
+    });
+    if (blocks.length > 0) merged.push({ key: day.key, blocks });
+  }
+  return merged;
 }
 
 /**

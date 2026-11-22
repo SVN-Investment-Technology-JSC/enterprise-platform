@@ -5,6 +5,7 @@ import type {
   CalendarRangeResponse,
   ChangeWorkItemStatusRequest,
   ReportWorkItemProgressRequest,
+  StandaloneTaskChecklistItem,
   StandaloneTaskProgressReport,
   WorkItemChecklistItem,
   WorkItemProgressReport,
@@ -358,6 +359,28 @@ export const listStandaloneTaskProgressReports = (id: string) =>
   request<{ items: StandaloneTaskProgressReport[] }>(`/standalone-tasks/${id}/progress-reports`, {
     cache: 'no-store',
   });
+
+export const listStandaloneTaskChecklist = (id: string) =>
+  request<{ items: StandaloneTaskChecklistItem[] }>(`/standalone-tasks/${id}/checklist`, { cache: 'no-store' });
+
+export const addStandaloneTaskChecklist = (id: string, titles: readonly string[]) =>
+  request<{ items: StandaloneTaskChecklistItem[] }>(`/standalone-tasks/${id}/checklist`, {
+    method: 'POST',
+    body: JSON.stringify({ titles }),
+  });
+
+export const updateStandaloneTaskChecklistItem = (
+  id: string,
+  itemId: string,
+  body: { title?: string; done?: boolean },
+) =>
+  request<{ items: StandaloneTaskChecklistItem[] }>(`/standalone-tasks/${id}/checklist/${itemId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+
+export const removeStandaloneTaskChecklistItem = (id: string, itemId: string) =>
+  request<{ items: StandaloneTaskChecklistItem[] }>(`/standalone-tasks/${id}/checklist/${itemId}`, { method: 'DELETE' });
 
 export const listWorkItemProgressReports = (id: string) =>
   request<{ items: WorkItemProgressReport[] }>(`/work-items/${id}/progress-reports`, { cache: 'no-store' });

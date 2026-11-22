@@ -10,7 +10,7 @@ import {
   type WorkItemDependency,
 } from '@enterprise-platform/contracts-workspace';
 import { CalendarClock, MapPin, UserRound } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   DEPENDENCY_TYPE_LABELS,
   ITEM_TYPE_LABELS,
@@ -25,9 +25,13 @@ import { useProjectRoles } from './use-project-roles';
 import { useTransportSummary, type TransportSummary } from './use-transport-summary';
 import type { PendingProcedure } from '../procedure-pending';
 import { Confirm } from './confirm-box';
-import { ChecklistPanel } from './checklist-panel';
 import { ProgressHistoryPanel } from './progress-history-panel';
 import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
+import { parseStoredTab, resolveOverviewTab, type OverviewTab } from '../overview-tabs';
+import { Badge } from '../ui/badge';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 
 export interface TabOverviewProps {
   readonly project: ProjectSummary;
@@ -59,10 +63,33 @@ export interface TabOverviewProps {
   readonly onUnlinkRef?: (workItemId: string, referenceId: string) => Promise<void>;
   /** Được sửa tiến độ của việc đang chọn (đầu việc, khối lượng): người làm hoặc quản lý, dự án chưa lưu trữ. */
   readonly canEditProgress?: boolean;
-  /** Đầu việc đổi: nơi gọi nạp lại công việc để tiến độ và trạng thái trên màn khớp. */
-  readonly onProgressChanged?: () => void | Promise<void>;
   /** Mở hộp báo khối lượng (việc tính tiến độ theo khối lượng). */
   readonly onReportQuantity?: (item: WorkItem) => void;
+  /**
+   * Chỉ dùng khi có `selected`: khung tài liệu của việc, đặt thành một tab. Nhận hàm báo số tài liệu để tab hiện số đếm.
+   * Khung vẫn được dựng khi tab khác đang mở để số đếm có ngay.
+   */
+  readonly renderDocuments?: (onCount: (count: number) => void) => ReactNode;
+}
+
+const TAB_STORAGE_KEY = 'ep.workspace.itemTab';
+
+/** Tab đang mở của đúng công việc này (nạp lại trang không mất); việc khác thì về tab mặc định. */
+function restoreTab(itemId: string): OverviewTab {
+  try {
+    return parseStoredTab(window.sessionStorage.getItem(TAB_STORAGE_KEY), itemId);
+  } catch {
+    // Trình duyệt chặn bộ nhớ phiên: dùng tab mặc định.
+  }
+  return 'detail';
+}
+
+function rememberTab(itemId: string, tab: OverviewTab) {
+  try {
+    window.sessionStorage.setItem(TAB_STORAGE_KEY, `${itemId}|${tab}`);
+  } catch {
+    // Không lưu được thì thôi, chỉ mất tiện ích nhớ tab.
+  }
 }
 
 /**
@@ -89,8 +116,8 @@ export function TabOverview({
   canUnlinkRefs = false,
   onUnlinkRef,
   canEditProgress = false,
-  onProgressChanged,
   onReportQuantity,
+  renderDocuments,
 }: TabOverviewProps) {
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
@@ -98,12 +125,13 @@ export function TabOverview({
     ? externalRefs.filter((ref) => ref.entityType === 'work_item' && ref.entityId === selected.id)
     : [];
   const transport = useTransportSummary('WORK_ITEM', selected?.id, selected?.updatedAt);
+  const [tab, setTab] = useState<OverviewTab>(() => (selected ? restoreTab(selected.id) : 'detail'));
+  const [progressCount, setProgressCount] = useState<number>();
+  const [documentCount, setDocumentCount] = useState<number>();
 
-  return (
-    <div className={styles.tabBody}>
-      <section className={styles.panel}>
-        <h3>Chi tiết</h3>
-        <div className={transport ? styles.detailColumns : undefined}>
+  const detailBody = (
+    <>
+      <div className={transport ? styles.detailColumns : undefined}>
         <dl className={styles.definitionList}>
           {selected ? (
             <>
@@ -127,112 +155,153 @@ export function TabOverview({
                 />
               ) : null}
               {selected.weight != null ? <Definition label="Tỷ trọng" value={String(selected.weight)} /> : null}
-              <Definition
-                label="Thực tế"
-                value={dateRange(selected.actualStart, selected.actualEnd)}
-              />
+              <Definition label="Thực tế" value={dateRange(selected.actualStart, selected.actualEnd)} />
             </>
           ) : (
-            <>
-              <Definition label="Khách hàng" value={project.customerRef ?? '—'} />
-            </>
+            <Definition label="Khách hàng" value={project.customerRef ?? '—'} />
           )}
         </dl>
         {selected ? <TransportCard summary={transport} /> : null}
-        </div>
-        {selected?.description || project.description ? (
-          <p className={styles.description}>{selected?.description ?? project.description}</p>
+      </div>
+      {selected?.description || project.description ? (
+        <p className={styles.description}>{selected?.description ?? project.description}</p>
+      ) : null}
+    </>
+  );
+
+  const quantityBlock =
+    selected?.progressMethod === 'quantity' &&
+    canEditProgress &&
+    onReportQuantity &&
+    selected.status !== 'done' &&
+    selected.status !== 'cancelled' ? (
+      <div className={styles.quantityNote}>
+        <p>
+          Đã hoàn thành <b>{selected.quantityDone ?? 0}</b> / {selected.quantityTarget ?? 0} {selected.quantityUnit}.
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => onReportQuantity(selected)}>
+          Báo khối lượng
+        </Button>
+      </div>
+    ) : null;
+
+  const hasLinks = Boolean(selected && (links.length > 0 || procedurePending));
+  const linksBody = selected ? (
+    <>
+      {/* Chỉ đọc. Muốn thay đổi hồ sơ thì mở thẳng module gốc — Workspace
+          không bao giờ ghi ngược sang module khác. */}
+      {procedurePending ? <p className={styles.pendingNote}>{procedurePending.hint}</p> : null}
+      {externalDegraded ? (
+        <p className={styles.muted}>
+          Không đọc được module gốc lúc này; trạng thái bên dưới là bản lưu gần nhất và có thể đã cũ.
+        </p>
+      ) : null}
+      <ul className={styles.memberList}>
+        {links.map((ref) => (
+          <li key={ref.id}>
+            <span className={styles.memberName}>
+              <a href={ref.launchUrl} target="_blank" rel="noopener noreferrer">
+                {ref.externalCode ?? ref.cachedLabel ?? ref.externalId}
+              </a>{' '}
+              {ref.cachedLabel && ref.externalCode ? `— ${ref.cachedLabel}` : ''}
+            </span>
+            <span className={styles.memberRole}>
+              {ref.cachedStatus ?? '—'}
+              {ref.syncedAt ? ` · cập nhật ${formatDate(ref.syncedAt.slice(0, 10))}` : ''}
+              {canUnlinkRefs && onUnlinkRef ? (
+                <>
+                  {' · '}
+                  <Confirm
+                    title="Bạn có chắc chắn muốn gỡ liên kết hồ sơ này?"
+                    description="Chỉ bỏ con trỏ ở Workspace. Hồ sơ bên module gốc vẫn giữ nguyên."
+                    okText="Gỡ liên kết"
+                    okType="danger"
+                    onConfirm={() => onUnlinkRef(selected.id, ref.id)}
+                  >
+                    <Button type="button" variant="ghost" size="xs">
+                      Gỡ liên kết
+                    </Button>
+                  </Confirm>
+                </>
+              ) : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  ) : null;
+
+  if (selected) {
+    const dependencyCount = dependencies.filter((edge) => edge.successorId === selected.id).length;
+    const countBadge = (count: number | undefined) =>
+      count === undefined ? null : (
+        <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-[11px]">
+          {count}
+        </Badge>
+      );
+    return (
+      <Tabs
+        className={styles.itemTabs}
+        value={resolveOverviewTab(tab, hasLinks)}
+        onValueChange={(value) => {
+          setTab(value as OverviewTab);
+          rememberTab(selected.id, value as OverviewTab);
+        }}
+      >
+        <TabsList aria-label="Thông tin phụ của công việc">
+          <TabsTrigger value="detail">Chi tiết</TabsTrigger>
+          <TabsTrigger value="progress">Lịch sử tiến độ {countBadge(progressCount)}</TabsTrigger>
+          <TabsTrigger value="dependencies">Phụ thuộc {countBadge(dependencyCount)}</TabsTrigger>
+          <TabsTrigger value="documents">Tài liệu {countBadge(documentCount)}</TabsTrigger>
+          {hasLinks ? (
+            <TabsTrigger value="links">Hồ sơ liên kết {countBadge(links.length)}</TabsTrigger>
+          ) : null}
+        </TabsList>
+        <TabsContent value="detail" className={styles.itemTabBody}>
+          {quantityBlock}
+          {detailBody}
+        </TabsContent>
+        {/* Giữ dựng khi ẩn để số đếm trên tab có ngay mà không phải mở từng tab. */}
+        <TabsContent value="progress" keepMounted className={styles.itemTabBody}>
+          <ProgressHistoryPanel item={selected} bare onCount={setProgressCount} />
+        </TabsContent>
+        <TabsContent value="dependencies" className={styles.itemTabBody}>
+          <DependencyPanel
+            selected={selected}
+            items={items}
+            dependencies={dependencies}
+            canEdit={canEditDependencies}
+            onAdd={onAddDependency}
+            onRemove={onRemoveDependency}
+            bare
+          />
+        </TabsContent>
+        <TabsContent value="documents" keepMounted className={styles.itemTabBody}>
+          {renderDocuments?.(setDocumentCount)}
+        </TabsContent>
+        {hasLinks ? (
+          <TabsContent value="links" className={styles.itemTabBody}>
+            {linksBody}
+          </TabsContent>
         ) : null}
+      </Tabs>
+    );
+  }
+
+  return (
+    <div className={styles.tabBody}>
+      <section className={styles.panel}>
+        <h3>Chi tiết</h3>
+        {detailBody}
       </section>
 
-      {selected?.progressMethod === 'checklist' ? (
-        <ChecklistPanel item={selected} canEdit={canEditProgress} onChanged={onProgressChanged} />
-      ) : null}
-
-      {selected?.progressMethod === 'quantity' && canEditProgress && onReportQuantity &&
-      selected.status !== 'done' && selected.status !== 'cancelled' ? (
-        <section className={styles.panel}>
-          <h3>Khối lượng hoàn thành</h3>
-          <p>
-            Đã hoàn thành <b>{selected.quantityDone ?? 0}</b> / {selected.quantityTarget ?? 0} {selected.quantityUnit}.
-          </p>
-          <button type="button" className={styles.buttonSmall} onClick={() => onReportQuantity(selected)}>
-            Báo khối lượng
-          </button>
-        </section>
-      ) : null}
-
-      {selected ? <ProgressHistoryPanel item={selected} /> : null}
-
-      {selected ? (
-        <DependencyPanel
-          selected={selected}
-          items={items}
-          dependencies={dependencies}
-          canEdit={canEditDependencies}
-          onAdd={onAddDependency}
-          onRemove={onRemoveDependency}
-        />
-      ) : null}
-
-      {selected && (links.length > 0 || procedurePending) ? (
-        <section className={styles.panel}>
-          <h3>Hồ sơ ở module khác</h3>
-          {/* Chỉ đọc. Muốn thay đổi hồ sơ thì mở thẳng module gốc — Workspace
-              không bao giờ ghi ngược sang module khác. */}
-          {procedurePending ? (
-            <p className={styles.pendingNote}>{procedurePending.hint}</p>
-          ) : null}
-          {externalDegraded ? (
-            <p className={styles.muted}>
-              Không đọc được module gốc lúc này; trạng thái bên dưới là bản lưu gần nhất và có
-              thể đã cũ.
-            </p>
-          ) : null}
-          <ul className={styles.memberList}>
-            {links.map((ref) => (
-              <li key={ref.id}>
-                <span className={styles.memberName}>
-                  <a href={ref.launchUrl} target="_blank" rel="noopener noreferrer">
-                    {ref.externalCode ?? ref.cachedLabel ?? ref.externalId}
-                  </a>{' '}
-                  {ref.cachedLabel && ref.externalCode ? `— ${ref.cachedLabel}` : ''}
-                </span>
-                <span className={styles.memberRole}>
-                  {ref.cachedStatus ?? '—'}
-                  {ref.syncedAt ? ` · cập nhật ${formatDate(ref.syncedAt.slice(0, 10))}` : ''}
-                  {canUnlinkRefs && onUnlinkRef ? (
-                    <>
-                      {' · '}
-                      <Confirm
-                        title="Bạn có chắc chắn muốn gỡ liên kết hồ sơ này?"
-                        description="Chỉ bỏ con trỏ ở Workspace. Hồ sơ bên module gốc vẫn giữ nguyên."
-                        okText="Gỡ liên kết"
-                        okType="danger"
-                        onConfirm={() => onUnlinkRef(selected.id, ref.id)}
-                      >
-                        <button type="button" className={styles.linkButton}>
-                          Gỡ liên kết
-                        </button>
-                      </Confirm>
-                    </>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Trong hộp chi tiết công việc thì bỏ: thành viên đã có ở khối đầu dự án. */}
-      {selected ? null : (
       <section className={styles.panel}>
         <h3 className={styles.panelHeadRow}>
           Thành viên dự án
           {canManageMembers && onManageMembers ? (
-            <button type="button" className={styles.linkButton} onClick={onManageMembers}>
+            <Button type="button" variant="ghost" size="xs" onClick={onManageMembers}>
               Quản lý thành viên
-            </button>
+            </Button>
           ) : null}
         </h3>
         {members.length === 0 ? (
@@ -261,7 +330,6 @@ export function TabOverview({
           </ul>
         )}
       </section>
-      )}
     </div>
   );
 }
@@ -357,6 +425,7 @@ function DependencyPanel({
   canEdit,
   onAdd,
   onRemove,
+  bare = false,
 }: {
   selected: WorkItem;
   items: readonly WorkItem[];
@@ -364,6 +433,8 @@ function DependencyPanel({
   canEdit: boolean;
   onAdd?: TabOverviewProps['onAddDependency'];
   onRemove?: TabOverviewProps['onRemoveDependency'];
+  /** Không vẽ thẻ và tiêu đề: nằm trong tab đã có tên, và luôn hiện (kể cả khi trống) để tab không rỗng. */
+  bare?: boolean;
 }) {
   const [predecessorId, setPredecessorId] = useState('');
   const [dependencyType, setDependencyType] = useState<DependencyType>('FS');
@@ -405,11 +476,12 @@ function DependencyPanel({
     });
   };
 
-  if (!editable && incoming.length === 0) return null;
+  if (!bare && !editable && incoming.length === 0) return null;
 
+  const Wrapper = bare ? 'div' : 'section';
   return (
-    <section className={styles.panel}>
-      <h3>Phụ thuộc — việc phải đi trước</h3>
+    <Wrapper className={bare ? undefined : styles.panel}>
+      {bare ? null : <h3>Phụ thuộc — việc phải đi trước</h3>}
       {incoming.length === 0 ? (
         <p className={styles.muted}>Công việc này chưa phụ thuộc việc nào.</p>
       ) : (
@@ -428,14 +500,15 @@ function DependencyPanel({
                   {editable && onRemove ? (
                     <>
                       {' · '}
-                      <button
+                      <Button
                         type="button"
-                        className={styles.linkButton}
+                        variant="ghost"
+                        size="xs"
                         disabled={busy}
                         onClick={() => void guard(() => onRemove(selected.id, edge.id))}
                       >
                         Gỡ
-                      </button>
+                      </Button>
                     </>
                   ) : null}
                 </span>
@@ -466,25 +539,25 @@ function DependencyPanel({
             onChange={(value) => setDependencyType(value as DependencyType)}
           />
           <Tooltip content="Độ trễ (ngày), được âm">
-            <input
+            <Input
               aria-label="Độ trễ (ngày)"
               inputMode="numeric"
               value={lag}
               onChange={(event) => setLag(event.target.value)}
             />
           </Tooltip>
-          <button
+          <Button
             type="button"
-            className={styles.buttonGhost}
+            variant="outline"
             disabled={busy || !predecessorId}
             onClick={add}
           >
             Thêm
-          </button>
+          </Button>
         </div>
       ) : null}
       {error ? <p className={styles.alert}>{error}</p> : null}
-    </section>
+    </Wrapper>
   );
 }
 
