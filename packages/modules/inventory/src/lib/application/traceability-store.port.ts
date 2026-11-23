@@ -47,6 +47,23 @@ export interface TraceabilityStore {
       defaultLocationType: string;
     },
   ): Promise<{ assigned: number; coverage: SerialCoverage }>;
+  /**
+   * Bật theo dõi serial cho mặt hàng NONE kèm serial cho toàn bộ tồn ở mọi kho, trong MỘT transaction: đổi
+   * `tracking_mode` sang SERIAL, ghi `material_tracking_history`, ghi serial Trong kho và lịch sử ADJUSTMENT.
+   * Từ chối khi mặt hàng là dịch vụ, đã theo lô hoặc serial, có lô, đang giữ hàng, hoặc số serial từng kho
+   * không khớp tồn. Lỗi thì không đổi gì.
+   */
+  enableSerialTracking(
+    tenantId: string,
+    input: {
+      materialCode: string;
+      assignments: readonly { warehouseCode: string; serials: readonly string[] }[];
+      actorId: string;
+      reason?: string;
+      defaultStatus: string;
+      defaultLocationType: string;
+    },
+  ): Promise<{ assigned: number; coverage: SerialCoverage[] }>;
   /** Khoá serial, gọi `decide`, cập nhật tồn không Đạt và ghi lịch sử trong một transaction. */
   changeSerialQuality(
     tenantId: string,

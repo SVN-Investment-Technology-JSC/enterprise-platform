@@ -206,13 +206,11 @@ integration('Cách theo dõi của mặt hàng qua InventoryApplication (DB th�
     await database?.drop();
   }, 60_000);
 
-  it('công tắc tắt (mặc định): chọn LOT hoặc SERIAL bị từ chối; NONE và đường cũ isSerialized vẫn được', async () => {
-    await expect(app.createMaterial(admin, { ...base, code: 'TK-A', name: 'A', trackingMode: 'LOT' })).rejects.toThrow(
-      'Tenant chưa bật quản lý theo lô.',
-    );
+  it('chọn LOT hoặc SERIAL được ngay, không cần bật công tắc nào; NONE và đường cũ isSerialized vẫn được', async () => {
+    await app.createMaterial(admin, { ...base, code: 'TK-A', name: 'A', trackingMode: 'LOT' });
     await app.createMaterial(admin, { ...base, code: 'TK-B', name: 'B', trackingMode: 'NONE' });
     await app.createMaterial(admin, { ...base, code: 'TK-C', name: 'C', isSerialized: true });
-    expect(await row('TK-A')).toBeUndefined();
+    expect(await row('TK-A')).toMatchObject({ tracking_mode: 'LOT', is_serialized: false });
     expect(await row('TK-B')).toMatchObject({ tracking_mode: 'NONE', is_serialized: false });
     expect(await row('TK-C')).toMatchObject({ tracking_mode: 'SERIAL', is_serialized: true });
   });

@@ -4,9 +4,10 @@ import { useInventoryPermissions } from '../inventory-permissions';
 import type { Material, SerialCoverage, SerialTracking } from '@enterprise-platform/contracts-inventory';
 import { useCallback, useEffect, useState } from 'react';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
-import { loadSerialCoverage, loadSerials, registerSerials, updateMaterial, updateSerial } from '../inventory-api';
+import { loadSerialCoverage, loadSerials, registerSerials, updateSerial } from '../inventory-api';
 import { ASSET_STATUS_LABEL, QUALITY_STATUS_LABEL, SERIAL_STOCK_STATE_LABEL } from '../inventory-labels';
 import { SerialAssignDialog } from './serial-assign-dialog';
+import { SerialEnableDialog } from './serial-enable-dialog';
 import { SerialLifecycleDrawer } from './serial-lifecycle-drawer';
 import { Button } from '../ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
@@ -49,6 +50,7 @@ export function SerialPanel({
   const [coverage, setCoverage] = useState<SerialCoverage[]>();
   const [showAll, setShowAll] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  const [enabling, setEnabling] = useState(false);
   const [lifecycleOf, setLifecycleOf] = useState<string>();
   const [enabled, setEnabled] = useState(false);
   const serialized = material.isSerialized || material.trackingMode === 'SERIAL' || enabled;
@@ -76,6 +78,7 @@ export function SerialPanel({
   if (!serialized) {
     if (trackingBlocked || !canManage) return null;
     return (
+      <>
       <section className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3">
         <p className="m-0 text-sm text-slate-600">
           Mã này chưa theo dõi theo serial. Bật lên để gắn số serial và xem vòng đời từng cái.
@@ -83,23 +86,27 @@ export function SerialPanel({
         <Button
           type="button"
           variant="outline"
-          disabled={busy || saving}
-          onClick={async () => {
-            setSaving(true);
-            try {
-              await updateMaterial(material.code, { trackingMode: 'SERIAL' });
-              setEnabled(true);
-              await reload();
-            } catch (cause) {
-              toast.error(cause instanceof Error ? cause.message : 'Không bật được theo dõi serial.');
-            } finally {
-              setSaving(false);
-            }
-          }}
+          disabled={busy || saving || coverage === undefined}
+          onClick={() => setEnabling(true)}
         >
           Bật theo dõi serial
         </Button>
       </section>
+      {enabling ? (
+        <SerialEnableDialog
+          materialCode={material.code}
+          materialName={material.name}
+          coverage={coverage ?? []}
+          onCancel={() => setEnabling(false)}
+          onDone={(count) => {
+            setEnabling(false);
+            setEnabled(true);
+            toast.success(count > 0 ? `Đã bật theo dõi serial và gắn ${count} serial.` : 'Đã bật theo dõi serial.');
+            void reload();
+          }}
+        />
+      ) : null}
+      </>
     );
   }
 

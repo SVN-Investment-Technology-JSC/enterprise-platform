@@ -929,6 +929,28 @@ export interface AssignSerialsResult {
   readonly coverage: SerialCoverage;
 }
 
+/** Serial của một kho khi bật theo dõi serial cho mặt hàng đang có tồn. */
+export interface EnableSerialWarehouseInput {
+  readonly warehouseCode: string;
+  readonly serialNumbers: readonly string[];
+}
+
+/**
+ * Bật theo dõi serial cho mặt hàng đang theo dõi thông thường (không theo lô), kèm số serial cho toàn bộ tồn hiện có
+ * ở MỌI kho trong cùng một thao tác: kho nào có tồn thì phải khai đủ đúng bằng số lượng tồn, kho không có tồn thì
+ * không khai. Mặt hàng chưa có tồn thì `assignments` để trống.
+ */
+export interface EnableSerialTrackingRequest {
+  readonly materialCode: string;
+  readonly assignments: readonly EnableSerialWarehouseInput[];
+  readonly reason?: string;
+}
+
+export interface EnableSerialTrackingResult {
+  readonly assigned: number;
+  readonly coverage: readonly SerialCoverage[];
+}
+
 /** Thông tin lô trên dòng nhập: tạo lô mới hoặc cộng vào lô đã có cùng số lô. */
 export interface StockDocumentLotInput {
   readonly lotNo: string;

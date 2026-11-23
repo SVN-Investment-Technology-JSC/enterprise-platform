@@ -1,9 +1,15 @@
 'use client';
 
-import type { CreateMaterialRequest, InventoryTradeCatalog } from '@enterprise-platform/contracts-inventory';
+import {
+  MATERIAL_TRACKING_MODES,
+  type CreateMaterialRequest,
+  type InventoryTradeCatalog,
+  type MaterialTrackingMode,
+} from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
 import { useMemo, useState, type FormEvent } from 'react';
 import { FormError, submitErrorMessage } from './form-error';
+import { MATERIAL_TRACKING_LABEL } from '../inventory-labels';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -49,6 +55,8 @@ export function TradeItemFormDialog({
   const [category, setCategory] = useState('');
   const [unit, setUnit] = useState('');
   const [usage, setUsage] = useState('');
+  // Lô, serial là thuộc tính của từng mặt hàng, chọn lúc tạo; mặc định không theo dõi.
+  const [tracking, setTracking] = useState<MaterialTrackingMode>('NONE');
   const [price, setPrice] = useState('');
   const [vat, setVat] = useState('');
   const [description, setDescription] = useState('');
@@ -62,6 +70,10 @@ export function TradeItemFormDialog({
   const categoryOptions = useMemo(
     () => withCurrent(categoriesOf(group, catalog), category),
     [group, catalog, category],
+  );
+  const trackingOptions = useMemo(
+    () => MATERIAL_TRACKING_MODES.map((value) => ({ value, label: MATERIAL_TRACKING_LABEL[value] })),
+    [],
   );
   const usageOptions = useMemo(
     () => withCurrent(catalog?.usageModes ?? [], usage),
@@ -86,6 +98,7 @@ export function TradeItemFormDialog({
         unit: unit.trim(),
         category: 'CONSUMABLE',
         kind: group === 'SERVICE' ? 'SERVICE' : 'STOCK',
+        trackingMode: group === 'SERVICE' ? undefined : tracking,
         barcode: barcode.trim() || undefined,
         tradeCategory: category || undefined,
         tradeMode: usage || undefined,
@@ -101,7 +114,7 @@ export function TradeItemFormDialog({
 
   const title = 'Tạo hàng hóa';
 
-  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, price, vat, description]);
+  const dirtySnapshot = JSON.stringify([code, name, barcode, group, category, unit, usage, tracking, price, vat, description]);
   const [initialSnapshot] = useState(dirtySnapshot);
   const isDirty = dirtySnapshot !== initialSnapshot;
 
@@ -156,6 +169,7 @@ export function TradeItemFormDialog({
                   placeholder="— Chọn nhóm —"
                   onChange={(value) => {
                     setGroup((value || 'GOODS') as TradeGroup);
+                    if (value === 'SERVICE') setTracking('NONE');
                     // Phân loại thuộc danh sách của nhóm cũ, không còn hợp lệ ở nhóm mới.
                     setCategory('');
                   }}
@@ -201,6 +215,27 @@ export function TradeItemFormDialog({
                   />
                 )}
               </div>
+              {group === 'GOODS' ? (
+                <div className="flex flex-col gap-[0.4rem]">
+                  <Label>Cách theo dõi</Label>
+                  <SearchableSelect
+                    options={trackingOptions}
+                    value={tracking}
+                    placeholder="— Chọn cách theo dõi —"
+                    onChange={(value) => setTracking((value || 'NONE') as MaterialTrackingMode)}
+                    clearable={false}
+                    height={36}
+                    className="w-full"
+                  />
+                  <span className="text-[12px] text-slate-500">
+                    {tracking === 'SERIAL'
+                      ? 'Nhập kho phải kèm đủ số serial cho từng cái.'
+                      : tracking === 'LOT'
+                        ? 'Nhập kho khai số lô, hạn dùng; xuất theo lô gần hết hạn trước.'
+                        : 'Chỉ đếm số lượng. Chọn lúc tạo; có tồn rồi thì khó đổi.'}
+                  </span>
+                </div>
+              ) : null}
               <div className="flex flex-col gap-[0.4rem]">
                 <Label>Sử dụng</Label>
                 <SearchableSelect

@@ -30,6 +30,8 @@ import type {
   RegisterSerialsRequest,
   AssignSerialsRequest,
   AssignSerialsResult,
+  EnableSerialTrackingRequest,
+  EnableSerialTrackingResult,
   SerialCoverage,
   Reservation,
   MaterialDeleteResult,
@@ -486,6 +488,11 @@ export function deleteSerial(materialCode: string, serialNumber: string): Promis
 /** Mức phủ serial theo kho: tồn, đã gắn serial, còn thiếu. */
 export function loadSerialCoverage(materialCode: string): Promise<SerialCoverage[]> {
   return request<SerialCoverage[]>(`/serials/coverage?materialCode=${encodeURIComponent(materialCode)}`);
+}
+
+/** Bật theo dõi serial cho mặt hàng đang có tồn, kèm serial cho tồn ở mọi kho. */
+export function enableSerialTracking(input: EnableSerialTrackingRequest): Promise<EnableSerialTrackingResult> {
+  return request<EnableSerialTrackingResult>('/serials/enable', { method: 'POST', body: JSON.stringify(input) });
 }
 
 /** Gắn serial cho hàng đã có trong tồn của một kho (không đổi số lượng tồn). */

@@ -583,7 +583,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     );
     // Hàng vào kho bằng đường không kèm serial (như nhập qua API).
     const lap = await material('QA-KHO-ASSIGN');
-    await app.receiveStock(clerk, { warehouseCode: 'QA-KHO-HN', materialCode: lap, quantity: 2 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: lap, quantity: 2 });
     expect(await traced.serialCoverage(admin, lap)).toEqual([
       expect.objectContaining({ warehouseCode: 'QA-KHO-HN', quantity: 2, serialized: 0, unassigned: 2 }),
     ]);
@@ -614,6 +614,134 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
     const second = await traced.assignSerialsToStock(admin, { materialCode: lap, warehouseCode: 'QA-KHO-HN', serialNumbers: ['A2'] });
     expect(second.coverage).toMatchObject({ serialized: 2, unassigned: 0 });
     await rejection(traced.assignSerialsToStock(clerk, { materialCode: lap, warehouseCode: 'QA-KHO-HN', serialNumbers: ['A9'] }));
+  });
+
+  it('Bật serial kèm serial cho tồn nhiều kho: đủ từng kho mới đổi, lỗi thì không đổi gì', async () => {
+    const traced = new InventoryApplication(
+      new PostgresInventoryStore(database.references, database.pools),
+      new PostgresStockDocumentStore(database.references, database.pools),
+      new PostgresTraceabilityStore(database.references, database.pools),
+    );
+    const x = await material('QA-KHO-EN');
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: x, quantity: 3 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-LOI', materialCode: x, quantity: 2 });
+    const mode = async () =>
+      (await pool.query(`SELECT tracking_mode, is_serialized FROM inventory_schema.materials WHERE code = $1`, [x])).rows[0];
+    expect(await mode()).toMatchObject({ tracking_mode: 'NONE', is_serialized: false });
+
+    // Cách thường (đổi trực tiếp) vẫn bị chặn: mặt hàng đã có tồn và bút toán.
+    expect(await rejection(traced.updateMaterial(admin, x, { trackingMode: 'SERIAL' }))).toMatchObject({ statusCode: 409 });
+
+    // Thiếu kho: kho LOI chưa khai.
+    const missing = await rejection(
+      traced.enableSerialTracking(admin, {
+        materialCode: x,
+        assignments: [{ warehouseCode: 'QA-KHO-HN', serialNumbers: ['E1', 'E2', 'E3'] }],
+      }),
+    );
+    expect(missing).toMatchObject({ statusCode: 400, code: 'SERIALS_REQUIRED' });
+    // Sai số lượng ở một kho.
+    const wrong = await rejection(
+      traced.enableSerialTracking(admin, {
+        materialCode: x,
+        assignments: [
+          { warehouseCode: 'QA-KHO-HN', serialNumbers: ['E1', 'E2'] },
+          { warehouseCode: 'QA-KHO-LOI', serialNumbers: ['E4', 'E5'] },
+        ],
+      }),
+    );
+    expect(wrong).toMatchObject({ code: 'SERIALS_REQUIRED' });
+    // Trùng giữa hai kho.
+    const duplicate = await rejection(
+      traced.enableSerialTracking(admin, {
+        materialCode: x,
+        assignments: [
+          { warehouseCode: 'QA-KHO-HN', serialNumbers: ['E1', 'E2', 'E3'] },
+          { warehouseCode: 'QA-KHO-LOI', serialNumbers: ['e3', 'E5'] },
+        ],
+      }),
+    );
+    expect(duplicate).toMatchObject({ code: 'SERIAL_DUPLICATE' });
+    // Không đủ quyền quản lý.
+    await rejection(
+      traced.enableSerialTracking(clerk, {
+        materialCode: x,
+        assignments: [
+          { warehouseCode: 'QA-KHO-HN', serialNumbers: ['E1', 'E2', 'E3'] },
+          { warehouseCode: 'QA-KHO-LOI', serialNumbers: ['E4', 'E5'] },
+        ],
+      }),
+    );
+    // Mọi lần lỗi: chưa đổi cách theo dõi, chưa có serial nào.
+    expect(await mode()).toMatchObject({ tracking_mode: 'NONE', is_serialized: false });
+    expect(await serialRow(x, 'E1')).toBeUndefined();
+
+    const ok = await traced.enableSerialTracking(admin, {
+      materialCode: x,
+      assignments: [
+        { warehouseCode: 'QA-KHO-HN', serialNumbers: ['E1', 'E2', 'E3'] },
+        { warehouseCode: 'QA-KHO-LOI', serialNumbers: ['E4', 'E5'] },
+      ],
+    });
+    expect(ok.assigned).toBe(5);
+    expect(ok.coverage).toEqual([
+      expect.objectContaining({ warehouseCode: 'QA-KHO-HN', quantity: 3, serialized: 3, unassigned: 0 }),
+      expect.objectContaining({ warehouseCode: 'QA-KHO-LOI', quantity: 2, serialized: 2, unassigned: 0 }),
+    ]);
+    expect(await mode()).toMatchObject({ tracking_mode: 'SERIAL', is_serialized: true });
+    expect(await serialRow(x, 'E1')).toMatchObject({ stock_state: 'IN_STOCK', warehouse_code: 'QA-KHO-HN' });
+    expect(await serialRow(x, 'E5')).toMatchObject({ stock_state: 'IN_STOCK', warehouse_code: 'QA-KHO-LOI' });
+    expect(await stock(x, 'QA-KHO-HN')).toMatchObject({ quantity: 3 });
+    expect(await stock(x, 'QA-KHO-LOI')).toMatchObject({ quantity: 2 });
+    const history = await pool.query(
+      `SELECT h.from_mode, h.to_mode FROM inventory_schema.material_tracking_history h
+         JOIN inventory_schema.materials m ON m.id = h.material_id WHERE m.code = $1`,
+      [x],
+    );
+    expect(history.rows).toEqual([{ from_mode: 'NONE', to_mode: 'SERIAL' }]);
+
+    expect(await rejection(traced.enableSerialTracking(admin, { materialCode: x, assignments: [] }))).toMatchObject({
+      code: 'VALIDATION',
+    });
+  });
+
+  it('Bật serial: hàng hết tồn nhưng có lịch sử bật được không cần serial; đang giữ hàng hoặc theo lô thì chặn', async () => {
+    const traced = new InventoryApplication(
+      new PostgresInventoryStore(database.references, database.pools),
+      new PostgresStockDocumentStore(database.references, database.pools),
+      new PostgresTraceabilityStore(database.references, database.pools),
+    );
+    const empty = await material('QA-KHO-EN0');
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: empty, quantity: 2 });
+    await app.issueStock(clerk, { ...projectSource(), warehouseCode: 'QA-KHO-HN', materialCode: empty, quantity: 2 });
+    await traced.enableSerialTracking(admin, { materialCode: empty, assignments: [] });
+    expect((await app.getMaterial(admin, empty)).trackingMode).toBe('SERIAL');
+
+    const held = await material('QA-KHO-EN1');
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: held, quantity: 2 });
+    await pool.query(
+      `UPDATE inventory_schema.material_inventory SET quantity_reserved = 1
+        WHERE material_id = (SELECT id FROM inventory_schema.materials WHERE code = $1)`,
+      [held],
+    );
+    const reserved = await rejection(
+      traced.enableSerialTracking(admin, {
+        materialCode: held,
+        assignments: [{ warehouseCode: 'QA-KHO-HN', serialNumbers: ['H1', 'H2'] }],
+      }),
+    );
+    expect(reserved).toMatchObject({ statusCode: 409 });
+    expect((await app.getMaterial(admin, held)).trackingMode).toBe('NONE');
+
+    const lotted = await app.createMaterial(admin, {
+      code: 'QA-KHO-EN2',
+      name: 'Theo lô',
+      category: 'CONSUMABLE',
+      unit: 'Cái',
+      trackingMode: 'LOT',
+    });
+    const lotRejected = await rejection(traced.enableSerialTracking(admin, { materialCode: lotted.code, assignments: [] }));
+    expect(lotRejected.message).toMatch(/theo lô/);
   });
 
   it('Serial mới khai sửa số và xoá được; đã vào kho thì 409 SERIAL_IN_USE', async () => {
@@ -910,7 +1038,7 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
       expect(await serialRow(sr, 'D1')).toMatchObject({ stock_state: 'IN_STOCK', warehouse_code: 'QA-KHO-HN' });
     });
 
-    it('BE005-21: chặn bật theo dõi serial khi tồn chưa có serial; hết tồn thì bật được', async () => {
+    it('BE005-21: chặn bật theo dõi serial khi tồn chưa có serial; hết tồn thì bật bằng enableSerialTracking', async () => {
       const plain = await material('QA-KHO-BAT');
       await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'QA-KHO-HN', materialCode: plain, quantity: 10 });
       const blocked = await rejection(app.updateMaterial(admin, plain, { isSerialized: true }));
@@ -927,7 +1055,15 @@ integration('Serial, lô, trạng thái chất lượng trên PostgreSQL (INV-04
       expect((rows[0] as { n: number }).n).toBe(0);
 
       await app.issueStock(clerk, { ...projectSource(), warehouseCode: 'QA-KHO-HN', materialCode: plain, quantity: 10 });
-      expect((await app.updateMaterial(admin, plain, { isSerialized: true })).isSerialized).toBe(true);
+      // Đường sửa vật tư vẫn chặn vì mặt hàng đã có bút toán; bật serial đi qua enableSerialTracking.
+      expect((await rejection(app.updateMaterial(admin, plain, { isSerialized: true }))).message).toMatch(/không đổi được cách theo dõi/);
+      const traced = new InventoryApplication(
+        new PostgresInventoryStore(database.references, database.pools),
+        new PostgresStockDocumentStore(database.references, database.pools),
+        new PostgresTraceabilityStore(database.references, database.pools),
+      );
+      await traced.enableSerialTracking(admin, { materialCode: plain, assignments: [] });
+      expect((await app.getMaterial(admin, plain)).isSerialized).toBe(true);
     });
   });
 });

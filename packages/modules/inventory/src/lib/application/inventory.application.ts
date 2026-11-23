@@ -10,6 +10,8 @@ import type {
   RegisterSerialsRequest,
   AssignSerialsRequest,
   AssignSerialsResult,
+  EnableSerialTrackingRequest,
+  EnableSerialTrackingResult,
   SerialCoverage,
   UpdateSerialRequest,
   InstallItemRequest,
@@ -973,6 +975,42 @@ export class InventoryApplication {
   }
 
   /**
+   * Bật theo dõi serial cho mặt hàng đang theo dõi thông thường, kèm serial cho toàn bộ tồn hiện có ở mọi kho
+   * trong một thao tác (ISS-BE-005: tồn và serial Trong kho phải khớp từng kho). Đây là đường duy nhất đổi
+   * NONE sang SERIAL khi mặt hàng đã có lịch sử; `updateMaterial` vẫn chặn vì dấu vết tồn, bút toán.
+   */
+  async enableSerialTracking(
+    actor: InventoryActor,
+    input: EnableSerialTrackingRequest,
+  ): Promise<EnableSerialTrackingResult> {
+    this.requireManager(actor);
+    if (!this.traceability) throw new InventoryError('VALIDATION', 'Chưa cấu hình truy vết.');
+    const materialCode = input?.materialCode?.trim().toUpperCase();
+    if (!materialCode) throw new InventoryError('VALIDATION', 'Thiếu mã vật tư.');
+    const assignments = (input.assignments ?? []).map((item) => ({
+      warehouseCode: item?.warehouseCode?.trim() ?? '',
+      serials: (item?.serialNumbers ?? []).map((value) => value.trim()).filter(Boolean),
+    }));
+    const warehouseCodes = assignments.map((item) => item.warehouseCode);
+    if (warehouseCodes.some((code) => !code)) throw new InventoryError('VALIDATION', 'Thiếu kho.');
+    if (new Set(warehouseCodes).size !== warehouseCodes.length) {
+      throw new InventoryError('VALIDATION', 'Mỗi kho chỉ khai một lần.');
+    }
+    if (assignments.some((item) => item.serials.some((value) => value.length > 100))) {
+      throw new InventoryError('VALIDATION', 'Số serial dài tối đa 100 ký tự.');
+    }
+    const states = (await this.getSettings(actor))['catalog.asset'].value.usageStates;
+    return this.traceability.enableSerialTracking(actor.tenantId, {
+      materialCode,
+      assignments: assignments.filter((item) => item.serials.length > 0),
+      actorId: actor.userId,
+      reason: input.reason,
+      defaultStatus: 'OPERATING',
+      defaultLocationType: states[0] || '',
+    });
+  }
+
+  /**
    * Gắn số serial cho hàng ĐÃ có trong tồn của một kho (nhập qua API, tồn đầu kỳ).
    * Không đổi số lượng tồn; số serial không vượt phần chưa gắn. Hàng mới vào kho vẫn
    * đi qua phiếu nhập.
@@ -1018,7 +1056,7 @@ export class InventoryApplication {
       .join('; ');
     throw new InventoryError(
       'SERIALIZATION_STOCK_MISMATCH',
-      `Vật tư đang có tồn chưa có serial (${detail}). Xuất hoặc điều chỉnh hết phần tồn này, bật theo dõi serial rồi nhập lại kèm serial.`,
+      `Vật tư đang có tồn chưa có serial (${detail}). Dùng chức năng Bật theo dõi serial ở thẻ kho của mặt hàng để khai đủ serial cho từng kho trong một lần.`,
       409,
     );
   }

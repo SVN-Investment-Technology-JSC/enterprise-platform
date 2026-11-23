@@ -13,6 +13,7 @@ import type {
   MovementBatchRequest,
   RegisterSerialsRequest,
   AssignSerialsRequest,
+  EnableSerialTrackingRequest,
   ReturnItemToStockRequest,
   StockDocumentLotInput,
   TransferStockRequest,
@@ -348,6 +349,13 @@ export class InventoryController {
   @HttpCode(200)
   assignSerials(@Req() request: InventoryRequest, @Body() body: AssignSerialsRequest) {
     return this.execute(() => this.app.assignSerialsToStock(this.actor(request), body));
+  }
+
+  /** Bật theo dõi serial cho mặt hàng đang có tồn, kèm serial cho tồn ở mọi kho. */
+  @Post('serials/enable')
+  @HttpCode(200)
+  enableSerialTracking(@Req() request: InventoryRequest, @Body() body: EnableSerialTrackingRequest) {
+    return this.execute(() => this.app.enableSerialTracking(this.actor(request), body));
   }
 
   /** Xoá serial khai ở danh mục mà chưa phát sinh. */
