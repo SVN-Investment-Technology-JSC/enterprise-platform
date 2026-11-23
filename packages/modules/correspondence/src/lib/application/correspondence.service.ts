@@ -1884,8 +1884,19 @@ export class CorrespondenceService {
     this.requireConfigure(actor);
     const workflow = (await this.store.workflows(actor.tenantId)).find((item) => item.id === id);
     if (workflow?.isDefault) throw new CorrespondenceValidationError('Không xoá được quy trình mặc định; chọn quy trình mặc định khác trước.');
-    if (!(await this.store.deleteWorkflow(actor.tenantId, id))) {
-      throw new CorrespondenceValidationError('Quy trình đang gắn với loại văn bản hay công văn nên không xoá được; hãy ngừng dùng.');
+    if (!workflow) throw new CorrespondenceValidationError('Quy trình không còn, tải lại trang.');
+    const result = await this.store.deleteWorkflow(actor.tenantId, id);
+    if (!result.deleted) {
+      // Nói rõ cái gì đang dùng quy trình: loại văn bản phải gỡ trước; công văn đã chạy thì giữ lịch sử, ngừng dùng.
+      const reasons = [
+        result.types.length > 0 ? `đang gắn với loại văn bản ${result.types.join(', ')} (gỡ ở Cấu hình, Danh mục)` : '',
+        result.letterCount > 0
+          ? `có ${result.letterCount} công văn đã chạy hay đang chọn quy trình này (${result.letters.join(', ')}${result.letterCount > result.letters.length ? ', …' : ''})`
+          : '',
+      ].filter(Boolean);
+      throw new CorrespondenceValidationError(
+        `Không xoá được "${workflow.name}": ${reasons.join('; ')}.${result.letterCount > 0 ? ' Công văn đã chạy cần giữ lịch sử, hãy ngừng dùng quy trình.' : ''}`,
+      );
     }
   }
 

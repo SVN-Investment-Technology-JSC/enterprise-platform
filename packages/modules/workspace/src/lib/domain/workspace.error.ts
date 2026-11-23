@@ -114,12 +114,8 @@ export class ProjectGroupNotFoundError extends WorkspaceError {
 
 /** `member` chỉ được đổi trạng thái công việc của chính mình. */
 export class WorkItemAssigneeOnlyError extends WorkspaceError {
-  constructor() {
-    super(
-      'WORK_ITEM_ASSIGNEE_ONLY',
-      'Bạn chỉ được đổi trạng thái công việc được giao cho mình.',
-      403,
-    );
+  constructor(message = 'Bạn chỉ được đổi trạng thái công việc được giao cho mình.') {
+    super('WORK_ITEM_ASSIGNEE_ONLY', message, 403);
     Object.setPrototypeOf(this, WorkItemAssigneeOnlyError.prototype);
   }
 }

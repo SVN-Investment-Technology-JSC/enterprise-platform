@@ -54,9 +54,18 @@ import { StandaloneTaskForm } from './standalone-task-form';
 import { useDirectory, type DirectoryView } from './use-directory';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import { Confirm } from './confirm-box';
 import { ProgressCell } from './inline-cells';
 import { ProgressHistoryPanel } from './progress-history-panel';
+import { ChecklistPanel, STANDALONE_TASK_CHECKLIST_API } from './checklist-panel';
+import {
+  STANDALONE_CHECKLIST_READONLY_NOTE,
+  canEditStandaloneChecklist,
+  canShowStandaloneChecklist,
+} from '../checklist-access';
 import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-report';
 import { FieldChangeList } from './tab-activity';
 
@@ -265,36 +274,41 @@ export function StandaloneTasksView({
     <div ref={splitRef} className={styles.taskSplit}>
       <section className={styles.taskListPane} aria-label="Danh sách công việc khác">
         <div className={styles.taskListHead}>
-          <div className={styles.segmented} role="tablist" aria-label="Nhóm công việc">
-            {STANDALONE_TASK_SCOPES.map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={scope === value}
-                className={scope === value ? styles.segmentActive : styles.segment}
-                onClick={() => setScope(value)}
-              >
-                {STANDALONE_TASK_SCOPE_LABELS[value]}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={scope}
+            onValueChange={(value) => setScope(value as StandaloneTaskScope)}
+            className="min-w-0 flex-1"
+          >
+            <TabsList aria-label="Nhóm công việc" className="gap-x-0.5 rounded-lg border-b-0 bg-secondary p-0.5">
+              {STANDALONE_TASK_SCOPES.map((value) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="mb-0 h-7 flex-1 justify-center rounded-md border-b-0 px-2 text-xs data-active:bg-background data-active:shadow-sm"
+                >
+                  {STANDALONE_TASK_SCOPE_LABELS[value]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
           <Tooltip content="Tải lại">
-            <button
+            <Button
               type="button"
-              className={styles.iconButton}
+              variant="ghost"
+              size="icon-sm"
               aria-label="Tải lại"
               onClick={() => void reloadList()}
             >
               <RefreshCw size={15} />
-            </button>
+            </Button>
           </Tooltip>
         </div>
 
         <div className={styles.taskListFilters}>
           <label className={styles.taskSearch}>
             <Search size={14} aria-hidden />
-            <input
+            <Input
+              className="h-7 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
               value={search}
               placeholder="Tìm theo mã hoặc tên"
               aria-label="Tìm công việc"
@@ -592,12 +606,23 @@ function TaskDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const blockedPrompt = useBlockedReasonPrompt();
+  /** Người đang đăng nhập (để dòng vừa tích hiện ngay "Hoàn thành bởi") và số đầu việc của checklist (`undefined` khi chưa nạp). */
+  const [me, setMe] = useState('');
+  const [checklistCount, setChecklistCount] = useState<number>();
   /** Tiến độ của việc lá đi qua luồng báo cáo tiến độ: dưới 100% lưu ngay, 100% mở hộp báo cáo, server đổi trạng thái theo số. */
   const progress = useProgressReport<StandaloneTaskDetail>((next) => onChanged(next), STANDALONE_PROGRESS_ADAPTER);
 
   useEffect(() => {
     setError(undefined);
+    setChecklistCount(undefined);
   }, [task.id]);
+
+  useEffect(() => {
+    void api.loadCurrentUserId().then(setMe, () => undefined);
+  }, []);
+
+  /** Việc lá đã có đầu việc thì tiến độ tự tính theo đầu việc; server từ chối báo phần trăm tay. */
+  const progressFromChecklist = task.childCount === 0 && (checklistCount ?? 0) > 0;
 
   /**
    * Báo vướng mắc (hoặc sửa lý do khi việc đã vướng mắc) luôn qua hộp ghi lý do: server từ chối nếu thiếu `note`.
@@ -659,9 +684,9 @@ function TaskDetail({
         <nav className={styles.taskBreadcrumb} aria-label="Việc cha">
           {ancestors.map((ancestor) => (
             <span key={ancestor.id}>
-              <button type="button" className={styles.linkButton} onClick={() => onOpenTask(ancestor.id)}>
+              <Button type="button" variant="link" size="xs" onClick={() => onOpenTask(ancestor.id)}>
                 {ancestor.code} · {ancestor.title}
-              </button>
+              </Button>
               <ChevronRight size={13} aria-hidden />
             </span>
           ))}
@@ -680,25 +705,27 @@ function TaskDetail({
         </div>
         <div className={styles.documentActions}>
           <Tooltip content="Nhật ký">
-            <button
+            <Button
               type="button"
-              className={styles.iconButton}
+              variant="ghost"
+              size="icon-sm"
               aria-label="Nhật ký"
               onClick={onShowHistory}
             >
               <History size={15} />
-            </button>
+            </Button>
           </Tooltip>
           {isAssigner ? (
             <Tooltip content="Sửa">
-              <button
+              <Button
                 type="button"
-                className={styles.iconButton}
+                variant="ghost"
+                size="icon-sm"
                 aria-label="Sửa"
                 onClick={onEdit}
               >
                 <Pencil size={15} />
-              </button>
+              </Button>
             </Tooltip>
           ) : null}
           {isAssigner && !task.reversal && (task.status === 'todo' || task.status === 'cancelled') ? (
@@ -720,9 +747,15 @@ function TaskDetail({
             >
               <span className={styles.tooltipAnchor}>
                 <Tooltip content="Xoá">
-                  <button type="button" className={styles.iconButton} aria-label="Xoá">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Xoá"
+                    className="hover:bg-destructive/10 hover:text-destructive"
+                  >
                     <Trash2 size={15} />
-                  </button>
+                  </Button>
                 </Tooltip>
               </span>
             </Confirm>
@@ -752,33 +785,33 @@ function TaskDetail({
                 reasonPlaceholder="Ghi rõ để người thực hiện hiểu"
                 onConfirm={(reason) => move(next, reason)}
               >
-                <button
+                <Button
                   type="button"
-                  className={next === 'cancelled' ? styles.buttonDanger : styles.buttonGhost}
+                  variant={next === 'cancelled' ? 'destructive' : 'outline'}
                   disabled={busy}
                 >
                   {label}
-                </button>
+                </Button>
               </Confirm>
             );
           }
           const primary = next === 'done' || next === 'review';
           return (
-            <button
+            <Button
               key={next}
               type="button"
-              className={primary ? styles.buttonPrimary : styles.buttonGhost}
+              variant={primary ? 'default' : 'outline'}
               disabled={busy}
               onClick={() => (next === 'blocked' ? promptBlocked() : void move(next))}
             >
               {label}
-            </button>
+            </Button>
           );
         })}
         {canReverse ? (
-          <button type="button" className={styles.buttonDanger} disabled={busy} onClick={onReverse}>
+          <Button type="button" variant="destructive" disabled={busy} onClick={onReverse}>
             Huỷ hiệu lực
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -802,13 +835,15 @@ function TaskDetail({
               {adjustments.map((adjustment, index) => (
                 <span key={adjustment.id}>
                   {index > 0 ? ', ' : ''}
-                  <button
+                  <Button
                     type="button"
-                    className={styles.linkButton}
+                    variant="link"
+                    size="xs"
+                    className="h-auto px-0"
                     onClick={() => onOpenTask(adjustment.id)}
                   >
                     {adjustment.code}
-                  </button>
+                  </Button>
                   {adjustment.status === 'cancelled' ? ' (đã huỷ)' : ''}
                 </span>
               ))}
@@ -819,9 +854,9 @@ function TaskDetail({
           {canCreateAdjustment ? (
             <>
               {' '}
-              <button type="button" className={styles.buttonSmall} onClick={onCreateAdjustment}>
+              <Button type="button" variant="outline" size="sm" onClick={onCreateAdjustment}>
                 <Plus size={13} /> Lập công việc điều chỉnh
-              </button>
+              </Button>
             </>
           ) : null}
         </div>
@@ -829,9 +864,15 @@ function TaskDetail({
       {adjustmentOf ? (
         <p className={styles.notice}>
           Công việc điều chỉnh cho{' '}
-          <button type="button" className={styles.linkButton} onClick={() => onOpenTask(adjustmentOf.id)}>
+          <Button
+            type="button"
+            variant="link"
+            size="xs"
+            className="h-auto px-0"
+            onClick={() => onOpenTask(adjustmentOf.id)}
+          >
             {adjustmentOf.code} · {adjustmentOf.title}
-          </button>{' '}
+          </Button>{' '}
           (đã huỷ hiệu lực).
         </p>
       ) : null}
@@ -867,6 +908,8 @@ function TaskDetail({
         </p>
       ) : null}
 
+      <section className={styles.panel} aria-label="Thông tin công việc">
+      <h3>Thông tin</h3>
       <dl className={styles.definitionList}>
         <dt>Người giao</dt>
         <dd>{directory.nameOf(task.createdBy)}</dd>
@@ -897,9 +940,13 @@ function TaskDetail({
               value={task.progressPercent}
               manual={Boolean(task.progressManual)}
               auto={task.autoProgressPercent}
-              disabled={busy || task.status === 'done' || task.status === 'cancelled'}
+              disabled={busy || task.status === 'done' || task.status === 'cancelled' || progressFromChecklist}
               lockedReason={
-                task.status === 'done' ? 'Công việc đã hoàn thành; mở lại để đổi tiến độ.' : undefined
+                task.status === 'done'
+                  ? 'Công việc đã hoàn thành; mở lại để đổi tiến độ.'
+                  : progressFromChecklist
+                    ? 'Tiến độ tự tính theo đầu việc; hãy tích đầu việc ở mục Checklist tiến độ.'
+                    : undefined
               }
               onCommit={(next) =>
                 // Việc có việc con vẫn nhập tay được để ưu tiên hơn số tự tính; việc lá đi qua luồng báo cáo.
@@ -920,9 +967,42 @@ function TaskDetail({
         <dt>Giao lúc</dt>
         <dd>{formatDateTime(task.createdAt)}</dd>
       </dl>
+      {task.childCount > 0 ? (
+        <p className={`${styles.muted} mt-2.5`}>
+          {task.progressManual
+            ? `Đang dùng tiến độ nhập tay; tự tính từ các việc con là ${task.autoProgressPercent ?? 0}%.`
+            : 'Tiến độ tự tính từ trung bình các việc con chưa huỷ; gõ số ở ô Tiến độ để nhập tay.'}
+        </p>
+      ) : null}
+      </section>
+
+      <section className={styles.panel} aria-label="Mô tả công việc">
+        <h3>Mô tả</h3>
+        {task.description ? (
+          <p className={styles.description}>{task.description}</p>
+        ) : (
+          <p className={`${styles.description} ${styles.muted}`}>Không có mô tả.</p>
+        )}
+      </section>
 
       {task.executionType === 'procedure' && task.procedure ? (
         <ProcedurePanel procedure={task.procedure} isChild={Boolean(task.parentId)} />
+      ) : null}
+
+      {canShowStandaloneChecklist(task, checklistCount) ? (
+        <ChecklistPanel
+          item={task}
+          canEdit={canEditStandaloneChecklist(myRole)}
+          userId={me || undefined}
+          checklistApi={STANDALONE_TASK_CHECKLIST_API}
+          alwaysTracked
+          cannotEditReason={STANDALONE_CHECKLIST_READONLY_NOTE}
+          onCountChange={setChecklistCount}
+          onChanged={async () => {
+            // Tích đầu việc đổi tiến độ và có thể đổi trạng thái: nạp lại việc như các thao tác ghi khác.
+            onChanged(await api.getStandaloneTask(task.id));
+          }}
+        />
       ) : null}
 
       <ProgressHistoryPanel
@@ -930,34 +1010,20 @@ function TaskDetail({
         load={api.listStandaloneTaskProgressReports}
       />
 
-      {task.childCount > 0 ? (
-        <p className={styles.muted}>
-          {task.progressManual
-            ? `Đang dùng tiến độ nhập tay; tự tính từ các việc con là ${task.autoProgressPercent ?? 0}%.`
-            : 'Tiến độ tự tính từ trung bình các việc con chưa huỷ; gõ số ở ô Tiến độ để nhập tay.'}
-        </p>
-      ) : null}
-
-      {task.description ? (
-        <p className={styles.description}>{task.description}</p>
-      ) : (
-        <p className={`${styles.description} ${styles.muted}`}>Không có mô tả.</p>
-      )}
-
-      <section className={styles.taskChildren} aria-label="Việc con">
-        <div className={styles.panelHeadRow}>
-          <h4>
+      <section className={styles.panel} aria-label="Việc con">
+        <div className={`${styles.panelHeadRow} mb-2.5 flex items-center gap-2 [&>h3]:mb-0`}>
+          <h3>
             <GitBranch size={14} aria-hidden /> Việc con
             {task.childCount > 0 ? (
               <span className={styles.countPill}>
                 {task.childCount - task.openChildCount}/{task.childCount}
               </span>
             ) : null}
-          </h4>
+          </h3>
           {canAddChild ? (
-            <button type="button" className={styles.buttonSmall} onClick={onAddChild}>
+            <Button type="button" variant="outline" size="sm" onClick={onAddChild}>
               <Plus size={13} /> Thêm việc con
-            </button>
+            </Button>
           ) : null}
         </div>
         {children.length === 0 ? (
@@ -1063,9 +1129,9 @@ function HistoryDrawer({
             {detail.task.code} · {detail.task.title}
           </p>
         </div>
-        <button type="button" aria-label="Đóng" onClick={onClose}>
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="Đóng" onClick={onClose}>
           <X size={16} />
-        </button>
+        </Button>
       </header>
       <div className={styles.drawerBody}>
         {detail.history.length === 0 ? (

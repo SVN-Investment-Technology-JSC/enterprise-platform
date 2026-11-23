@@ -341,7 +341,14 @@ function fakeStore() {
       else workflows.push(saved);
       return saved;
     },
-    deleteWorkflow: async () => false,
+    deleteWorkflow: async (_tenant, workflowId) => {
+      const types = catalog.filter((item) => item.workflowId === workflowId || item.outgoingWorkflowId === workflowId).map((item) => item.name);
+      const used = [...letters.values()].filter((letter) => !letter.deletedAt && (letter.workflowId === workflowId || letter.chosenWorkflowId === workflowId));
+      if (types.length > 0 || used.length > 0) return { deleted: false, types, letters: used.map((letter) => letter.incomingNo), letterCount: used.length };
+      const index = workflows.findIndex((item) => item.id === workflowId);
+      if (index >= 0) workflows.splice(index, 1);
+      return { deleted: index >= 0, types: [], letters: [], letterCount: 0 };
+    },
     registers: async () => registers,
     saveRegister: async (_tenant, _user, registerId, input) => {
       if (input.isDefault) registers.forEach((item, index) => {
@@ -1751,6 +1758,33 @@ describe('Chọn quy trình riêng cho công văn lúc tạo', () => {
     expect(sent).toMatchObject({ stage: 'reviewing', currentStepName: 'Giám đốc ký' });
     const other = await service.createOutgoing(accountant, { subject: 'Khác', recipient: 'Sở', kind: 'finance' });
     expect((await service.sendToClerk(accountant, other.id, { workflowId: quick.id })).currentStepName).toBe('Giám đốc ký');
+  });
+});
+
+describe('Xoá quy trình', () => {
+  it('công văn đã xoá không chặn; loại văn bản đang gắn, công văn còn đó thì báo rõ cái gì đang dùng', async () => {
+    const { service } = setup();
+    const tax = await service.saveWorkflow(configurer, undefined, {
+      name: 'Quy trình công văn đến của tài chính - thuế',
+      direction: 'incoming',
+      steps: [{ key: 'a', name: 'Lãnh đạo duyệt', type: 'approve', approver: { type: 'users', userIds: ['u-leader'] } }],
+    });
+    // Công văn chạy theo quy trình, rồi huỷ, xoá.
+    const letter = await service.create(clerk, { ...intake, workflowId: tax.id });
+    await service.dispatch(clerk, letter.id, { kind: 'finance', urgency: 'normal' });
+    await expect(service.deleteWorkflow(configurer, tax.id)).rejects.toThrow(
+      'Không xoá được "Quy trình công văn đến của tài chính - thuế": có 1 công văn đã chạy hay đang chọn quy trình này (01/CVĐ). Công văn đã chạy cần giữ lịch sử, hãy ngừng dùng quy trình.',
+    );
+    await service.cancel(clerk, letter.id, { reason: 'Nhập nhầm.' });
+    await service.remove(clerk, letter.id);
+    // Gắn với loại văn bản: báo tên loại.
+    const { catalog } = await service.config(configurer);
+    const finance = catalog.find((item) => item.code === 'finance') as CatalogItem;
+    await service.saveCatalogItem(configurer, finance.id, { ...finance, workflowId: tax.id });
+    await expect(service.deleteWorkflow(configurer, tax.id)).rejects.toThrow('đang gắn với loại văn bản Tài chính – thuế (gỡ ở Cấu hình, Danh mục)');
+    await service.saveCatalogItem(configurer, finance.id, { ...finance, workflowId: null });
+    await expect(service.deleteWorkflow(configurer, tax.id)).resolves.toBeUndefined();
+    expect((await service.config(configurer)).workflows.some((item) => item.id === tax.id)).toBe(false);
   });
 });
 

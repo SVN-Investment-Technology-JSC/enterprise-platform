@@ -814,6 +814,291 @@
   padding: 16px 18px;
 }
 
+/* Kho lưu trữ ngoài: thẻ trải hết bề ngang lưới dung lượng. */
+.storageWide {
+  grid-column: 1 / -1;
+}
+
+.storageForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 920px;
+}
+
+.storageActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.storageTransfer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 920px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ep-border);
+
+  p {
+    margin: 0;
+    font-size: 13px;
+  }
+}
+
+.storageErrors {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ep-danger);
+  font-size: 12.5px;
+}
+
+.checkRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  line-height: 1.45;
+  cursor: pointer;
+
+  input {
+    flex: none;
+    margin-top: 2px;
+  }
+}
+
+/* ===========================================================================
+   KHO NAS
+   =========================================================================== */
+
+.nasView {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+
+  @media (max-width: 860px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nasShares {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+
+  > p {
+    margin: 8px 4px 0;
+    font-size: 12px;
+  }
+}
+
+.nasShare {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--ep-radius-md);
+  background: transparent;
+  color: var(--ep-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  span:first-of-type {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    background: var(--ep-surface-hover, #f6f7f9);
+  }
+
+  &[data-active='true'] {
+    background: var(--ep-accent-soft);
+    font-weight: 600;
+  }
+}
+
+.nasMain {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px 16px;
+
+  > p {
+    margin: 0;
+    font-size: 13px;
+  }
+}
+
+.nasToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nasCrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13.5px;
+
+  button {
+    padding: 2px 4px;
+    border: 0;
+    border-radius: var(--ep-radius-sm);
+    background: transparent;
+    color: var(--ep-text);
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--ep-text-muted);
+  }
+}
+
+.nasEntry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover span {
+    text-decoration: underline;
+  }
+}
+
+.nasRowActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.nasRow[draggable='true'] {
+  cursor: grab;
+}
+
+.nasRow[data-drop='true'] td {
+  background: var(--ep-accent-soft);
+}
+
+.nasRow[data-drop='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--ep-accent-strong);
+}
+
+.nasCrumbs button[data-drop='true'] {
+  background: var(--ep-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--ep-accent-strong);
+}
+
+.nasEmpty {
+  padding: 28px 6px !important;
+  color: var(--ep-text-muted);
+  text-align: center;
+}
+
+/* Trang Dung lượng chia tab. */
+.storageSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.storageTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  border-bottom: 1px solid var(--ep-border);
+}
+
+.storageTab {
+  margin-bottom: -1px;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ep-text-sub);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ep-text);
+  }
+
+  &[data-active='true'] {
+    border-bottom-color: var(--ep-accent-strong);
+    color: var(--ep-text);
+  }
+}
+
+.nasShareRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 260px) minmax(0, 320px);
+  align-items: center;
+  gap: 10px;
+
+  input:not([type='checkbox']) {
+    @include input-base;
+  }
+}
+
+.nasFilter {
+  @include input-base;
+
+  max-width: 320px;
+}
+
+.nasPersonCell {
+  min-width: 240px;
+}
+
+.success {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--ep-radius-md);
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .storageFigure {
   display: flex;
   align-items: baseline;

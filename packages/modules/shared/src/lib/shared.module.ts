@@ -4,6 +4,7 @@ import { CompanyDocumentService } from './application/company-document.service.j
 import { FilingService } from './application/filing.service.js';
 import { FolderAccessService } from './application/folder-access.js';
 import { FolderSharingService } from './application/folder-sharing.service.js';
+import { NasService } from './application/nas.service.js';
 import { ORGANIZATION_READER, type OrganizationReader } from './application/organization.port.js';
 import {
   PLATFORM_LIMITS_READER,
@@ -11,9 +12,13 @@ import {
 } from './application/platform-limits.port.js';
 import { SHARED_STORE, type SharedStore } from './application/shared-store.port.js';
 import { StorageQuotaService } from './application/storage-quota.service.js';
+import { StorageSettingsService } from './application/storage-settings.service.js';
 import { HttpOrganizationReader } from './infrastructure/http-organization-reader.js';
 import { HttpPlatformLimits } from './infrastructure/http-platform-limits.js';
 import { PostgresSharedStore } from './infrastructure/postgres-shared-store.js';
+import { SynologyGateway } from './infrastructure/synology-gateway.js';
+import { TenantStorageRouter } from './infrastructure/tenant-storage-router.js';
+import { SharedFilesController } from './presentation/shared-files.controller.js';
 import { SharedController } from './presentation/shared.controller.js';
 
 /**
@@ -24,7 +29,7 @@ import { SharedController } from './presentation/shared.controller.js';
  * ký database của tenant sau mỗi access-decision.
  */
 @Module({
-  controllers: [SharedController],
+  controllers: [SharedController, SharedFilesController],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
@@ -64,20 +69,44 @@ import { SharedController } from './presentation/shared.controller.js';
       inject: [SHARED_STORE, FolderAccessService, ORGANIZATION_READER],
     },
     {
-      // Tham số cuối để mặc định: service tự dựng `S3ObjectStorage` từ biến môi trường.
+      // Một thực thể cho cả app: bộ nhớ đệm cấu hình kho ngoài 30 giây nằm trong nó.
+      // Kho của nền tảng dựng từ biến môi trường; kho ngoài theo cấu hình của từng tenant.
+      provide: TenantStorageRouter,
+      useFactory: (store: SharedStore) => new TenantStorageRouter(store),
+      inject: [SHARED_STORE],
+    },
+    {
       provide: CompanyDocumentService,
-      useFactory: (store: SharedStore, quota: StorageQuotaService, access: FolderAccessService) =>
-        new CompanyDocumentService(store, quota, access),
-      inject: [SHARED_STORE, StorageQuotaService, FolderAccessService],
+      useFactory: (
+        store: SharedStore,
+        quota: StorageQuotaService,
+        access: FolderAccessService,
+        storages: TenantStorageRouter,
+      ) => new CompanyDocumentService(store, quota, access, storages),
+      inject: [SHARED_STORE, StorageQuotaService, FolderAccessService, TenantStorageRouter],
     },
     {
       // Lưu tệp của phân hệ khác (Văn thư) vào kho, qua route nội bộ.
       provide: FilingService,
-      useFactory: (store: SharedStore, quota: StorageQuotaService) => new FilingService(store, quota),
-      inject: [SHARED_STORE, StorageQuotaService],
+      useFactory: (store: SharedStore, quota: StorageQuotaService, storages: TenantStorageRouter) =>
+        new FilingService(store, quota, storages),
+      inject: [SHARED_STORE, StorageQuotaService, TenantStorageRouter],
+    },
+    {
+      // Một thực thể cho cả app: phiên đăng nhập NAS dùng lại giữa các lời gọi nằm trong gateway.
+      provide: NasService,
+      useFactory: (store: SharedStore, storages: TenantStorageRouter) =>
+        new NasService(store, new SynologyGateway(), storages, storages),
+      inject: [SHARED_STORE, TenantStorageRouter],
+    },
+    {
+      provide: StorageSettingsService,
+      useFactory: (store: SharedStore, storages: TenantStorageRouter) => new StorageSettingsService(store, storages),
+      inject: [SHARED_STORE, TenantStorageRouter],
     },
   ],
   exports: [
+    TenantStorageRouter,
     CompanyDocumentService,
     FolderSharingService,
     StorageQuotaService,

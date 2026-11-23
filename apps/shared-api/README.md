@@ -116,6 +116,45 @@ phân hệ này đo dung lượng đang dùng và chặn tải lên khi vượt.
 Biến môi trường: như `workspace-api` (database, platform access, S3,
 `TENANT_CORE_ORGANIZATION_CONTEXT_URL`) cộng `PLATFORM_TENANT_LIMITS_URL`.
 
+## Kho lưu trữ ngoài của tenant
+
+Mỗi tenant tự cấu hình được một kho S3 riêng (NAS Synology chạy MinIO, S3, R2…) ở tab
+**Dung lượng → Kho lưu trữ ngoài** (quản trị tenant sửa, quản trị kho xem). Bật thì tệp mới
+của Tài liệu chung và hồ sơ Văn thư lưu vào kho đó; mỗi phiên bản ghi nơi lưu của nó
+(`document_versions.storage_location`), nên tệp cũ vẫn mở được, và chuyển dần sang kho ngoài
+bằng nút "Chuyển tệp". Tệp ở kho ngoài không tính vào hạn mức dung lượng của nền tảng.
+
+- `proxy`: trình duyệt tải lên, tải xuống qua `/api/shared/v1/files/<phiếu>`; máy chủ chuyển
+  tiếp luồng, không lưu tệp. Kho chỉ cần máy chủ ERP thấy được (mạng nội bộ, Tailscale, VPN).
+- `direct`: URL ký sẵn trỏ thẳng tới địa chỉ công khai của kho (https, mở CORS cho tên miền ERP).
+
+Biến môi trường:
+
+- `SHARED_STORAGE_SECRET_KEY`: khoá gốc, ít nhất 32 ký tự. Mã hoá khoá truy cập kho của tenant
+  (AES-256-GCM) và ký phiếu chuyển tiếp. Trống thì tính năng tắt. Đổi khoá thì tenant phải nhập
+  lại secret key.
+- `SHARED_EXTERNAL_STORAGE_ALLOWED_HOSTS`: máy chủ kho được phép, cách nhau dấu phẩy (tên máy,
+  `*.đuôi`, IP, CIDR). Có danh sách thì chỉ những máy này (http hay https). Trống thì chỉ kho
+  công khai qua https, chặn địa chỉ nội bộ, để tenant không trỏ kho vào dịch vụ của nền tảng.
+
+## Kho NAS (ánh xạ thư mục chia sẻ của NAS)
+
+Tab **Dung lượng → Kết nối NAS** (quản trị tenant sửa): địa chỉ DSM, tài khoản kết nối, các thư mục
+chia sẻ ánh xạ vào ERP, chu kỳ đồng bộ. Người dùng thấy mục **Kho NAS**: duyệt, xem, tải, tải lên,
+tạo thư mục, đổi tên, xoá trực tiếp trên NAS; tệp không sao chép về ERP.
+
+- Quyền lấy từ NAS: người dùng, nhóm, thành viên, quyền từng thư mục chia sẻ (Không truy cập thắng,
+  rồi Đọc/Ghi, rồi Chỉ đọc), đồng bộ theo chu kỳ khi có người mở Kho NAS hoặc bấm Đồng bộ ngay.
+  Quyền ACL riêng trên thư mục con chưa đọc được (DSM chặn API ACL); quyền tuỳ chỉnh coi như Chỉ đọc.
+- Tài khoản NAS ghép với nhân sự ERP: tự ghép theo thư điện tử hoặc cách đặt tên (tên + chữ đầu họ,
+  tên đệm), còn lại ghép tay; ghép tay giữ qua các lần đồng bộ. Chưa ghép thì không vào Kho NAS.
+- Quyền ghi tài liệu của phân hệ trong ERP vẫn là trần: NAS cho ghi mà ERP chỉ cho xem thì chỉ xem.
+- Tài khoản kết nối phải thuộc nhóm administrators của NAS (DSM chỉ cho quản trị đọc quyền), không
+  bật xác minh hai bước. Địa chỉ NAS đi qua cùng danh sách `SHARED_EXTERNAL_STORAGE_ALLOWED_HOSTS`;
+  mật khẩu mã hoá bằng `SHARED_STORAGE_SECRET_KEY`.
+- Tệp đi qua `/api/shared/v1/files/<phiếu>` như kho ngoài chế độ proxy; tải lên tối đa 5 GB một tệp.
+  Nhật ký xem, tải, tải lên, đổi tên, xoá ở `shared_schema.nas_access_logs`.
+
 ```bash
 pnpm dev:shared
 ```

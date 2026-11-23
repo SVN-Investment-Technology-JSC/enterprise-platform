@@ -14,10 +14,16 @@ import { useDirectory } from './use-directory';
 export function ProgressHistoryPanel({
   item,
   load = (id) => api.listWorkItemProgressReports(id),
+  bare = false,
+  onCount,
 }: {
   item: Pick<WorkItem, 'id' | 'progressPercent' | 'status' | 'updatedAt'>;
   /** Cách nạp lịch sử; mặc định là việc trong dự án, Công việc khác truyền hàm riêng. */
   load?: (id: string) => Promise<{ items: (WorkItemProgressReport | StandaloneTaskProgressReport)[] }>;
+  /** Không vẽ thẻ và tiêu đề: dùng khi nằm trong một tab đã có tên. */
+  bare?: boolean;
+  /** Báo số báo cáo mỗi khi nạp xong, để tab hiện số đếm. */
+  onCount?: (count: number) => void;
 }) {
   const directory = useDirectory();
   const [reports, setReports] = useState<readonly (WorkItemProgressReport | StandaloneTaskProgressReport)[]>();
@@ -25,21 +31,28 @@ export function ProgressHistoryPanel({
   // Hàm nạp có thể là hàm tạo mới mỗi lần vẽ: giữ bản mới nhất mà không chạy lại effect chỉ vì nó đổi.
   const loadRef = useRef(load);
   loadRef.current = load;
+  const countRef = useRef(onCount);
+  countRef.current = onCount;
 
   useEffect(() => {
     let alive = true;
     setFailed(false);
     loadRef.current(item.id)
-      .then((result) => alive && setReports(result.items))
+      .then((result) => {
+        if (!alive) return;
+        setReports(result.items);
+        countRef.current?.(result.items.length);
+      })
       .catch(() => alive && setFailed(true));
     return () => {
       alive = false;
     };
   }, [item.id, item.progressPercent, item.status, item.updatedAt]);
 
+  const Wrapper = bare ? 'div' : 'section';
   return (
-    <section className={styles.panel}>
-      <h3>Lịch sử tiến độ</h3>
+    <Wrapper className={bare ? undefined : styles.panel}>
+      {bare ? null : <h3>Lịch sử tiến độ</h3>}
       {failed ? (
         <p className={styles.muted}>Không tải được lịch sử tiến độ lúc này.</p>
       ) : !reports ? (
@@ -61,6 +74,6 @@ export function ProgressHistoryPanel({
           ))}
         </ul>
       )}
-    </section>
+    </Wrapper>
   );
 }

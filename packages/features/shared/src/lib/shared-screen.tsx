@@ -12,10 +12,12 @@ import {
   type StorageUsage,
 } from '@enterprise-platform/contracts-shared';
 import { AppIcon } from '@enterprise-platform/shared-ui';
-import { FolderOpen, FolderPlus, HardDrive, Upload } from 'lucide-react';
+import { FolderOpen, FolderPlus, HardDrive, Server, Upload } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { LibraryView, type LibraryAbilities, type LibraryRequest } from './components/library-view';
-import { meterTone, StorageView } from './components/storage-view';
+import { NasView } from './components/nas-view';
+import { StorageSettings } from './components/storage-settings';
+import { meterTone } from './components/storage-view';
 import {
   errorMessage,
   loadCurrentUserId,
@@ -25,9 +27,9 @@ import {
 } from './shared-api';
 import styles from './shared.module.scss';
 
-type Tab = 'library' | 'storage';
+type Tab = 'library' | 'nas' | 'storage';
 
-const VIEWS: readonly Tab[] = ['library', 'storage'];
+const VIEWS: readonly Tab[] = ['library', 'nas', 'storage'];
 
 const NO_RIGHTS: SharedCapabilities = {
   isTenantAdmin: false,
@@ -82,6 +84,13 @@ export function SharedScreen() {
 
   const nav: readonly ModuleNavItem<Tab>[] = [
     { id: 'library', label: 'Tài liệu công ty', group: 'Tài liệu', icon: <AppIcon slot="sidebar.shared.library" fallback={FolderOpen} size={16} /> },
+    {
+      id: 'nas',
+      label: 'Kho NAS',
+      group: 'Tài liệu',
+      icon: <AppIcon slot="sidebar.shared.nas" fallback={Server} size={16} />,
+      hidden: !status?.nasEnabled,
+    },
     {
       id: 'storage',
       label: 'Dung lượng',
@@ -158,7 +167,9 @@ export function SharedScreen() {
       }
     >
       {provisioning || !status ? null : view === 'storage' && capabilities.canManage ? (
-        <StorageView usage={usage} />
+        <StorageSettings usage={usage} onChanged={reloadUsage} />
+      ) : view === 'nas' && status.nasEnabled ? (
+        <NasView />
       ) : (
         <LibraryView
           capabilities={capabilities}

@@ -45,6 +45,7 @@ import type {
   OutboxEvent,
   RegisterUpsert,
   StepRecord,
+  WorkflowDeletion,
   StepUpdate,
   WorkflowUpsert,
 } from '../application/ports.js';
@@ -346,19 +347,44 @@ export class PostgresCorrespondenceStore implements CorrespondenceStore {
     );
   }
 
-  deleteWorkflow(tenantId: string, id: string): Promise<boolean> {
-    return this.run(tenantId, async (pool) => {
-      const result = await pool.query(
-        `DELETE FROM correspondence_schema.workflows w
-          WHERE w.id = $1 AND NOT w.is_default
-            AND NOT EXISTS (SELECT 1 FROM correspondence_schema.letters l WHERE l.workflow_id = w.id)
-            AND NOT EXISTS (SELECT 1 FROM correspondence_schema.catalog_items c
-                             WHERE c.workflow_id = w.id OR c.outgoing_workflow_id = w.id)`,
-        [id],
-      );
-      return (result.rowCount ?? 0) > 0;
-    }).catch((error: unknown) => {
-      if ((error as { code?: string } | null)?.code === '22P02') return false;
+  deleteWorkflow(tenantId: string, id: string): Promise<WorkflowDeletion> {
+    const none: WorkflowDeletion = { deleted: false, types: [], letters: [], letterCount: 0 };
+    return this.run(tenantId, (pool) =>
+      inTransaction(pool, async (client) => {
+        const types = await client.query<{ name: string }>(
+          `SELECT c.name FROM correspondence_schema.catalog_items c
+            WHERE c.workflow_id = $1 OR c.outgoing_workflow_id = $1 ORDER BY c.name`,
+          [id],
+        );
+        const letters = await client.query<{ no: string; total: string }>(
+          `SELECT COALESCE(l.outgoing_no, l.incoming_no) AS no, count(*) OVER () AS total
+             FROM correspondence_schema.letters l
+            WHERE (l.workflow_id = $1 OR l.chosen_workflow_id = $1) AND l.deleted_at IS NULL
+            ORDER BY l.created_at DESC LIMIT 5`,
+          [id],
+        );
+        if (types.rows.length > 0 || letters.rows.length > 0) {
+          return {
+            deleted: false,
+            types: types.rows.map((row) => row.name),
+            letters: letters.rows.map((row) => row.no),
+            letterCount: Number(letters.rows[0]?.total ?? 0),
+          };
+        }
+        // Công văn đã xoá vẫn giữ tên quy trình đã chạy; bỏ liên kết tới quy trình sắp xoá.
+        await client.query(
+          `UPDATE correspondence_schema.letters SET workflow_id = NULL WHERE workflow_id = $1 AND deleted_at IS NOT NULL`,
+          [id],
+        );
+        await client.query(
+          `UPDATE correspondence_schema.letters SET chosen_workflow_id = NULL WHERE chosen_workflow_id = $1 AND deleted_at IS NOT NULL`,
+          [id],
+        );
+        const result = await client.query(`DELETE FROM correspondence_schema.workflows w WHERE w.id = $1 AND NOT w.is_default`, [id]);
+        return { ...none, deleted: (result.rowCount ?? 0) > 0 };
+      }),
+    ).catch((error: unknown) => {
+      if ((error as { code?: string } | null)?.code === '22P02') return none;
       throw error;
     });
   }

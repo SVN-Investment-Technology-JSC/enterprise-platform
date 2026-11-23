@@ -853,6 +853,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0038-work-item-progress-reports', path: 'tenant/workspace/0038-work-item-progress-reports.sql' },
     { version: '0039-work-item-progress-methods', path: 'tenant/workspace/0039-work-item-progress-methods.sql' },
     { version: '0040-standalone-task-progress-reports', path: 'tenant/workspace/0040-standalone-task-progress-reports.sql' },
+    { version: '0041-standalone-task-checklist', path: 'tenant/workspace/0041-standalone-task-checklist.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [
@@ -860,6 +861,9 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
     { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
     { version: '0004-shared-system-folders', path: 'tenant/shared/0004-shared-system-folders.sql' },
+    { version: '0005-shared-external-storage', path: 'tenant/shared/0005-shared-external-storage.sql' },
+    { version: '0006-shared-nas-connector', path: 'tenant/shared/0006-shared-nas-connector.sql' },
+    { version: '0007-shared-nas-move-log', path: 'tenant/shared/0007-shared-nas-move-log.sql' },
   ],
   // Mạng nội bộ: bảng tin công ty.
   social: [

@@ -272,7 +272,7 @@ describe('Tiến độ theo đầu việc', () => {
       checklist: [row('c1', false, 'w3'), ...Array.from({ length: 49 }, (_, index) => row(`x${index}`, false, 'w3'))],
     });
     const service = serviceFor(store);
-    await expect(service.addChecklistItems(u1, 'w1', ['A'])).rejects.toMatchObject({ message: expect.stringContaining('đổi cách tính') });
+    await expect(service.updateChecklistItem(u1, 'w1', 'c1', { done: true })).rejects.toMatchObject({ message: expect.stringContaining('đổi cách tính') });
     await expect(service.addChecklistItems(u1, 'w2', ['A'])).rejects.toMatchObject({ message: expect.stringContaining('mở lại') });
     await expect(service.updateChecklistItem(u1, 'w3', 'khong-co', { done: true })).rejects.toBeDefined();
     await expect(service.addChecklistItems(u1, 'w3', [' '])).rejects.toBeDefined();
@@ -283,6 +283,110 @@ describe('Tiến độ theo đầu việc', () => {
     const { store } = makeStore({ items: [checklistItem()], checklist: [row('c1', false)] });
     await expect(serviceFor(store).updateChecklistItem(actorOf('u2'), 'w1', 'c1', { done: true })).rejects.toMatchObject({
       code: 'WORK_ITEM_ASSIGNEE_ONLY',
+    });
+  });
+
+  it('người tạo việc (không phụ trách) thêm, tích, xoá được đầu việc', async () => {
+    const { store, items, checklist } = makeStore({ items: [checklistItem()], checklist: [row('c1', false)] });
+    const service = serviceFor(store);
+    const creator = actorOf('u-creator');
+    await service.addChecklistItems(creator, 'w1', ['Mới']);
+    await service.updateChecklistItem(creator, 'w1', 'c1', { done: true });
+    expect(items[0]?.progressPercent).toBe(50);
+    await service.removeChecklistItem(creator, 'w1', 'c2');
+    expect(checklist).toHaveLength(1);
+    expect(items[0]?.progressPercent).toBe(100);
+  });
+
+  it('thành viên không liên quan bị chặn thêm đầu việc, thông báo đúng việc đầu việc', async () => {
+    const { store } = makeStore({ items: [item({ id: 'w1' })] });
+    await expect(serviceFor(store).addChecklistItems(actorOf('u2'), 'w1', ['A'])).rejects.toMatchObject({
+      code: 'WORK_ITEM_ASSIGNEE_ONLY',
+      message: expect.stringContaining('đầu việc'),
+    });
+  });
+
+  it('việc đang manual: thêm đầu việc đầu tiên tự chuyển sang checklist và tính tiến độ theo đầu việc', async () => {
+    const { store, items, checklist } = makeStore({
+      items: [item({ id: 'w1', status: 'in_progress', progressPercent: 40, progressManual: true })],
+    });
+    await serviceFor(store).addChecklistItems(actorOf('u-creator'), 'w1', ['A', 'B']);
+    expect(checklist).toHaveLength(2);
+    expect(items[0]).toMatchObject({ progressMethod: 'checklist', progressPercent: 0, progressManual: false });
+  });
+
+  it('chuyển manual sang checklist: ghi một báo cáo phản ánh số mới dù số tay cũ khác (40% -> 0%)', async () => {
+    const { store, reports } = makeStore({
+      items: [item({ id: 'w1', status: 'in_progress', progressPercent: 40, progressManual: true })],
+    });
+    await serviceFor(store).addChecklistItems(u1, 'w1', ['A']);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]).toMatchObject({ percent: 0 });
+  });
+
+  it('thêm hàng đầu việc lỗi thì việc không bị đổi cách tính và giữ số tay', async () => {
+    const { store, items } = makeStore({
+      items: [item({ id: 'w1', status: 'in_progress', progressPercent: 40, progressManual: true })],
+    });
+    const failing = store as unknown as { workItem: { addChecklistItems: () => Promise<never> } };
+    failing.workItem.addChecklistItems = async () => {
+      throw new Error('mất kết nối');
+    };
+    await expect(serviceFor(store).addChecklistItems(u1, 'w1', ['A'])).rejects.toThrow('mất kết nối');
+    expect(items[0]).toMatchObject({ progressPercent: 40, progressManual: true });
+    expect(items[0]?.progressMethod).toBeUndefined();
+  });
+
+  it('manual đang Chờ duyệt: thêm đầu việc đầu tiên đưa việc về Đang làm (người phụ trách)', async () => {
+    const { store, items } = makeStore({
+      items: [item({ id: 'w1', status: 'review', progressPercent: 100, progressManual: true })],
+    });
+    await serviceFor(store).addChecklistItems(u1, 'w1', ['A']);
+    expect(items[0]).toMatchObject({ status: 'in_progress', progressMethod: 'checklist', progressPercent: 0 });
+  });
+
+  it('người chỉ là người tạo việc: tích đầu việc cuối chỉ đổi phần trăm, không tự Hoàn thành / Chờ duyệt', async () => {
+    const { store, items, statusChanges } = makeStore({
+      items: [checklistItem({ status: 'in_progress', progressPercent: 50 })],
+      checklist: [row('c1', true), row('c2', false)],
+    });
+    const creator = actorOf('u-creator');
+    await serviceFor(store).updateChecklistItem(creator, 'w1', 'c2', { done: true });
+    expect(items[0]).toMatchObject({ progressPercent: 100, status: 'in_progress' });
+    expect(statusChanges).toEqual([]);
+  });
+
+  it('người chỉ là người tạo việc: bỏ tích không kéo Chờ duyệt về Đang làm; việc Chưa làm không tự sang Đang làm', async () => {
+    const review = makeStore({
+      items: [checklistItem({ status: 'review', progressPercent: 100 })],
+      checklist: [row('c1', true), row('c2', true)],
+    });
+    await serviceFor(review.store).updateChecklistItem(actorOf('u-creator'), 'w1', 'c2', { done: false });
+    expect(review.items[0]).toMatchObject({ status: 'review', progressPercent: 50 });
+    const todo = makeStore({ items: [checklistItem()], checklist: [row('c1', false), row('c2', false)] });
+    await serviceFor(todo.store).updateChecklistItem(actorOf('u-creator'), 'w1', 'c1', { done: true });
+    expect(todo.items[0]).toMatchObject({ status: 'todo', progressPercent: 50 });
+    expect(todo.statusChanges).toEqual([]);
+  });
+
+  it('giai đoạn và cột mốc không thêm được đầu việc', async () => {
+    const { store } = makeStore({
+      items: [item({ id: 'w1', itemType: 'phase' }), item({ id: 'w2', itemType: 'milestone' })],
+    });
+    await expect(serviceFor(store).addChecklistItems(u1, 'w1', ['A'])).rejects.toMatchObject({
+      message: expect.stringContaining('Giai đoạn'),
+    });
+    await expect(serviceFor(store).addChecklistItems(u1, 'w2', ['A'])).rejects.toMatchObject({
+      message: expect.stringContaining('Cột mốc'),
+    });
+  });
+
+  it('việc theo khối lượng vẫn từ chối thêm đầu việc, hướng dẫn đổi cách tính', async () => {
+    const { store } = makeStore({
+      items: [item({ id: 'w1', progressMethod: 'quantity', quantityTarget: 5, quantityUnit: 'bộ' })],
+    });
+    await expect(serviceFor(store).addChecklistItems(u1, 'w1', ['A'])).rejects.toMatchObject({
+      message: expect.stringContaining('khối lượng'),
     });
   });
 

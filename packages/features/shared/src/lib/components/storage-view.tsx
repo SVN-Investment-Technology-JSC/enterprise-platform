@@ -7,6 +7,7 @@ import {
   STORAGE_PLAN_QUOTAS_GB,
   type StorageUsage,
 } from '@enterprise-platform/contracts-shared';
+import type { ReactNode } from 'react';
 import styles from '../shared.module.scss';
 
 const PLAN_LABELS: Readonly<Record<string, string>> = {
@@ -19,8 +20,11 @@ export function meterTone(usage: StorageUsage): 'normal' | 'warn' | 'over' {
   return usage.usedPercent >= usage.warnPercent ? 'warn' : 'normal';
 }
 
-/** Dung lượng tệp của cả tenant: một hạn mức chung cho mọi phân hệ. */
-export function StorageView({ usage }: { readonly usage?: StorageUsage }) {
+/**
+ * Dung lượng tệp của cả tenant: một hạn mức chung cho mọi phân hệ. `children` nằm cuối
+ * lưới (cấu hình kho lưu trữ ngoài).
+ */
+export function StorageView({ usage, children }: { readonly usage?: StorageUsage; readonly children?: ReactNode }) {
   if (!usage) return <p className={styles.muted}>Đang tải…</p>;
   const tone = meterTone(usage);
   const planLabel =
@@ -120,6 +124,7 @@ export function StorageView({ usage }: { readonly usage?: StorageUsage }) {
           </tbody>
         </table>
       </section>
+      {children}
     </div>
   );
 }

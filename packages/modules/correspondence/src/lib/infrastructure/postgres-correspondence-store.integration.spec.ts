@@ -408,7 +408,7 @@ integration('Sổ công văn (PostgreSQL)', () => {
       }),
     ).rejects.toThrow('đã có');
     // Quy trình đi đang gắn với loại văn bản: không xoá được.
-    expect(await store.deleteWorkflow(TENANT, 'c0000000-0000-4000-8000-000000000002')).toBe(false);
+    expect(await store.deleteWorkflow(TENANT, 'c0000000-0000-4000-8000-000000000002')).toMatchObject({ deleted: false, types: ['Hợp đồng'] });
     expect(await store.deleteCatalogItem(TENANT, created.id)).toBe(true);
     const finance = (await store.catalog(TENANT)).find((item) => item.code === 'finance');
     expect(finance?.inUse).toBe(true);

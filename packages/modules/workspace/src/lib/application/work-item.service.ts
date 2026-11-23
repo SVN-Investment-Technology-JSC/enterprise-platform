@@ -750,9 +750,13 @@ export class WorkItemService {
   ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
     assertProjectWritable(access.project);
-    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
+    // Quản lý và người phụ trách / cùng làm được đổi trạng thái; người chỉ là người tạo việc thì checklist chỉ đổi phần trăm.
+    const mayMoveStatus = hasProjectRole(access, 'manager') || isOwnItem(item, actor.userId);
+    // `computed` chỉ do server gọi sau khi `editableChecklistItem` đã kiểm quyền; nó chỉ được ghi phần trăm, không mở đường đổi trạng thái.
+    if (origin !== 'computed' && !mayMoveStatus) {
       throw new WorkItemAssigneeOnlyError();
     }
+    const percentOnly = origin === 'computed' && !mayMoveStatus;
     requireProjectRole(access, 'member');
     if (item.reversal) {
       throw new WorkspaceValidationError(
@@ -799,7 +803,7 @@ export class WorkItemService {
     if (completing && origin === 'user' && settings.requireDescription && !description) {
       throw new WorkspaceValidationError('Hãy ghi mô tả khi báo hoàn thành công việc.');
     }
-    let target = completing ? settings.completeStatus : undefined;
+    let target = completing && !percentOnly ? settings.completeStatus : undefined;
     if (target === 'done' && (item.completion?.conditions.length ?? 0) > 0) {
       // Người báo thì dừng lại để họ xác nhận điều kiện; tích đầu việc thì chỉ đặt 100%, việc vẫn chờ người bấm Hoàn thành.
       if (origin === 'user') {
@@ -840,8 +844,10 @@ export class WorkItemService {
         await this.store.workItem.update(actor.tenantId, workItemId, { quantityDone }, actor.userId);
       }
     } else {
-      if (status === 'review' && !completing) await move('in_progress');
-      else if (status === 'todo' && percent > 0 && settings.startsWork) await move('in_progress');
+      if (!percentOnly) {
+        if (status === 'review' && !completing) await move('in_progress');
+        else if (status === 'todo' && percent > 0 && settings.startsWork) await move('in_progress');
+      }
       // Việc tính theo khối lượng / đầu việc: số là số tự tính (nhật ký ghi như một lần đổi tiến độ), không phải số nhập tay.
       await this.store.workItem.update(
         actor.tenantId,
@@ -871,20 +877,34 @@ export class WorkItemService {
     return this.store.workItem.listChecklist(actor.tenantId, workItemId);
   }
 
-  /** Quyền và điều kiện để sửa đầu việc: cùng luật với báo cáo tiến độ, và công việc phải tính tiến độ theo đầu việc. */
-  private async editableChecklistItem(actor: WorkspaceActor, workItemId: string): Promise<WorkItem> {
+  /**
+   * Quyền và điều kiện để sửa đầu việc: manager, người phụ trách / cùng làm hoặc người tạo việc (đều phải là thành
+   * viên dự án). Công việc phải tính tiến độ theo đầu việc; riêng lúc thêm (`switchFromManual`), việc đang `manual`
+   * được tự chuyển sang `checklist`.
+   */
+  private async editableChecklistItem(
+    actor: WorkspaceActor,
+    workItemId: string,
+    options: { readonly switchFromManual?: boolean } = {},
+  ): Promise<WorkItem> {
     const { item, access } = await this.load(actor, workItemId);
     assertProjectWritable(access.project);
-    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId)) {
-      throw new WorkItemAssigneeOnlyError();
+    if (!hasProjectRole(access, 'manager') && !isOwnItem(item, actor.userId) && item.createdBy !== actor.userId) {
+      throw new WorkItemAssigneeOnlyError(
+        'Chỉ quản lý dự án, người phụ trách hoặc người tạo công việc mới sửa được đầu việc.',
+      );
     }
     requireProjectRole(access, 'member');
     if (item.reversal) {
       throw new WorkspaceValidationError('Công việc đã huỷ hiệu lực, không sửa được đầu việc.');
     }
-    if ((item.progressMethod ?? 'manual') !== 'checklist') {
+    const method = item.progressMethod ?? 'manual';
+    const canSwitch = options.switchFromManual === true && method === 'manual';
+    if (method !== 'checklist' && !canSwitch) {
       throw new WorkspaceValidationError(
-        'Công việc này không tính tiến độ theo đầu việc; hãy đổi cách tính tiến độ trước.',
+        method === 'quantity'
+          ? 'Công việc này tính tiến độ theo khối lượng; hãy đổi cách tính tiến độ sang đầu việc trước.'
+          : 'Công việc này không tính tiến độ theo đầu việc; hãy đổi cách tính tiến độ trước.',
       );
     }
     if (item.status === 'done' || item.status === 'cancelled') {
@@ -900,14 +920,18 @@ export class WorkItemService {
   }
 
   /** Đưa tiến độ của việc về khớp với tỷ lệ đầu việc đã tích (chỉ ghi khi số đổi hoặc việc cần sang trạng thái mới). */
-  private async syncChecklistProgress(actor: WorkspaceActor, workItemId: string): Promise<void> {
+  private async syncChecklistProgress(
+    actor: WorkspaceActor,
+    workItemId: string,
+    options: { readonly forceReport?: boolean } = {},
+  ): Promise<void> {
     const items = await this.store.workItem.listChecklist(actor.tenantId, workItemId);
     const done = items.filter((entry) => entry.done).length;
     const percent = checklistPercent(done, items.length);
     const fresh = await this.store.workItem.findById(actor.tenantId, workItemId);
     if (!fresh) return;
     const settled = fresh.status === 'done' || fresh.status === 'review';
-    if (percent === fresh.progressPercent && !(percent === 100 && !settled)) return;
+    if (!options.forceReport && percent === fresh.progressPercent && !(percent === 100 && !settled)) return;
     await this.reportProgress(
       actor,
       workItemId,
@@ -921,17 +945,29 @@ export class WorkItemService {
     workItemId: string,
     titles: readonly string[],
   ): Promise<readonly WorkItemChecklistItem[]> {
-    await this.editableChecklistItem(actor, workItemId);
+    const item = await this.editableChecklistItem(actor, workItemId, { switchFromManual: true });
+    if (item.itemType !== 'task') {
+      throw new WorkspaceValidationError(
+        `${item.itemType === 'phase' ? 'Giai đoạn' : 'Cột mốc'} không có đầu việc; chỉ công việc mới thêm được đầu việc.`,
+      );
+    }
     const parsed = parseChecklistTitles(titles);
     if (parsed.length === 0) throw new WorkspaceValidationError('Nhập tên ít nhất một đầu việc.');
     const existing = await this.store.workItem.listChecklist(actor.tenantId, workItemId);
     if (existing.length + parsed.length > MAX_CHECKLIST_ITEMS) {
       throw new WorkspaceValidationError(`Một công việc có tối đa ${MAX_CHECKLIST_ITEMS} đầu việc.`);
     }
+    // Thêm hàng đầu việc trước: nếu lỗi thì công việc còn nguyên cách tính và số nhập tay.
     await this.store.workItem.addChecklistItems(actor.tenantId, workItemId, parsed);
-    // Thêm đầu việc chưa tích làm tỷ lệ giảm đi: tính lại.
-    await this.syncChecklistProgress(actor, workItemId);
-    await this.recalculate(actor, (await this.load(actor, workItemId)).item.projectId);
+    const switching = (item.progressMethod ?? 'manual') === 'manual';
+    if (switching) {
+      // Đầu việc đầu tiên: tiến độ từ đây tính theo đầu việc (bỏ số nhập tay), giống đổi cách tính ở `update`.
+      await this.store.workItem.update(actor.tenantId, workItemId, { progressMethod: 'checklist' }, actor.userId);
+    }
+    // Thêm đầu việc chưa tích làm tỷ lệ giảm đi: tính lại. Vừa đổi cách tính thì luôn ghi một báo cáo phản ánh số mới
+    // (kể cả khi trùng số cũ), việc Chờ duyệt mà tính lại dưới 100% thì về Đang làm theo luật báo cáo.
+    await this.syncChecklistProgress(actor, workItemId, { forceReport: switching });
+    await this.recalculate(actor, item.projectId);
     return this.store.workItem.listChecklist(actor.tenantId, workItemId);
   }
 

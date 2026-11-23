@@ -14,12 +14,20 @@ import type {
   SharedFolder,
   SharedFolderRole,
   SharedPrincipalType,
+  SharedNasLinkSource,
+  SharedNasProvider,
+  SharedNasRule,
+  SharedNasShareConfig,
   SharedShareGrant,
+  SharedStorageAccessMode,
+  SharedStorageLocation,
+  SharedStorageLocationUsage,
   SharedTrashItem,
   StorageModuleUsage,
 } from '@enterprise-platform/contracts-shared';
 import type { Pool, PoolClient } from 'pg';
 import type { AccessFolder, ShareRecord } from '../application/folder-access.js';
+import type { NasAccountRecord, NasRuleRecord } from '../application/nas-rules.js';
 import type {
   BranchRestoreTarget,
   DocumentInsert,
@@ -29,7 +37,13 @@ import type {
   FolderInsert,
   FolderUpdate,
   PurgeResult,
+  NasAccessAction,
+  NasConnectionInput,
+  NasConnectionRow,
+  NasGroupRecord,
   SharedStore,
+  StorageSettingsInput,
+  StorageSettingsRow,
   TenantPerson,
   TrashedFolder,
   VersionInsert,
@@ -42,8 +56,14 @@ import { SharedNameTakenError, SharedNotProvisionedError } from '../domain/share
  * Bảng nào chưa có (tenant chưa bật phân hệ đó) thì bỏ qua — kiểm bằng
  * `to_regclass` trước khi đưa vào câu truy vấn.
  */
-const STORAGE_SOURCES: readonly { moduleKey: string; label: string; table: string }[] = [
-  { moduleKey: 'shared', label: 'Tài liệu công ty', table: 'shared_schema.document_versions' },
+const STORAGE_SOURCES: readonly { moduleKey: string; label: string; table: string; where?: string }[] = [
+  // Tệp đã ở kho ngoài của tenant (NAS, S3 riêng) không chiếm dung lượng của nền tảng.
+  {
+    moduleKey: 'shared',
+    label: 'Tài liệu công ty',
+    table: 'shared_schema.document_versions',
+    where: `storage_location = 'platform'`,
+  },
   { moduleKey: 'workspace', label: 'Workspace · dự án, công việc', table: 'workspace_schema.document_versions' },
   { moduleKey: 'procedure-engine', label: 'Quy trình · đính kèm phiếu', table: 'procedure_schema.attachments' },
   { moduleKey: 'hrm', label: 'Nhân sự · hồ sơ, đơn từ', table: 'hrm_schema.attachments' },
@@ -514,14 +534,14 @@ export class PostgresSharedStore implements SharedStore {
             [folderId],
           );
           const root = branch.rows.find((row) => row.id === folderId);
-          if (!root) return { storageKeys: [], documents: 0, folders: 0 };
+          if (!root) return { storageKeys: [], externalKeys: [], documents: 0, folders: 0 };
           const ids = branch.rows.map((row) => row.id);
 
           // Cả tài liệu từng bị xoá riêng khỏi các thư mục này: thư mục biến mất
           // thì chúng không còn chỗ để khôi phục về, và khoá ngoại cũng không cho
           // xoá thư mục còn tài liệu trỏ tới.
-          const versions = await client.query<{ storage_key: string; size_bytes: string | null }>(
-            `SELECT v.storage_key, v.size_bytes
+          const versions = await client.query<VersionObjectRecord>(
+            `SELECT v.storage_key, v.size_bytes, v.storage_location
                FROM shared_schema.document_versions v
                JOIN shared_schema.documents d ON d.id = v.document_id
               WHERE d.folder_id = ANY($1::uuid[])`,
@@ -572,7 +592,7 @@ export class PostgresSharedStore implements SharedStore {
             throw new Error('Không xoá hết được các thư mục của nhánh trong Thùng rác.');
           }
           return {
-            storageKeys: versions.rows.map((row) => row.storage_key),
+            ...splitObjects(versions.rows),
             documents: documentCount,
             folders: ids.length - 1,
           };
@@ -663,11 +683,20 @@ export class PostgresSharedStore implements SharedStore {
             const version = (
               await client.query<VersionRecord>(
                 `INSERT INTO shared_schema.document_versions
-                        (document_id, version_no, storage_key, file_name, content_type, change_note, uploaded_by)
-                 VALUES ($1, 1, $2, $3, $4, $5, $6)
+                        (document_id, version_no, storage_key, file_name, content_type, change_note, uploaded_by,
+                         storage_location)
+                 VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
                  RETURNING id, document_id, version_no, file_name, content_type, size_bytes,
                            change_note, uploaded_by, created_at`,
-                [documentId, input.storageKey, input.fileName, input.contentType, input.changeNote, userId],
+                [
+                  documentId,
+                  input.storageKey,
+                  input.fileName,
+                  input.contentType,
+                  input.changeNote,
+                  userId,
+                  input.storageLocation ?? 'platform',
+                ],
               )
             ).rows[0] ?? missingRow();
             const document = (
@@ -780,9 +809,10 @@ export class PostgresSharedStore implements SharedStore {
             [documentId],
           );
           const document = found.rows[0];
-          if (!document) return { storageKeys: [], documents: 0, folders: 0 };
-          const versions = await client.query<{ storage_key: string; size_bytes: string | null }>(
-            `SELECT storage_key, size_bytes FROM shared_schema.document_versions WHERE document_id = $1`,
+          if (!document) return { storageKeys: [], externalKeys: [], documents: 0, folders: 0 };
+          const versions = await client.query<VersionObjectRecord>(
+            `SELECT storage_key, size_bytes, storage_location
+               FROM shared_schema.document_versions WHERE document_id = $1`,
             [documentId],
           );
           const paths = await loadFolderPaths(client);
@@ -802,7 +832,7 @@ export class PostgresSharedStore implements SharedStore {
           );
           // Phiên bản và nhật ký truy cập đi theo tài liệu (ON DELETE CASCADE).
           await client.query(`DELETE FROM shared_schema.documents WHERE id = $1`, [documentId]);
-          return { storageKeys: versions.rows.map((row) => row.storage_key), documents: 1, folders: 0 };
+          return { ...splitObjects(versions.rows), documents: 1, folders: 0 };
         }),
       ),
 
@@ -865,8 +895,9 @@ export class PostgresSharedStore implements SharedStore {
           const version = (
             await client.query<VersionRecord>(
               `INSERT INTO shared_schema.document_versions
-                      (document_id, version_no, storage_key, file_name, content_type, change_note, uploaded_by)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+                      (document_id, version_no, storage_key, file_name, content_type, change_note, uploaded_by,
+                       storage_location)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, document_id, version_no, file_name, content_type, size_bytes,
                          change_note, uploaded_by, created_at`,
               [
@@ -877,6 +908,7 @@ export class PostgresSharedStore implements SharedStore {
                 input.contentType,
                 input.changeNote,
                 userId,
+                input.storageLocation ?? 'platform',
               ],
             )
           ).rows[0] ?? missingRow();
@@ -907,6 +939,16 @@ export class PostgresSharedStore implements SharedStore {
           [versionId],
         );
         return result.rows[0]?.storage_key;
+      }),
+
+    storageRefOf: (tenantId: string, versionId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{ storage_key: string; storage_location: SharedStorageLocation }>(
+          `SELECT storage_key, storage_location FROM shared_schema.document_versions WHERE id = $1`,
+          [versionId],
+        );
+        const row = result.rows[0];
+        return row ? { key: row.storage_key, location: row.storage_location } : undefined;
       }),
 
     log: (
@@ -1166,7 +1208,7 @@ export class PostgresSharedStore implements SharedStore {
               `SELECT '${source.moduleKey}'::text AS module_key,
                       COALESCE(sum(size_bytes), 0)::bigint AS bytes,
                       count(size_bytes)::bigint AS files
-                 FROM ${source.table}`,
+                 FROM ${source.table}${source.where ? ` WHERE ${source.where}` : ''}`,
           )
           .join(' UNION ALL '),
       );
@@ -1177,6 +1219,397 @@ export class PostgresSharedStore implements SharedStore {
         files: Number(row.files),
       }));
     },
+
+    locationUsage: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{ storage_location: SharedStorageLocation; files: string; bytes: string }>(
+          `SELECT storage_location, count(size_bytes)::bigint AS files, COALESCE(sum(size_bytes), 0)::bigint AS bytes
+             FROM shared_schema.document_versions
+            GROUP BY storage_location`,
+        );
+        const usage: Record<SharedStorageLocation, SharedStorageLocationUsage> = {
+          platform: { files: 0, bytes: 0 },
+          external: { files: 0, bytes: 0 },
+        };
+        for (const row of result.rows) {
+          usage[row.storage_location] = { files: Number(row.files), bytes: Number(row.bytes) };
+        }
+        return usage;
+      }),
+
+    platformObjects: (tenantId: string, limit: number) =>
+      this.run(tenantId, async (pool) => {
+        // Chỉ phiên bản đã tải lên xong; phiên bản dở không có tệp để chuyển.
+        const result = await pool.query<{
+          id: string;
+          storage_key: string;
+          content_type: string;
+          size_bytes: string;
+        }>(
+          `SELECT id, storage_key, content_type, size_bytes
+             FROM shared_schema.document_versions
+            WHERE storage_location = 'platform' AND size_bytes IS NOT NULL
+            ORDER BY created_at, id
+            LIMIT $1`,
+          [limit],
+        );
+        return result.rows.map((row) => ({
+          versionId: row.id,
+          key: row.storage_key,
+          contentType: row.content_type,
+          sizeBytes: Number(row.size_bytes),
+        }));
+      }),
+
+    countPlatformObjects: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{ n: string }>(
+          `SELECT count(*) AS n FROM shared_schema.document_versions
+            WHERE storage_location = 'platform' AND size_bytes IS NOT NULL`,
+        );
+        return Number(result.rows[0]?.n ?? 0);
+      }),
+
+    markExternal: (tenantId: string, versionId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query(
+          `UPDATE shared_schema.document_versions SET storage_location = 'external'
+            WHERE id = $1 AND storage_location = 'platform'`,
+          [versionId],
+        );
+        return (result.rowCount ?? 0) > 0;
+      }),
+  };
+
+  readonly nas = {
+    connection: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasConnectionRecord>(`SELECT ${NAS_CONNECTION_COLUMNS} FROM shared_schema.nas_connection WHERE id = 1`);
+        return result.rows[0] ? mapNasConnection(result.rows[0]) : undefined;
+      }),
+
+    saveConnection: (tenantId: string, userId: string, input: NasConnectionInput, expectedVersion?: number) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasConnectionRecord>(
+          `INSERT INTO shared_schema.nas_connection AS c
+                  (id, enabled, label, provider, base_url, username, secret_ciphertext, shares, sync_minutes,
+                   version, updated_by, updated_at)
+           VALUES (1, $1, $2, $3, $4, $5, $6, $7::jsonb, $8, 1, $9, now())
+           ON CONFLICT (id) DO UPDATE SET
+                  enabled = EXCLUDED.enabled, label = EXCLUDED.label, provider = EXCLUDED.provider,
+                  base_url = EXCLUDED.base_url, username = EXCLUDED.username,
+                  secret_ciphertext = EXCLUDED.secret_ciphertext, shares = EXCLUDED.shares,
+                  sync_minutes = EXCLUDED.sync_minutes, version = c.version + 1,
+                  updated_by = EXCLUDED.updated_by, updated_at = now()
+            WHERE $10::int IS NULL OR c.version = $10::int
+           RETURNING ${NAS_CONNECTION_COLUMNS}`,
+          [
+            input.enabled,
+            input.label,
+            input.provider,
+            input.baseUrl,
+            input.username,
+            input.secretCiphertext,
+            JSON.stringify(input.shares),
+            input.syncMinutes,
+            userId,
+            expectedVersion ?? null,
+          ],
+        );
+        return result.rows[0] ? mapNasConnection(result.rows[0]) : undefined;
+      }),
+
+    recordSync: (tenantId: string, status: { ok: boolean; message: string }) =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `UPDATE shared_schema.nas_connection
+              SET last_sync_at = now(), last_sync_ok = $1, last_sync_message = left($2, 500)
+            WHERE id = 1`,
+          [status.ok, status.message],
+        );
+      }),
+
+    accounts: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasAccountRow>(`SELECT ${NAS_ACCOUNT_COLUMNS} FROM shared_schema.nas_accounts ORDER BY name`);
+        return result.rows.map(mapNasAccount);
+      }),
+
+    accountForUser: (tenantId: string, erpUserId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasAccountRow>(
+          `SELECT ${NAS_ACCOUNT_COLUMNS} FROM shared_schema.nas_accounts WHERE erp_user_id = $1`,
+          [erpUserId],
+        );
+        return result.rows[0] ? mapNasAccount(result.rows[0]) : undefined;
+      }),
+
+    replaceDirectory: (
+      tenantId: string,
+      snapshot: { accounts: readonly NasAccountRecord[]; groups: readonly NasGroupRecord[]; rules: readonly NasRuleRecord[] },
+    ) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          await client.query(`DELETE FROM shared_schema.nas_accounts WHERE NOT (name = ANY($1::text[]))`, [
+            snapshot.accounts.map((account) => account.name),
+          ]);
+          // Gỡ mọi ghép cũ trước, để chuyển một nhân sự sang tài khoản khác không vướng ràng buộc duy nhất.
+          await client.query(`UPDATE shared_schema.nas_accounts SET erp_user_id = NULL`);
+          for (const account of snapshot.accounts) {
+            await client.query(
+              `INSERT INTO shared_schema.nas_accounts
+                      (name, description, email, disabled, groups, erp_user_id, link_source, synced_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+               ON CONFLICT (name) DO UPDATE SET
+                      description = EXCLUDED.description, email = EXCLUDED.email, disabled = EXCLUDED.disabled,
+                      groups = EXCLUDED.groups, erp_user_id = EXCLUDED.erp_user_id,
+                      link_source = EXCLUDED.link_source, synced_at = now()`,
+              [
+                account.name,
+                account.description.slice(0, 500),
+                account.email ?? null,
+                account.disabled,
+                [...account.groups],
+                account.erpUserId ?? null,
+                account.linkSource,
+              ],
+            );
+          }
+          await client.query(`DELETE FROM shared_schema.nas_groups`);
+          for (const group of snapshot.groups) {
+            await client.query(
+              `INSERT INTO shared_schema.nas_groups (name, description, members) VALUES ($1, $2, $3)
+               ON CONFLICT (name) DO NOTHING`,
+              [group.name, group.description.slice(0, 500), group.members],
+            );
+          }
+          await client.query(`DELETE FROM shared_schema.nas_share_permissions`);
+          for (const rule of snapshot.rules) {
+            await client.query(
+              `INSERT INTO shared_schema.nas_share_permissions (share_name, principal_type, principal_name, rule)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (share_name, principal_type, principal_name) DO UPDATE SET rule = EXCLUDED.rule`,
+              [rule.share, rule.principalType, rule.principalName, rule.rule],
+            );
+          }
+        }),
+      ),
+
+    linkAccount: (tenantId: string, name: string, erpUserId: string | null) =>
+      this.run(tenantId, (pool) =>
+        inTransaction(pool, async (client) => {
+          if (erpUserId) {
+            await client.query(
+              `UPDATE shared_schema.nas_accounts SET erp_user_id = NULL, link_source = 'manual'
+                WHERE erp_user_id = $1 AND name <> $2`,
+              [erpUserId, name],
+            );
+          }
+          const result = await client.query(
+            `UPDATE shared_schema.nas_accounts SET erp_user_id = $2, link_source = 'manual' WHERE name = $1`,
+            [name, erpUserId],
+          );
+          return (result.rowCount ?? 0) > 0;
+        }),
+      ),
+
+    rules: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<{
+          share_name: string;
+          principal_type: 'user' | 'group';
+          principal_name: string;
+          rule: SharedNasRule;
+        }>(
+          `SELECT share_name, principal_type, principal_name, rule FROM shared_schema.nas_share_permissions
+            ORDER BY share_name, principal_type, principal_name`,
+        );
+        return result.rows.map((row) => ({
+          share: row.share_name,
+          principalType: row.principal_type,
+          principalName: row.principal_name,
+          rule: row.rule,
+        }));
+      }),
+
+    groups: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<NasGroupRecord>(
+          `SELECT name, description, members FROM shared_schema.nas_groups ORDER BY name`,
+        );
+        return result.rows.map((row) => ({ name: row.name, description: row.description, members: Number(row.members) }));
+      }),
+
+    log: (
+      tenantId: string,
+      userId: string,
+      entry: { share: string; path: string; action: NasAccessAction; detail?: string },
+    ) =>
+      this.run(tenantId, async (pool) => {
+        await pool.query(
+          `INSERT INTO shared_schema.nas_access_logs (share_name, path, action, detail, created_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [entry.share, entry.path, entry.action, entry.detail ?? null, userId],
+        );
+      }),
+  };
+
+  readonly storageSettings = {
+    get: (tenantId: string) =>
+      this.run(tenantId, async (pool) => {
+        const result = await pool.query<StorageSettingsRecord>(
+          `SELECT ${STORAGE_SETTINGS_COLUMNS} FROM shared_schema.storage_settings WHERE id = 1`,
+        );
+        return result.rows[0] ? mapStorageSettings(result.rows[0]) : undefined;
+      }),
+
+    save: (tenantId: string, userId: string, input: StorageSettingsInput, expectedVersion?: number) =>
+      this.run(tenantId, async (pool) => {
+        // Có `expectedVersion` thì chỉ ghi khi chưa ai lưu đè từ lúc mở form.
+        const result = await pool.query<StorageSettingsRecord>(
+          `INSERT INTO shared_schema.storage_settings AS s
+                  (id, enabled, label, access_mode, endpoint, public_endpoint, region, bucket, path_style,
+                   access_key_id, secret_ciphertext, version, updated_by, updated_at)
+           VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, now())
+           ON CONFLICT (id) DO UPDATE SET
+                  enabled = EXCLUDED.enabled, label = EXCLUDED.label, access_mode = EXCLUDED.access_mode,
+                  endpoint = EXCLUDED.endpoint, public_endpoint = EXCLUDED.public_endpoint,
+                  region = EXCLUDED.region, bucket = EXCLUDED.bucket, path_style = EXCLUDED.path_style,
+                  access_key_id = EXCLUDED.access_key_id, secret_ciphertext = EXCLUDED.secret_ciphertext,
+                  version = s.version + 1, updated_by = EXCLUDED.updated_by, updated_at = now()
+            WHERE $12::int IS NULL OR s.version = $12::int
+           RETURNING ${STORAGE_SETTINGS_COLUMNS}`,
+          [
+            input.enabled,
+            input.label,
+            input.accessMode,
+            input.endpoint,
+            input.publicEndpoint,
+            input.region,
+            input.bucket,
+            input.pathStyle,
+            input.accessKeyId,
+            input.secretCiphertext,
+            userId,
+            expectedVersion ?? null,
+          ],
+        );
+        return result.rows[0] ? mapStorageSettings(result.rows[0]) : undefined;
+      }),
+  };
+}
+
+interface NasConnectionRecord {
+  enabled: boolean;
+  label: string;
+  provider: SharedNasProvider;
+  base_url: string;
+  username: string;
+  secret_ciphertext: string;
+  shares: SharedNasShareConfig[] | null;
+  sync_minutes: number;
+  last_sync_at: Date | null;
+  last_sync_ok: boolean | null;
+  last_sync_message: string | null;
+  version: number;
+  updated_by: string;
+  updated_at: Date;
+}
+
+const NAS_CONNECTION_COLUMNS = `enabled, label, provider, base_url, username, secret_ciphertext, shares, sync_minutes,
+       last_sync_at, last_sync_ok, last_sync_message, version, updated_by, updated_at`;
+
+function mapNasConnection(row: NasConnectionRecord): NasConnectionRow {
+  return {
+    enabled: row.enabled,
+    label: row.label,
+    provider: row.provider,
+    baseUrl: row.base_url,
+    username: row.username,
+    secretCiphertext: row.secret_ciphertext,
+    shares: Array.isArray(row.shares) ? row.shares : [],
+    syncMinutes: row.sync_minutes,
+    lastSyncAt: row.last_sync_at?.toISOString(),
+    lastSyncOk: row.last_sync_ok ?? undefined,
+    lastSyncMessage: row.last_sync_message ?? undefined,
+    version: row.version,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+interface NasAccountRow {
+  name: string;
+  description: string;
+  email: string | null;
+  disabled: boolean;
+  groups: string[];
+  erp_user_id: string | null;
+  link_source: SharedNasLinkSource;
+}
+
+const NAS_ACCOUNT_COLUMNS = `name, description, email, disabled, groups, erp_user_id, link_source`;
+
+function mapNasAccount(row: NasAccountRow): NasAccountRecord {
+  return {
+    name: row.name,
+    description: row.description,
+    email: row.email ?? undefined,
+    disabled: row.disabled,
+    groups: row.groups ?? [],
+    erpUserId: row.erp_user_id ?? undefined,
+    linkSource: row.link_source,
+  };
+}
+
+interface StorageSettingsRecord {
+  enabled: boolean;
+  label: string;
+  access_mode: SharedStorageAccessMode;
+  endpoint: string;
+  public_endpoint: string | null;
+  region: string;
+  bucket: string;
+  path_style: boolean;
+  access_key_id: string;
+  secret_ciphertext: string;
+  version: number;
+  updated_by: string;
+  updated_at: Date;
+}
+
+const STORAGE_SETTINGS_COLUMNS = `enabled, label, access_mode, endpoint, public_endpoint, region, bucket, path_style,
+       access_key_id, secret_ciphertext, version, updated_by, updated_at`;
+
+function mapStorageSettings(row: StorageSettingsRecord): StorageSettingsRow {
+  return {
+    enabled: row.enabled,
+    label: row.label,
+    accessMode: row.access_mode,
+    endpoint: row.endpoint,
+    publicEndpoint: row.public_endpoint,
+    region: row.region,
+    bucket: row.bucket,
+    pathStyle: row.path_style,
+    accessKeyId: row.access_key_id,
+    secretCiphertext: row.secret_ciphertext,
+    version: row.version,
+    updatedBy: row.updated_by,
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+interface VersionObjectRecord {
+  storage_key: string;
+  size_bytes: string | null;
+  storage_location: SharedStorageLocation;
+}
+
+/** Tách khoá tệp theo nơi lưu, để xoá đúng kho. */
+function splitObjects(rows: readonly VersionObjectRecord[]): Pick<PurgeResult, 'storageKeys' | 'externalKeys'> {
+  return {
+    storageKeys: rows.filter((row) => row.storage_location !== 'external').map((row) => row.storage_key),
+    externalKeys: rows.filter((row) => row.storage_location === 'external').map((row) => row.storage_key),
   };
 }
 

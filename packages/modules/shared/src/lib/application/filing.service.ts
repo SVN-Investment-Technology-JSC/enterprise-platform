@@ -1,4 +1,3 @@
-import type { ObjectStorageManagementPort } from '@enterprise-platform/adapter-storage';
 import {
   SHARED_CONFIDENTIALITY_LEVELS,
   SHARED_FILING_MODULES,
@@ -34,6 +33,7 @@ import {
 } from './company-document.service.js';
 import type { DocumentRow, SharedStore } from './shared-store.port.js';
 import type { StorageQuotaService } from './storage-quota.service.js';
+import { singleStorage, type SharedStorageRouter } from './storage-router.port.js';
 
 /** Người tạo thư mục hệ thống: không ai là chủ sở hữu, chỉ quản trị kho và người được chia sẻ thấy. */
 export const SHARED_SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -53,7 +53,7 @@ export class FilingService {
   constructor(
     private readonly store: SharedStore,
     private readonly quota: StorageQuotaService,
-    private readonly storage: ObjectStorageManagementPort = sharedObjectStorage(),
+    private readonly storages: SharedStorageRouter = singleStorage(sharedObjectStorage()),
   ) {}
 
   async createDocument(tenantId: string, input: SharedFilingDocumentRequest): Promise<SharedFilingDocumentResponse> {
@@ -64,7 +64,8 @@ export class FilingService {
     const folder = input.folderId
       ? await this.moduleFolder(tenantId, module, input.folderId)
       : await this.ensurePath(tenantId, module, requireText(input.rootName, 'Tên thư mục gốc', 180), input.path ?? []);
-    await this.quota.ensureCapacity(tenantId, file.sizeBytes);
+    const target = await this.storages.forUpload(tenantId);
+    if (target.location === 'platform') await this.quota.ensureCapacity(tenantId, file.sizeBytes);
 
     const storageKey = sharedStorageKey(tenantId, 1, file.fileName);
     const meta = recordMeta(input);
@@ -78,6 +79,7 @@ export class FilingService {
         tags: [],
         sourceLabel: optionalText(input.sourceLabel, 'Nguồn', 255),
         storageKey,
+        storageLocation: target.location,
         fileName: file.fileName,
         contentType: file.contentType,
         changeNote: null,
@@ -93,7 +95,7 @@ export class FilingService {
       folderId: folder.id,
       documentId: created.document.id,
       versionId: created.version.id,
-      uploadUrl: await this.storage.createUploadUrl({
+      uploadUrl: await target.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -112,7 +114,8 @@ export class FilingService {
     const userId = requireText(input.userId, 'Người tải lên', 64);
     await this.moduleDocument(tenantId, module, documentId);
     const file = validateFile(input.fileName, input.contentType, input.sizeBytes);
-    await this.quota.ensureCapacity(tenantId, file.sizeBytes);
+    const target = await this.storages.forUpload(tenantId);
+    if (target.location === 'platform') await this.quota.ensureCapacity(tenantId, file.sizeBytes);
     const versions = await this.store.documents.listVersions(tenantId, documentId);
     const versionNo = Math.max(0, ...versions.map((entry) => entry.versionNo)) + 1;
     const storageKey = sharedStorageKey(tenantId, versionNo, file.fileName);
@@ -120,6 +123,7 @@ export class FilingService {
       documentId,
       versionNo,
       storageKey,
+      storageLocation: target.location,
       fileName: file.fileName,
       contentType: file.contentType,
       changeNote: optionalText(input.changeNote, 'Ghi chú thay đổi', 500),
@@ -128,7 +132,7 @@ export class FilingService {
     return {
       versionId: version.id,
       versionNo,
-      uploadUrl: await this.storage.createUploadUrl({
+      uploadUrl: await target.storage.createUploadUrl({
         key: storageKey,
         contentType: file.contentType,
         expiresInSeconds: SHARED_PRESIGNED_URL_TTL_SECONDS,
@@ -179,16 +183,17 @@ export class FilingService {
     if (preview && !SHARED_PREVIEWABLE_CONTENT_TYPES.includes(version.contentType)) {
       throw new SharedValidationError('Định dạng này chưa xem trước được, hãy tải xuống để mở.');
     }
-    const key = await this.store.documents.storageKeyOf(tenantId, version.id);
-    if (!key) throw new SharedDocumentNotFoundError(version.id);
+    const stored = await this.store.documents.storageRefOf(tenantId, version.id);
+    if (!stored) throw new SharedDocumentNotFoundError(version.id);
+    const storage = await this.storages.at(tenantId, stored.location);
     await this.store.documents.log(tenantId, userId, {
       documentId,
       versionId: version.id,
       action: preview ? 'view' : 'download',
     });
     return {
-      downloadUrl: await this.storage.createDownloadUrl(
-        key,
+      downloadUrl: await storage.createDownloadUrl(
+        stored.key,
         SHARED_PRESIGNED_URL_TTL_SECONDS,
         preview
           ? { inline: true, contentType: version.contentType, fileName: version.fileName }
