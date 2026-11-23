@@ -19,7 +19,6 @@ import type {
   InventorySettingsSnapshot,
   InventoryTransaction,
   Lot,
-  LotAllocationInput,
   LotDetail,
   LotSuggestion,
   Material,
@@ -32,7 +31,16 @@ import type {
   SerialHistory,
   SerialTracking,
   SettingsEntry,
+  IssueStockRequest,
+  MovementBatchRequest,
+  PendingStockMovement,
+  FulfilRequisitionRequest,
+  FulfilRequisitionResult,
+  RequisitionListResponse,
+  RequisitionStatusEntry,
+  RequisitionStatusResponse,
   PostedStockDocument,
+  TransferStockRequest,
   StockDocument,
   StockDocumentListQuery,
   StockDocumentLotInput,
@@ -283,13 +291,14 @@ export function uninstallMaterial(
  * Thanh lý: tháo khỏi cây và nhập về kho được chọn.
  *
  * Kho là bắt buộc — thao tác này ghi một bút toán NHẬP thật, nên phải biết nhập
- * vào đâu. Trả về chính bút toán đó để màn hình báo lại mã phiếu.
+ * vào đâu. Thiết bị trên cây (có tài sản nguồn) thì trả bút toán; mã không có hồ
+ * sơ thiết bị thì phiếu nhập Chờ duyệt (ISS-BE-006).
  */
 export function returnItemToStock(
   code: string,
   input: ReturnItemToStockRequest,
-): Promise<InventoryTransaction> {
-  return request<InventoryTransaction>(`/items/${encodeURIComponent(code)}/return`, {
+): Promise<InventoryTransaction | PendingStockMovement> {
+  return request<InventoryTransaction | PendingStockMovement>(`/items/${encodeURIComponent(code)}/return`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -324,9 +333,11 @@ export interface ProcedureRequisitionLine {
 }
 
 export interface ProcedureRequisition {
+  /** Id hồ sơ Quy trình của yêu cầu; bằng `code` khi chưa tìm thấy hồ sơ (chưa cấp được). */
   readonly id: string;
   readonly code: string;
   readonly title: string;
+  /** Trạng thái hồ sơ bên Quy trình: chỉ `completed` (đã duyệt xong) mới cấp được. */
   readonly status: string;
   readonly startedAt: string;
   readonly sourceType?: string;
@@ -338,153 +349,61 @@ export interface ProcedureRequisition {
   readonly csvFileName: string;
   /** Tải nội dung file CSV qua URL hoặc dữ liệu dựng sẵn */
   readonly downloadUrl?: string;
+  /** Trạng thái cấp do Kho trả về (ISS-BE-031); vắng khi chưa đọc được. */
+  readonly fulfilment?: RequisitionStatusEntry;
 }
 
-const FULFILLED_REQUISITIONS_STORAGE_KEY = 'ep:inventory:fulfilled_requisitions';
-
-export function getFulfilledRequisitionCodes(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(FULFILLED_REQUISITIONS_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
-  } catch {
-    return [];
-  }
+/** Hồ sơ Quy trình đã duyệt xong thì mới cấp vật tư được (server kiểm lại qua API nội bộ Quy trình). */
+export function isRequisitionApproved(req: Pick<ProcedureRequisition, 'id' | 'code' | 'status'>): boolean {
+  return req.status === 'completed' && req.id !== req.code;
 }
 
-export function markRequisitionFulfilled(code: string): void {
-  if (!code || typeof window === 'undefined') return;
-  try {
-    const current = getFulfilledRequisitionCodes();
-    if (!current.includes(code)) {
-      current.push(code);
-      window.localStorage.setItem(FULFILLED_REQUISITIONS_STORAGE_KEY, JSON.stringify(current));
-    }
-  } catch {
-    // Bỏ qua nếu không truy cập được localStorage
-  }
+/** Trạng thái cấp của các mã yêu cầu, đọc từ server (thay cho đánh dấu ở trình duyệt). */
+export async function loadRequisitionStatuses(codes: readonly string[]): Promise<RequisitionStatusEntry[]> {
+  const unique = [...new Set(codes.filter(Boolean))];
+  if (!unique.length) return [];
+  const response = await request<RequisitionStatusResponse>(
+    `/requisitions/status?codes=${unique.map((code) => encodeURIComponent(code)).join(',')}`,
+    { cache: 'no-store' },
+  );
+  return [...(response.items ?? [])];
+}
+
+/** Cấp vật tư theo yêu cầu: một lần gọi, server tạo một chứng từ và chống cấp lặp theo mã yêu cầu. */
+export function fulfilRequisition(
+  orderCode: string,
+  input: FulfilRequisitionRequest,
+): Promise<FulfilRequisitionResult> {
+  return request<FulfilRequisitionResult>(`/requisitions/${encodeURIComponent(orderCode)}/fulfil`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 /**
- * Tải danh sách yêu cầu vật tư từ quy trình.
- * Đọc các hồ sơ sinh tự động từ quy trình cha (sourceType === 'auto_from_parent')
- * hoặc các hồ sơ cha có khai báo `materialOrders`.
+ * Danh sách yêu cầu cấp vật tư từ Quy trình, đọc qua `GET /requisitions` của Kho.
+ * Server Kho hỏi Quy trình bằng service token nên mọi thủ kho thấy đủ yêu cầu,
+ * kể cả hồ sơ mình không có mặt (đọc thẳng workspace của Quy trình thì chỉ thấy
+ * hồ sơ mình tham gia). Server đã bỏ yêu cầu cấp đủ và hồ sơ đã đóng; bảng kê CSV
+ * dựng từ dòng vật tư ở trình duyệt. Lỗi thì ném ra để màn báo cho thủ kho.
  */
 export async function loadProcedureRequisitions(): Promise<ProcedureRequisition[]> {
-  try {
-    const response = await authFetch('/api/procedure/v1/workspace', {
-      cache: 'no-store',
-    });
-    if (!response.ok) return [];
-    const body = (await response.json()) as {
-      instances?: Array<{
-        id: string;
-        code: string;
-        title?: string;
-        status: string;
-        startedAt: string;
-        sourceType?: string;
-        sourceId?: string;
-        assetCode?: string;
-        materialOrders?: Array<{
-          code: string;
-          kind: 'issue' | 'purchase';
-          createdAt: string;
-          lines: readonly {
-            materialCode: string;
-            quantity: number;
-            materialName?: string;
-            unit?: string;
-          }[];
-        }>;
-      }>;
-    };
-
-    const instances = body.instances ?? [];
-    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
-    const requisitions: ProcedureRequisition[] = [];
-
-    // 1. Thu thập từ `materialOrders` ghi trên hồ sơ cha
-    for (const inst of instances) {
-      if (inst.materialOrders && inst.materialOrders.length > 0) {
-        for (const order of inst.materialOrders) {
-          if (fulfilledCodes.has(order.code)) continue;
-
-          const childInst = instances.find((c) => c.code === order.code);
-          const status = childInst?.status ?? 'active';
-          if (status === 'completed' || status === 'cancelled' || status === 'rejected') {
-            continue;
-          }
-
-          requisitions.push({
-            id: childInst?.id ?? order.code,
-            code: order.code,
-            title: childInst?.title ?? `Yêu cầu cấp phát vật tư từ ${inst.code}`,
-            status,
-            startedAt: order.createdAt || inst.startedAt,
-            sourceType: 'auto_from_parent',
-            sourceId: inst.id,
-            assetCode: inst.assetCode,
-            kind: 'issue',
-            lines: order.lines ?? [],
-            csvFileName: `bang-ke-vat-tu-${order.code}.csv`,
-          });
-        }
-      }
-    }
-
-    // 2. Thu thập từ chính các quy trình con nếu chưa có trong danh sách
-    for (const inst of instances) {
-      if (
-        inst.sourceType === 'auto_from_parent' &&
-        !requisitions.some((r) => r.code === inst.code || r.id === inst.id)
-      ) {
-        if (fulfilledCodes.has(inst.code)) continue;
-        if (inst.status === 'completed' || inst.status === 'cancelled' || inst.status === 'rejected') {
-          continue;
-        }
-
-        requisitions.push({
-          id: inst.id,
-          code: inst.code,
-          title: inst.title ?? inst.code,
-          status: inst.status,
-          startedAt: inst.startedAt,
-          sourceType: inst.sourceType,
-          sourceId: inst.sourceId,
-          assetCode: inst.assetCode,
-          kind: 'issue',
-          lines: [],
-          csvFileName: `bang-ke-vat-tu-${inst.code}.csv`,
-        });
-      }
-    }
-
-    // Lấy đính kèm downloadUrl cho từng yêu cầu
-    await Promise.all(
-      requisitions.map(async (req) => {
-        if (!req.id || req.id === req.code) return;
-        try {
-          const attRes = await authFetch(`/api/procedure/v1/instances/${encodeURIComponent(req.id)}/attachments`, {
-            cache: 'no-store',
-          });
-          if (attRes.ok) {
-            const atts = (await attRes.json()) as Array<{ fileName: string; downloadUrl?: string }>;
-            const csvAtt = atts.find((a) => a.fileName === req.csvFileName || a.fileName.endsWith('.csv'));
-            if (csvAtt?.downloadUrl) {
-              (req as { downloadUrl?: string }).downloadUrl = csvAtt.downloadUrl;
-            }
-          }
-        } catch {
-          // Bỏ qua nếu lỗi lấy attachment, vẫn hiển thị được dòng yêu cầu
-        }
-      }),
-    );
-
-    return requisitions.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  } catch {
-    return [];
-  }
+  const response = await request<RequisitionListResponse>('/requisitions', { cache: 'no-store' });
+  return (response.items ?? []).map((item) => ({
+    // Thiếu id hồ sơ thì dùng mã: `isRequisitionApproved` coi là chưa cấp được.
+    id: item.instanceId ?? item.orderCode,
+    code: item.orderCode,
+    title: item.title,
+    status: item.procedureStatus,
+    startedAt: item.createdAt,
+    sourceType: 'auto_from_parent',
+    sourceId: item.parentInstanceId,
+    assetCode: item.assetCode,
+    kind: 'issue' as const,
+    lines: item.lines,
+    csvFileName: `bang-ke-vat-tu-${item.orderCode}.csv`,
+    fulfilment: item.fulfilment,
+  }));
 }
 
 /**
@@ -757,51 +676,34 @@ export function receiveStock(input: {
   /** Serial nhận vào cùng phiếu, số phần tử bằng số lượng. */
   serials?: readonly string[];
   counterparty?: MovementCounterparty;
-}): Promise<InventoryTransaction> {
-  return request<InventoryTransaction>('/receipts', { method: 'POST', body: JSON.stringify(input) });
-}
-
-export function issueStock(input: {
-  warehouseCode: string;
-  materialCode: string;
-  quantity: number;
-  note?: string;
-  /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
-  lots?: readonly LotAllocationInput[];
-  /** Nơi xuất đi đến (bộ phận, khách, dự án…). */
-  counterparty?: MovementCounterparty;
-}): Promise<InventoryTransaction> {
-  return request<InventoryTransaction>('/issues', { method: 'POST', body: JSON.stringify(input) });
-}
-
-/** Ghi nhiều dòng nhập hoặc xuất của một phiếu: một dòng lỗi thì không dòng nào được ghi. */
-export function recordMovementBatch(input: {
-  kind: 'receipt' | 'issue';
-  /** Nơi nhập đến từ / nơi xuất đi đến của cả phiếu. */
-  counterparty?: MovementCounterparty;
-  lines: {
-    warehouseCode: string;
-    materialCode: string;
-    quantity: number;
-    unitCost?: number;
-    note?: string;
-  }[];
-}): Promise<InventoryTransaction[]> {
-  return request<InventoryTransaction[]>('/movements/batch', {
+}): Promise<InventoryTransaction | PendingStockMovement> {
+  // Không có chứng từ nguồn: server tạo phiếu nhập Chờ duyệt, chưa ghi sổ (ISS-BE-006).
+  return request<InventoryTransaction | PendingStockMovement>('/receipts', {
     method: 'POST',
     body: JSON.stringify(input),
   });
 }
 
-export function transferStock(input: {
-  fromWarehouseCode: string;
-  toWarehouseCode: string;
-  materialCode: string;
-  quantity: number;
-  note?: string;
-  /** Phân bổ theo lô; phần còn lại chuyển không theo lô. */
-  lots?: readonly LotAllocationInput[];
-}): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
+export function issueStock(input: IssueStockRequest): Promise<InventoryTransaction | PendingStockMovement> {
+  // Không có chứng từ nguồn: server tạo phiếu xuất Chờ duyệt, chưa ghi sổ (ISS-BE-006).
+  return request<InventoryTransaction | PendingStockMovement>('/issues', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Phiếu nhập khác hoặc xuất khác nhiều dòng: server tạo MỘT chứng từ Chờ duyệt
+ * (`transactions: []`); tồn chỉ đổi khi người duyệt duyệt và ghi sổ (ISS-BE-006).
+ */
+export function recordMovementBatch(input: MovementBatchRequest): Promise<PostedStockDocument> {
+  return request<PostedStockDocument>('/movements/batch', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function transferStock(input: TransferStockRequest): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
   return request<{ out: InventoryTransaction; in: InventoryTransaction }>('/transfers', {
     method: 'POST',
     body: JSON.stringify(input),
@@ -878,6 +780,21 @@ export async function loadTenantHomePath(): Promise<string> {
     return '/dashboard';
   } catch {
     return '/';
+  }
+}
+
+/**
+ * Id người đang đăng nhập, để giao diện ẩn nút tự duyệt. Chỉ là gợi ý hiển thị:
+ * server vẫn chặn tự duyệt. Không đọc được thì trả `undefined`.
+ */
+export async function loadCurrentUserId(): Promise<string | undefined> {
+  try {
+    const response = await authFetch('/api/auth/v1/me', { cache: 'no-store' });
+    if (!response.ok) return undefined;
+    const principal = (await response.json()) as { userId?: string };
+    return principal?.userId || undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -1104,49 +1021,6 @@ export interface AuditorCandidate {
   readonly hasWarehouseAccess?: boolean;
 }
 
-export const DEFAULT_WAREHOUSE_AUDITORS: readonly AuditorCandidate[] = [
-  {
-    id: 'auditor-1',
-    name: 'Trần Văn Hưng',
-    code: 'NV-KHO-01',
-    position: 'Thủ kho trưởng',
-    department: 'Bộ phận Kho vận',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-2',
-    name: 'Nguyễn Văn An',
-    code: 'NV-KT-02',
-    position: 'Kế toán vật tư',
-    department: 'Phòng Kế toán',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-3',
-    name: 'Lê Thị Mai',
-    code: 'NV-KHO-03',
-    position: 'Nhân viên thủ kho',
-    department: 'Bộ phận Kho vận',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-4',
-    name: 'Phạm Minh Đức',
-    code: 'NV-QL-04',
-    position: 'Quản lý kho tổng',
-    department: 'Ban Quản trị Cơ sở',
-    hasWarehouseAccess: true,
-  },
-  {
-    id: 'auditor-5',
-    name: 'Hoàng Quốc Việt',
-    code: 'NV-KT-05',
-    position: 'Kỹ thuật viên vật tư',
-    department: 'Bộ phận Kỹ thuật',
-    hasWarehouseAccess: true,
-  },
-];
-
 let cachedAuditors: AuditorCandidate[] | null = null;
 
 export async function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
@@ -1243,9 +1117,8 @@ export async function loadAuditorCandidates(): Promise<AuditorCandidate[]> {
     // Bỏ qua
   }
 
-  // 3. Fallback danh sách nhân sự kho chuẩn
-  cachedAuditors = [...DEFAULT_WAREHOUSE_AUDITORS];
-  return cachedAuditors;
+  // 3. Không có nguồn nào trả về người thật: để danh sách rỗng, giao diện báo "Chưa có nhân viên kho".
+  return [];
 }
 
 export function createStocktakeSession(
@@ -1330,6 +1203,17 @@ export async function approveAndPostStocktake(sessionId: string): Promise<Stockt
     await request<StocktakeSession>(`/stocktakes/${key}/approve`, { method: 'POST' });
   }
   const result = await request<StocktakePostResult>(`/stocktakes/${key}/post`, { method: 'POST' });
+  return result.session;
+}
+
+/**
+ * Ghi sổ lại đợt đã duyệt (lần trước ghi sổ lỗi). Server có khoá chống lặp theo
+ * đợt nên bấm lặp không điều chỉnh tồn hai lần; đợt đã ghi sổ trả kết quả cũ.
+ */
+export async function postStocktake(sessionId: string): Promise<StocktakeSession> {
+  const result = await request<StocktakePostResult>(`/stocktakes/${encodeURIComponent(sessionId)}/post`, {
+    method: 'POST',
+  });
   return result.session;
 }
 

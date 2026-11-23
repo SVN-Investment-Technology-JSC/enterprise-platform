@@ -29,6 +29,15 @@ integration('Danh sách gộp xuất/nhập kho trên PostgreSQL', () => {
     canWriteTransactions: true,
     canApproveDocuments: true,
   };
+  /** Thủ kho: lập phiếu nhiều dòng (ISS-BE-046), không duyệt. */
+  const clerk: InventoryActor = {
+    tenantId,
+    userId: randomUUID(),
+    displayName: 'Thủ kho',
+    canManage: false,
+    canWriteTransactions: true,
+    canApproveDocuments: false,
+  };
   /** Người chỉ có quyền xem: danh sách gộp là endpoint đọc. */
   const reader: InventoryActor = {
     tenantId,
@@ -98,9 +107,18 @@ integration('Danh sách gộp xuất/nhập kho trên PostgreSQL', () => {
     await app.createMaterial(admin, { code: 'GM-DAY', name: 'Dây cáp đồng', category: 'CONSUMABLE', unit: 'Mét' });
     await app.createMaterial(admin, { code: 'GM-OC', name: 'Ốc vít M8', category: 'CONSUMABLE', unit: 'Cái' });
 
-    // Ghi sổ trực tiếp: sinh chứng từ Đã ghi sổ, không có nguồn.
-    await app.receiveStock(admin, { warehouseCode: 'GM-A', materialCode: 'GM-DAY', quantity: 100, unitCost: 1000 });
-    await app.receiveStock(admin, { warehouseCode: 'GM-A', materialCode: 'GM-OC', quantity: 40, unitCost: 500 });
+    // Phiếu nhập khác của thủ kho: Chờ duyệt, chưa có bút toán (ISS-BE-006); người
+    // duyệt duyệt rồi ghi sổ thì thành chứng từ Đã ghi sổ, không có nguồn.
+    for (const [materialCode, quantity, unitCost] of [['GM-DAY', 100, 1000], ['GM-OC', 40, 500]] as const) {
+      const batch = await app.recordMovementLines(clerk, {
+        kind: 'receipt',
+        lines: [{ warehouseCode: 'GM-A', materialCode, quantity, unitCost }],
+      });
+      expect(batch.document).toMatchObject({ docType: 'RECEIPT_OTHER', status: 'PENDING', createdBy: clerk.userId });
+      expect(batch.transactions).toEqual([]);
+      await documents.approve(admin, batch.document.id);
+      await documents.post(clerk, batch.document.id);
+    }
     await app.transferStock(admin, {
       fromWarehouseCode: 'GM-A',
       toWarehouseCode: 'GM-B',

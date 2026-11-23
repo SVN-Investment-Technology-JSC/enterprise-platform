@@ -123,11 +123,11 @@ export function StockDocumentForm({
     return [...types].map((type) => ({
       value: type,
       label: STOCK_DOCUMENT_TYPE_LABEL[type],
-      description: requiresApproval(type)
+      description: requiresApproval(type, initial.sourceId)
         ? 'Phải duyệt trước khi ghi sổ'
         : 'Ghi sổ không cần duyệt',
     }));
-  }, [initial.docType]);
+  }, [initial.docType, initial.sourceId]);
 
   const editing = Boolean(documentId);
   const lockedSource = Boolean(initial.sourceId);
@@ -138,7 +138,7 @@ export function StockDocumentForm({
     forPosting: showErrors === 'post',
   });
   const messages = showErrors ? validationMessages(validation) : [];
-  const approval = requiresApproval(draft.docType);
+  const approval = requiresApproval(draft.docType, draft.sourceId);
 
   const patch = (next: Partial<DocumentDraft>) =>
     setDraft((current) => ({ ...current, ...next }));

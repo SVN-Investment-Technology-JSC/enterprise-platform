@@ -96,6 +96,20 @@ export class InvalidStockDocumentTransitionError extends InventoryError {
   }
 }
 
+/** Chứng từ phải qua người duyệt mà đang định ghi sổ khi chưa Đã duyệt (ISS-BE-006). */
+export class StockDocumentApprovalRequiredError extends InvalidStockDocumentTransitionError {
+  constructor() {
+    super('Chứng từ này cần được duyệt trước khi ghi sổ.');
+  }
+}
+
+/** Người lập chứng từ gốc không tự đảo chứng từ đó, trừ khi cài đặt cho tự duyệt. */
+export class StockDocumentSelfReversalError extends InventoryError {
+  constructor() {
+    super('STOCK_DOCUMENT_SELF_REVERSAL', 'Bạn không được đảo chứng từ do chính mình lập.', 403);
+  }
+}
+
 export class PostedStockDocumentError extends InventoryError {
   constructor() {
     super('STOCK_DOCUMENT_POSTED', 'Chứng từ đã ghi sổ không được sửa.', 409);

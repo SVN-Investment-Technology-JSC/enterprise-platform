@@ -64,6 +64,15 @@ describe('VnNumberInput', () => {
     expect(seen.at(-1)).toBe('500000000.01');
   });
 
+  it('dán số có phần nguyên 0 là số thập phân', () => {
+    const seen: string[] = [];
+    render(<Harness onValue={(value) => seen.push(value)} />);
+    const input = screen.getByLabelText('Giá') as HTMLInputElement;
+    fireEvent.paste(input, { clipboardData: { getData: () => '0.250' } });
+    expect(input.value).toBe('0,25');
+    expect(seen.at(-1)).toBe('0.25');
+  });
+
   it('xóa hết thì trả về rỗng', () => {
     const seen: string[] = [];
     render(<Harness initial="12" onValue={(value) => seen.push(value)} />);

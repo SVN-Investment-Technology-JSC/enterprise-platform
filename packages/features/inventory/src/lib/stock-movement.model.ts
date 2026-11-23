@@ -102,3 +102,25 @@ export function movementMaterialLabel(
   const first = entry.materialName ? `${entry.materialCode} - ${entry.materialName}` : entry.materialCode;
   return entry.lineCount > 1 ? `${first} và ${entry.lineCount - 1} dòng khác` : first;
 }
+
+/**
+ * Lời báo sau lệnh nhập, xuất nhanh (ISS-BE-006): phần đã ghi sổ kèm mã bút toán,
+ * phần đã gửi duyệt kèm số chứng từ Chờ duyệt (tồn chưa đổi). Không báo "đã ghi
+ * sổ" cho chứng từ chưa được duyệt.
+ */
+export function movementOutcomeMessage(
+  postedText: string,
+  transactionCodes: readonly string[],
+  pendingDocumentCodes: readonly string[],
+): string {
+  const parts: string[] = [];
+  if (transactionCodes.length > 0) {
+    parts.push(`${postedText} — chứng từ [${transactionCodes.join(', ')}]`);
+  }
+  if (pendingDocumentCodes.length > 0) {
+    parts.push(
+      `Đã gửi duyệt ${pendingDocumentCodes.length} chứng từ [${pendingDocumentCodes.join(', ')}]; tồn kho chỉ thay đổi sau khi người duyệt duyệt và ghi sổ`,
+    );
+  }
+  return `${parts.join('. ')}.`;
+}

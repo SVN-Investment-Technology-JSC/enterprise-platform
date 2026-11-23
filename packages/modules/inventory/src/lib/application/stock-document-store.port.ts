@@ -9,6 +9,7 @@ import type {
   StockDocumentType,
   QualityStatus,
 } from '@enterprise-platform/contracts-inventory';
+import type { PostingOrigin } from '../domain/stock-document-policy.js';
 
 export const STOCK_DOCUMENT_STORE = Symbol('STOCK_DOCUMENT_STORE');
 
@@ -75,6 +76,12 @@ export interface PostOptions {
   readonly autoPickSerials?: boolean;
   /** Nơi nhập đến từ / nơi xuất đi đến (nhà cung cấp, bộ phận, khách…), ghi lên các dòng sổ cái của chứng từ. */
   readonly counterparty?: MovementCounterparty;
+  /**
+   * Đường ghi sổ được miễn bước duyệt (danh sách trắng ở `stock-document-policy`).
+   * Không khai thì chứng từ cần duyệt không ghi sổ ngay: `createAndPost` để nó ở
+   * Chờ duyệt và trả `transactions: []` (ISS-BE-006).
+   */
+  readonly origin?: PostingOrigin;
 }
 
 export interface StockDocumentPatch {
@@ -99,10 +106,29 @@ export type StockDocumentChange =
     }
   | { readonly kind: 'post'; readonly actorId: string };
 
+/** Chứng từ tìm theo khoá chống lặp (ISS-BE-031): đủ để biết đã cấp chưa và đối dấu nội dung. */
+export interface IdempotentDocumentRef {
+  readonly id: string;
+  readonly code: string;
+  readonly status: StockDocument['status'];
+  readonly idempotencyKey: string;
+  readonly requestHash?: string;
+  readonly sourceType?: string;
+  readonly sourceId?: string;
+}
+
 export interface StockDocumentStore {
   list(tenantId: string, query: StockDocumentListQuery): Promise<StockDocumentPage>;
   /** Tìm theo id (UUID) hoặc theo mã chứng từ. */
   get(tenantId: string, key: string): Promise<StockDocument | null>;
+  /**
+   * Chứng từ có khoá chống lặp đúng bằng một khoá gốc, hoặc bắt đầu bằng `<khoá gốc>:`
+   * (các chứng từ con của cùng một yêu cầu). Không có thì mảng rỗng.
+   */
+  findByIdempotencyPrefixes(
+    tenantId: string,
+    prefixes: readonly string[],
+  ): Promise<IdempotentDocumentRef[]>;
   /** Tạo chứng từ Nháp. Có `idempotencyKey` đã dùng thì trả chứng từ cũ. */
   create(tenantId: string, input: NewStockDocumentInput): Promise<StockDocument>;
   /**
@@ -114,7 +140,10 @@ export interface StockDocumentStore {
     key: string,
     decide: (current: StockDocument) => StockDocumentChange,
   ): Promise<PostedStockDocument>;
-  /** Tạo và ghi sổ ngay trong cùng một transaction (đường API cũ, chứng từ một dòng). */
+  /**
+   * Tạo và ghi sổ ngay trong cùng một transaction (đường API cũ, chứng từ một dòng).
+   * Chứng từ cần duyệt mà không có nguồn miễn thì chỉ tạo và gửi duyệt (Chờ duyệt).
+   */
   createAndPost(
     tenantId: string,
     input: NewStockDocumentInput,

@@ -1211,6 +1211,10 @@ export function ExcelImportDialog({
       const rawMax =
         colIndices.maxStock >= 0 ? row[colIndices.maxStock] : undefined;
       const parsedMax = parseNumericValue(rawMax);
+      // Định mức chỉ dùng khi tạo mã mới; tồn tối đa 0 hoặc để trống là không đặt trần.
+      if (isNew && parsedMax !== undefined && parsedMax > 0 && (parsedMin ?? 0) > parsedMax) {
+        errors.push('Tồn tối thiểu không được lớn hơn tồn tối đa');
+      }
 
       // 13. Số lô & Hạn dùng & Ghi chú
       const lotNumber =

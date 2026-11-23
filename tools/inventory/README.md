@@ -118,3 +118,30 @@ node tools/inventory/backfill-serial-stock-state.mjs --tenant=svn --apply
   chạy ngoài giờ làm việc. Chạy lại an toàn: serial đã đưa vào thì không còn là ứng viên.
 - Bảng ra stdout (`action`, kho, mặt hàng, serial, lý do), tóm tắt ra stderr, mật khẩu che `***`. Mã thoát 0 khi chạy
   được, 1 khi lỗi tham số, kết nối hoặc DB chưa chạy 0013.
+
+## Dọn lô rác do lưu nháp tạo (ISS-BE-066)
+
+Trước migration `migrations/tenant/inventory/0026-draft-line-lot.sql`, lưu nháp chứng từ nhập đã tạo lô và điền hạn
+dùng, ngày sản xuất còn thiếu vào lô có sẵn; huỷ, từ chối hay sửa nháp đổi lô không dọn. Từ 0026 thông tin lô nằm ở
+`stock_document_lines.lot_draft`, lô chỉ tạo lúc ghi sổ. `tools/inventory/cleanup-orphan-lots.mjs` dọn lô rác còn lại:
+
+```bash
+# Liệt kê (mặc định, transaction READ ONLY, không ghi gì):
+node tools/inventory/cleanup-orphan-lots.mjs --tenant=svn
+# Xoá lô rác (sao lưu DB trước):
+node tools/inventory/cleanup-orphan-lots.mjs --tenant=svn --apply
+# Hoặc --database-url=postgres://user:pass@host:5432/<db tenant>, hoặc biến INVENTORY_DATABASE_URL; --json cho JSON.
+```
+
+- `--tenant`, `--database-url`, `INVENTORY_DATABASE_URL` như `backfill-serial-stock-state.mjs`. DB chưa chạy 0026 thì
+  script dừng.
+- Lô rác: không bảng nào khác có khoá ngoại tới nó còn dòng trỏ tới (`lot_balances`, `lot_quality_events`...), và mọi
+  dòng chứng từ trỏ tới nó là dòng nhập của chứng từ Đã huỷ hoặc Bị từ chối (kể cả lô không còn dòng nào do sửa nháp
+  đổi lô). Lô có nháp, chờ duyệt, đã duyệt còn trỏ tới thì giữ.
+- `--apply` trong một transaction (khoá bảng `lots`, chứng từ ghi sổ cùng lúc phải chờ): chép số lô, ngày vào
+  `lot_draft` của dòng nếu còn trống (chứng từ bị từ chối sửa lại vẫn còn số lô), đặt `lot_id` NULL, rồi xoá lô. Chạy
+  lại an toàn; lần sau liệt kê rỗng.
+- Danh sách thứ hai "lô có sẵn có thể bị nháp điền ngày": lô còn dùng, đã có hạn dùng hoặc ngày sản xuất, được sửa sau
+  khi tạo và có dòng nhập của chứng từ chưa ghi sổ trỏ tới. Chỉ để thủ kho đối chiếu với chứng từ gốc; script không sửa.
+- Bảng ra stdout, tóm tắt ra stderr, mật khẩu che `***`. Mã thoát 0 khi chạy được, 1 khi lỗi tham số, kết nối hoặc DB
+  chưa chạy 0026.

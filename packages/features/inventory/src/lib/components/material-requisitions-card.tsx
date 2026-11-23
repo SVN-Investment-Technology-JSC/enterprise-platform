@@ -16,7 +16,7 @@ import {
   ArrowLeftRight,
 } from 'lucide-react';
 import type { InventoryWorkspace, ProcedureRequisition } from '../inventory-api';
-import { generateRequisitionCsvContent } from '../inventory-api';
+import { generateRequisitionCsvContent, isRequisitionApproved } from '../inventory-api';
 import { formatDate } from '@enterprise-platform/shared-ui';
 import { formatNumber } from '../inventory-labels';
 import { Badge } from '../ui/badge';
@@ -110,6 +110,7 @@ export function MaterialRequisitionsCard({
         <div className="flex flex-col gap-2.5 mt-2.5">
           {requisitions.map((req) => {
             const isExpanded = expandedId === req.code;
+            const approved = isRequisitionApproved(req);
             const totalItems = req.lines.reduce((acc, l) => acc + l.quantity, 0);
 
             return (
@@ -142,6 +143,19 @@ export function MaterialRequisitionsCard({
                             (Thiết bị: {req.assetCode})
                           </span>
                         ) : null}
+                        {req.fulfilment?.status === 'PARTIAL' ? (
+                          <Badge variant="outline" className="h-auto py-[1px] px-1.5 text-[12px] font-semibold bg-amber-50 text-amber-700 border-amber-200">
+                            Cấp dở, cấp lại để hoàn tất
+                          </Badge>
+                        ) : approved ? (
+                          <Badge variant="outline" className="h-auto py-[1px] px-1.5 text-[12px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200">
+                            Đã duyệt, chờ cấp
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="h-auto py-[1px] px-1.5 text-[12px] font-semibold bg-slate-100 text-slate-600 border-slate-200">
+                            Đang duyệt ở Quy trình
+                          </Badge>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-3 text-[12px] text-slate-500 mt-[3px]">
@@ -280,7 +294,7 @@ export function MaterialRequisitionsCard({
                           size="sm"
                           className="h-8 gap-1.5 px-3.5 text-[13px] font-semibold"
                           onClick={() => onOpenIssueFromRequisition(req)}
-                          disabled={!canWriteTransactions}
+                          disabled={!canWriteTransactions || !approved}
                           title={`Xử lý cấp phát toàn bộ ${req.lines.length} vật tư theo bảng kê`}
                         >
                           <ArrowUpRight size={14} />
@@ -450,7 +464,7 @@ export function MaterialRequisitionsCard({
                                             : 'text-blue-600',
                                       )}
                                       onClick={() => onOpenIssueFromRequisition(req, idx)}
-                                      disabled={!canWriteTransactions}
+                                      disabled={!canWriteTransactions || !approved}
                                     >
                                       {stockTier === 'single_ready'
                                         ? 'Xuất kho món này →'

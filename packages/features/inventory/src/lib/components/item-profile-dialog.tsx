@@ -29,6 +29,7 @@ import { AssetDocumentPanel } from './asset-document-panel';
  */
 export function ItemProfileDialog({
   code,
+  assets,
   catalog,
   units,
   busy,
@@ -36,6 +37,8 @@ export function ItemProfileDialog({
   onSaved,
 }: {
   code: string;
+  /** Tài sản đã tải, để hồ sơ hiện vị trí theo chuỗi tài sản cha. */
+  assets?: readonly Asset[];
   catalog?: InventoryCatalogSettings;
   units?: readonly string[];
   busy?: boolean;
@@ -83,6 +86,7 @@ export function ItemProfileDialog({
             <>
               <AssetDetail
                 asset={asset}
+                assets={assets}
                 busy={busy}
                 catalog={catalog}
                 units={units}

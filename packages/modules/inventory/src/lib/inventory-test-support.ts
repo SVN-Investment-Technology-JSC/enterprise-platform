@@ -8,6 +8,7 @@ import {
   createPostgresPool,
 } from '@enterprise-platform/adapter-database';
 import type { Pool } from 'pg';
+import { isPendingStockMovement, type PendingStockMovement } from '@enterprise-platform/contracts-inventory';
 
 /**
  * DB Postgres dùng một lần cho integration test của Kho, theo mẫu
@@ -16,6 +17,30 @@ import type { Pool } from 'pg';
  * migration Kho theo đúng thứ tự đăng ký trong `tenant-migrations.ts`, xong thì xoá DB.
  */
 export const INVENTORY_TEST_ADMIN_URL = process.env['INVENTORY_TEST_ADMIN_URL'];
+
+/**
+ * Chứng từ nguồn giả để nhập mua, xuất dự án ghi sổ thẳng khi dựng dữ liệu test:
+ * không nguồn thì hai loại này phải qua duyệt (ISS-BE-006).
+ */
+export function purchaseSource(): { referenceType: string; referenceId: string } {
+  return { referenceType: 'purchase_order', referenceId: randomUUID() };
+}
+
+export function projectSource(): { referenceType: string; referenceId: string } {
+  return { referenceType: 'project', referenceId: randomUUID() };
+}
+
+/** Kết quả đường nhập xuất nhanh đã ghi sổ; còn Chờ duyệt thì test hỏng ngay tại đây. */
+export function posted<T>(value: T | PendingStockMovement): T {
+  if (isPendingStockMovement(value)) {
+    throw new Error(`Chứng từ ${value.document.code} đang chờ duyệt, chưa ghi sổ.`);
+  }
+  return value;
+}
+
+export function documentSource(sourceType = 'purchase_order'): { sourceType: string; sourceId: string } {
+  return { sourceType, sourceId: randomUUID() };
+}
 
 function workspaceRoot(): string {
   let candidate = process.cwd();

@@ -263,7 +263,7 @@ function AuditorPicker({
       <div className="max-h-[220px] overflow-y-auto rounded-lg border border-slate-200 bg-white" role="listbox" aria-multiselectable="true">
         {totalVisibleCount === 0 && !query.trim() ? (
           <p className="m-0 p-4 text-center text-[13px] text-slate-400">
-            Không có nhân sự nào trong danh sách.
+            {candidates.length === 0 ? 'Chưa có nhân viên kho' : 'Không có nhân sự nào trong danh sách.'}
           </p>
         ) : null}
 
@@ -957,6 +957,7 @@ export function CreateStocktakeDialog({
                 value={leadAuditor}
                 onChange={handleSelectLeadAuditor}
                 placeholder="Chọn nhân sự phụ trách có quyền kho..."
+                emptyText={leadAuditorOptions.length === 0 ? 'Chưa có nhân viên kho' : undefined}
                 clearable={true}
               />
             </div>

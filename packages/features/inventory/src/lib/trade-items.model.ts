@@ -372,9 +372,11 @@ export function parseImportRows(
       return { line, error: `Sử dụng "${usageText}" chưa khai báo trong Cài đặt.` };
     }
 
-    const priceText = cell(row, EXPORT_HEADERS.price);
+    // Ô kiểu số dùng thẳng; đổi sang chuỗi rồi đọc lại sẽ hiểu 12.345 thành 12345.
+    const priceRaw = row[EXPORT_HEADERS.price];
+    const priceText = typeof priceRaw === 'number' ? priceRaw : cell(row, EXPORT_HEADERS.price);
     let salePrice: number | undefined;
-    if (priceText) {
+    if (priceText !== '') {
       const parsedPrice = parseVnNumber(priceText);
       if (parsedPrice === null || parsedPrice < 0) return { line, error: 'Giá bán phải là số không âm.' };
       salePrice = parsedPrice;
