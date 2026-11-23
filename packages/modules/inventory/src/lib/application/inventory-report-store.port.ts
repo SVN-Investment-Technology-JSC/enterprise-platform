@@ -58,7 +58,10 @@ export interface StockApprovalFilter {
   readonly fromDate: string;
   readonly toDate: string;
   readonly warehouseCode?: string;
+  /** Loại luôn phải duyệt. */
   readonly docTypes: readonly StockDocumentType[];
+  /** Loại chỉ phải duyệt khi không có chứng từ nguồn (ISS-BE-006): chỉ lấy chứng từ không nguồn. */
+  readonly sourceLessDocTypes: readonly StockDocumentType[];
   readonly status?: StockDocumentStatus;
 }
 

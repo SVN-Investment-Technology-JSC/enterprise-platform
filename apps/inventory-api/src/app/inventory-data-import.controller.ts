@@ -79,12 +79,26 @@ export class InventoryDataImportController {
       ...existingMaterials,
       ...dataset.inventoryMaterials.map((item) => item.code),
     ]);
+    // Số dư đầu kỳ không mang serial: vật tư theo serial phải nhập bằng phiếu nhập
+    // kèm đủ serial, không thì tồn và số serial Trong kho lệch nhau (ISS-BE-005, Q3-2).
+    const serializedMaterials = new Set([
+      ...materials.filter((item) => item.isSerialized).map((item) => item.code),
+      ...dataset.inventoryMaterials.filter((item) => item.isSerialized).map((item) => item.code),
+    ]);
     dataset.inventoryOpeningStock.forEach((item, index) => {
       if (!allWarehouses.has(item.warehouseCode)) {
         issues.push(alreadyExists('WAREHOUSE_MISSING', `Không tìm thấy kho ${item.warehouseCode}.`, DATA_IMPORT_SHEETS.inventoryOpeningStock, index));
       }
       if (!allMaterials.has(item.materialCode)) {
         issues.push(alreadyExists('MATERIAL_MISSING', `Không tìm thấy vật tư ${item.materialCode}.`, DATA_IMPORT_SHEETS.inventoryOpeningStock, index));
+      }
+      if (serializedMaterials.has(item.materialCode)) {
+        issues.push(alreadyExists(
+          'OPENING_STOCK_SERIALIZED',
+          `Vật tư ${item.materialCode} theo dõi theo serial nên không nhập số dư đầu kỳ bằng tệp; hãy lập phiếu nhập kèm đủ serial.`,
+          DATA_IMPORT_SHEETS.inventoryOpeningStock,
+          index,
+        ));
       }
     });
     dataset.procedureDefinitions.forEach((definition, definitionIndex) => {
@@ -219,11 +233,16 @@ export class InventoryDataImportController {
     }
 
     for (const item of dataset.inventoryOpeningStock) {
-      await this.app.receiveStock(actor, {
-        ...item,
-        referenceType: 'OPENING_BALANCE',
-        note: item.note ?? 'Tồn đầu kỳ từ Data Import',
-      });
+      // Số dư đầu kỳ: nguồn miễn duyệt (ISS-BE-006, Q1), ghi sổ thẳng như trước.
+      await this.app.receiveStock(
+        actor,
+        {
+          ...item,
+          referenceType: 'OPENING_BALANCE',
+          note: item.note ?? 'Tồn đầu kỳ từ Data Import',
+        },
+        { origin: 'opening_balance' },
+      );
     }
     const settingsInput = dataset.inventorySettings[0];
     if (settingsInput) {

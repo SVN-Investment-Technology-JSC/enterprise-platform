@@ -2,7 +2,10 @@ import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
 import type { FinanceIntegrationResolver } from './finance-integration.port.js';
 import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
+  PROCEDURE_INVENTORY_SOURCE_TYPE,
   PROCEDURE_SYSTEM_ACTOR_ID,
+  type ProcedureInventoryStockIssuedPayload,
+  type ProcedureIssueMaterialOrder,
   type CreateProcedureInstanceResponse,
   type ApplyProcedureActionRequest,
   type CreateProcedureDefinitionRequest,
@@ -2267,6 +2270,81 @@ export class ProcedureEngineApplication {
     return state.instances
       .filter((item) => wanted.has(item.id) && !item.deletion)
       .map(buildInstanceStatusEntry);
+  }
+
+  /**
+   * Mọi đơn vật tư xuất kho của tenant cho Kho (service token, chỉ đọc). Thủ kho
+   * phải xử lý toàn bộ yêu cầu cấp vật tư nên không lọc theo người tham gia như
+   * workspace; Kho tự kiểm quyền của người xem. Mới nhất trước.
+   */
+  async listIssueMaterialOrdersForService(tenantId: string): Promise<ProcedureIssueMaterialOrder[]> {
+    const state = await this.store.read(tenantId);
+    const byCode = new Map(
+      state.instances.filter((item) => !item.deletion).map((item) => [item.code, item] as const),
+    );
+    const items: ProcedureIssueMaterialOrder[] = [];
+    for (const parent of state.instances) {
+      if (parent.deletion) continue;
+      for (const order of parent.materialOrders ?? []) {
+        if (order.kind !== 'issue') continue;
+        const child = byCode.get(order.code);
+        items.push({
+          orderCode: order.code,
+          createdAt: order.createdAt,
+          lines: order.lines,
+          ...(child
+            ? { instanceId: child.id, instanceTitle: child.title, instanceStatus: child.status }
+            : {}),
+          parentInstanceId: parent.id,
+          parentCode: parent.code,
+          parentTitle: parent.title,
+          ...(parent.assetCode ? { assetCode: parent.assetCode } : {}),
+        });
+      }
+    }
+    return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /**
+   * Kho vừa ghi sổ chứng từ xuất theo yêu cầu cấp vật tư (`inventory.stock.issued`
+   * có nguồn là hồ sơ Quy trình): ghi lời báo đã cấp vào hồ sơ yêu cầu và hồ sơ cha
+   * đã xin vật tư, để người xin biết hàng đã ra kho. Lời báo của hệ thống nên ghi
+   * được cả khi hồ sơ đã kết thúc. Nhận trùng thì bỏ qua theo id chứng từ; chứng từ
+   * đảo và chứng từ không trỏ tới hồ sơ Quy trình cũng bỏ qua.
+   */
+  async applyInventoryStockIssued(tenantId: string, payload: ProcedureInventoryStockIssuedPayload): Promise<void> {
+    if (!payload || payload.sourceType !== PROCEDURE_INVENTORY_SOURCE_TYPE || !payload.sourceId) return;
+    if (payload.reversesDocumentId || !payload.documentId) return;
+    const sourceId = payload.sourceId;
+    await this.store.transaction(tenantId, (state) => {
+      const key = `inventory:issued:${payload.documentId}`;
+      if (state.idempotency[key]) return;
+      const child = state.instances.find((item) => item.id === sourceId && !item.deletion);
+      if (!child) return;
+      const parent =
+        child.sourceType === 'auto_from_parent' && child.sourceId
+          ? state.instances.find((item) => item.id === child.sourceId && !item.deletion)
+          : undefined;
+      const now = this.clock.now().toISOString();
+      const detail = (payload.lines ?? []).map((line) => `${line.materialCode} ${line.quantity}`).join(', ');
+      const summary = `Kho đã cấp vật tư theo yêu cầu ${child.code}: chứng từ ${payload.documentCode}, kho ${payload.warehouseCode}${
+        detail ? ` (${detail})` : ''
+      }.`;
+      state.idempotency[key] = child.id;
+      for (const [index, instance] of [child, ...(parent ? [parent] : [])].entries()) {
+        instance.activity.unshift({
+          id: this.ids.next(),
+          action: 'comment',
+          actorId: payload.actorUserId ?? PROCEDURE_SYSTEM_ACTOR_ID,
+          actorName: 'Kho',
+          summary,
+          createdAt: now,
+          stepInstanceId: instance.currentStepId,
+          // actions.idempotency_key là NOT NULL UNIQUE; mỗi hồ sơ một khoá riêng.
+          idempotencyKey: `${key}:${index}`,
+        });
+      }
+    });
   }
 
   async createInstance(

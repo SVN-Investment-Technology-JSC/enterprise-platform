@@ -111,10 +111,16 @@ const DOC_TYPE_OPTIONS = [
   })),
 ];
 
-/** Ba loại chứng từ phải qua người duyệt. */
-const APPROVAL_DOC_TYPES: readonly StockDocumentType[] = ['ADJUSTMENT', 'RECEIPT_OTHER', 'ISSUE_OTHER'];
+/** Loại chứng từ phải qua người duyệt; nhập mua, xuất dự án chỉ khi không có chứng từ nguồn (ISS-BE-006). */
+const APPROVAL_DOC_TYPES: readonly StockDocumentType[] = [
+  'ADJUSTMENT',
+  'RECEIPT_OTHER',
+  'ISSUE_OTHER',
+  'RECEIPT_PURCHASE',
+  'ISSUE_PROJECT',
+];
 const APPROVAL_TYPE_OPTIONS = [
-  { value: '', label: 'Điều chỉnh, nhập khác, xuất khác' },
+  { value: '', label: 'Mọi chứng từ phải duyệt' },
   ...APPROVAL_DOC_TYPES.map((value) => ({ value, label: STOCK_DOCUMENT_TYPE_LABEL[value] })),
 ];
 const STATUS_OPTIONS = [

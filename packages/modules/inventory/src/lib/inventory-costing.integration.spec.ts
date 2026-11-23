@@ -8,7 +8,7 @@ import { InventoryApplication, type InventoryActor } from './application/invento
 import { StockDocumentService } from './application/stock-document.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, purchaseSource, documentSource } from './inventory-test-support.js';
 
 const run = promisify(execFile);
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
@@ -61,6 +61,7 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
   async function receive(warehouseCode: string, materialCode: string, quantity: number, unitCost: number) {
     const draft = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
+      ...documentSource(),
       warehouseCode,
       lines: [{ materialCode, quantity, unitCost }],
     });
@@ -70,6 +71,7 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
   async function issue(warehouseCode: string, materialCode: string, quantity: number) {
     const draft = await documents.create(clerk, {
       docType: 'ISSUE_PROJECT',
+      ...documentSource(),
       warehouseCode,
       lines: [{ materialCode, quantity, unitCost: 1 }],
     });
@@ -184,11 +186,13 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
     const code = await material('GVC10');
     const first = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
+      ...documentSource(),
       warehouseCode: 'KHO-B',
       lines: [{ materialCode: code, quantity: 10, unitCost: 100_000 }],
     });
     const second = await documents.create(clerk, {
       docType: 'RECEIPT_PURCHASE',
+      ...documentSource(),
       warehouseCode: 'KHO-B',
       lines: [{ materialCode: code, quantity: 10, unitCost: 120_000 }],
     });
@@ -217,7 +221,7 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
     await receive('KHO-A', code, 10, 100_000);
     const second = await receive('KHO-A', code, 10, 120_000);
     expect((await balance('KHO-A', code)).avgCost).toBe(110_000);
-    const reversal = await documents.reverse(clerk, second.document.id);
+    const reversal = await documents.reverse(admin, second.document.id);
     expect(reversal.document.lines[0]).toMatchObject({ unitCost: 120_000, costAmount: 1_200_000 });
     expect(await balance('KHO-A', code)).toEqual({ quantity: 10, avgCost: 100_000 });
   });
@@ -225,7 +229,7 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
   it('nhập không ghi đơn giá giữ nguyên bình quân', async () => {
     const code = await material('GV0');
     await receive('KHO-A', code, 10, 50_000);
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: code, quantity: 5 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: code, quantity: 5 });
     expect(await balance('KHO-A', code)).toEqual({ quantity: 15, avgCost: 50_000 });
   });
 
@@ -239,7 +243,7 @@ integration('Giá vốn bình quân trên PostgreSQL (INV-09, INV-10, D4, D6)', 
     expect([receipt.statusCode, receipt.code]).toEqual([400, 'SERVICE_MATERIAL_NOT_STOCKED']);
     expect(receipt.message).toMatch(/^Mặt hàng dịch vụ không quản lý tồn/);
 
-    const legacy = await rejection(app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: code, quantity: 1 }));
+    const legacy = await rejection(app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: code, quantity: 1 }));
     expect(legacy.statusCode).toBe(400);
     const reservation = await rejection(
       app.createStockReservation(clerk, {

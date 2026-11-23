@@ -6,7 +6,7 @@ import { StocktakeService } from './application/stocktake.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { PostgresStocktakeStore } from './infrastructure/postgres-stocktake.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, projectSource, purchaseSource } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -114,9 +114,9 @@ integration('Kiểm kê kho trên PostgreSQL', () => {
     }
     // KK-A, KK-B, KK-C, KK-D dùng cho từng ca; mỗi ca dựng tồn riêng để không dẫm nhau.
     for (const warehouse of ['KK-A', 'KK-B', 'KK-C', 'KK-D']) {
-      await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: 'VT-1', quantity: 100, unitCost: 1000 });
-      await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: 'VT-2', quantity: 50, unitCost: 2000 });
-      await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: 'VT-3', quantity: 5, unitCost: 500 });
+      await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: 'VT-1', quantity: 100, unitCost: 1000 });
+      await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: 'VT-2', quantity: 50, unitCost: 2000 });
+      await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: 'VT-3', quantity: 5, unitCost: 500 });
     }
   }, 120_000);
 
@@ -159,7 +159,7 @@ integration('Kiểm kê kho trên PostgreSQL', () => {
     });
 
     // Nhập thêm sau snapshot: số sổ sách của đợt giữ 100, tồn hiện tại là 107.
-    await app.receiveStock(admin, { warehouseCode: 'KK-A', materialCode: 'VT-1', quantity: 7, unitCost: 1000 });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: 'KK-A', materialCode: 'VT-1', quantity: 7, unitCost: 1000 });
     const lines = await stocktakes.lines(counter, session.id);
     expect(lines.find((item) => item.id === vt1.id)).toMatchObject({ systemQuantity: 100, currentQuantity: 107 });
 
@@ -167,7 +167,7 @@ integration('Kiểm kê kho trên PostgreSQL', () => {
     expect(header).toMatchObject({ status: 'COUNTING', totalItems: 3, countedItems: 0 });
     expect(header.snapshotAt).toBeTruthy();
     // Trả tồn về như ban đầu cho các ca sau không lệch.
-    await app.issueStock(admin, { warehouseCode: 'KK-A', materialCode: 'VT-1', quantity: 7 });
+    await app.issueStock(admin, { ...projectSource(), warehouseCode: 'KK-A', materialCode: 'VT-1', quantity: 7 });
     await stocktakes.cancel(counter, session.id, 'Đợt thử snapshot');
   });
 
@@ -355,8 +355,8 @@ integration('Kiểm kê kho trên PostgreSQL', () => {
   });
 
   it('vật tư theo lô: snapshot có danh sách lô, ghi sổ điều chỉnh đúng từng lô', async () => {
-    await app.receiveStock(admin, { warehouseCode: 'KK-E', materialCode: 'VT-LOT', quantity: 10, unitCost: 100, lot: { lotNo: 'L1' } });
-    await app.receiveStock(admin, { warehouseCode: 'KK-E', materialCode: 'VT-LOT', quantity: 6, unitCost: 100, lot: { lotNo: 'L2' } });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: 'KK-E', materialCode: 'VT-LOT', quantity: 10, unitCost: 100, lot: { lotNo: 'L1' } });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: 'KK-E', materialCode: 'VT-LOT', quantity: 6, unitCost: 100, lot: { lotNo: 'L2' } });
     const session = await newCountingSession('KK-E', { codes: ['VT-LOT'] });
     const lot = line(session.lines, 'VT-LOT');
     const fresh = (await stocktakes.lines(counter, session.id)).find((item) => item.id === lot.id);
@@ -391,7 +391,7 @@ integration('Kiểm kê kho trên PostgreSQL', () => {
   });
 
   it('vật tư theo serial: serial báo mất thành dòng giảm kèm đúng serial', async () => {
-    await app.receiveStock(admin, {
+    await app.receiveStock(admin, { ...purchaseSource(),
       warehouseCode: 'KK-E',
       materialCode: 'VT-SN',
       quantity: 3,

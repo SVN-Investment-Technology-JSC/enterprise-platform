@@ -166,7 +166,7 @@ export function IncidentRecordDialog({
                 type="text"
                 value={reporter}
                 onChange={(e) => setReporter(e.target.value)}
-                placeholder="VD: KTV. Nguyễn Văn A"
+                placeholder="Họ tên người ghi nhận"
               />
             </div>
           </div>

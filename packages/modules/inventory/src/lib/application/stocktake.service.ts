@@ -272,6 +272,8 @@ export class StocktakeService {
           lines: drafts,
         },
         actor.userId,
+        // Đợt đã Đã duyệt (kiểm ở trên): ghi sổ cân kho không qua duyệt chứng từ lần nữa.
+        { origin: 'stocktake' },
       );
       document = posted.document;
       documentId = posted.document.id;

@@ -35,6 +35,8 @@ import type {
   Material,
   MaterialInventory,
   MovementCounterparty,
+  PendingStockMovement,
+  PostedStockDocument,
   Reservation,
   MaterialDeleteResult,
   RetireResult,
@@ -61,6 +63,7 @@ import {
 } from './stock-document-store.port.js';
 import {
   AssetNotFoundError,
+  DocumentIdempotencyConflictError,
   IdempotencyKeyConflictError,
   InsufficientAvailableStockError,
   InsufficientStockError,
@@ -86,7 +89,9 @@ import {
   INVENTORY_SETTINGS_KEYS,
   MOVEMENT_COUNTERPARTY_TYPES,
 } from '@enterprise-platform/contracts-inventory';
+import { assertSerializedLine } from '../domain/stock-document-policy.js';
 import {
+  assertSerialsUniqueAcrossLines,
   normalizeLineSerials,
   normalizeLotInput,
   serialKey,
@@ -327,7 +332,45 @@ export class InventoryApplication {
   ): Promise<InventoryTransaction> {
     this.requireManager(actor);
     this.requireStockWriter(actor);
+    const posted = await this.installCore(actor, code, input);
+    return posted.transactions[0];
+  }
 
+  /**
+   * Lắp một dòng của yêu cầu vật tư Quy trình đã duyệt (ISS-BE-031). Cùng luồng
+   * lắp như trên nhưng quyền là ghi phát sinh (thủ kho): hồ sơ Quy trình đã duyệt
+   * là căn cứ, service cấp phát đã hỏi lại Quy trình trước khi gọi.
+   *
+   * Có khoá chống lặp: dòng đã lắp thì trả chứng từ cũ, không tạo đơn vị lắp mới;
+   * cùng khoá khác nội dung thì 409.
+   */
+  async installItemForRequisition(
+    actor: InventoryActor,
+    code: string,
+    input: InstallItemRequest,
+    idempotency: { readonly key: string; readonly requestHash: string },
+  ): Promise<PostedStockDocument> {
+    this.requireStockWriter(actor);
+    const [existing] = (
+      await this.documents.findByIdempotencyPrefixes(actor.tenantId, [idempotency.key])
+    ).filter((document) => document.idempotencyKey === idempotency.key);
+    if (existing) {
+      if (existing.requestHash !== idempotency.requestHash) {
+        throw new DocumentIdempotencyConflictError(idempotency.key);
+      }
+      const document = await this.documents.get(actor.tenantId, existing.id);
+      if (!document) throw new InventoryError('NOT_FOUND', `Không tìm thấy chứng từ ${existing.code}.`, 404);
+      return { document, transactions: [] };
+    }
+    return this.installCore(actor, code, input, idempotency);
+  }
+
+  private async installCore(
+    actor: InventoryActor,
+    code: string,
+    input: InstallItemRequest,
+    idempotency?: { readonly key: string; readonly requestHash: string },
+  ): Promise<PostedStockDocument> {
     const parentCode = input?.parentCode?.trim() || undefined;
     if (parentCode && code === parentCode) {
       throw new InventoryError('VALIDATION', 'Không thể lắp một vật tư vào chính nó.');
@@ -373,11 +416,18 @@ export class InventoryApplication {
         warehouseCode,
         sourceType: 'asset',
         sourceId: unit.unitId,
+        idempotencyKey: idempotency?.key,
+        requestHash: idempotency?.requestHash,
         note: input.note?.trim() || actionNote,
         createdBy: actor.userId,
         lines,
       }, { autoPickSerials: true });
-      return posted[0];
+      // Hai lần gọi cùng khoá chạy song song: bên thua nhận chứng từ của bên thắng,
+      // đơn vị lắp của mình không có bút toán nào nên dọn đi.
+      if (idempotency && posted.document.sourceId !== unit.unitId) {
+        await this.store.item.deactivateUnit(actor.tenantId, unit.unitCode);
+      }
+      return posted;
     } catch (cause) {
       // Dòng đơn vị được tạo ở một transaction khác với bút toán, nên khi bút
       // toán hỏng (thiếu tồn) nó không tự cuốn theo. Không dọn thì cây mọc ra
@@ -550,7 +600,7 @@ export class InventoryApplication {
     // hiện tại), đúng serial và lô đã lắp, để bình quân và tồn lô không lệch.
     const tracked = await this.store.item.installedTracking(actor.tenantId, unit.id);
     const lines = await this.returnLines(actor, line.materialCode, quantity, input, tracked);
-    const [receipt] = await this.postLegacyDocument(
+    const posted = await this.postLegacyDocument(
       actor,
       {
         docType: 'RECEIPT_OTHER',
@@ -561,8 +611,10 @@ export class InventoryApplication {
         createdBy: actor.userId,
         lines,
       },
-      { returnToStock: true },
+      // Nhập về đúng đơn vị đang lắp trên cây: nguồn tài sản, ghi sổ thẳng (Q1).
+      { returnToStock: true, origin: 'asset_uninstall' },
     );
+    const [receipt] = posted.transactions;
 
     // Tháo hết thì đơn vị rời khỏi cây. Ngừng dùng chứ không xoá — bút toán
     // lắp–tháo của nó vẫn phải trỏ được vào một dòng có thật.
@@ -587,7 +639,7 @@ export class InventoryApplication {
     actor: InventoryActor,
     code: string,
     input: ReturnItemToStockRequest,
-  ): Promise<InventoryTransaction> {
+  ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireManager(actor);
     this.requireStockWriter(actor);
 
@@ -645,18 +697,22 @@ export class InventoryApplication {
         lots: [],
       },
     );
-    const [receipt] = await this.postLegacyDocument(
+    // Thiết bị trên cây là tài sản nguồn: nhập thẳng. Mã không có hồ sơ thiết bị
+    // thì không có nguồn nào chứng minh hàng đã từng ra khỏi kho: gửi duyệt (ISS-BE-006).
+    const posted = await this.postLegacyDocument(
       actor,
       {
         docType: 'RECEIPT_OTHER',
         warehouseCode,
+        sourceType: item ? 'asset' : undefined,
+        sourceId: item?.id,
         note: input.note?.trim() || `Thanh lý ${code} về kho ${warehouseCode}.`,
         createdBy: actor.userId,
         lines,
       },
-      { returnToStock: true },
+      { returnToStock: true, origin: item ? 'asset_return' : undefined },
     );
-    return receipt;
+    return legacyResult(posted);
   }
 
   /**
@@ -850,6 +906,8 @@ export class InventoryApplication {
     const material = await this.store.material.findAnyByCode(actor.tenantId, materialCode);
     if (!material) throw new MaterialNotFoundError(materialCode);
     if (material.kind === 'SERVICE') throw new ServiceMaterialNotStockedError(materialCode);
+    // Khai serial bật cờ theo dõi serial: chặn trước khi ghi gì nếu tồn chưa có serial (Q3-1).
+    if (!material.isSerialized) await this.assertSerializable(actor, material.code);
 
     // Bỏ trùng và bỏ rỗng ngay: dán một cột từ Excel gần như luôn kéo theo dòng
     // trắng, và hai dòng giống nhau thì chỉ là một cá thể.
@@ -876,6 +934,24 @@ export class InventoryApplication {
 
     const total = (await this.store.serial.listByMaterial(actor.tenantId, materialCode)).length;
     return { added, total };
+  }
+
+  /**
+   * Chặn bật theo dõi serial khi đang có tồn mà số serial Trong kho không khớp tồn
+   * ở từng kho (ISS-BE-005, Q3-1): bật lên thì tồn và serial lệch nhau ngay, mọi
+   * phiếu xuất sau đó bị chặn vì thiếu serial.
+   */
+  private async assertSerializable(actor: InventoryActor, code: string): Promise<void> {
+    const gaps = await this.store.material.unserializedStock(actor.tenantId, code);
+    if (gaps.length === 0) return;
+    const detail = gaps
+      .map((gap) => `kho ${gap.warehouseCode} tồn ${gap.onHand}, ${gap.inStockSerials} serial Trong kho`)
+      .join('; ');
+    throw new InventoryError(
+      'SERIALIZATION_STOCK_MISMATCH',
+      `Vật tư đang có tồn chưa có serial (${detail}). Xuất hoặc điều chỉnh hết phần tồn này, bật theo dõi serial rồi nhập lại kèm serial.`,
+      409,
+    );
   }
 
   async updateSerial(
@@ -923,7 +999,12 @@ export class InventoryApplication {
       serials?: readonly string[];
       counterparty?: MovementCounterparty;
     },
-  ): Promise<InventoryTransaction> {
+    /**
+     * Nguồn miễn duyệt; chỉ bên gọi trong tiến trình (nhập dữ liệu ban đầu) khai,
+     * không bao giờ lấy từ thân request.
+     */
+    trusted: { readonly origin?: 'opening_balance' } = {},
+  ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
     const lot = normalizeLotInput(input.lot, 'IN');
@@ -933,6 +1014,7 @@ export class InventoryApplication {
     if (serials && lot) {
       throw new InventoryError('VALIDATION', 'Dòng 1: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.');
     }
+    await this.requireSerialsForTracked(actor, [{ ...input, serials }]);
     const posted = await this.postLegacyDocument(actor, {
       docType: 'RECEIPT_PURCHASE',
       warehouseCode: input.warehouseCode,
@@ -950,8 +1032,8 @@ export class InventoryApplication {
           serials,
         },
       ],
-    }, { counterparty: this.normalizeCounterparty(input.counterparty) });
-    return posted[0];
+    }, { counterparty: this.normalizeCounterparty(input.counterparty), origin: trusted.origin });
+    return legacyResult(posted);
   }
 
   /**
@@ -971,11 +1053,14 @@ export class InventoryApplication {
       referenceId?: string;
       note?: string;
       lots?: readonly LotAllocationInput[];
+      /** Serial xuất, số phần tử bằng số lượng; bắt buộc với hàng theo serial (ISS-BE-005). */
+      serials?: readonly string[];
       counterparty?: MovementCounterparty;
     },
-  ): Promise<InventoryTransaction> {
+  ): Promise<InventoryTransaction | PendingStockMovement> {
     this.requireStockWriter(actor);
     this.requirePositive(input.quantity);
+    const lines = await this.outboundLines(actor, input);
     // Phân bổ nhiều lô thành nhiều dòng của cùng một chứng từ; response giữ bút
     // toán của dòng đầu như trước.
     const posted = await this.postLegacyDocument(actor, {
@@ -985,15 +1070,9 @@ export class InventoryApplication {
       sourceId: input.referenceId,
       note: input.note,
       createdBy: actor.userId,
-      lines: splitByLots(input.quantity, input.lots).map((part) => ({
-        materialCode: input.materialCode,
-        quantity: part.quantity,
-        direction: 'OUT' as const,
-        unitCost: 0,
-        lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
-      })),
+      lines,
     }, { counterparty: this.normalizeCounterparty(input.counterparty) });
-    return posted[0];
+    return legacyResult(posted);
   }
 
   /**
@@ -1010,6 +1089,8 @@ export class InventoryApplication {
       quantity: number;
       note?: string;
       lots?: readonly LotAllocationInput[];
+      /** Serial chuyển, số phần tử bằng số lượng; bắt buộc với hàng theo serial (ISS-BE-005). */
+      serials?: readonly string[];
     },
   ): Promise<{ out: InventoryTransaction; in: InventoryTransaction }> {
     this.requireStockWriter(actor);
@@ -1017,30 +1098,26 @@ export class InventoryApplication {
     if (input.fromWarehouseCode === input.toWarehouseCode) {
       throw new InvalidReservationError('Kho nguồn và kho đích phải khác nhau.');
     }
+    const lines = await this.outboundLines(actor, input);
 
-    const [out, inbound] = await this.postLegacyDocument(actor, {
+    const {
+      transactions: [out, inbound],
+    } = await this.postLegacyDocument(actor, {
       docType: 'TRANSFER',
       warehouseCode: input.fromWarehouseCode,
       targetWarehouseCode: input.toWarehouseCode,
       note: input.note,
       createdBy: actor.userId,
-      lines: splitByLots(input.quantity, input.lots).map((part) => ({
-        materialCode: input.materialCode,
-        quantity: part.quantity,
-        direction: 'OUT' as const,
-        unitCost: 0,
-        lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
-      })),
+      lines,
     });
     return { out, in: inbound };
   }
 
   /**
-   * Phiếu nhập hoặc xuất nhiều dòng, ghi nguyên tử: một dòng lỗi (thiếu tồn, sai
-   * mã vật tư) thì không dòng nào được ghi.
-   *
-   * Ghi qua chứng từ kho (cùng đường với nhập/xuất một dòng) nên giá vốn và kiểm
-   * tồn khả dụng đi đúng luật chung. Không xử lý sê-ri hay lô.
+   * Phiếu nhập khác hoặc xuất khác nhiều dòng. Là chứng từ phải duyệt nên chỉ
+   * tạo và gửi duyệt (ISS-BE-006): trả chứng từ Chờ duyệt, `transactions: []`;
+   * người duyệt duyệt rồi ghi sổ trên màn Chứng từ kho, lúc đó ghi nguyên tử
+   * (một dòng thiếu tồn thì không dòng nào được ghi).
    */
   async recordMovementLines(
     actor: InventoryActor,
@@ -1054,9 +1131,11 @@ export class InventoryApplication {
         quantity: number;
         unitCost?: number;
         note?: string;
+        /** Serial của dòng, số phần tử bằng số lượng; bắt buộc với hàng theo serial (ISS-BE-005). */
+        serials?: readonly string[];
       }[];
     },
-  ): Promise<InventoryTransaction[]> {
+  ): Promise<PostedStockDocument> {
     this.requireStockWriter(actor);
     if (!input?.lines?.length) {
       throw new InventoryError('VALIDATION', 'Phiếu phải có ít nhất một dòng.');
@@ -1072,6 +1151,13 @@ export class InventoryApplication {
     }
     const counterparty = this.normalizeCounterparty(input.counterparty);
     const receipt = input.kind === 'receipt';
+    const withSerials = input.lines.map((line, index) => ({
+      ...line,
+      serials: normalizeLineSerials(line.serials, line.quantity, index + 1),
+    }));
+    assertSerialsUniqueAcrossLines(withSerials);
+    // Một dòng hàng serial thiếu serial thì 400 ngay, không tạo chứng từ nào.
+    await this.requireSerialsForTracked(actor, withSerials);
     // Chứng từ chỉ có một ghi chú chung: gộp ghi chú các dòng, bỏ trùng.
     const note = [...new Set(input.lines.map((line) => line.note?.trim()).filter(Boolean))].join(' ; ');
     return this.postLegacyDocument(
@@ -1081,15 +1167,72 @@ export class InventoryApplication {
         warehouseCode: input.lines[0].warehouseCode,
         note: note || undefined,
         createdBy: actor.userId,
-        lines: input.lines.map((line) => ({
+        lines: withSerials.map((line) => ({
           materialCode: line.materialCode,
           quantity: line.quantity,
           direction: receipt ? ('IN' as const) : ('OUT' as const),
           unitCost: receipt ? (line.unitCost ?? 0) : 0,
+          ...(line.serials ? { serials: line.serials } : {}),
         })),
       },
       { counterparty },
     );
+  }
+
+  /**
+   * Dòng xuất của đường xuất, chuyển nhanh: có serial thì một dòng mang đủ serial
+   * (không trộn với lô); không thì tách theo lô như trước. Hàng theo serial thiếu
+   * serial thì 400 SERIALS_REQUIRED trước khi tạo chứng từ (ISS-BE-005).
+   */
+  private async outboundLines(
+    actor: InventoryActor,
+    input: {
+      materialCode: string;
+      quantity: number;
+      lots?: readonly LotAllocationInput[];
+      serials?: readonly string[];
+    },
+  ): Promise<StockDocumentLineDraft[]> {
+    const serials = normalizeLineSerials(input.serials, input.quantity, 1);
+    if (serials && input.lots?.length) {
+      throw new InventoryError('VALIDATION', 'Dòng 1: một dòng chỉ ghi lô hoặc serial, không ghi cả hai.');
+    }
+    await this.requireSerialsForTracked(actor, [{ ...input, serials }]);
+    if (serials) {
+      return [{ materialCode: input.materialCode, quantity: input.quantity, direction: 'OUT', unitCost: 0, serials }];
+    }
+    return splitByLots(input.quantity, input.lots).map((part) => ({
+      materialCode: input.materialCode,
+      quantity: part.quantity,
+      direction: 'OUT' as const,
+      unitCost: 0,
+      lot: part.lotNo ? { lotNo: part.lotNo } : undefined,
+    }));
+  }
+
+  /**
+   * Mặt hàng theo serial: số lượng nguyên và đủ serial, báo sớm 400 SERIALS_REQUIRED
+   * tiếng Việt trước khi tạo chứng từ (ISS-BE-005). Store vẫn kiểm lại lúc ghi sổ.
+   */
+  private async requireSerialsForTracked(
+    actor: InventoryActor,
+    lines: readonly { materialCode: string; quantity: number; serials?: readonly string[] }[],
+  ): Promise<void> {
+    const tracked = new Map<string, boolean>();
+    for (const [index, line] of lines.entries()) {
+      const code = line.materialCode?.trim();
+      if (!code) continue;
+      if (!tracked.has(code)) {
+        const material = await this.store.material.findAnyByCode(actor.tenantId, code);
+        tracked.set(code, material?.isSerialized === true);
+      }
+      if (!tracked.get(code)) continue;
+      assertSerializedLine(
+        { lineNo: index + 1, materialCode: code, quantity: line.quantity },
+        line.serials?.length ?? 0,
+        'request',
+      );
+    }
   }
 
   /**
@@ -1125,20 +1268,20 @@ export class InventoryApplication {
   }
 
   /**
-   * Tạo và ghi sổ chứng từ cho đường API cũ. Không qua bước duyệt: loại chứng
-   * từ được chọn đều là loại ghi sổ thẳng, và quyền đã kiểm như trước. Lỗi
-   * thiếu tồn đổi về `InsufficientStockError` (400) để màn Kho cũ nhận đúng mã.
+   * Tạo và ghi sổ chứng từ cho đường API cũ. Chứng từ phải duyệt (nhập khác, xuất
+   * khác, nhập mua hoặc xuất dự án không nguồn) mà không có nguồn miễn thì store
+   * chỉ tạo và gửi duyệt, trả `transactions: []` (ISS-BE-006). Lỗi thiếu tồn đổi
+   * về `InsufficientStockError` (400) để màn Kho cũ nhận đúng mã.
    */
   private async postLegacyDocument(
     actor: InventoryActor,
     input: NewStockDocumentInput,
     options?: PostOptions,
-  ): Promise<InventoryTransaction[]> {
+  ): Promise<PostedStockDocument> {
     try {
-      const posted = options
+      return options
         ? await this.documents.createAndPost(actor.tenantId, input, actor.userId, options)
         : await this.documents.createAndPost(actor.tenantId, input, actor.userId);
-      return [...posted.transactions];
     } catch (error) {
       if (error instanceof InsufficientAvailableStockError) {
         throw new InsufficientStockError(
@@ -1368,8 +1511,8 @@ export class InventoryApplication {
     if (!code) throw new InventoryError('VALIDATION', 'Mã vật tư không được để trống.');
     if (!input.name?.trim()) throw new InventoryError('VALIDATION', 'Tên vật tư không được để trống.');
     if (!input.unit?.trim()) throw new InventoryError('VALIDATION', 'Đơn vị tính không được để trống.');
-    this.requireStockBounds(input.minStock, input.maxStock);
     const kind = requireMaterialKind(input.kind) ?? 'STOCK';
+    this.requireStockBounds(input.minStock, input.maxStock, kind !== 'SERVICE');
     requireWarrantyMonths(input.warrantyMonths);
     if (kind === 'SERVICE' && input.isSerialized) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
@@ -1420,11 +1563,15 @@ export class InventoryApplication {
     if (current.isActive === false && patch.isActive !== true) {
       throw new InventoryError('VALIDATION', `Mã ${code} đã ngừng dùng; hãy dùng lại trước khi sửa.`);
     }
+    const kind = requireMaterialKind(patch.kind) ?? current.kind;
+    // Chỉ so sàn với trần khi lần sửa này đụng tới một trong hai: mã cũ đang lệch vẫn sửa được
+    // các thông tin khác (tên, giá, dùng lại...), còn đã sửa định mức thì phải về hợp lệ.
+    const touchesBounds = patch.minStock !== undefined || patch.maxStock !== undefined;
     this.requireStockBounds(
       patch.minStock ?? current.minStock,
       patch.maxStock ?? current.maxStock,
+      touchesBounds && kind !== 'SERVICE',
     );
-    const kind = requireMaterialKind(patch.kind) ?? current.kind;
     requireWarrantyMonths(patch.warrantyMonths);
     if (kind !== current.kind && (await this.store.material.hasStockFootprint(actor.tenantId, code))) {
       throw new InventoryError(
@@ -1434,6 +1581,9 @@ export class InventoryApplication {
     }
     if (kind === 'SERVICE' && (patch.isSerialized ?? current.isSerialized)) {
       throw new InventoryError('VALIDATION', 'Mặt hàng dịch vụ không theo dõi serial.');
+    }
+    if (patch.isSerialized === true && !current.isSerialized) {
+      await this.assertSerializable(actor, current.code);
     }
     // Không truyền đối số thứ tư khi không phải nhập từ hệ cũ: đường sửa thường giữ nguyên chữ ký cũ.
     const updated = history
@@ -1542,16 +1692,18 @@ export class InventoryApplication {
   }
 
   /**
-   * Chỉ còn kiểm SÀN tồn.
+   * Định mức tồn: không âm, và tồn tối thiểu không được lớn hơn tồn tối đa.
    *
-   * Trần tồn đã bỏ khỏi giao diện: không luật nào của kho đọc tới nó, nên nó chỉ
-   * là một con số bắt phải nhập rồi nằm đó. Luật "sàn không được lớn hơn trần"
-   * cũng bỏ theo — giữ lại thì mọi mã có trần cũ sẽ chặn việc nâng sàn, vì lý do
-   * người dùng không còn nhìn thấy ở đâu.
+   * Tồn tối đa bằng 0 hoặc để trống nghĩa là không đặt trần, khi đó không so. Mặt hàng dịch vụ
+   * không có tồn (định mức luôn lưu 0/0) nên chỉ kiểm không âm.
    */
-  private requireStockBounds(min?: number, max?: number): void {
+  private requireStockBounds(min?: number | null, max?: number | null, checkCeiling = true): void {
     if ((min ?? 0) < 0 || (max ?? 0) < 0) {
       throw new InventoryError('VALIDATION', 'Tồn tối thiểu không được âm.');
+    }
+    if (!checkCeiling) return;
+    if (max != null && max > 0 && (min ?? 0) > max) {
+      throw new InventoryError('VALIDATION', 'Tồn tối thiểu không được lớn hơn tồn tối đa.');
     }
   }
 
@@ -1749,6 +1901,17 @@ export class InventoryApplication {
   listAuditorCandidates(actor: InventoryActor): Promise<AuditorCandidate[]> {
     return this.store.listAuditorCandidates(actor);
   }
+}
+
+/**
+ * Đường nhập xuất một dòng: đã ghi sổ thì trả bút toán đầu như trước; chứng từ
+ * phải duyệt thì trả chứng từ Chờ duyệt kèm cờ `pendingApproval` (ISS-BE-006).
+ */
+function legacyResult(posted: PostedStockDocument): InventoryTransaction | PendingStockMovement {
+  if (posted.document.status !== 'POSTED') {
+    return { document: posted.document, transactions: [], pendingApproval: true };
+  }
+  return posted.transactions[0];
 }
 
 const MAX_CATALOG_PAGE = 500;

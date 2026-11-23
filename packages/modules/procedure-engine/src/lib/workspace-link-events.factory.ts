@@ -1,6 +1,7 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { ProcedureEngineApplication } from './application/procedure-engine.application.js';
 import { PROCEDURE_FINANCE_EVENT_TYPES, ProcedureFinanceEvents } from './application/finance-step-events.js';
+import { PROCEDURE_INVENTORY_EVENT_TYPES, ProcedureInventoryEvents } from './application/inventory-issue-events.js';
 import { ProcedureWorkspaceEvents } from './application/workspace-link-events.js';
 import { HttpDirectManagerResolver } from './infrastructure/http-direct-manager.resolver.js';
 import { HttpInitiatorActorResolver } from './infrastructure/http-initiator-actor.resolver.js';
@@ -15,9 +16,9 @@ import {
 /**
  * Dựng bộ xử lý sự kiện tích hợp của Quy trình ngoài Nest (worker), cùng cách
  * `ProcedureEngineModule` nối ứng dụng, dùng chung registry DB của worker.
- * Một hàng đợi `procedure.integrations.v1` nhận cả sự kiện của Workspace lẫn kết
- * quả bước Tài chính (`finance.voucher.*`); hai consumer trên một hàng đợi sẽ chia
- * sự kiện cho nhau nên phân luồng ở đây.
+ * Một hàng đợi `procedure.integrations.v1` nhận sự kiện của Workspace, kết quả
+ * bước Tài chính (`finance.voucher.*`) và chứng từ xuất của Kho (`inventory.stock.issued`);
+ * hai consumer trên một hàng đợi sẽ chia sự kiện cho nhau nên phân luồng ở đây.
  */
 export function createProcedureWorkspaceEvents(
   references: TenantDatabaseRegistry,
@@ -42,6 +43,8 @@ export function createProcedureWorkspaceEvents(
   );
   const finance = new ProcedureFinanceEvents(procedures);
   const financeTypes: readonly string[] = PROCEDURE_FINANCE_EVENT_TYPES;
+  const inventory = new ProcedureInventoryEvents(procedures);
+  const inventoryTypes: readonly string[] = PROCEDURE_INVENTORY_EVENT_TYPES;
   // Worker chỉ gọi qua đây, không tự đọc bảng nào của Quy trình.
   return {
     ready: async (tenantId) => {
@@ -51,7 +54,10 @@ export function createProcedureWorkspaceEvents(
       );
       return Boolean(result.rows[0]?.relation);
     },
-    handle: (tenantId, type, payload) =>
-      financeTypes.includes(type) ? finance.handle(tenantId, type, payload) : events.handle(tenantId, type, payload),
+    handle: (tenantId, type, payload) => {
+      if (financeTypes.includes(type)) return finance.handle(tenantId, type, payload);
+      if (inventoryTypes.includes(type)) return inventory.handle(tenantId, type, payload);
+      return events.handle(tenantId, type, payload);
+    },
   };
 }

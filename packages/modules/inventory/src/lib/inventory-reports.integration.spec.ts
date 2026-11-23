@@ -18,7 +18,7 @@ import { PostgresInventoryReportStore } from './infrastructure/postgres-inventor
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, documentSource } from './inventory-test-support.js';
 import { InternalCatalogController } from './presentation/internal-catalog.controller.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
@@ -83,7 +83,9 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
     lines: StockDocumentLineInput[],
     extra: { targetWarehouseCode?: string } = {},
   ) {
-    const draft = await documents.create(clerk, { docType, warehouseCode, lines, ...extra });
+    // Nhập mua, xuất dự án ghi sổ thẳng cần chứng từ nguồn (ISS-BE-006).
+    const source = docType === 'RECEIPT_PURCHASE' || docType === 'ISSUE_PROJECT' ? documentSource() : {};
+    const draft = await documents.create(clerk, { docType, warehouseCode, lines, ...source, ...extra });
     return documents.post(clerk, draft.id);
   }
 
@@ -222,7 +224,7 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
     await documents.approve(admin, adjustment.id);
     await documents.post(clerk, adjustment.id);
     const wrong = await post('RECEIPT_PURCHASE', 'RPT-HN', [{ materialCode: code, quantity: 5, unitCost: 90_000 }]);
-    await documents.reverse(clerk, wrong.document.id);
+    await documents.reverse(admin, wrong.document.id);
 
     const report = await reports.movements(viewer, { search: code, limit: 1000 });
     const today = todayInVietnam();
@@ -305,6 +307,20 @@ integration('Báo cáo kho trên PostgreSQL (T7-06, T7-07, T4-19)', () => {
       value: 220_000,
     });
     expect(row?.approvedAt).toEqual(expect.any(String));
+
+    // Xuất dự án không nguồn chờ duyệt (ISS-BE-006) cũng có trong lịch sử duyệt;
+    // xuất dự án có nguồn (ghi sổ thẳng) thì không.
+    const pending = await documents.create(clerk, {
+      docType: 'ISSUE_PROJECT',
+      warehouseCode: 'RPT-HN',
+      lines: [{ materialCode: code, quantity: 1 }],
+    });
+    await documents.submit(clerk, pending.id);
+    const waiting = await reports.approvals(viewer, { status: 'PENDING', warehouseCode: 'RPT-HN' });
+    expect(waiting.rows.map((item) => item.documentId)).toContain(pending.id);
+    const projectRows = await reports.approvals(viewer, { docType: 'ISSUE_PROJECT', warehouseCode: 'RPT-HN' });
+    expect(projectRows.rows.map((item) => item.documentId)).toContain(pending.id);
+    expect(projectRows.rows.map((item) => item.documentId)).not.toContain(issued.document.id);
   });
 
   it('T4-19: GET v1/internal/warehouses lọc theo mã, id, chuỗi tìm; mặc định bỏ kho ngừng dùng', async () => {

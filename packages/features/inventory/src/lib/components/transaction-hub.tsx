@@ -13,14 +13,10 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Eye } from 'lucide-react';
 import { MovementForm, type MovementInput } from './movement-form';
 import { BatchRequisitionModal } from './batch-requisition-modal';
+import { MaterialRequisitionsCard } from './material-requisitions-card';
 import { StocktakeHub } from './stocktake-hub';
 import { MovementDetailDrawer } from './movement-detail-drawer';
-import {
-  loadProcedureRequisitions,
-  loadProcedureOptions,
-  getFulfilledRequisitionCodes,
-  markRequisitionFulfilled,
-} from '../inventory-api';
+import { loadProcedureRequisitions, loadProcedureOptions } from '../inventory-api';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardHeader, CardTitle } from '../ui/card';
@@ -91,7 +87,8 @@ export function TransactionHub({
 
   // Procedure Requisitions state
   const [requisitions, setRequisitions] = useState<ProcedureRequisition[]>([]);
-  const [_loadingRequisitions, setLoadingRequisitions] = useState(false);
+  const [loadingRequisitions, setLoadingRequisitions] = useState(false);
+  const [requisitionError, setRequisitionError] = useState<string | null>(null);
   const [procedures, setProcedures] = useState<ProcedureOption[]>([]);
 
   const reloadRequisitions = useCallback(async () => {
@@ -99,6 +96,14 @@ export function TransactionHub({
     try {
       const data = await loadProcedureRequisitions();
       setRequisitions(data);
+      setRequisitionError(null);
+    } catch (error) {
+      // Không nuốt lỗi thành danh sách rỗng: thủ kho phải biết có thể còn yêu cầu chưa thấy.
+      setRequisitionError(
+        error instanceof Error && error.message
+          ? `Không tải được yêu cầu cấp vật tư từ Quy trình: ${error.message}`
+          : 'Không tải được yêu cầu cấp vật tư từ Quy trình.',
+      );
     } finally {
       setLoadingRequisitions(false);
     }
@@ -109,96 +114,23 @@ export function TransactionHub({
     void loadProcedureOptions().then(setProcedures);
   }, [reloadRequisitions]);
 
-  // Lọc các yêu cầu còn hiệu lực: loại trừ yêu cầu đã xuất trong phiên, trong storage, hoặc đã có giao dịch trên sổ cái
-  const _visibleRequisitions = useMemo(() => {
-    const fulfilledCodes = new Set(getFulfilledRequisitionCodes());
-    return requisitions.filter((req) => {
-      if (fulfilledCodes.has(req.code)) return false;
-      if (req.status === 'completed' || req.status === 'cancelled' || req.status === 'rejected') {
-        return false;
-      }
-      if (ledger && ledger.length > 0) {
-        const hasTx = ledger.some(
-          (tx) =>
-            tx.note &&
-            (tx.note.includes(req.code) || (req.csvFileName && tx.note.includes(req.csvFileName))),
-        );
-        if (hasTx) {
-          markRequisitionFulfilled(req.code);
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [requisitions, ledger]);
-
-  const _handleOpenIssueFromRequisition = (req: ProcedureRequisition, lineIndex?: number) => {
-    // Nếu bấm nút ở header bảng kê (lineIndex === undefined) và có từ 1 vật tư trở lên:
-    // Mở BatchRequisitionModal để xuất toàn bộ các vật tư trong bảng kê!
-    if (lineIndex === undefined) {
-      if (req.lines.length > 1) {
-        setBatchReq(req);
-        return;
-      }
-      // Nếu chỉ có đúng 1 dòng hoặc chưa phân tách lines
-      if (req.lines.length === 1) {
-        const selectedLine = req.lines[0];
-        const initialMaterialCode = selectedLine?.materialCode;
-        const initialQuantity = selectedLine?.quantity;
-        const matchingStocks = workspace.stock.filter((s) => s.materialCode === initialMaterialCode);
-        const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
-        const hasStock = totalAvail >= (initialQuantity || 0);
-
-        const initialNote = `${hasStock ? 'Xuất' : 'Nhập mua'} vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
-
-        setPopupMovement({
-          open: true,
-          kind: hasStock ? 'issue' : 'receipt',
-          initialMaterialCode,
-          initialQuantity,
-          initialNote,
-          reqCode: req.code,
-          title: hasStock
-            ? `Lập phiếu xuất kho theo yêu cầu ${req.code}`
-            : `Lập phiếu mua sắm / nhập bổ sung theo yêu cầu ${req.code}`,
-          description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}.`,
-        });
-        return;
-      }
-      // Trường hợp chưa có lines cụ thể
-      setBatchReq(req);
-      return;
-    }
-
-    // Nếu bấm "Xuất món này →" trên từng dòng cụ thể:
-    const selectedLine = req.lines[lineIndex];
-    const initialMaterialCode = selectedLine?.materialCode;
-    const initialQuantity = selectedLine?.quantity;
-    const matchingStocks = workspace.stock.filter((s) => s.materialCode === initialMaterialCode);
-    const totalAvail = matchingStocks.reduce((sum, s) => sum + s.available, 0);
-    const hasStock = totalAvail >= (initialQuantity || 0);
-
-    const initialNote = `${hasStock ? 'Xuất' : 'Nhập mua'} vật tư theo bảng kê ${req.csvFileName} cho hồ sơ ${req.code}${req.assetCode ? ` (Thiết bị: ${req.assetCode})` : ''}`;
-
-    setPopupMovement({
-      open: true,
-      kind: hasStock ? 'issue' : 'receipt',
-      initialMaterialCode,
-      initialQuantity,
-      initialNote,
-      reqCode: req.lines.length === 1 ? req.code : undefined,
-      title: hasStock
-        ? `Lập phiếu xuất kho cho ${initialMaterialCode}`
-        : `Lập phiếu mua sắm / nhập bổ sung cho ${initialMaterialCode}`,
-      description: `Khởi tạo từ hồ sơ ${req.code} kèm tệp ${req.csvFileName}.`,
-    });
+  /**
+   * Mọi lần cấp theo yêu cầu đi qua MỘT lời gọi `POST /requisitions/:mã/fulfil`
+   * (ISS-BE-031): server chống cấp lặp và trả trạng thái cấp, danh sách đọc lại
+   * từ server sau khi cấp. Không còn đánh dấu ở trình duyệt hay đoán theo ghi chú sổ.
+   */
+  const handleOpenIssueFromRequisition = (req: ProcedureRequisition) => {
+    setBatchReq(req);
   };
 
-  void _loadingRequisitions;
-  void _visibleRequisitions;
-  void _handleOpenIssueFromRequisition;
-  void procedures;
-  void batchReq;
+  const handleOpenTransfer = (materialCode: string) => {
+    setPopupMovement({
+      open: true,
+      kind: 'transfer',
+      initialMaterialCode: materialCode,
+      title: `Điều chuyển ${materialCode} về một kho trước khi cấp`,
+    });
+  };
 
   // Filter state for Ledger view
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('all');
@@ -301,6 +233,29 @@ export function TransactionHub({
             </button>
           </div>
         </>
+      ) : null}
+
+      {activeSubTab === 'ledger' && requisitionError ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        >
+          <span>{requisitionError}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void reloadRequisitions()}>
+            Tải lại
+          </Button>
+        </div>
+      ) : null}
+
+      {activeSubTab === 'ledger' && (requisitions.length > 0 || loadingRequisitions) ? (
+        <MaterialRequisitionsCard
+          requisitions={requisitions}
+          loading={loadingRequisitions}
+          workspace={workspace}
+          onOpenIssueFromRequisition={handleOpenIssueFromRequisition}
+          onOpenTransfer={canWriteTransactions ? handleOpenTransfer : undefined}
+          onCheckStock={onOpenProfile}
+        />
       ) : null}
 
       {activeSubTab === 'stocktake' ? (
@@ -557,11 +512,6 @@ export function TransactionHub({
           onCancel={() => setPopupMovement({ open: false })}
           onSubmit={async (input) => {
             await (onSubmitMovementInDialog ?? onSubmitMovement)(input);
-            if (popupMovement.reqCode) {
-              const code = popupMovement.reqCode;
-              markRequisitionFulfilled(code);
-              setRequisitions((prev) => prev.filter((r) => r.code !== code));
-            }
             setPopupMovement({ open: false });
           }}
         />
@@ -574,12 +524,11 @@ export function TransactionHub({
           workspace={workspace}
           busy={busy}
           onClose={() => setBatchReq(null)}
-          onSuccess={async (message, fulfilledCode) => {
-            const code = fulfilledCode || batchReq.code;
-            markRequisitionFulfilled(code);
+          onSuccess={async (message) => {
             setBatchReq(null);
-            setRequisitions((prev) => prev.filter((r) => r.code !== code && r.id !== batchReq.id));
             if (onNotice) onNotice(message);
+            // Đọc lại trạng thái cấp từ server: yêu cầu đã cấp tự rời danh sách.
+            await reloadRequisitions();
             if (onReload) await onReload();
           }}
         />

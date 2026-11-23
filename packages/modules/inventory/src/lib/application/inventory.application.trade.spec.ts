@@ -182,6 +182,59 @@ describe('InventoryApplication hình thức kinh doanh và giá bán', () => {
   });
 });
 
+describe('InventoryApplication tồn tối thiểu và tồn tối đa', () => {
+  const error = 'Tồn tối thiểu không được lớn hơn tồn tối đa.';
+  const stored = (patch: Partial<Material>) =>
+    ({ code: 'VT-1', kind: 'STOCK', isActive: true, minStock: 0, maxStock: 0, ...patch }) as unknown as Material;
+
+  it('tạo: chặn tối thiểu lớn hơn tối đa, tối đa 0 hoặc để trống là không giới hạn', async () => {
+    const { app, material } = setup();
+    await expect(app.createMaterial(manager, { ...base, minStock: 10, maxStock: 5 })).rejects.toThrow(error);
+    expect(material.create).not.toHaveBeenCalled();
+    await app.createMaterial(manager, { ...base, minStock: 5, maxStock: 10 });
+    await app.createMaterial(manager, { ...base, minStock: 10, maxStock: 10 });
+    await app.createMaterial(manager, { ...base, minStock: 10, maxStock: 0 });
+    await app.createMaterial(manager, { ...base, minStock: 10 });
+    expect(material.create).toHaveBeenCalledTimes(4);
+  });
+
+  it('tạo: dịch vụ luôn lưu 0/0, số âm vẫn bị chặn', async () => {
+    const { app, material } = setup();
+    await app.createMaterial(manager, { ...base, kind: 'SERVICE', minStock: 10, maxStock: 5 });
+    expect(material.create).toHaveBeenCalledWith('t1', expect.objectContaining({ minStock: 0, maxStock: 0 }), 'Hải', undefined);
+    await expect(app.createMaterial(manager, { ...base, minStock: -1 })).rejects.toThrow('không được âm');
+    await expect(app.createMaterial(manager, { ...base, maxStock: -1 })).rejects.toThrow('không được âm');
+  });
+
+  it('sửa một trường: so với giá trị đã lưu', async () => {
+    const { app, material } = setup();
+    material.findAnyByCode.mockResolvedValue(stored({ maxStock: 5 }));
+    await expect(app.updateMaterial(manager, 'VT-1', { minStock: 10 })).rejects.toThrow(error);
+    material.findAnyByCode.mockResolvedValue(stored({ minStock: 10 }));
+    await expect(app.updateMaterial(manager, 'VT-1', { maxStock: 5 })).rejects.toThrow(error);
+    expect(material.update).not.toHaveBeenCalled();
+    await app.updateMaterial(manager, 'VT-1', { maxStock: 0 });
+    await app.updateMaterial(manager, 'VT-1', { maxStock: 10 });
+    expect(material.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('sửa mã cũ đang lệch: đưa về hợp lệ thì được, sửa thông tin khác không bị chặn', async () => {
+    const { app, material } = setup();
+    material.findAnyByCode.mockResolvedValue(stored({ minStock: 10, maxStock: 5 }));
+    await app.updateMaterial(manager, 'VT-1', { minStock: 3 });
+    await app.updateMaterial(manager, 'VT-1', { name: 'Tên mới' });
+    await expect(app.updateMaterial(manager, 'VT-1', { minStock: 8 })).rejects.toThrow(error);
+    expect(material.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('sửa: dịch vụ không so trần, số âm vẫn bị chặn', async () => {
+    const { app, material } = setup();
+    material.findAnyByCode.mockResolvedValue(stored({ kind: 'SERVICE' } as Partial<Material>));
+    await app.updateMaterial(manager, 'VT-1', { minStock: 10, maxStock: 5 });
+    await expect(app.updateMaterial(manager, 'VT-1', { minStock: -1 })).rejects.toThrow('không được âm');
+  });
+});
+
 describe('InventoryApplication thuế suất VAT', () => {
   it('tạo: nhận rỗng, 0, 8,5 và 100; truyền xuống kho dữ liệu', async () => {
     const { app, material } = setup();

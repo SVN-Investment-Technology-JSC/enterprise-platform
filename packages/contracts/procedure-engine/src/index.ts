@@ -7,3 +7,4 @@ export * from './lib/procedure-condition.js';
 export * from './lib/procedure-host-attributes.js';
 export * from './lib/procedure-finance-step.js';
 export * from './lib/assistant-actions.js';
+export * from './lib/procedure-material-orders.js';
