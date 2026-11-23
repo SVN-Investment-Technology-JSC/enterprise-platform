@@ -271,7 +271,7 @@ export function StockDocumentForm({
       render: (_value, line) => (
         <VnNumberInput
           maxDecimals={3}
-          className="h-8 w-full rounded-[0.4rem] border border-slate-200 px-2 py-[0.3rem] text-right text-[13px] tabular-nums"
+          className="h-8 w-full rounded-[0.4rem] border border-slate-200 px-2 py-[0.3rem] text-[13px] tabular-nums"
           aria-label="Số lượng"
           value={Number.isFinite(line.quantity) ? String(line.quantity) : ''}
           onChange={(value) => patchLine(line.key, { quantity: Number(value) })}
@@ -285,7 +285,7 @@ export function StockDocumentForm({
       render: (_value, line) =>
         lineDirection(draft.docType, line.direction) === 'IN' ? (
           <VnNumberInput
-            className="h-8 w-full rounded-[0.4rem] border border-slate-200 px-2 py-[0.3rem] text-right text-[13px] tabular-nums"
+            className="h-8 w-full rounded-[0.4rem] border border-slate-200 px-2 py-[0.3rem] text-[13px] tabular-nums"
             aria-label="Đơn giá"
             placeholder="Bình quân"
             title="Bỏ trống hoặc 0 là nhập theo giá bình quân hiện tại"

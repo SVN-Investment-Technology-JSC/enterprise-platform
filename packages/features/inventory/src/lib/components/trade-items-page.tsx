@@ -341,7 +341,7 @@ export function TradeItemsPage({
                 <TableHeaderCell>Phân loại</TableHeaderCell>
                 <TableHeaderCell>Đơn vị</TableHeaderCell>
                 <TableHeaderCell>Sử dụng</TableHeaderCell>
-                <TableHeaderCell className="text-right">Giá</TableHeaderCell>
+                <TableHeaderCell className="text-left">Giá</TableHeaderCell>
                 <TableHeaderCell>Trạng thái</TableHeaderCell>
               </TableRow>
             </TableHead>
@@ -362,7 +362,7 @@ export function TradeItemsPage({
                   <TableCell>{item.tradeCategory || '—'}</TableCell>
                   <TableCell>{item.unit}</TableCell>
                   <TableCell>{usageLabel(item.tradeMode) || '—'}</TableCell>
-                  <TableCell className="text-right">{formatSalePrice(item.salePrice)}</TableCell>
+                  <TableCell className="text-left">{formatSalePrice(item.salePrice)}</TableCell>
                   <TableCell>
                     <TradeStatusBadge active={item.isActive} />
                   </TableCell>

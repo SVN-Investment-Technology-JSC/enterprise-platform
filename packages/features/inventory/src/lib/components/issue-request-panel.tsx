@@ -138,7 +138,6 @@ export function IssueRequestPanel({
       title: 'Số lượng',
       key: 'qty',
       width: 90,
-      align: 'right',
       render: (_value, document) => formatNumber(document.lines.reduce((sum, line) => sum + line.quantity, 0)),
     },
   ];
@@ -328,7 +327,6 @@ function IssueRequestWorkbench({
       title: 'Xuất',
       key: 'quantity',
       width: 80,
-      align: 'right',
       render: (_value, line) => `${formatNumber(line.quantity)} ${line.unit ?? ''}`,
     },
     {

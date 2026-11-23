@@ -897,7 +897,7 @@ export function CreateStocktakeDialog({
                       <TableHeaderCell className="w-[35px] px-2 py-1.5 text-center">STT</TableHeaderCell>
                       <TableHeaderCell className="px-2 py-1.5">Mã &amp; Tên hàng</TableHeaderCell>
                       <TableHeaderCell className="w-[60px] px-2 py-1.5 text-center">ĐVT</TableHeaderCell>
-                      <TableHeaderCell className="w-[110px] px-2 py-1.5 text-right">Tồn sổ sách</TableHeaderCell>
+                      <TableHeaderCell className="w-[110px] px-2 py-1.5">Tồn sổ sách</TableHeaderCell>
                       <TableHeaderCell className="w-[40px] px-2 py-1.5 text-center">Xoá</TableHeaderCell>
                     </tr>
                   </TableHead>
@@ -915,7 +915,7 @@ export function CreateStocktakeDialog({
                             </div>
                           </TableCell>
                           <TableCell className="px-2 py-1.5 text-center text-slate-600">{item.unit || 'Cái'}</TableCell>
-                          <TableCell className="px-2 py-1.5 text-right font-semibold text-slate-900">
+                          <TableCell className="px-2 py-1.5 font-semibold text-slate-900">
                             {formatNumber(bookQty)}
                           </TableCell>
                           <TableCell className="px-2 py-1.5 text-center">

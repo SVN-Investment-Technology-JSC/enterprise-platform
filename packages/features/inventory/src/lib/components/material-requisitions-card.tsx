@@ -319,10 +319,10 @@ export function MaterialRequisitionsCard({
                           <TableRow className="bg-slate-100 text-left text-slate-600 hover:bg-slate-100">
                             <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">Mã vật tư</TableHeaderCell>
                             <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">Tên vật tư</TableHeaderCell>
-                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200 text-right">
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">
                               Cần xuất
                             </TableHeaderCell>
-                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200 text-right">
+                            <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">
                               Khả dụng trong kho
                             </TableHeaderCell>
                             <TableHeaderCell className="py-1.5 px-2.5 border-b border-b-slate-200">ĐVT</TableHeaderCell>
@@ -390,11 +390,11 @@ export function MaterialRequisitionsCard({
                                 <TableCell className="py-2 px-2.5 text-slate-800">
                                   {line.materialName || '—'}
                                 </TableCell>
-                                <TableCell className="py-2 px-2.5 text-right font-bold text-slate-900">
+                                <TableCell className="py-2 px-2.5 font-bold text-slate-900">
                                   {formatNumber(line.quantity)}
                                 </TableCell>
                                 <TableCell
-                                  className="py-2 px-2.5 text-right"
+                                  className="py-2 px-2.5"
                                   title={breakdownTooltip}
                                 >
                                   {stockTier === 'single_ready' ? (

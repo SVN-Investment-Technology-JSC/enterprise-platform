@@ -392,13 +392,13 @@ export function BatchRequisitionModal({
                       STT
                     </TableHeaderCell>
                     <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200">Vật tư</TableHeaderCell>
-                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-[125px] text-right">
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-[125px]">
                       Số lượng xuất
                     </TableHeaderCell>
                     <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-57.5">
                       Serial xuất
                     </TableHeaderCell>
-                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-52.5 text-right">
+                    <TableHeaderCell className="px-3 py-2 border-b border-b-slate-200 w-52.5">
                       Tồn kho & Trạng thái
                     </TableHeaderCell>
                   </TableRow>
@@ -421,14 +421,14 @@ export function BatchRequisitionModal({
                           <div className="font-semibold text-blue-600">{item.materialCode}</div>
                           <div className="text-[12px] text-slate-600">{item.materialName}</div>
                         </TableCell>
-                        <TableCell className="px-3 py-2 text-right">
+                        <TableCell className="px-3 py-2">
                           <div className="flex items-center justify-end gap-1">
                             <VnNumberInput
                               maxDecimals={getUnitQuantityConfig(item.unit).step === '1' ? 0 : 2}
                               value={String(item.quantity)}
                               onChange={(value) => handleItemChange(idx, { quantity: Number(value) || 0 })}
                               className={cn(
-                                'w-[75px] rounded-sm border px-2 py-[5px] text-right text-[13px] font-bold',
+                                'w-[75px] rounded-sm border px-2 py-[5px] text-[13px] font-bold',
                                 status.overdraw ? 'border-red-500' : 'border-slate-300',
                               )}
                             />
@@ -468,7 +468,7 @@ export function BatchRequisitionModal({
                             <span className="text-[12px] text-slate-400">Không theo dõi serial</span>
                           )}
                         </TableCell>
-                        <TableCell className="px-3 py-2 text-right">
+                        <TableCell className="px-3 py-2">
                           {status.tier === 'single_ready' ? (
                             <Badge variant="outline"
                               className="h-auto gap-[3px] py-0.5 px-[7px] text-[12px] font-semibold bg-emerald-50 text-emerald-700 border-emerald-200"

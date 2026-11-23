@@ -1016,7 +1016,7 @@ export function StocktakeHub({
                               placeholder="Nhập SL"
                               onChange={(value) => handleLineCountChange(line.id, value)}
                               className="h-8 w-20 min-w-0 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[13px] font-bold outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
-                              style={{ textAlign: 'right' }}
+                              style={{ textAlign: 'left' }}
                             />
                           )}
                         </TableCell>

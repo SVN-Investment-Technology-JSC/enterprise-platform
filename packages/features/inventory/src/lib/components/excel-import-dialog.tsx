@@ -1966,7 +1966,7 @@ export function ExcelImportDialog({
                       <th className="py-[8px] px-[10px] text-center w-[65px]">
                         ĐVT
                       </th>
-                      <th className="py-[8px] px-[10px] text-right w-[85px]">
+                      <th className="py-[8px] px-[10px] w-[85px]">
                         Số lượng
                       </th>
                       <th className="py-[8px] px-[10px] text-left min-w-[130px]">
@@ -1975,7 +1975,7 @@ export function ExcelImportDialog({
                       <th className="py-[8px] px-[10px] text-left min-w-[120px]">
                         Hãng SX
                       </th>
-                      <th className="py-[8px] px-[10px] text-right w-[110px]">
+                      <th className="py-[8px] px-[10px] w-[110px]">
                         Đơn giá vốn
                       </th>
                       <th className="py-[8px] px-[10px] text-left min-w-[140px]">
@@ -2029,7 +2029,7 @@ export function ExcelImportDialog({
                         <td className="py-[8px] px-[10px] text-center text-[#475569]">
                           {r.unit}
                         </td>
-                        <td className="py-[8px] px-[10px] text-right font-semibold text-[#0f172a]">
+                        <td className="py-[8px] px-[10px] font-semibold text-[#0f172a]">
                           {r.quantity > 0 ? formatQuantityVn(r.quantity) : '—'}
                         </td>
                         <td className="py-[8px] px-[10px] text-[#475569]">
@@ -2040,7 +2040,7 @@ export function ExcelImportDialog({
                         <td className="py-[8px] px-[10px] text-[#475569] text-[12px]">
                           {r.manufacturer || '—'}
                         </td>
-                        <td className="py-[8px] px-[10px] text-right text-[#475569]">
+                        <td className="py-[8px] px-[10px] text-[#475569]">
                           {r.unitCost !== undefined
                             ? formatCurrencyVn(r.unitCost)
                             : '—'}

@@ -224,7 +224,7 @@ export function WarehouseStockTab({
                 <TableHeaderCell>Tên</TableHeaderCell>
                 <TableHeaderCell>Kho</TableHeaderCell>
                 <TableHeaderCell>Đơn vị</TableHeaderCell>
-                <TableHeaderCell className="text-right">Số lượng</TableHeaderCell>
+                <TableHeaderCell className="text-left">Số lượng</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -242,7 +242,7 @@ export function WarehouseStockTab({
                   <TableCell>{material.name}</TableCell>
                   <TableCell>{warehouse?.name ?? '—'}</TableCell>
                   <TableCell>{material.unit}</TableCell>
-                  <TableCell className="text-right">{formatNumber(line.quantity)}</TableCell>
+                  <TableCell className="text-left">{formatNumber(line.quantity)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

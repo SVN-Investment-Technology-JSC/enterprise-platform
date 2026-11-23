@@ -56,6 +56,10 @@ import { Label } from '../ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
 import { Textarea } from '../ui/textarea';
 
+/** Ô nhập số trong bảng dòng phiếu: có viền và nền rõ để nhận ra đây là ô nhập, số căn trái cùng phía với chữ. */
+const NUMBER_FIELD_CLASS =
+  'h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:bg-slate-100 disabled:opacity-60';
+
 const TRACKING_OPTIONS = MATERIAL_TRACKING_MODES.map((value) => ({ value, label: MATERIAL_TRACKING_LABEL[value] }));
 
 /** Khối một nhãn và một ô nhập của phiếu. */
@@ -1538,13 +1542,13 @@ export function MovementForm({
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-10 text-center">STT</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-50">Mã &amp; Tên vật tư</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-[65px] text-center">ĐVT</TableHeaderCell>
-                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-22.5 text-right">Số lượng</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-28">Số lượng</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-32.5">Thuộc nhóm</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-35">Tình trạng kho</TableHeaderCell>
                   {kind === 'receipt' ? (
                     <>
-                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-27.5 text-right">Đơn giá (VNĐ)</TableHeaderCell>
-                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-30 text-right">Thành tiền</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-32">Đơn giá (VNĐ)</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-30">Thành tiền</TableHeaderCell>
                     </>
                   ) : null}
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-29.5 text-center">Theo dõi định danh</TableHeaderCell>
@@ -1600,7 +1604,8 @@ export function MovementForm({
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                         <VnNumberInput
                           maxDecimals={itemUnitConfig.step === '1' ? 0 : 2}
-                          className={cn('h-8 px-2 text-[13px] text-right', analysis?.isOverdraw && 'border-red-500 bg-white')}
+                          className={cn(NUMBER_FIELD_CLASS, 'font-semibold', analysis?.isOverdraw && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-100')}
+                          placeholder="Nhập SL"
                           value={item.quantity === 0 ? '' : String(item.quantity)}
                           onChange={(value) => handleUpdateQuantity(index, Number(value))}
                         />
@@ -1631,12 +1636,12 @@ export function MovementForm({
                           <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                             <VnNumberInput
                               placeholder="0"
-                              className="h-8 px-2 text-[13px]"
+                              className={NUMBER_FIELD_CLASS}
                               value={item.unitCost === undefined ? '' : String(item.unitCost)}
                               onChange={(value) => handleUpdateUnitCost(index, value ? Number(value) : undefined)}
                             />
                           </TableCell>
-                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-right font-semibold text-slate-800 text-[13px]">
+                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] font-semibold text-slate-800 text-[13px]">
                             {formatNumber(lineTotal)} đ
                           </TableCell>
                         </>
@@ -1864,7 +1869,7 @@ export function MovementForm({
                 {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).map(({ lot, available }) => (
                   <div key={lot.id} className="grid grid-cols-[1fr_110px] gap-3 items-center p-2.5 border border-slate-200 rounded-md bg-slate-50">
                     <div><strong className="text-violet-800">{lot.lotNo}</strong><div className="text-slate-500 text-[12px] mt-0.5">Khả dụng: {formatNumber(available)} {items[lotModalIndex].unit}{lot.expiresOn ? ` · HSD ${formatDate(lot.expiresOn)}` : ''}{lot.qualityStatus !== 'PASSED' ? ` · ${QUALITY_STATUS_LABEL[lot.qualityStatus]}` : ''}</div></div>
-                    <Input type="number" min={0} max={available} className="h-8 px-2 text-[13px] text-right"  value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
+                    <Input type="number" min={0} max={available} className="h-8 px-2 text-[13px]"  value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
                   </div>
                 ))}
                 {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).length === 0 ? <p className="my-2 mx-0 text-slate-500 text-[14px]">Chưa có lô dùng được tại kho này. Phần không chọn lô sẽ lấy từ tồn không theo lô.</p> : null}

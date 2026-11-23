@@ -95,7 +95,6 @@ function baseColumns(): TableColumnsType<StockDocument> {
       title: 'Dòng',
       key: 'lines',
       width: 90,
-      align: 'right',
       render: (_value, document) =>
         `${document.lines.length} / ${formatNumber(document.lines.reduce((sum, line) => sum + line.quantity, 0))}`,
     },

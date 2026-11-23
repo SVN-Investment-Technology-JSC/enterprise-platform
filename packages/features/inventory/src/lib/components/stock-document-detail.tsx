@@ -291,7 +291,6 @@ export function StockDocumentDetail({
       title: 'Số lượng',
       key: 'quantity',
       width: 100,
-      align: 'right',
       render: (_value, line) =>
         `${formatNumber(line.quantity)} ${line.unit ?? ''}`,
     },
@@ -299,7 +298,6 @@ export function StockDocumentDetail({
       title: 'Đơn giá',
       key: 'unitCost',
       width: 120,
-      align: 'right',
       render: (_value, line) =>
         line.unitCost ? formatNumber(line.unitCost) : '—',
     },
@@ -307,7 +305,6 @@ export function StockDocumentDetail({
       title: 'Giá vốn dòng',
       key: 'costAmount',
       width: 130,
-      align: 'right',
       render: (_value, line) =>
         posted && line.costAmount !== undefined ? (
           formatNumber(line.costAmount)
