@@ -1728,7 +1728,7 @@ export class InventoryApplication {
       if (await this.store.material.hasTrackingFootprint(actor.tenantId, code)) {
         throw new InventoryError('VALIDATION', trackingChangeBlockedMessage(code));
       }
-        await this.store.material.changeTrackingMode(actor.tenantId, code, {
+      await this.store.material.changeTrackingMode(actor.tenantId, code, {
         from: tracking.current,
         to: tracking.mode,
         changedBy: actor.userId,
