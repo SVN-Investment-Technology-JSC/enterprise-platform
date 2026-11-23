@@ -214,6 +214,26 @@ function parseSerials(draft: string): string[] {
   ];
 }
 
+/** Như `parseSerials` nhưng giữ nguyên số lần xuất hiện, để báo được serial bị gõ trùng thay vì lặng lẽ gộp. */
+function parseSerialTokens(draft: string): string[] {
+  return draft
+    .split(/[\n,;]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+/** Serial xuất hiện từ hai lần trở lên (không phân biệt hoa thường), theo cách viết lần đầu. */
+function repeatedSerials(tokens: readonly string[]): string[] {
+  const seen = new Map<string, { first: string; count: number }>();
+  for (const token of tokens) {
+    const key = token.toUpperCase();
+    const entry = seen.get(key);
+    if (entry) entry.count += 1;
+    else seen.set(key, { first: token, count: 1 });
+  }
+  return [...seen.values()].filter((entry) => entry.count > 1).map((entry) => entry.first);
+}
+
 /** Mỗi vật tư chỉ có một cách định danh: sê-ri, lô, hoặc theo dõi số lượng thuần. */
 /**
  * Lô chọn được tại một kho, theo hạn dùng gần nhất trước (FEFO). Phiếu xuất chỉ
@@ -516,6 +536,8 @@ export function MovementForm({
   /** Phiếu xuất, chuyển: serial Trong kho, Đạt tại kho nguồn để chọn (ISS-BE-005). */
   const [serialCandidates, setSerialCandidates] = useState<readonly string[]>([]);
   const serialRequest = useRef(0);
+  /** Serial của mã đang mở đã nằm trong sổ kho (Trong kho, đã xuất...): nhập lại là trùng, server sẽ từ chối. */
+  const [bookedSerials, setBookedSerials] = useState<ReadonlySet<string>>(new Set());
   const [lotModalIndex, setLotModalIndex] = useState<number | null>(null);
   const [lotsByMaterial, setLotsByMaterial] = useState<Record<string, Lot[]>>({});
   const [lotDraft, setLotDraft] = useState<Record<string, number>>({});
@@ -689,13 +711,18 @@ export function MovementForm({
     const it = items[index];
     setSerialDraft(it?.serialNumbers?.join('\n') ?? '');
     setSerialCandidates([]);
-    if (!outbound || !it) return;
+    setBookedSerials(new Set());
+    if (!it) return;
+    // Mã mới chưa có trong danh mục nên chưa có serial nào để so.
+    if (it.newMaterial) return;
     // Chỉ gợi ý serial đang Trong kho, Đạt tại kho xuất của dòng; server vẫn kiểm lại lúc ghi sổ.
     const sourceId = workspace.warehouses.find((w) => w.code === (it.warehouseCode || warehouseCode))?.id;
     const request = ++serialRequest.current;
     void loadSerials(it.materialCode)
       .then((rows) => {
         if (request !== serialRequest.current) return;
+        setBookedSerials(new Set(rows.filter((row) => row.stockState != null).map((row) => row.serialNumber.toUpperCase())));
+        if (!outbound) return;
         setSerialCandidates(
           rows
             .filter(
@@ -708,12 +735,47 @@ export function MovementForm({
         );
       })
       .catch(() => {
-        if (request === serialRequest.current) setSerialCandidates([]);
+        if (request === serialRequest.current) {
+          setSerialCandidates([]);
+          setBookedSerials(new Set());
+        }
       });
+  };
+
+  /** Lỗi của ô khai serial: gõ trùng, trùng dòng khác của phiếu, hoặc (phiếu nhập) đã nằm trong sổ kho. */
+  const serialProblems = (index: number | null, draft: string): string[] => {
+    if (index === null) return [];
+    const item = items[index];
+    if (!item) return [];
+    const tokens = parseSerialTokens(draft);
+    const problems: string[] = [];
+    const repeated = repeatedSerials(tokens);
+    if (repeated.length > 0) {
+      problems.push(`Số sê-ri bị nhập trùng: ${repeated.join(', ')}. Mỗi sê-ri chỉ khai một lần.`);
+    }
+    const mine = new Set(tokens.map((token) => token.toUpperCase()));
+    const elsewhere = new Set(
+      items
+        .filter((other, position) => position !== index && other.materialCode === item.materialCode)
+        .flatMap((other) => other.serialNumbers ?? [])
+        .map((serial) => serial.toUpperCase()),
+    );
+    const inOtherLines = tokens.filter((token, position) => elsewhere.has(token.toUpperCase()) && tokens.indexOf(token) === position);
+    if (inOtherLines.length > 0) {
+      problems.push(`Sê-ri đã khai ở dòng khác của phiếu: ${inOtherLines.join(', ')}.`);
+    }
+    if (kind === 'receipt') {
+      const booked = [...mine].filter((serial) => bookedSerials.has(serial));
+      if (booked.length > 0) {
+        problems.push(`Sê-ri đã có trong sổ kho của mã này: ${booked.join(', ')}. Không nhập lại được.`);
+      }
+    }
+    return problems;
   };
 
   const handleSaveSerials = () => {
     if (serialModalIndex === null) return;
+    if (serialProblems(serialModalIndex, serialDraft).length > 0) return;
     const serials = parseSerials(serialDraft);
     setItems((prev) =>
       prev.map((it, idx) => {
@@ -1580,8 +1642,9 @@ export function MovementForm({
                         </>
                       ) : null}
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center">
+                        <div className={item.newMaterial ? 'flex items-center justify-center gap-2' : undefined}>
                         {item.newMaterial ? (
-                          <div className="mb-1 min-w-[150px]">
+                          <div className="w-[150px] shrink-0">
                             <SearchableSelect
                               options={TRACKING_OPTIONS}
                               value={trackingMode}
@@ -1641,6 +1704,7 @@ export function MovementForm({
                             ) : null}
                           </>
                         )}
+                        </div>
                       </TableCell>
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                         <Input
@@ -1861,21 +1925,26 @@ export function MovementForm({
               />
               <div className="flex justify-between items-center text-[13px] text-slate-500">
                 <span>
-                  Đã nhận diện: <strong>{parseSerials(serialDraft).length}</strong> sê-ri / Cần: <strong>{items[serialModalIndex].quantity}</strong> cái
+                  Đã nhận diện: <strong>{parseSerialTokens(serialDraft).length}</strong> sê-ri / Cần: <strong>{items[serialModalIndex].quantity}</strong> cái
                 </span>
-                {parseSerials(serialDraft).length !== items[serialModalIndex].quantity ? (
+                {parseSerialTokens(serialDraft).length !== items[serialModalIndex].quantity ? (
                   <span className="text-amber-600 text-[12px]">
                     ℹ Lưu sẽ tự động đồng bộ số lượng dòng
                   </span>
                 ) : null}
               </div>
+              {serialProblems(serialModalIndex, serialDraft).map((problem) => (
+                <p key={problem} role="alert" className="m-0 text-[13px] text-red-600">
+                  {problem}
+                </p>
+              ))}
             </DialogBody>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setSerialModalIndex(null)}>
                 Huỷ
               </Button>
-              <Button type="button" onClick={handleSaveSerials}>
+              <Button type="button" disabled={serialProblems(serialModalIndex, serialDraft).length > 0} onClick={handleSaveSerials}>
                 Xác nhận lưu sê-ri
               </Button>
             </DialogFooter>
