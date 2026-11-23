@@ -11,14 +11,10 @@ const manager: InventoryActor = {
   canWriteTransactions: true,
 };
 
-type SettingValue = { enabled: boolean };
+type SettingValue = Record<string, unknown>;
 
-function setup(options: { lotEnabled?: boolean; serialEnabled?: boolean; stored?: Record<string, SettingValue> } = {}) {
-  const stored: Record<string, SettingValue> = {
-    ...(options.lotEnabled === undefined ? {} : { 'tracking.lot.enabled': { enabled: options.lotEnabled } }),
-    ...(options.serialEnabled === undefined ? {} : { 'tracking.serial.enabled': { enabled: options.serialEnabled } }),
-    ...options.stored,
-  };
+function setup(options: { stored?: Record<string, SettingValue> } = {}) {
+  const stored: Record<string, SettingValue> = { ...options.stored };
   const material = {
     findAnyByCode: jest.fn(async (_tenantId?: string, _code?: string): Promise<Material | null> => null),
     create: jest.fn(async (_t: string, input: { code: string }) => ({ ...input }) as unknown as Material),
@@ -26,7 +22,6 @@ function setup(options: { lotEnabled?: boolean; serialEnabled?: boolean; stored?
     hasStockFootprint: jest.fn(async () => false),
     hasTrackingFootprint: jest.fn(async () => false),
     changeTrackingMode: jest.fn(async () => undefined),
-    countTrackedWithStock: jest.fn(async () => 0),
     unserializedStock: jest.fn(async () => []),
   };
   const settings = {
@@ -51,8 +46,8 @@ const existing = (patch: Partial<Material> = {}) =>
   ({ code: 'VT-1', kind: 'STOCK', isActive: true, minStock: 0, maxStock: 0, trackingMode: 'NONE', isSerialized: false, ...patch }) as unknown as Material;
 
 describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
-  it('chọn LOT khi công tắc lô bật: lưu trackingMode LOT, is_serialized false', async () => {
-    const { app, material } = setup({ lotEnabled: true });
+  it('chọn LOT: lưu trackingMode LOT, is_serialized false', async () => {
+    const { app, material } = setup();
     await app.createMaterial(manager, { ...base, trackingMode: 'LOT' });
     expect(material.create).toHaveBeenCalledWith(
       't1',
@@ -62,8 +57,8 @@ describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
     );
   });
 
-  it('chọn SERIAL khi công tắc serial bật: lưu trackingMode SERIAL, is_serialized true', async () => {
-    const { app, material } = setup({ serialEnabled: true });
+  it('chọn SERIAL: lưu trackingMode SERIAL, is_serialized true', async () => {
+    const { app, material } = setup();
     await app.createMaterial(manager, { ...base, trackingMode: 'SERIAL' });
     expect(material.create).toHaveBeenCalledWith(
       't1',
@@ -73,18 +68,15 @@ describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
     );
   });
 
-  it('công tắc tắt (mặc định) thì từ chối chọn LOT và SERIAL, không tạo gì', async () => {
-    const { app, material } = setup();
-    await expect(app.createMaterial(manager, { ...base, trackingMode: 'LOT' })).rejects.toThrow(
-      'Tenant chưa bật quản lý theo lô.',
-    );
-    await expect(app.createMaterial(manager, { ...base, trackingMode: 'SERIAL' })).rejects.toThrow(
-      'Tenant chưa bật quản lý theo serial.',
-    );
-    expect(material.create).not.toHaveBeenCalled();
+  it('chọn LOT và SERIAL được ngay, không cần bật gì ở Cài đặt (cách theo dõi là thuộc tính của từng mặt hàng)', async () => {
+    const { app, material, settings } = setup();
+    await app.createMaterial(manager, { ...base, trackingMode: 'LOT' });
+    await app.createMaterial(manager, { ...base, code: 'vt-2', trackingMode: 'SERIAL' });
+    expect(settings.get).not.toHaveBeenCalled();
+    expect(material.create).toHaveBeenCalledTimes(2);
   });
 
-  it('NONE luôn chọn được và không đọc công tắc', async () => {
+  it('NONE chọn được và không đọc cài đặt nào', async () => {
     const { app, material, settings } = setup();
     await app.createMaterial(manager, { ...base, trackingMode: 'NONE' });
     expect(settings.get).not.toHaveBeenCalled();
@@ -107,7 +99,7 @@ describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
     );
   });
 
-  it('đường cũ chỉ gửi isSerialized: SERIAL, không bị công tắc chặn (nhập từ hệ cũ giữ nguyên hành vi)', async () => {
+  it('đường cũ chỉ gửi isSerialized: SERIAL, giữ nguyên hành vi nhập từ hệ cũ', async () => {
     const { app, material, settings } = setup();
     await app.createMaterial(manager, { ...base, isSerialized: true });
     expect(settings.get).not.toHaveBeenCalled();
@@ -120,7 +112,7 @@ describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
   });
 
   it('trackingMode và isSerialized lệch nhau thì từ chối', async () => {
-    const { app } = setup({ lotEnabled: true });
+    const { app } = setup();
     await expect(app.createMaterial(manager, { ...base, trackingMode: 'LOT', isSerialized: true })).rejects.toThrow(
       'không khớp',
     );
@@ -134,7 +126,7 @@ describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
   });
 
   it('dịch vụ luôn NONE; chọn LOT cho dịch vụ thì từ chối', async () => {
-    const { app, material } = setup({ lotEnabled: true });
+    const { app, material } = setup();
     await app.createMaterial(manager, { ...base, kind: 'SERVICE' });
     expect(material.create).toHaveBeenCalledWith(
       't1',
@@ -150,7 +142,7 @@ describe('InventoryApplication cách theo dõi: tạo mặt hàng', () => {
 
 describe('InventoryApplication cách theo dõi: đổi cách theo dõi của mặt hàng', () => {
   it('đã có tồn, chứng từ, lô hay serial thì từ chối và không đổi gì', async () => {
-    const { app, material } = setup({ lotEnabled: true });
+    const { app, material } = setup();
     material.findAnyByCode.mockResolvedValue(existing());
     material.hasTrackingFootprint.mockResolvedValue(true);
     await expect(app.updateMaterial(manager, 'VT-1', { trackingMode: 'LOT' })).rejects.toThrow(
@@ -161,7 +153,7 @@ describe('InventoryApplication cách theo dõi: đổi cách theo dõi của m�
   });
 
   it('chưa có dấu vết thì đổi và ghi lịch sử (người đổi, lý do)', async () => {
-    const { app, material } = setup({ lotEnabled: true });
+    const { app, material } = setup();
     material.findAnyByCode.mockResolvedValue(existing());
     await app.updateMaterial(manager, 'VT-1', { trackingMode: 'LOT', trackingChangeReason: 'Khai nhầm' });
     expect(material.changeTrackingMode).toHaveBeenCalledWith('t1', 'VT-1', {
@@ -172,13 +164,16 @@ describe('InventoryApplication cách theo dõi: đổi cách theo dõi của m�
     });
   });
 
-  it('công tắc tắt thì không đổi sang LOT', async () => {
-    const { app, material } = setup();
+  it('đổi sang LOT được ngay khi chưa có dấu vết, không cần bật gì ở Cài đặt', async () => {
+    const { app, material, settings } = setup();
     material.findAnyByCode.mockResolvedValue(existing());
-    await expect(app.updateMaterial(manager, 'VT-1', { trackingMode: 'LOT' })).rejects.toThrow(
-      'Tenant chưa bật quản lý theo lô.',
+    await app.updateMaterial(manager, 'VT-1', { trackingMode: 'LOT' });
+    expect(settings.get).not.toHaveBeenCalled();
+    expect(material.changeTrackingMode).toHaveBeenCalledWith(
+      't1',
+      'VT-1',
+      expect.objectContaining({ from: 'NONE', to: 'LOT' }),
     );
-    expect(material.changeTrackingMode).not.toHaveBeenCalled();
   });
 
   it('gửi lại đúng cách theo dõi hiện tại: không kiểm dấu vết, không ghi lịch sử', async () => {
@@ -198,7 +193,7 @@ describe('InventoryApplication cách theo dõi: đổi cách theo dõi của m�
     expect(material.update).toHaveBeenCalledWith('t1', 'VT-1', { category: 'CONSUMABLE' });
   });
 
-  it('đường cũ: bật isSerialized thành SERIAL, vẫn bị chặn khi đã có dấu vết, không bị công tắc chặn', async () => {
+  it('đường cũ: bật isSerialized thành SERIAL, vẫn bị chặn khi đã có dấu vết, ', async () => {
     const { app, material, settings } = setup();
     material.findAnyByCode.mockResolvedValue(existing());
     await app.updateMaterial(manager, 'VT-1', { isSerialized: true });
@@ -235,44 +230,10 @@ describe('InventoryApplication cách theo dõi: đổi cách theo dõi của m�
   });
 });
 
-describe('InventoryApplication cách theo dõi: công tắc tenant', () => {
-  it('tắt công tắc lô khi còn mặt hàng theo lô có tồn thì từ chối, nêu số mặt hàng', async () => {
-    const { app, material, settings } = setup({ lotEnabled: true });
-    material.countTrackedWithStock.mockResolvedValue(3);
-    await expect(
-      app.updateSetting(manager, 'tracking.lot.enabled', { value: { enabled: false } }),
-    ).rejects.toThrow('Còn 3 mặt hàng đang theo dõi theo lô và có tồn; chưa tắt được.');
-    expect(material.countTrackedWithStock).toHaveBeenCalledWith('t1', 'LOT');
+describe('InventoryApplication cách theo dõi: không còn công tắc toàn tenant', () => {
+  it.each(['tracking.lot.enabled', 'tracking.serial.enabled'])('khoá cũ %s bị từ chối như khoá lạ', async (key) => {
+    const { app, settings } = setup();
+    await expect(app.updateSetting(manager, key as never, { value: { enabled: true } })).rejects.toThrow();
     expect(settings.put).not.toHaveBeenCalled();
-  });
-
-  it('tắt công tắc serial khi không còn hàng có tồn thì được', async () => {
-    const { app, material, settings } = setup({ serialEnabled: true });
-    material.countTrackedWithStock.mockResolvedValue(0);
-    const saved = await app.updateSetting(manager, 'tracking.serial.enabled', { value: { enabled: false } });
-    expect(material.countTrackedWithStock).toHaveBeenCalledWith('t1', 'SERIAL');
-    expect(settings.put).toHaveBeenCalledWith('t1', 'tracking.serial.enabled', { enabled: false }, 'u1', undefined);
-    expect(saved.value).toEqual({ enabled: false });
-  });
-
-  it('công tắc đang tắt thì lưu tắt lại không phải kiểm tồn', async () => {
-    const { app, material } = setup({ lotEnabled: false });
-    material.countTrackedWithStock.mockResolvedValue(5);
-    await app.updateSetting(manager, 'tracking.lot.enabled', { value: { enabled: false } });
-    expect(material.countTrackedWithStock).not.toHaveBeenCalled();
-  });
-
-  it('bật công tắc không cần kiểm tồn', async () => {
-    const { app, material, settings } = setup();
-    await app.updateSetting(manager, 'tracking.lot.enabled', { value: { enabled: true } });
-    expect(material.countTrackedWithStock).not.toHaveBeenCalled();
-    expect(settings.put).toHaveBeenCalledWith('t1', 'tracking.lot.enabled', { enabled: true }, 'u1', undefined);
-  });
-
-  it('chỉ người có quyền quản lý mới đổi được công tắc', async () => {
-    const { app } = setup();
-    await expect(
-      app.updateSetting({ ...manager, canManage: false }, 'tracking.lot.enabled', { value: { enabled: true } }),
-    ).rejects.toThrow();
   });
 });

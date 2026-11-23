@@ -134,8 +134,6 @@ export interface InventoryStore {
         readonly reason?: string;
       },
     ): Promise<void>;
-    /** Số mặt hàng đang theo dõi theo `mode` mà còn tồn; chặn tắt công tắc lô, serial của tenant. */
-    countTrackedWithStock(tenantId: string, mode: MaterialTrackingMode): Promise<number>;
     /**
      * Kho có tồn mà số serial Trong kho tại kho đó không khớp tồn (ISS-BE-005):
      * rỗng nghĩa là bật theo dõi serial không làm lệch sổ.

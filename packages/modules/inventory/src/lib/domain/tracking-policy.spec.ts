@@ -4,8 +4,6 @@ import {
   resolveCreateTracking,
   resolveUpdateTracking,
   trackingChangeBlockedMessage,
-  trackingSwitchBlockedMessage,
-  trackingSwitchOffMessage,
 } from './tracking-policy.js';
 
 describe('requireTrackingMode', () => {
@@ -105,11 +103,6 @@ describe('thông báo', () => {
   it('nêu đúng mã, cách theo dõi và số mặt hàng', () => {
     expect(trackingChangeBlockedMessage('VT-1')).toBe(
       'Mã VT-1 đã có tồn, bút toán, chứng từ, giữ hàng, lô hoặc serial; không đổi được cách theo dõi.',
-    );
-    expect(trackingSwitchOffMessage('LOT')).toContain('quản lý theo lô');
-    expect(trackingSwitchOffMessage('SERIAL')).toContain('quản lý theo serial');
-    expect(trackingSwitchBlockedMessage('SERIAL', 3)).toBe(
-      'Còn 3 mặt hàng đang theo dõi theo serial và có tồn; chưa tắt được. Hãy xuất hết hoặc điều chỉnh về 0 trước.',
     );
   });
 });

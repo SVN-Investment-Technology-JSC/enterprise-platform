@@ -960,13 +960,8 @@ export function InventoryScreen() {
     setSavingCards(true);
     let next = settings;
     try {
-      // Công tắc trước, bảng gợi ý sau; chỉ ghi khoá nào đổi. Dừng ở khoá đầu tiên lỗi (ví dụ còn hàng có tồn
-      // đang theo dõi nên không tắt được) và giữ những khoá đã lưu.
-      const writes = [
-        ['tracking.serial.enabled', { enabled: trackingDraft.serialEnabled }],
-        ['tracking.lot.enabled', { enabled: trackingDraft.lotEnabled }],
-        ['tracking.defaultByCategory', trackingDraft.defaults],
-      ] as const;
+      // Chỉ còn bảng gợi ý theo nhóm; cách theo dõi do từng mặt hàng tự chọn, không còn công tắc toàn tenant.
+      const writes = [['tracking.defaultByCategory', trackingDraft.defaults]] as const;
       for (const [key, value] of writes) {
         if (JSON.stringify(value) === JSON.stringify(next[key]?.value)) continue;
         const saved = await saveInventorySetting(key, value, next[key]?.version);
@@ -975,7 +970,7 @@ export function InventoryScreen() {
       setTrackingDraft(trackingDraftFromSettings(next));
       setError(undefined);
     } catch (cause) {
-      notifyError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình theo dõi lô và serial.');
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được gợi ý cách theo dõi.');
     } finally {
       setSettings(next);
       setSavingCards(false);
@@ -1265,14 +1260,6 @@ export function InventoryScreen() {
               units={settings?.['catalog.unit'].value.units ?? []}
               types={settings?.['catalog.asset'].value.types ?? []}
               catalog={settings?.['catalog.trade']?.value}
-              tracking={
-                settings
-                  ? {
-                      lotEnabled: settings['tracking.lot.enabled']?.value.enabled === true,
-                      serialEnabled: settings['tracking.serial.enabled']?.value.enabled === true,
-                    }
-                  : undefined
-              }
               trackingDefaults={settings?.['tracking.defaultByCategory']?.value}
               busy={busy}
               onCancel={() => {
@@ -1466,9 +1453,9 @@ export function InventoryScreen() {
                 },
                 {
                   id: 'tracking',
-                  label: 'Theo dõi lô và serial',
+                  label: 'Gợi ý cách theo dõi',
                   description:
-                    'Bật quản lý theo lô hoặc theo serial cho đơn vị. Tắt thì form hàng hóa không hiện lựa chọn đó. Còn hàng đang theo dõi kiểu đó mà có tồn thì không tắt được.',
+                    'Lô và serial là thuộc tính của từng mặt hàng, chọn khi tạo mặt hàng. Bảng này chỉ điền sẵn cách theo dõi theo nhóm; người dùng vẫn đổi được.',
                   render: () =>
                     trackingDraft ? (
                       <TrackingSettingsEditor

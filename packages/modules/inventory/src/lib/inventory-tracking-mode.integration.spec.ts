@@ -217,8 +217,7 @@ integration('Cách theo dõi của mặt hàng qua InventoryApplication (DB th�
     expect(await row('TK-C')).toMatchObject({ tracking_mode: 'SERIAL', is_serialized: true });
   });
 
-  it('bật công tắc rồi tạo theo lô: lưu LOT; nhóm tiêu hao không tự thành theo lô', async () => {
-    await app.updateSetting(admin, 'tracking.lot.enabled', { value: { enabled: true } });
+  it('tạo theo lô: lưu LOT; nhóm tiêu hao không tự thành theo lô', async () => {
     await app.createMaterial(admin, { ...base, code: 'TK-LOT', name: 'Dầu', trackingMode: 'LOT' });
     await app.createMaterial(admin, { ...base, code: 'TK-CON', name: 'Vít', category: 'CONSUMABLE' });
     expect(await row('TK-LOT')).toMatchObject({ tracking_mode: 'LOT', is_serialized: false });
@@ -272,14 +271,12 @@ integration('Cách theo dõi của mặt hàng qua InventoryApplication (DB th�
     );
   });
 
-  it('không tắt được công tắc lô khi còn mặt hàng theo lô có tồn; tắt được khi hết', async () => {
+  it('không còn công tắc lô toàn tenant: khoá cũ bị từ chối', async () => {
     await expect(
-      app.updateSetting(admin, 'tracking.lot.enabled', { value: { enabled: false } }),
-    ).rejects.toThrow('Còn 1 mặt hàng đang theo dõi theo lô và có tồn; chưa tắt được.');
-    // Xuất hết hàng thì tắt được.
+      app.updateSetting(admin, 'tracking.lot.enabled' as never, { value: { enabled: false } }),
+    ).rejects.toThrow();
+    // Xuất hết hàng để các ca sau không phụ thuộc tồn của mặt hàng theo lô.
     await app.issueStock(admin, { warehouseCode: 'TK-KHO', materialCode: 'TK-LOT', quantity: 4 });
-    const saved = await app.updateSetting(admin, 'tracking.lot.enabled', { value: { enabled: false } });
-    expect(saved.value).toEqual({ enabled: false });
   });
 
   it('khai serial cho mặt hàng đang theo lô thì từ chối', async () => {

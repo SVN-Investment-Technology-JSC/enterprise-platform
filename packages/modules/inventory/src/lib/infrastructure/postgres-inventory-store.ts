@@ -659,21 +659,6 @@ export class PostgresInventoryStore implements InventoryStore {
       });
     },
 
-    countTrackedWithStock: async (tenantId: string, mode: MaterialTrackingMode): Promise<number> => {
-      const pool = await this.poolFor(tenantId);
-      const result = await pool.query<Row>(
-        `SELECT count(*)::int AS n
-           FROM inventory_schema.materials m
-          WHERE m.tracking_mode = $1
-            AND EXISTS (
-              SELECT 1 FROM inventory_schema.material_inventory b
-               WHERE b.material_id = m.id AND b.quantity > 0
-            )`,
-        [mode],
-      );
-      return num(result.rows[0]?.n ?? 0);
-    },
-
     unserializedStock: async (
       tenantId: string,
       code: string,

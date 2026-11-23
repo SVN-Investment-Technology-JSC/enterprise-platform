@@ -104,11 +104,3 @@ export function trackingModeLabel(mode: MaterialTrackingMode): string {
 export function trackingChangeBlockedMessage(code: string): string {
   return `Mã ${code} đã có tồn, bút toán, chứng từ, giữ hàng, lô hoặc serial; không đổi được cách theo dõi.`;
 }
-
-export function trackingSwitchOffMessage(mode: MaterialTrackingMode): string {
-  return `Tenant chưa bật quản lý theo ${trackingModeLabel(mode)}. Hãy bật trong Cài đặt của Kho trước khi chọn cách theo dõi này.`;
-}
-
-export function trackingSwitchBlockedMessage(mode: MaterialTrackingMode, count: number): string {
-  return `Còn ${count} mặt hàng đang theo dõi theo ${trackingModeLabel(mode)} và có tồn; chưa tắt được. Hãy xuất hết hoặc điều chỉnh về 0 trước.`;
-}

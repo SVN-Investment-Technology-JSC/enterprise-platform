@@ -72,12 +72,6 @@ const CATEGORY_OPTIONS = (Object.keys(MATERIAL_CATEGORY_LABEL) as MaterialCatego
   label: MATERIAL_CATEGORY_LABEL[value],
 }));
 
-/** Công tắc quản lý theo lô, serial của tenant (Cài đặt). */
-export interface MaterialFormTracking {
-  readonly lotEnabled: boolean;
-  readonly serialEnabled: boolean;
-}
-
 /** Dịch vụ, phần mềm có trong danh mục để bán nhưng không quản lý tồn (D6). */
 const KIND_OPTIONS: { value: MaterialKind; label: string }[] = [
   { value: 'STOCK', label: 'Hàng hoá (quản lý tồn kho)' },
@@ -99,7 +93,6 @@ export function MaterialForm({
   units = [],
   types = [],
   catalog,
-  tracking,
   trackingDefaults,
   busy,
   onCancel,
@@ -112,11 +105,6 @@ export function MaterialForm({
   types?: readonly string[];
   /** Danh mục phân loại khai trong Cài đặt: nguồn duy nhất của ô Phân loại (hàng hóa và dịch vụ có danh sách riêng). */
   catalog?: InventoryTradeCatalog;
-  /**
-   * Công tắc quản lý theo lô, serial của tenant. Chưa tải xong thì để trống: form hiện đủ ba cách và server kiểm
-   * lại. Tắt thì ẩn cách theo dõi tương ứng.
-   */
-  tracking?: MaterialFormTracking;
   /** Gợi ý cách theo dõi theo nhóm (Cài đặt); trống thì dùng mặc định tích hợp. */
   trackingDefaults?: TrackingDefaultsByCategory;
   busy: boolean;
@@ -143,15 +131,10 @@ export function MaterialForm({
 
   // Nhóm kỹ thuật (phụ tùng, tiêu hao...) độc lập với cách theo dõi: chỉ gợi ý giá trị điền sẵn lúc tạo.
   const [category, setCategory] = useState<MaterialCategory>(editing?.category ?? 'SPARE_PART');
-  const modeAllowed = (mode: MaterialTrackingMode): boolean =>
-    mode === 'NONE' ||
-    tracking === undefined ||
-    (mode === 'LOT' ? tracking.lotEnabled : tracking.serialEnabled);
-  // Sửa: cách theo dõi đang lưu. Tạo: gợi ý theo nhóm, nhưng chỉ lấy khi tenant đã bật cách đó.
+  // Sửa: cách theo dõi đang lưu. Tạo: điền sẵn theo gợi ý của nhóm; người dùng chọn lại được.
   const currentMode: MaterialTrackingMode | undefined = editing ? resolveTrackingMode(editing) : undefined;
   const suggestedMode = (next: MaterialCategory): MaterialTrackingMode => {
-    const suggestion = suggestTrackingMode(next, trackingDefaults);
-    return modeAllowed(suggestion) ? suggestion : 'NONE';
+    return suggestTrackingMode(next, trackingDefaults);
   };
   const [trackingMode, setTrackingMode] = useState<MaterialTrackingMode>(
     currentMode ?? suggestedMode(category),
@@ -221,10 +204,8 @@ export function MaterialForm({
   };
 
   const isDisabled = busy;
-  // Ẩn cách theo dõi tenant chưa bật; riêng cách đang lưu của mã đang sửa luôn hiện để không làm mất nó khỏi form.
-  const visibleCards = TRACKING_CARDS.filter(
-    (card) => modeAllowed(card.mode) || card.mode === currentMode,
-  );
+  // Cách theo dõi là thuộc tính của từng mặt hàng: luôn hiện đủ các lựa chọn.
+  const visibleCards = TRACKING_CARDS;
 
   const dirtySnapshot = JSON.stringify([code, name, category, tradeCategory, type, unit, minStock, maxStock, kind, warrantyMonths, purchasePrice, trackingMode]);
   const [initialSnapshot] = useState(dirtySnapshot);

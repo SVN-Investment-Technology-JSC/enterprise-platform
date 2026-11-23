@@ -102,8 +102,8 @@ export interface CreateMaterialRequest {
   /** Cờ cũ, tương đương `trackingMode = 'SERIAL'`. Gửi cả hai thì phải khớp nhau. */
   readonly isSerialized?: boolean;
   /**
-   * Cách theo dõi tồn. Bỏ trống: `SERIAL` nếu `isSerialized`, ngược lại `NONE`. Chọn `LOT` hoặc `SERIAL`
-   * cần công tắc `tracking.lot.enabled` hoặc `tracking.serial.enabled` của tenant đang bật.
+   * Cách theo dõi tồn, chọn riêng cho từng mặt hàng (không có công tắc toàn tenant). Bỏ trống: `SERIAL` nếu
+   * `isSerialized`, ngược lại `NONE`.
    */
   readonly trackingMode?: MaterialTrackingMode;
   readonly barcode?: string;
@@ -1395,8 +1395,6 @@ export const INVENTORY_SETTINGS_KEYS = [
   'documents.approval',
   'costing.method',
   'warehouse.location.levels',
-  'tracking.lot.enabled',
-  'tracking.serial.enabled',
   'tracking.defaultByCategory',
 ] as const;
 
@@ -1535,15 +1533,6 @@ export interface InventoryCostingSettings {
   readonly method: CostingMethod;
 }
 
-/**
- * Công tắc quản lý theo lô hoặc theo serial của tenant. Mặc định TẮT: tenant không bật thì giao diện không hiện
- * lựa chọn tương ứng và server từ chối đặt `tracking_mode` đó. Tenant đã có dữ liệu lô hoặc serial được migration
- * 0027 tự bật.
- */
-export interface InventoryTrackingSwitch {
-  readonly enabled: boolean;
-}
-
 export interface InventorySettings {
   readonly 'dashboard.cards': DashboardCardSelection;
   readonly 'catalog.material': InventoryCatalogSettings;
@@ -1555,8 +1544,6 @@ export interface InventorySettings {
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
   readonly 'warehouse.location.levels': WarehouseLocationLevelsSettings;
-  readonly 'tracking.lot.enabled': InventoryTrackingSwitch;
-  readonly 'tracking.serial.enabled': InventoryTrackingSwitch;
   readonly 'tracking.defaultByCategory': TrackingDefaultsByCategory;
 }
 

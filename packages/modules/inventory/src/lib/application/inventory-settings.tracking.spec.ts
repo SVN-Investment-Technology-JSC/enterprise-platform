@@ -1,21 +1,10 @@
 import { INVENTORY_SETTINGS_DEFAULTS, normalizeInventorySetting } from './inventory-settings.js';
 
 describe('cài đặt theo dõi lô và serial', () => {
-  it('công tắc lô và serial mặc định TẮT', () => {
-    expect(INVENTORY_SETTINGS_DEFAULTS['tracking.lot.enabled']).toEqual({ enabled: false });
-    expect(INVENTORY_SETTINGS_DEFAULTS['tracking.serial.enabled']).toEqual({ enabled: false });
+  it('không còn công tắc lô, serial toàn tenant: khoá cũ không nằm trong danh sách cấu hình', () => {
+    expect(Object.keys(INVENTORY_SETTINGS_DEFAULTS)).not.toContain('tracking.lot.enabled');
+    expect(Object.keys(INVENTORY_SETTINGS_DEFAULTS)).not.toContain('tracking.serial.enabled');
   });
-
-  it.each(['tracking.lot.enabled', 'tracking.serial.enabled'] as const)(
-    '%s: chỉ true thật mới bật, payload hỏng rơi về tắt',
-    (key) => {
-      expect(normalizeInventorySetting(key, { enabled: true })).toEqual({ enabled: true });
-      expect(normalizeInventorySetting(key, { enabled: 'true' })).toEqual({ enabled: false });
-      expect(normalizeInventorySetting(key, { enabled: 1 })).toEqual({ enabled: false });
-      expect(normalizeInventorySetting(key, null)).toEqual({ enabled: false });
-      expect(normalizeInventorySetting(key, undefined)).toEqual({ enabled: false });
-    },
-  );
 
   it('gợi ý theo nhóm mặc định: ROTABLE và TOOL theo serial, còn lại theo số lượng', () => {
     expect(INVENTORY_SETTINGS_DEFAULTS['tracking.defaultByCategory']).toEqual({
