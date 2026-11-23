@@ -285,7 +285,8 @@ function SearchableMaterialCombobox({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const availableMaterials = useMemo(() => {
-    const active = materials.filter((m) => m.isActive !== false);
+    // Dịch vụ không có tồn: không đưa vào phiếu nhập, xuất, chuyển kho.
+    const active = materials.filter((m) => m.isActive !== false && m.kind !== 'SERVICE');
     if (!excludedCodes || excludedCodes.length === 0) return active;
     const excludedSet = new Set(excludedCodes);
     return active.filter((m) => !excludedSet.has(m.code));

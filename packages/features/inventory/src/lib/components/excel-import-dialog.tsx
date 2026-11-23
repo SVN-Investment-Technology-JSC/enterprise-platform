@@ -1102,6 +1102,10 @@ export function ExcelImportDialog({
       const existingMaterial =
         materialMap.get(normalizedCode) || materialMap.get(normalize(rawCode));
       const isNew = !existingMaterial && Boolean(rawCode);
+      // Dịch vụ không có tồn nên không nằm trong phiếu nhập, xuất, chuyển kho (server cũng từ chối).
+      if (movementKind && existingMaterial?.kind === 'SERVICE') {
+        errors.push('Mã này là dịch vụ, không có tồn nên không đưa vào phiếu nhập, xuất, chuyển kho');
+      }
       if (isNew && movementKind && movementKind !== 'receipt') {
         errors.push(
           'Mã vật tư chưa có trong danh mục nên không thể xuất hoặc chuyển kho',
