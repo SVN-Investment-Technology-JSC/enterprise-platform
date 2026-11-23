@@ -56,9 +56,30 @@ import {
 import { useDirectory } from './use-directory';
 import { Confirm, ConfirmBox } from './confirm-box';
 import { Tooltip } from './tooltip';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
+
+/** Cột có thể đổi chỗ của bảng tài liệu, theo thứ tự mặc định; cột Thao tác luôn đứng cuối. */
+const DOC_COLUMNS = ['name', 'location', 'version', 'links', 'updated'] as const;
+const DOC_COLUMN_DEFAULTS: readonly string[] = DOC_COLUMNS;
+const DOC_COLUMN_PINNED: readonly string[] = ['name'];
+/** Độ rộng cột Thao tác (khớp `.docColActions`), cộng thêm vào bề rộng bảng khi người dùng đã chỉnh độ rộng cột. */
+const DOC_ACTIONS_WIDTH = 92;
+const DOC_COLUMN_LABELS: Record<string, string> = {
+  name: 'Tên',
+  location: 'Nơi lưu',
+  version: 'Bản',
+  links: 'Gắn với',
+  updated: 'Cập nhật',
+};
+const DOC_COLUMN_CLASS: Record<string, string | undefined> = {
+  version: styles.docColVersion,
+  links: styles.docColLinks,
+  updated: styles.docColUpdated,
+};
 
 export interface DocumentPanelProps {
   /** Rỗng nghĩa là trang Tài liệu chung: cả tài liệu dự án lẫn cấp đơn vị. */
@@ -116,6 +137,8 @@ export function DocumentPanel({
   onCount,
 }: DocumentPanelProps) {
   const directory = useDirectory();
+  const columns = useColumnOrder('documents', currentUserId, DOC_COLUMN_DEFAULTS, DOC_COLUMN_PINNED);
+  const sizing = useColumnWidths('documents', currentUserId, DOC_COLUMN_DEFAULTS);
   const [folders, setFolders] = useState<readonly DocumentFolder[]>([]);
   const [documents, setDocuments] = useState<readonly DocumentSummary[]>([]);
   const [folderId, setFolderId] = useState<string>();
@@ -1245,6 +1268,7 @@ export function DocumentPanel({
             </nav>
           )}
           <span className={styles.documentListCount}>{listedDocuments.length} tài liệu</span>
+          <ResetColumnLayoutButton order={columns} sizing={sizing} />
           <Tooltip content="Tải lại">
             <Button variant="ghost" size="icon-sm"
               type="button"
@@ -1266,15 +1290,46 @@ export function DocumentPanel({
         </p>
       ) : (
         <div className={styles.tableScroll}>
-        <table className={`${styles.table} ${styles.docTable}`}>
+        <table
+          className={`${styles.table} ${styles.docTable}${sizing.customized ? ` ${styles.columnsResized}` : ''}`}
+          style={(() => {
+            const explicit = explicitTableStyle(
+              columns.order.filter((id) => id !== 'location' || flatSearch),
+              sizing.widths,
+            );
+            return explicit
+              ? {
+                  ...explicit,
+                  width: explicit.width + DOC_ACTIONS_WIDTH,
+                  minWidth: explicit.minWidth + DOC_ACTIONS_WIDTH,
+                }
+              : undefined;
+          })()}
+        >
           <thead>
             <tr>
-              <th>Tên</th>
-              {flatSearch ? <th>Nơi lưu</th> : null}
-              <th className={styles.docColVersion}>Bản</th>
-              <th className={styles.docColLinks}>Gắn với</th>
-              <th className={styles.docColUpdated}>Cập nhật</th>
-              <th className={styles.docColActions} aria-label="Thao tác" />
+              {columns.order
+                .filter((id) => id !== 'location' || flatSearch)
+                .map((id) => (
+                  <ReorderableTh
+                    key={id}
+                    tableKey="documents"
+                    id={id}
+                    order={columns.order}
+                    pinned={DOC_COLUMN_PINNED}
+                    onMove={columns.move}
+                    label={DOC_COLUMN_LABELS[id]}
+                    className={DOC_COLUMN_CLASS[id]}
+                    sizing={sizing}
+                  >
+                    {DOC_COLUMN_LABELS[id]}
+                  </ReorderableTh>
+                ))}
+              <th
+                className={styles.docColActions}
+                style={{ width: DOC_ACTIONS_WIDTH, minWidth: DOC_ACTIONS_WIDTH }}
+                aria-label="Thao tác"
+              />
             </tr>
           </thead>
           <tbody>
@@ -1392,79 +1447,98 @@ export function DocumentPanel({
                       : undefined
                   }
                 >
-                  <td>
-                    <Tooltip content={document.currentVersion?.fileName ?? document.name}>
-                    <button
-                      type="button"
-                      className={styles.docName}
-                      onClick={() => void open(document.id)}
-                    >
-                      <FileTile fileName={document.currentVersion?.fileName ?? document.name} />
-                      <span className={styles.docNameText}>{document.name}</span>
-                      {!flatSearch && folderId && document.folderId !== folderId ? (
-                        <Tooltip content={`Tham chiếu — bản gốc ở ${pathOf(document.folderId)}`}>
-                          <span className={styles.refMark}>
-                            <Link2 size={12} aria-label="Tham chiếu" />
-                          </span>
-                        </Tooltip>
-                      ) : null}
-                      {pending ? (
-                        <span className={styles.badgeWarn}>Chưa tải lên xong</span>
-                      ) : document.lockedByUserId ? (
-                        <Tooltip content={`Đang khoá để sửa bởi ${directory.nameOf(document.lockedByUserId)}`}>
-                          <span className={styles.badgeLocked}>
-                            <Lock size={11} /> {shortName(directory.nameOf(document.lockedByUserId))}
-                          </span>
-                        </Tooltip>
-                      ) : null}
-                      {document.audience === 'customer' ? (
-                        <Tooltip content="Tài liệu khách hàng — hiện trên trang Khách hàng của dự án">
-                          <span className={styles.badgeCustomer}>Khách hàng</span>
-                        </Tooltip>
-                      ) : null}
-                    </button>
-                    </Tooltip>
-                  </td>
-                  {flatSearch ? (
-                    <td className={styles.muted}>
-                      {pathOf(document.folderId)}
-                      {document.projectId ? ` · ${projectLabels[document.projectId] ?? ''}` : ''}
-                    </td>
-                  ) : null}
-                  <td className={styles.docVersion}>
-                    <Tooltip content={`${document.versionCount} phiên bản`}>
-                      <span>v{document.currentVersion?.versionNo ?? 1}</span>
-                    </Tooltip>
-                  </td>
-                  <td className={styles.docLinks}>
-                    {(document.linkedWorkItems ?? []).slice(0, 1).map((item) => (
-                      <Tooltip key={item.id} content={`${item.code} · ${item.title}`}>
-                        <span className={styles.docLinkChip}>{item.code}</span>
-                      </Tooltip>
-                    ))}
-                    {(document.linkedWorkItems?.length ?? 0) > 1 ? (
-                      <Tooltip
-                        content={(document.linkedWorkItems ?? [])
-                          .slice(1)
-                          .map((item) => `${item.code} · ${item.title}`)
-                          .join('\n')}
-                      >
-                        <span className={styles.muted}>
-                          +{(document.linkedWorkItems?.length ?? 0) - 1}
-                        </span>
-                      </Tooltip>
-                    ) : null}
-                  </td>
-                  <td className={styles.docUpdated}>
-                    <Tooltip
-                      content={`${directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} · ${formatDateTime(document.updatedAt)}`}
-                    >
-                      <span>
-                        {directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} ·{' '}
-                        {formatDate(document.updatedAt).slice(0, 5)}
-                      </span>
-                    </Tooltip>
-                  </td>
+                  {columns.order.map((id) => {
+                    switch (id) {
+                      case 'name':
+                        return (
+                        <td key="name">
+                          <Tooltip content={document.currentVersion?.fileName ?? document.name}>
+                          <button
+                            type="button"
+                            className={styles.docName}
+                            onClick={() => void open(document.id)}
+                          >
+                            <FileTile fileName={document.currentVersion?.fileName ?? document.name} />
+                            <span className={styles.docNameText}>{document.name}</span>
+                            {!flatSearch && folderId && document.folderId !== folderId ? (
+                              <Tooltip content={`Tham chiếu — bản gốc ở ${pathOf(document.folderId)}`}>
+                                <span className={styles.refMark}>
+                                  <Link2 size={12} aria-label="Tham chiếu" />
+                                </span>
+                              </Tooltip>
+                            ) : null}
+                            {pending ? (
+                              <span className={styles.badgeWarn}>Chưa tải lên xong</span>
+                            ) : document.lockedByUserId ? (
+                              <Tooltip content={`Đang khoá để sửa bởi ${directory.nameOf(document.lockedByUserId)}`}>
+                                <span className={styles.badgeLocked}>
+                                  <Lock size={11} /> {shortName(directory.nameOf(document.lockedByUserId))}
+                                </span>
+                              </Tooltip>
+                            ) : null}
+                            {document.audience === 'customer' ? (
+                              <Tooltip content="Tài liệu khách hàng — hiện trên trang Khách hàng của dự án">
+                                <span className={styles.badgeCustomer}>Khách hàng</span>
+                              </Tooltip>
+                            ) : null}
+                          </button>
+                          </Tooltip>
+                        </td>
+                        );
+                      case 'location':
+                        return flatSearch ? (
+                        <td key="location" className={styles.muted}>
+                          {pathOf(document.folderId)}
+                          {document.projectId ? ` · ${projectLabels[document.projectId] ?? ''}` : ''}
+                        </td>
+                        ) : null;
+                      case 'version':
+                        return (
+                        <td key="version" className={styles.docVersion}>
+                          <Tooltip content={`${document.versionCount} phiên bản`}>
+                            <span>v{document.currentVersion?.versionNo ?? 1}</span>
+                          </Tooltip>
+                        </td>
+                        );
+                      case 'links':
+                        return (
+                        <td key="links" className={styles.docLinks}>
+                          {(document.linkedWorkItems ?? []).slice(0, 1).map((item) => (
+                            <Tooltip key={item.id} content={`${item.code} · ${item.title}`}>
+                              <span className={styles.docLinkChip}>{item.code}</span>
+                            </Tooltip>
+                          ))}
+                          {(document.linkedWorkItems?.length ?? 0) > 1 ? (
+                            <Tooltip
+                              content={(document.linkedWorkItems ?? [])
+                                .slice(1)
+                                .map((item) => `${item.code} · ${item.title}`)
+                                .join('\n')}
+                            >
+                              <span className={styles.muted}>
+                                +{(document.linkedWorkItems?.length ?? 0) - 1}
+                              </span>
+                            </Tooltip>
+                          ) : null}
+                        </td>
+                        );
+                      case 'updated':
+                        return (
+                        <td key="updated" className={styles.docUpdated}>
+                          <Tooltip
+                            content={`${directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} · ${formatDateTime(document.updatedAt)}`}
+                          >
+                            <span>
+                              {directory.nameOf(document.currentVersion?.uploadedBy ?? document.createdBy)} ·{' '}
+                              {formatDate(document.updatedAt).slice(0, 5)}
+                            </span>
+                          </Tooltip>
+                        </td>
+                        );
+                      default:
+                        return null;
+                    }
+                  })}
                   <td className={styles.docRowActions}>
                     {!pending && isPreviewable(document.currentVersion?.contentType) ? (
                       <Tooltip content="Xem trước">

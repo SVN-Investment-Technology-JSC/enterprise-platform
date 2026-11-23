@@ -1064,9 +1064,16 @@ export class WorkspaceController {
     @Query('priority') priority?: string,
     @Query('projectId') projectId?: string,
     @Query('sort') sort?: string,
+    @Query('q') q?: string,
+    @Query('fields') fields?: string,
+    @Query('personIds') personIds?: string,
   ) {
     return this.execute(() =>
-      this.myWorkService.overview(this.actor(request), { status, priority, projectId }, sort),
+      this.myWorkService.overview(
+        this.actor(request),
+        { status, priority, projectId, q, fields, personIds },
+        sort,
+      ),
     );
   }
 
@@ -1080,12 +1087,15 @@ export class WorkspaceController {
     @Query('sort') sort?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('fields') fields?: string,
+    @Query('personIds') personIds?: string,
   ) {
     return this.execute(() =>
       this.myWorkService.groupItems(
         this.actor(request),
         projectId,
-        { status, priority },
+        { status, priority, q, fields, personIds },
         sort,
         page,
         pageSize,
@@ -1100,9 +1110,19 @@ export class WorkspaceController {
     @Query('sort') sort?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('fields') fields?: string,
+    @Query('personIds') personIds?: string,
   ) {
     return this.execute(() =>
-      this.myWorkService.standalonePage(this.actor(request), sort, page, pageSize),
+      this.myWorkService.standalonePage(
+        this.actor(request),
+        sort,
+        page,
+        pageSize,
+        undefined,
+        { q, fields, personIds },
+      ),
     );
   }
 

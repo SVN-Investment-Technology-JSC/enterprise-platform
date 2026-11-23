@@ -70,6 +70,7 @@ import type {
   MyWorkFilter,
   MyWorkItemsPage,
   MyWorkOverview,
+  MyWorkSearch,
   MyWorkSortKey,
   MyWorkStandalonePage,
   MyWorkSummary,
@@ -124,6 +125,7 @@ import type {
   SourceTransport,
   TransportSourceType,
 } from '@enterprise-platform/contracts-workspace';
+import { MY_WORK_SEARCH_MAX_LENGTH } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
 const API = '/api/workspace/v1';
@@ -784,17 +786,31 @@ export async function uploadToStorage(
 export const loadMyWork = () => request<MyWorkSummary>('/my-work', { cache: 'no-store' });
 
 /** Bộ lọc và cách xếp thành chuỗi truy vấn; giá trị rỗng thì bỏ qua. */
-const myWorkParams = (filter: Pick<MyWorkFilter, 'status' | 'priority'>, sort: MyWorkSortKey) => {
+const myWorkParams = (
+  filter: Pick<MyWorkFilter, 'status' | 'priority'>,
+  sort: MyWorkSortKey,
+  search?: MyWorkSearch,
+) => {
   const params = new URLSearchParams();
   if (filter.status) params.set('status', filter.status);
   if (filter.priority) params.set('priority', filter.priority);
   params.set('sort', sort);
+  appendMyWorkSearch(params, search);
   return params;
 };
 
+/** Điều kiện tìm thành chuỗi truy vấn: q, fields (csv), personIds (csv); chữ tìm rỗng thì bỏ qua. */
+const appendMyWorkSearch = (params: URLSearchParams, search?: MyWorkSearch) => {
+  const q = search?.q?.trim().slice(0, MY_WORK_SEARCH_MAX_LENGTH);
+  if (!search || !q) return;
+  params.set('q', q);
+  if (search.fields && search.fields.length > 0) params.set('fields', search.fields.join(','));
+  if (search.personIds && search.personIds.length > 0) params.set('personIds', search.personIds.slice(0, 200).join(','));
+};
+
 /** "Công việc của tôi" theo trang: số liệu, nhóm dự án (chỉ số tổng hợp), nhắc tên, thẻ module khác. */
-export const loadMyWorkOverview = (filter: MyWorkFilter, sort: MyWorkSortKey) => {
-  const params = myWorkParams(filter, sort);
+export const loadMyWorkOverview = (filter: MyWorkFilter, sort: MyWorkSortKey, search: MyWorkSearch | undefined = filter.search) => {
+  const params = myWorkParams(filter, sort, search);
   if (filter.projectId) params.set('projectId', filter.projectId);
   return request<MyWorkOverview>(`/my-work/overview?${params}`, { cache: 'no-store' });
 };
@@ -806,16 +822,18 @@ export const loadMyWorkGroupItems = (
   sort: MyWorkSortKey,
   page: number,
   pageSize: number,
+  search?: MyWorkSearch,
 ) => {
-  const params = myWorkParams(filter, sort);
+  const params = myWorkParams(filter, sort, search);
   params.set('page', String(page));
   params.set('pageSize', String(pageSize));
   return request<MyWorkItemsPage>(`/my-work/projects/${projectId}/items?${params}`, { cache: 'no-store' });
 };
 
 /** Một trang việc ngoài dự án của tôi. */
-export const loadMyWorkStandalonePage = (sort: MyWorkSortKey, page: number, pageSize: number) => {
+export const loadMyWorkStandalonePage = (sort: MyWorkSortKey, page: number, pageSize: number, search?: MyWorkSearch) => {
   const params = new URLSearchParams({ sort, page: String(page), pageSize: String(pageSize) });
+  appendMyWorkSearch(params, search);
   return request<MyWorkStandalonePage>(`/my-work/standalone?${params}`, { cache: 'no-store' });
 };
 

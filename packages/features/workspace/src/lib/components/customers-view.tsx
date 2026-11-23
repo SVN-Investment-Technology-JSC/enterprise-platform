@@ -16,13 +16,15 @@ import {
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Download, FileText, Pencil, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatVnd, formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import * as api from '../workspace-api';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { Tooltip } from './tooltip';
 import { useFillViewportHeight } from './use-fill-viewport';
 
@@ -38,6 +40,21 @@ function ContractStatusBadge({ status }: { status: ContractStatus }) {
     </span>
   );
 }
+
+/** Cột bảng hợp đồng theo thứ tự mặc định; cột Thao tác luôn đứng cuối, không kéo. */
+const CONTRACT_COLUMNS = ['code', 'name', 'project', 'status', 'value', 'signedDate'] as const;
+const CONTRACT_COLUMN_DEFAULTS: readonly string[] = CONTRACT_COLUMNS;
+const CONTRACT_COLUMN_PINNED: readonly string[] = ['code'];
+/** Bề rộng cột Thao tác (hai nút 32px, khoảng cách 12px, lề 12px hai bên) khi bảng ở chế độ độ rộng tường minh. */
+const CONTRACT_ACTIONS_WIDTH = 100;
+const CONTRACT_COLUMN_LABELS: Record<string, string> = {
+  code: 'Mã',
+  name: 'Tên hợp đồng',
+  project: 'Dự án',
+  status: 'Trạng thái',
+  value: 'Giá trị',
+  signedDate: 'Ngày ký',
+};
 
 export interface CustomersViewProps {
   /**
@@ -96,6 +113,22 @@ export function CustomersView({
   const [customerDocs, setCustomerDocs] = useState<readonly DocumentSummary[]>([]);
   /** Dự án để chọn trong form hợp đồng và tra tên hiện trong bảng. */
   const [projects, setProjects] = useState<readonly ProjectSummary[]>([]);
+
+  const columns = useColumnOrder(
+    'customers',
+    undefined,
+    CONTRACT_COLUMN_DEFAULTS,
+    CONTRACT_COLUMN_PINNED,
+  );
+  const sizing = useColumnWidths('customers', undefined, CONTRACT_COLUMN_DEFAULTS);
+  const explicitStyle = explicitTableStyle(columns.order, sizing.widths);
+  const tableStyle = explicitStyle
+    ? {
+        ...explicitStyle,
+        width: explicitStyle.width + CONTRACT_ACTIONS_WIDTH,
+        minWidth: explicitStyle.minWidth + CONTRACT_ACTIONS_WIDTH,
+      }
+    : undefined;
 
   const [customerForm, setCustomerForm] = useState<{ open: boolean; edit?: Customer }>({
     open: false,
@@ -411,13 +444,16 @@ export function CustomersView({
 
             <div className={styles.panelHeadRow}>
               <h3 className={styles.subHeading}>Hợp đồng</h3>
-              <button
-                type="button"
-                className={styles.buttonSmall}
-                onClick={() => setContractForm({ open: true })}
-              >
-                <Plus size={14} /> Thêm hợp đồng
-              </button>
+              <div className={styles.rowActions}>
+                <ResetColumnLayoutButton order={columns} sizing={sizing} />
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  onClick={() => setContractForm({ open: true })}
+                >
+                  <Plus size={14} /> Thêm hợp đồng
+                </button>
+              </div>
             </div>
 
             {detail.contracts.length === 0 ? (
@@ -425,24 +461,46 @@ export function CustomersView({
             ) : (
               <div className={styles.tableCard}>
                 <div className={styles.tableScroll}>
-                  <table className={`${styles.table} ${styles.contractTable}`}>
+                  <table
+                    className={`${styles.table} ${styles.contractTable}${
+                      sizing.customized ? ` ${styles.columnsResized}` : ''
+                    }`}
+                    style={tableStyle}
+                  >
                     <thead>
                       <tr>
-                        <th>Mã</th>
-                        <th>Tên hợp đồng</th>
-                        <th>Dự án</th>
-                        <th>Trạng thái</th>
-                        <th className={styles.numeric}>Giá trị</th>
-                        <th>Ngày ký</th>
-                        <th aria-label="Thao tác" />
+                        {columns.order.map((id) => (
+                          <ReorderableTh
+                            key={id}
+                            tableKey="customers"
+                            id={id}
+                            order={columns.order}
+                            pinned={CONTRACT_COLUMN_PINNED}
+                            onMove={columns.move}
+                            sizing={sizing}
+                            label={CONTRACT_COLUMN_LABELS[id] ?? id}
+                            className={id === 'value' ? styles.numeric : undefined}
+                          >
+                            {CONTRACT_COLUMN_LABELS[id]}
+                          </ReorderableTh>
+                        ))}
+                        <th
+                          aria-label="Thao tác"
+                          style={tableStyle ? { width: CONTRACT_ACTIONS_WIDTH } : undefined}
+                        />
                       </tr>
                     </thead>
                     <tbody>
-                      {detail.contracts.map((contract) => (
-                        <tr key={contract.id}>
-                          <td className={styles.cellNowrap}>{contract.code}</td>
-                          <td className={styles.contractName}>{contract.name}</td>
-                          <td>
+                      {detail.contracts.map((contract) => {
+                        const cells: Record<string, ReactNode> = {
+                              code: (
+                          <td key="code" className={styles.cellNowrap}>{contract.code}</td>
+                              ),
+                              name: (
+                          <td key="name" className={styles.contractName}>{contract.name}</td>
+                              ),
+                              project: (
+                          <td key="project">
                             {contract.projectId ? (
                               <Tooltip content="Mở dự án">
                                 <button
@@ -457,13 +515,24 @@ export function CustomersView({
                               <span className={styles.muted}>—</span>
                             )}
                           </td>
-                          <td>
+                              ),
+                              status: (
+                          <td key="status">
                             <ContractStatusBadge status={contract.status} />
                           </td>
-                          <td className={styles.numeric}>{formatVnd(contract.value)}</td>
-                          <td className={styles.cellNowrap}>
+                              ),
+                              value: (
+                          <td key="value" className={styles.numeric}>{formatVnd(contract.value)}</td>
+                              ),
+                              signedDate: (
+                          <td key="signedDate" className={styles.cellNowrap}>
                             {contract.signedDate ? formatDate(contract.signedDate) : '—'}
                           </td>
+                              ),
+                        };
+                        return (
+                        <tr key={contract.id}>
+                          {columns.order.map((id) => cells[id])}
                           <td>
                             <div className={styles.rowActions}>
                               <Tooltip content="Sửa">
@@ -494,7 +563,8 @@ export function CustomersView({
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -11801,3 +11801,112 @@ button.kpiCard {
   color: #5c4500;
   font-weight: 600;
 }
+
+/* Tìm kiếm đa trường của "Công việc của tôi": ô nhập có biểu tượng kính lúp và nút xoá, kèm bảng chọn trường tìm. */
+.mwSearchBox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 320px;
+  max-width: 100%;
+}
+
+.mwSearchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--ep-text-muted);
+  pointer-events: none;
+}
+
+.mwSearchClear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text, #111827);
+  }
+}
+
+.mwSearchPanel {
+  width: 280px;
+  gap: 6px;
+}
+
+.mwSearchField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mwSearchMark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: rgb(250 204 21 / 35%);
+  color: inherit;
+}
+
+/* Bảng đã chỉnh độ rộng cột (bố cục cố định): chữ dài hơn cột thì cắt bằng dấu "…"; kéo rộng cột ra để xem hết. */
+.columnsResized {
+  td,
+  th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Tay nắm kéo độ rộng cột ở mép phải tiêu đề: thanh 2px luôn hiện (xám đậm vừa phải), rê chuột/focus/đang kéo thì dày 3px
+   và đổi sang màu chính. Vùng bấm rộng 8px. */
+.columnResizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 0;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 999px;
+    background: var(--ep-text-muted, #6b7280);
+    opacity: 0.55;
+    transition:
+      width 0.12s,
+      opacity 0.12s,
+      background-color 0.12s;
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    width: 3px;
+    background: var(--ep-accent-strong, #d9ab00);
+    opacity: 1;
+  }
+}
+
+.columnResizeHandleActive::after {
+  width: 3px;
+  background: var(--ep-accent-strong, #d9ab00);
+  opacity: 1;
+}

@@ -2,9 +2,12 @@ import { configureStore, createSlice, type PayloadAction } from '@reduxjs/toolki
 import { createApi, fakeBaseQuery } from '@reduxjs/toolkit/query/react';
 import {
   MY_WORK_DEFAULT_PAGE_SIZE,
+  MY_WORK_SEARCH_FIELDS,
   type MyWorkFilter,
   type MyWorkItemsPage,
   type MyWorkOverview,
+  type MyWorkSearch,
+  type MyWorkSearchField,
   type MyWorkSortKey,
   type MyWorkStandalonePage,
 } from '@enterprise-platform/contracts-workspace';
@@ -29,12 +32,14 @@ export interface MyWorkGroupItemsArgs {
   readonly sort: MyWorkSortKey;
   readonly page: number;
   readonly pageSize: number;
+  readonly search?: MyWorkSearch;
 }
 
 export interface MyWorkStandaloneArgs {
   readonly sort: MyWorkSortKey;
   readonly page: number;
   readonly pageSize: number;
+  readonly search?: MyWorkSearch;
 }
 
 const failure = (cause: unknown, fallback: string): { error: MyWorkError } => ({
@@ -75,9 +80,11 @@ export const myWorkApi = createApi({
       providesTags: () => ['MyWork'],
     }),
     myWorkGroupItems: build.query<MyWorkItemsPage, MyWorkGroupItemsArgs>({
-      queryFn: async ({ projectId, status, priority, sort, page, pageSize }) => {
+      queryFn: async ({ projectId, status, priority, sort, page, pageSize, search }) => {
         try {
-          return { data: await api.loadMyWorkGroupItems(projectId, { status, priority }, sort, page, pageSize) };
+          return {
+            data: await api.loadMyWorkGroupItems(projectId, { status, priority }, sort, page, pageSize, search),
+          };
         } catch (cause) {
           return failure(cause, 'Không tải được công việc của dự án.');
         }
@@ -85,9 +92,9 @@ export const myWorkApi = createApi({
       providesTags: () => ['MyWork'],
     }),
     myWorkStandalone: build.query<MyWorkStandalonePage, MyWorkStandaloneArgs>({
-      queryFn: async ({ sort, page, pageSize }) => {
+      queryFn: async ({ sort, page, pageSize, search }) => {
         try {
-          return { data: await api.loadMyWorkStandalonePage(sort, page, pageSize) };
+          return { data: await api.loadMyWorkStandalonePage(sort, page, pageSize, search) };
         } catch (cause) {
           return failure(cause, 'Không tải được công việc ngoài dự án.');
         }
@@ -118,6 +125,8 @@ export interface MyWorkUiState {
   readonly pageSize: number;
   /** Trang hiện tại của từng nhóm (khoá là mã dự án hoặc `MY_WORK_STANDALONE_KEY`); vắng là trang 1. */
   readonly pages: Readonly<Record<string, number>>;
+  /** Tìm kiếm đa trường: chữ tìm và các trường được tìm (mặc định mọi trường). */
+  readonly search: { readonly q: string; readonly fields: readonly MyWorkSearchField[] };
 }
 
 const initialUi: MyWorkUiState = {
@@ -129,6 +138,7 @@ const initialUi: MyWorkUiState = {
   standaloneOpen: false,
   pageSize: MY_WORK_DEFAULT_PAGE_SIZE,
   pages: {},
+  search: { q: '', fields: MY_WORK_SEARCH_FIELDS },
 };
 
 const uiSlice = createSlice({
@@ -149,6 +159,11 @@ const uiSlice = createSlice({
       state.priority = '';
       state.projectId = '';
       state.sort = 'due';
+      state.pages = {};
+    },
+    /** Đổi chữ tìm hoặc trường tìm thì mọi nhóm về trang 1. */
+    setSearch(state, action: PayloadAction<{ q: string; fields: readonly MyWorkSearchField[] }>) {
+      state.search = { q: action.payload.q, fields: [...action.payload.fields] };
       state.pages = {};
     },
     toggleGroup(state, action: PayloadAction<string>) {
@@ -199,6 +214,8 @@ export function useMyWorkUi() {
         dispatch(uiSlice.actions.setFilter(patch)),
       setSort: (sort: MyWorkSortKey) => dispatch(uiSlice.actions.setSort(sort)),
       clearFilter: () => dispatch(uiSlice.actions.clearFilter()),
+      setSearch: (search: { q: string; fields: readonly MyWorkSearchField[] }) =>
+        dispatch(uiSlice.actions.setSearch(search)),
       toggleGroup: (projectId: string) => dispatch(uiSlice.actions.toggleGroup(projectId)),
       toggleStandalone: () => dispatch(uiSlice.actions.toggleStandalone()),
       setPage: (key: string, page: number) => dispatch(uiSlice.actions.setPage({ key, page })),

@@ -1955,11 +1955,31 @@ export const MY_WORK_DEFAULT_PAGE_SIZE = 20;
 export const MY_WORK_SORTS = ['due', 'name', 'code', 'updated'] as const;
 export type MyWorkSortKey = (typeof MY_WORK_SORTS)[number];
 
+/**
+ * Trường mà ô tìm kiếm của trang "Công việc của tôi" tìm trong:
+ * `code` (mã việc), `title` (tên việc), `description` (mô tả), `project` (mã và tên dự án; chỉ có ở việc trong dự án),
+ * `people` (người giao, người cùng làm, người theo dõi; giao diện tra tên ra id và gửi kèm `personIds`).
+ */
+export const MY_WORK_SEARCH_FIELDS = ['code', 'title', 'description', 'project', 'people'] as const;
+export type MyWorkSearchField = (typeof MY_WORK_SEARCH_FIELDS)[number];
+/** Độ dài tối đa của chữ tìm; dài hơn thì server cắt bớt. */
+export const MY_WORK_SEARCH_MAX_LENGTH = 100;
+
+/** Điều kiện tìm kiếm; `q` rỗng nghĩa là không tìm. */
+export interface MyWorkSearch {
+  readonly q: string;
+  /** Trường được tìm; rỗng hoặc vắng nghĩa là mọi trường. */
+  readonly fields?: readonly MyWorkSearchField[];
+  /** Id người có tên khớp `q` (giao diện tra danh bạ); chỉ dùng khi tìm theo `people`. */
+  readonly personIds?: readonly string[];
+}
+
 /** Bộ lọc của trang; vắng là không lọc. */
 export interface MyWorkFilter {
   readonly status?: WorkItemStatus;
   readonly priority?: WorkItemPriority;
   readonly projectId?: string;
+  readonly search?: MyWorkSearch;
 }
 
 /** Số việc của một nhóm theo bốn loại hiện trên dòng tóm tắt (quá hạn, chưa làm, đang làm, đã xong). */
