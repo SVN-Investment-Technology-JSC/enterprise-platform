@@ -7,6 +7,7 @@ import { enableSerialTracking } from '../inventory-api';
 import { FormError, useFormSubmit } from './form-error';
 import { parseSerialInput } from './serial-assign-dialog';
 import { Button } from '../ui/button';
+import { cn } from '../ui/cn';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -22,6 +23,8 @@ export function SerialEnableDialog({
   coverage,
   onCancel,
   onDone,
+  className,
+  backdropClassName,
 }: {
   materialCode: string;
   materialName?: string;
@@ -29,6 +32,9 @@ export function SerialEnableDialog({
   coverage: readonly SerialCoverage[];
   onCancel: () => void;
   onDone: (assigned: number) => void;
+  /** Lớp z cho hộp thoại mở chồng trên hộp thoại khác. */
+  className?: string;
+  backdropClassName?: string;
 }) {
   const { error, submit: send } = useFormSubmit('Không bật được theo dõi serial.');
   const stocked = useMemo(() => coverage.filter((item) => item.quantity > 0), [coverage]);
@@ -65,7 +71,7 @@ export function SerialEnableDialog({
 
   return (
     <Dialog onEscape={!busy && !isDirty ? onCancel : undefined}>
-      <DialogContent className="max-w-[600px]" aria-label="Bật theo dõi serial">
+      <DialogContent className={cn('max-w-[600px]', className)} backdropClassName={backdropClassName} aria-label="Bật theo dõi serial">
         <form onSubmit={submit} className="flex min-h-0 flex-col">
           <DialogHeader>
             <div>

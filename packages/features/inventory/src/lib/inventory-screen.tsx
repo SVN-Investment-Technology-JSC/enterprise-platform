@@ -562,6 +562,7 @@ export function InventoryScreen() {
             unit: item.newMaterial.unit,
             minStock: item.newMaterial.minStock,
             category: 'SPARE_PART',
+            trackingMode: item.newMaterial.trackingMode,
           });
         }
       }
@@ -740,6 +741,7 @@ export function InventoryScreen() {
             minStock: item.newMaterial.minStock,
             maxStock: item.newMaterial.maxStock,
             category: 'SPARE_PART',
+            trackingMode: item.newMaterial.trackingMode,
             barcode: item.newMaterial.barcode,
             manufacturer: item.newMaterial.manufacturer,
             purchasePrice: item.unitCost,
@@ -1241,6 +1243,7 @@ export function InventoryScreen() {
               initialItems={movementInit?.initialItems}
               isDialog={true}
               busy={busy}
+              onMaterialTrackingChanged={() => void reload()}
               onCancel={() => {
                 setForm(undefined);
                 setMovementInit(undefined);

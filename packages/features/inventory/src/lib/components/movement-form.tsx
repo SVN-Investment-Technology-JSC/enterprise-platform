@@ -6,7 +6,12 @@ import type {
   Lot,
   MovementCounterparty,
 } from '@enterprise-platform/contracts-inventory';
-import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
+import {
+  MATERIAL_TRACKING_MODES,
+  resolveTrackingMode,
+  type MaterialTrackingMode,
+  type SerialCoverage,
+} from '@enterprise-platform/contracts-inventory';
 import {
   X,
   Paperclip,
@@ -22,7 +27,7 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { SearchableSelect, VnNumberInput, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, formatDate, CloseGuard, toast } from '@enterprise-platform/shared-ui';
 import { SupplierField } from '../supplier-input';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
@@ -31,9 +36,10 @@ import type {
   ProcedureOption,
   ProcedureWorkOrder,
 } from '../inventory-api';
-import { loadLots, loadSerials, loadStorageLocations, loadWarehouseStock } from '../inventory-api';
-import { QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
+import { loadLots, loadSerialCoverage, loadSerials, loadStorageLocations, loadWarehouseStock } from '../inventory-api';
+import { MATERIAL_TRACKING_LABEL, QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
+import { SerialEnableDialog } from './serial-enable-dialog';
 import {
   buildStockLevels,
   checkOutboundLines,
@@ -49,6 +55,8 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
 import { Textarea } from '../ui/textarea';
+
+const TRACKING_OPTIONS = MATERIAL_TRACKING_MODES.map((value) => ({ value, label: MATERIAL_TRACKING_LABEL[value] }));
 
 /** Khối một nhãn và một ô nhập của phiếu. */
 const FIELD_BLOCK = 'flex min-w-0 flex-col gap-1 [&>div]:min-w-0';
@@ -101,6 +109,8 @@ export interface MovementLineItem {
     readonly maxStock?: number;
     readonly barcode?: string;
     readonly manufacturer?: string;
+    /** Cách theo dõi chọn lúc khai mã mới; trống là theo dõi thông thường. */
+    readonly trackingMode?: MaterialTrackingMode;
   };
 }
 /** Đối tượng nhận khi xuất kho. */
@@ -147,6 +157,7 @@ export interface MovementInput {
     readonly type?: string;
     readonly unit: string;
     readonly minStock: number;
+    readonly trackingMode?: MaterialTrackingMode;
   };
 }
 
@@ -412,6 +423,7 @@ export function MovementForm({
   initialOpenExcelImport = false,
   onCancel,
   onSubmit,
+  onMaterialTrackingChanged,
 }: {
   workspace: InventoryWorkspace;
   initialKind?: MovementKind;
@@ -438,6 +450,8 @@ export function MovementForm({
   onCancel: () => void;
   /** Từ chối (reject) khi Kho báo lỗi để phiếu hiện lý do và giữ dữ liệu đã nhập. */
   onSubmit: (input: MovementInput) => Promise<void> | void;
+  /** Gọi sau khi bật theo dõi serial cho một mã có sẵn, để màn chính tải lại danh mục. */
+  onMaterialTrackingChanged?: () => void;
 }) {
   const { error, submit: send } = useFormSubmit('Không ghi sổ được phiếu.');
   const [kind, setKind] = useState<MovementKind>(initialKind);
@@ -515,9 +529,20 @@ export function MovementForm({
     type: '',
     unit: units[0] || 'Cái',
     minStock: '0',
+    tracking: 'NONE' as MaterialTrackingMode,
   });
+  const [enableSerialFor, setEnableSerialFor] = useState<{
+    code: string;
+    name: string;
+    coverage: SerialCoverage[];
+  }>();
 
   const outbound = kind === 'issue' || kind === 'transfer';
+
+  /** Mã khai mới trên phiếu chưa có trong danh mục: lấy cách theo dõi người dùng đã chọn cho dòng đó. */
+  const trackingOf = (item: MovementLineItem): MaterialTrackingMode =>
+    item.newMaterial?.trackingMode ??
+    resolveTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode));
 
   /**
    * Tồn thực của kho phiếu, đọc từ server mỗi khi đổi kho hoặc loại phiếu xuất.
@@ -735,6 +760,32 @@ export function MovementForm({
     setLotModalIndex(null);
   };
 
+  /** Đổi cách theo dõi của dòng mã mới trước khi mã được tạo; số lô, serial đã nhập theo cách cũ bị bỏ. */
+  const handleSetNewMaterialTracking = (index: number, mode: MaterialTrackingMode) => {
+    setItems((previous) =>
+      previous.map((line, position) =>
+        position === index && line.newMaterial
+          ? {
+              ...line,
+              newMaterial: { ...line.newMaterial, trackingMode: mode },
+              serialNumbers: [],
+              lotAllocations: undefined,
+              receiptLot: undefined,
+            }
+          : line,
+      ),
+    );
+  };
+
+  /** Mã có sẵn đang theo dõi thông thường: mở hộp thoại bật serial, kèm serial cho tồn hiện có ở từng kho. */
+  const handleEnableSerial = (item: MovementLineItem) => {
+    void loadSerialCoverage(item.materialCode)
+      .then((coverage) => setEnableSerialFor({ code: item.materialCode, name: item.materialName, coverage }))
+      .catch((cause: unknown) =>
+        toast.error(cause instanceof Error ? cause.message : 'Không đọc được tồn của mã này.'),
+      );
+  };
+
   // Tạo nhanh vật tư mới
   const handleCreateNewMaterial = () => {
     if (!draftMaterial.code.trim() || !draftMaterial.name.trim()) return;
@@ -764,11 +815,12 @@ export function MovementForm({
           type: newType,
           unit: newUnit,
           minStock,
+          trackingMode: draftMaterial.tracking,
         },
       },
     ]);
 
-    setDraftMaterial({ code: '', name: '', type: '', unit: units[0] || 'Cái', minStock: '0' });
+    setDraftMaterial({ code: '', name: '', type: '', unit: units[0] || 'Cái', minStock: '0', tracking: 'NONE' });
     setShowNewMaterialModal(false);
   };
 
@@ -848,11 +900,11 @@ export function MovementForm({
       ? 'Tạo mã vật tư, khai sê-ri và xuất lắp đặt cần quyền quản lý kho.'
       : undefined;
   const hasInvalidSerialSelection = items.some((item) =>
-    resolveTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) === 'SERIAL' &&
+    trackingOf(item) === 'SERIAL' &&
     (item.serialNumbers?.length ?? 0) !== item.quantity,
   );
   const hasInvalidLotAllocation = items.some((item) => {
-    if (resolveTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) !== 'LOT') return false;
+    if (trackingOf(item) !== 'LOT') return false;
     if (kind === 'receipt') return !item.receiptLot?.lotNumber;
     // Phần không phân bổ xuất từ tồn không theo lô; server từ chối nếu phần đó không đủ.
     return (item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0) > item.quantity;
@@ -1445,7 +1497,7 @@ export function MovementForm({
                   const serialCount = item.serialNumbers?.length || 0;
                   const lotCount = item.lotAllocations?.length || (item.receiptLot ? 1 : 0);
                   const allocatedLotQuantity = item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0;
-                  const trackingMode = resolveTrackingMode(workspace.materials.find((material) => material.code === item.materialCode));
+                  const trackingMode = trackingOf(item);
                   const itemUnitConfig = getUnitQuantityConfig(item.unit);
                   const itemMaterial = workspace.materials.find((m) => m.code === item.materialCode);
                   const itemType = item.materialType || itemMaterial?.type || '—';
@@ -1528,6 +1580,19 @@ export function MovementForm({
                         </>
                       ) : null}
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center">
+                        {item.newMaterial ? (
+                          <div className="mb-1 min-w-[150px]">
+                            <SearchableSelect
+                              options={TRACKING_OPTIONS}
+                              value={trackingMode}
+                              placeholder="Cách theo dõi"
+                              onChange={(value) => handleSetNewMaterialTracking(index, (value || 'NONE') as MaterialTrackingMode)}
+                              clearable={false}
+                              height={32}
+                              className="w-full"
+                            />
+                          </div>
+                        ) : null}
                         {trackingMode === 'LOT' ? (
                           <>
                             <Button
@@ -1561,8 +1626,20 @@ export function MovementForm({
                             <Barcode size={13} />
                             <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
                           </Button>
-                        ) : (
-                          <span className="text-[12px] text-slate-400">Không theo dõi</span>
+                        ) : item.newMaterial ? null : (
+                          <>
+                            <span className="text-[12px] text-slate-400">Không theo dõi</span>
+                            {workspace.permissions?.canManage && itemMaterial && itemMaterial.kind !== 'SERVICE' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleEnableSerial(item)}
+                                className="mt-0.5 block w-full cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-blue-600 hover:underline"
+                                title="Bật theo dõi theo serial cho mã này (kèm serial cho tồn hiện có)"
+                              >
+                                Bật serial
+                              </button>
+                            ) : null}
+                          </>
                         )}
                       </TableCell>
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
@@ -1806,6 +1883,22 @@ export function MovementForm({
         </Dialog>
       ) : null}
 
+      {enableSerialFor ? (
+        <SerialEnableDialog
+          materialCode={enableSerialFor.code}
+          materialName={enableSerialFor.name}
+          coverage={enableSerialFor.coverage}
+          className="z-1100"
+          backdropClassName="z-1100"
+          onCancel={() => setEnableSerialFor(undefined)}
+          onDone={(count) => {
+            setEnableSerialFor(undefined);
+            toast.success(count > 0 ? `Đã bật theo dõi serial và gắn ${count} serial.` : 'Đã bật theo dõi serial.');
+            onMaterialTrackingChanged?.();
+          }}
+        />
+      ) : null}
+
       {/* Modal Con: Tạo Nhanh Vật Tư Mới */}
       {showNewMaterialModal ? (
         <Dialog onEscape={() => setShowNewMaterialModal(false)}>
@@ -1872,6 +1965,24 @@ export function MovementForm({
                   onChange={(val) => setDraftMaterial((prev) => ({ ...prev, type: val }))}
                   clearable={false}
                 />
+              </div>
+
+              <div className={cn(FIELD_BLOCK, 'col-span-2')}>
+                <Label>Cách theo dõi</Label>
+                <SearchableSelect
+                  options={TRACKING_OPTIONS}
+                  value={draftMaterial.tracking}
+                  placeholder="Chọn cách theo dõi..."
+                  onChange={(val) => setDraftMaterial((prev) => ({ ...prev, tracking: (val || 'NONE') as MaterialTrackingMode }))}
+                  clearable={false}
+                />
+                <span className="text-[12px] text-slate-500">
+                  {draftMaterial.tracking === 'SERIAL'
+                    ? 'Nhập kho phải kèm đủ số serial cho từng cái.'
+                    : draftMaterial.tracking === 'LOT'
+                      ? 'Nhập kho khai số lô, hạn dùng; xuất theo lô gần hết hạn trước.'
+                      : 'Chỉ đếm số lượng. Chọn lúc tạo; có tồn rồi thì khó đổi.'}
+                </span>
               </div>
 
               <div className={cn(FIELD_BLOCK, 'col-span-2')}>
