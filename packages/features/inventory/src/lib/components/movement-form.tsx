@@ -37,7 +37,7 @@ import type {
   ProcedureWorkOrder,
 } from '../inventory-api';
 import { loadLots, loadSerialCoverage, loadSerials, loadStorageLocations, loadWarehouseStock } from '../inventory-api';
-import { MATERIAL_TRACKING_LABEL, QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
+import { QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
 import { SerialEnableDialog } from './serial-enable-dialog';
 import {
@@ -60,7 +60,13 @@ import { Textarea } from '../ui/textarea';
 const NUMBER_FIELD_CLASS =
   'h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:bg-slate-100 disabled:opacity-60';
 
-const TRACKING_OPTIONS = MATERIAL_TRACKING_MODES.map((value) => ({ value, label: MATERIAL_TRACKING_LABEL[value] }));
+const TRACKING_SHORT_LABEL: Record<MaterialTrackingMode, string> = {
+  NONE: 'Thông thường',
+  LOT: 'Theo lô',
+  SERIAL: 'Theo serial',
+};
+
+const TRACKING_OPTIONS = MATERIAL_TRACKING_MODES.map((value) => ({ value, label: TRACKING_SHORT_LABEL[value] }));
 
 /** Khối một nhãn và một ô nhập của phiếu. */
 const FIELD_BLOCK = 'flex min-w-0 flex-col gap-1 [&>div]:min-w-0';
@@ -1547,11 +1553,11 @@ export function MovementForm({
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-35">Tình trạng kho</TableHeaderCell>
                   {kind === 'receipt' ? (
                     <>
-                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-32">Đơn giá (VNĐ)</TableHeaderCell>
-                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-30">Thành tiền</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-44">Đơn giá (VNĐ)</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-52">Thành tiền</TableHeaderCell>
                     </>
                   ) : null}
-                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-29.5 text-center">Theo dõi định danh</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-[290px] text-left">Theo dõi định danh</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-32.5">Ghi chú dòng</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-12.5 text-center">Xoá</TableHeaderCell>
                 </TableRow>
@@ -1641,74 +1647,74 @@ export function MovementForm({
                               onChange={(value) => handleUpdateUnitCost(index, value ? Number(value) : undefined)}
                             />
                           </TableCell>
-                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] font-semibold text-slate-800 text-[13px]">
+                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] whitespace-nowrap font-semibold text-slate-800 text-[13px]">
                             {formatNumber(lineTotal)} đ
                           </TableCell>
                         </>
                       ) : null}
-                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center">
-                        <div className={item.newMaterial ? 'flex items-center justify-center gap-2' : undefined}>
-                        {item.newMaterial ? (
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
+                        {/* Hai khe cố định: [cách theo dõi | nút nhập] để mọi dòng thẳng hàng dù thông thường, lô hay serial. */}
+                        <div className="flex items-center gap-2">
                           <div className="w-[150px] shrink-0">
-                            <SearchableSelect
-                              options={TRACKING_OPTIONS}
-                              value={trackingMode}
-                              placeholder="Cách theo dõi"
-                              onChange={(value) => handleSetNewMaterialTracking(index, (value || 'NONE') as MaterialTrackingMode)}
-                              clearable={false}
-                              height={32}
-                              className="w-full"
-                            />
-                          </div>
-                        ) : null}
-                        {trackingMode === 'LOT' ? (
-                          <>
-                            <Button
-                              type="button"
-                              onClick={() => handleOpenLotModal(index)}
-                              variant="outline"
-                              size="xs"
-                              className={cn(
-                                'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
-                                lotCount > 0 ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-slate-50 text-slate-500',
-                              )}
-                              title={kind === 'receipt' ? 'Khai báo lô hàng nhận vào' : 'Chọn lô hàng để xuất / điều chuyển'}
-                            >
-                              <Layers size={13} />
-                              <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
-                            </Button>
-                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div className="mt-[3px] text-[12px] text-amber-700">Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
-                          </>
-                        ) : trackingMode === 'SERIAL' ? (
-                          <Button
-                            type="button"
-                            onClick={() => handleOpenSerialModal(index)}
-                            variant="outline"
-                            size="xs"
-                            className={cn(
-                              'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
-                              serialCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-slate-50 text-slate-500',
+                            {item.newMaterial ? (
+                              <SearchableSelect
+                                options={TRACKING_OPTIONS}
+                                value={trackingMode}
+                                placeholder="Cách theo dõi"
+                                onChange={(value) => handleSetNewMaterialTracking(index, (value || 'NONE') as MaterialTrackingMode)}
+                                clearable={false}
+                                height={32}
+                                className="w-full"
+                              />
+                            ) : (
+                              <span className="block truncate text-[13px] text-slate-600">{TRACKING_SHORT_LABEL[trackingMode]}</span>
                             )}
-                            title="Nhập danh sách số sê-ri / barcode cho dòng này"
-                          >
-                            <Barcode size={13} />
-                            <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
-                          </Button>
-                        ) : item.newMaterial ? null : (
-                          <>
-                            <span className="text-[12px] text-slate-400">Không theo dõi</span>
-                            {workspace.permissions?.canManage && itemMaterial && itemMaterial.kind !== 'SERVICE' ? (
+                          </div>
+                          <div className="flex w-[104px] shrink-0 flex-col items-start justify-center">
+                            {trackingMode === 'LOT' ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  onClick={() => handleOpenLotModal(index)}
+                                  variant="outline"
+                                  size="xs"
+                                  className={cn(
+                                    'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
+                                    lotCount > 0 ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-slate-50 text-slate-500',
+                                  )}
+                                  title={kind === 'receipt' ? 'Khai báo lô hàng nhận vào' : 'Chọn lô hàng để xuất / điều chuyển'}
+                                >
+                                  <Layers size={13} />
+                                  <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
+                                </Button>
+                                {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div className="mt-[3px] text-[12px] text-amber-700">Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
+                              </>
+                            ) : trackingMode === 'SERIAL' ? (
+                              <Button
+                                type="button"
+                                onClick={() => handleOpenSerialModal(index)}
+                                variant="outline"
+                                size="xs"
+                                className={cn(
+                                  'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
+                                  serialCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-slate-50 text-slate-500',
+                                )}
+                                title="Nhập danh sách số sê-ri / barcode cho dòng này"
+                              >
+                                <Barcode size={13} />
+                                <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
+                              </Button>
+                            ) : !item.newMaterial && workspace.permissions?.canManage && itemMaterial && itemMaterial.kind !== 'SERVICE' ? (
                               <button
                                 type="button"
                                 onClick={() => handleEnableSerial(item)}
-                                className="mt-0.5 block w-full cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-blue-600 hover:underline"
+                                className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-blue-600 hover:underline"
                                 title="Bật theo dõi theo serial cho mã này (kèm serial cho tồn hiện có)"
                               >
                                 Bật serial
                               </button>
                             ) : null}
-                          </>
-                        )}
+                          </div>
                         </div>
                       </TableCell>
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
