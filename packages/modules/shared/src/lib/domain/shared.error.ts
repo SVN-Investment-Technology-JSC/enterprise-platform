@@ -111,3 +111,43 @@ export class SharedNotProvisionedError extends SharedError {
     Object.setPrototypeOf(this, SharedNotProvisionedError.prototype);
   }
 }
+
+/** Kho ngoài chưa cấu hình, cấu hình hỏng, hoặc máy chủ chưa có khoá giải mã. */
+export class SharedStorageUnavailableError extends SharedError {
+  constructor(message: string) {
+    super('EXTERNAL_STORAGE_UNAVAILABLE', message, 503);
+    Object.setPrototypeOf(this, SharedStorageUnavailableError.prototype);
+  }
+}
+
+/** Người khác vừa lưu cấu hình kho; tải lại trước khi sửa. */
+export class SharedStorageSettingsConflictError extends SharedError {
+  constructor() {
+    super('STORAGE_SETTINGS_CONFLICT', 'Cấu hình kho vừa được người khác thay đổi. Tải lại trang rồi sửa lại.', 409);
+    Object.setPrototypeOf(this, SharedStorageSettingsConflictError.prototype);
+  }
+}
+
+/** NAS không kết nối được, sai tài khoản, hoặc trả lỗi; `statusCode` 502/503. */
+export class SharedNasUnavailableError extends SharedError {
+  constructor(message: string, statusCode = 502) {
+    super('NAS_UNAVAILABLE', message, statusCode);
+    Object.setPrototypeOf(this, SharedNasUnavailableError.prototype);
+  }
+}
+
+/** Không thấy tệp hay thư mục trên NAS, hoặc người xem không được vào. */
+export class SharedNasNotFoundError extends SharedError {
+  constructor(message = 'Không thấy tệp hay thư mục này trên NAS.') {
+    super('NAS_NOT_FOUND', message, 404);
+    Object.setPrototypeOf(this, SharedNasNotFoundError.prototype);
+  }
+}
+
+/** Đã có tệp hay thư mục cùng tên trên NAS. */
+export class SharedNasConflictError extends SharedError {
+  constructor(message = 'Đã có tệp hoặc thư mục cùng tên.') {
+    super('NAS_CONFLICT', message, 409);
+    Object.setPrototypeOf(this, SharedNasConflictError.prototype);
+  }
+}

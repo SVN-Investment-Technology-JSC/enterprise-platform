@@ -16,6 +16,8 @@ import {
   workItemStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
+import { cn } from '../utils';
 import { ProgressCell } from './inline-cells';
 import { progressCellMode } from '../progress-cell-rules';
 import { Tooltip } from './tooltip';
@@ -118,13 +120,15 @@ export function NodeHeader({
           {pathOf(project, items, selected).map((crumb, index, all) =>
             index < all.length - 1 ? (
               <span key={crumb.key} className={styles.nodePathItem}>
-                <button
+                <Button
                   type="button"
-                  className={styles.crumbLink}
+                  variant="link"
+                  size="xs"
+                  className="h-auto max-w-[32ch] justify-start truncate p-0 font-normal text-muted-foreground hover:text-foreground"
                   onClick={() => onSelect(crumb.node)}
                 >
                   {crumb.label}
-                </button>
+                </Button>
                 <span className={styles.crumbSep} aria-hidden>
                   ›
                 </span>
@@ -157,21 +161,28 @@ export function NodeHeader({
           </span>
         ) : null}
 
-        <div className={styles.nodeActions}>
-          <button
-            type="button"
-            className={styles.buttonGhost}
-            aria-label={unread > 0 ? `Trao đổi, ${unread} tin chưa đọc` : 'Trao đổi'}
-            onClick={onOpenChat}
-          >
-            <MessageSquare size={14} /> Trao đổi
-            {unread > 0 ? <span className={styles.countBadge}>{unread}</span> : null}
-          </button>
-          {onMore ? (
+        {(() => {
+          const chatButton = (
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={
+                unread > 0 ? `Trao đổi, ${unread} tin chưa đọc` : 'Trao đổi'
+              }
+              onClick={onOpenChat}
+            >
+              <MessageSquare size={14} /> Trao đổi
+              {unread > 0 ? (
+                <span className={styles.countBadge}>{unread}</span>
+              ) : null}
+            </Button>
+          );
+          const moreButton = onMore ? (
             <Tooltip content="Thêm thao tác">
-              <button
+              <Button
                 type="button"
-                className={styles.buttonGhost}
+                variant="outline"
+                size="icon"
                 aria-label="Thêm thao tác"
                 onClick={(event) => {
                   const box = event.currentTarget.getBoundingClientRect();
@@ -179,25 +190,77 @@ export function NodeHeader({
                 }}
               >
                 <MoreHorizontal size={14} />
-              </button>
+              </Button>
             </Tooltip>
-          ) : null}
-          {canEdit ? (
-            <button type="button" className={styles.buttonGhost} onClick={onEdit}>
+          ) : null;
+          const editButton = canEdit ? (
+            <Button type="button" variant="outline" onClick={onEdit}>
               <Pencil size={14} /> Chỉnh sửa
-            </button>
-          ) : null}
-          {canWrite ? (
-            <button type="button" className={styles.buttonPrimary} onClick={onAddChild}>
-              <Plus size={14} /> Thêm công việc con
-            </button>
-          ) : null}
-          {quickAction ? (
-            <button type="button" className={styles.buttonGhost} onClick={quickAction.onClick}>
-              {quickAction.label}
-            </button>
-          ) : null}
-        </div>
+            </Button>
+          ) : null;
+
+          // Trang dự án (chưa chọn việc): giữ một hàng như cũ.
+          if (!selected) {
+            return (
+              <div className={styles.nodeActions}>
+                {chatButton}
+                {moreButton}
+                {editButton}
+                {canWrite ? (
+                  <Button type="button" onClick={onAddChild}>
+                    <Plus size={14} /> Thêm công việc con
+                  </Button>
+                ) : null}
+                {quickAction ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={quickAction.onClick}
+                  >
+                    {quickAction.label}
+                  </Button>
+                ) : null}
+              </div>
+            );
+          }
+
+          // Hộp chi tiết việc: một thanh riêng. Bên trái là việc cần làm với công việc (nút chính nổi nhất), bên phải là
+          // các thao tác phụ (trao đổi, sửa, thêm).
+          const workflow = (
+            <>
+              {quickAction ? (
+                <Button type="button" onClick={quickAction.onClick}>
+                  {quickAction.label}
+                </Button>
+              ) : null}
+              {canWrite ? (
+                <Button
+                  type="button"
+                  variant={quickAction ? 'outline' : 'default'}
+                  onClick={onAddChild}
+                >
+                  <Plus size={14} /> Thêm công việc con
+                </Button>
+              ) : null}
+            </>
+          );
+          return (
+            <div
+              className={cn(styles.nodeActions, 'w-full justify-between')}
+              role="toolbar"
+              aria-label="Thao tác công việc"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {workflow}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {chatButton}
+                {editButton}
+                {moreButton}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {selected?.reversal ? (
@@ -233,13 +296,15 @@ export function NodeHeader({
               return (
                 <span>
                   <b>Công việc điều chỉnh:</b>{' '}
-                  <button
+                  <Button
                     type="button"
-                    className={styles.crumbLink}
+                    variant="link"
+                    size="xs"
+                    className="h-auto max-w-[32ch] justify-start truncate p-0 font-normal text-muted-foreground hover:text-foreground"
                     onClick={() => onSelect({ kind: 'work-item', id: adjustment.id })}
                   >
                     {adjustment.code}
-                  </button>
+                  </Button>
                 </span>
               );
             return selected.reversal.adjustmentRequested ? (
@@ -256,9 +321,15 @@ export function NodeHeader({
           {(() => {
             const original = items.find((item) => item.id === selected.adjustmentOfId);
             return original ? (
-              <button type="button" className={styles.crumbLink} onClick={() => onSelect({ kind: 'work-item', id: original.id })}>
+              <Button
+                type="button"
+                variant="link"
+                size="xs"
+                className="h-auto max-w-[32ch] justify-start truncate p-0 font-normal text-muted-foreground hover:text-foreground"
+                onClick={() => onSelect({ kind: 'work-item', id: original.id })}
+              >
                 {original.code}
-              </button>
+              </Button>
             ) : (
               'một công việc'
             );

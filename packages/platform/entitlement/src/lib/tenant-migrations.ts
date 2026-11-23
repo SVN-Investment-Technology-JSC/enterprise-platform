@@ -628,9 +628,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0023-material-description', path: 'tenant/inventory/0023-material-description.sql' },
     { version: '0024-stocktake-server', path: 'tenant/inventory/0024-stocktake-server.sql' },
     { version: '0025-material-vat-rate', path: 'tenant/inventory/0025-material-vat-rate.sql' },
-    { version: '0026-material-storage-locations', path: 'tenant/inventory/0026-material-storage-locations.sql' },
-    { version: '0027-material-tracking-mode', path: 'tenant/inventory/0027-material-tracking-mode.sql' },
-    { version: '0028-stocktake-location-sync', path: 'tenant/inventory/0028-stocktake-location-sync.sql' },
+    { version: '0026-draft-line-lot', path: 'tenant/inventory/0026-draft-line-lot.sql' },
+    { version: '0027-material-storage-locations', path: 'tenant/inventory/0027-material-storage-locations.sql' },
+    { version: '0028-material-tracking-mode', path: 'tenant/inventory/0028-material-tracking-mode.sql' },
+    { version: '0029-stocktake-location-sync', path: 'tenant/inventory/0029-stocktake-location-sync.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],
@@ -855,6 +856,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0038-work-item-progress-reports', path: 'tenant/workspace/0038-work-item-progress-reports.sql' },
     { version: '0039-work-item-progress-methods', path: 'tenant/workspace/0039-work-item-progress-methods.sql' },
     { version: '0040-standalone-task-progress-reports', path: 'tenant/workspace/0040-standalone-task-progress-reports.sql' },
+    { version: '0041-standalone-task-checklist', path: 'tenant/workspace/0041-standalone-task-checklist.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [
@@ -862,6 +864,9 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0002-shared-trash', path: 'tenant/shared/0002-shared-trash.sql' },
     { version: '0003-shared-folder-shares', path: 'tenant/shared/0003-shared-folder-shares.sql' },
     { version: '0004-shared-system-folders', path: 'tenant/shared/0004-shared-system-folders.sql' },
+    { version: '0005-shared-external-storage', path: 'tenant/shared/0005-shared-external-storage.sql' },
+    { version: '0006-shared-nas-connector', path: 'tenant/shared/0006-shared-nas-connector.sql' },
+    { version: '0007-shared-nas-move-log', path: 'tenant/shared/0007-shared-nas-move-log.sql' },
   ],
   // Mạng nội bộ: bảng tin công ty.
   social: [

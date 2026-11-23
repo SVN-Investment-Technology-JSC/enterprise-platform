@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { HttpException } from '@nestjs/common';
 import type { Pool } from 'pg';
+import { isPendingStockMovement, type PendingStockMovement } from '@enterprise-platform/contracts-inventory';
 import { InventoryApplication, type InventoryActor } from './application/inventory.application.js';
+import { StockDocumentService } from './application/stock-document.service.js';
 import { todayInVietnam } from './domain/traceability-policy.js';
 import { toInventoryError } from './domain/inventory.error.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { PostgresTraceabilityStore } from './infrastructure/postgres-traceability.store.js';
 import { InventoryController } from './presentation/inventory.controller.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, purchaseSource } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -24,6 +26,7 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
   let database: TestInventoryDatabase;
   let pool: Pool;
   let app: InventoryApplication;
+  let documents: StockDocumentService;
   let store: PostgresInventoryStore;
   let sequence = 0;
 
@@ -36,6 +39,24 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
     canApproveDocuments: true,
     canWriteQuality: true,
   };
+  /** Người duyệt chứng từ kho, khác người lập (ISS-BE-006). */
+  const approver: InventoryActor = {
+    tenantId,
+    userId: randomUUID(),
+    displayName: 'Người duyệt kho',
+    canManage: false,
+    canWriteTransactions: true,
+    canApproveDocuments: true,
+  };
+
+  /** Phiếu thanh lý không có tài sản nguồn: Chờ duyệt; người duyệt duyệt rồi ghi sổ. */
+  async function approveAndPost(result: unknown): Promise<PendingStockMovement> {
+    if (!isPendingStockMovement(result)) throw new Error('expected a pending stock document');
+    expect(result).toMatchObject({ transactions: [], document: { docType: 'RECEIPT_OTHER', status: 'PENDING' } });
+    await documents.approve(approver, result.document.id);
+    await documents.post(approver, result.document.id);
+    return result;
+  }
 
   async function material(prefix: string, serialized = false): Promise<string> {
     sequence += 1;
@@ -127,6 +148,7 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
     const documentStore = new PostgresStockDocumentStore(database.references, database.pools);
     const traceability = new PostgresTraceabilityStore(database.references, database.pools);
     app = new InventoryApplication(store, documentStore, traceability);
+    documents = new StockDocumentService(documentStore, store);
     await app.createWarehouse(admin, { code: warehouse, name: 'Kho lắp đặt' });
   }, 120_000);
 
@@ -136,7 +158,7 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
 
   it('vật tư thường: lắp, tháo giữ request, response cũ; vẫn kiểm phần đã giữ', async () => {
     const cap = await material('LAP-CAP');
-    await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: cap, quantity: 10, unitCost: 100 });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: cap, quantity: 10, unitCost: 100 });
 
     const installed = await app.installItem(admin, cap, { warehouseCode: warehouse, quantity: 3 });
     expect(installed).toMatchObject({ type: 'EXPORT', quantity: -3, unitCost: 100, referenceType: 'asset' });
@@ -167,10 +189,10 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
 
   it('giá vốn: lắp theo bình quân hiện tại, tháo về đúng giá lúc lắp', async () => {
     const day = await material('LAP-DAY');
-    await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: day, quantity: 2, unitCost: 100 });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: day, quantity: 2, unitCost: 100 });
     const installed = await app.installItem(admin, day, { warehouseCode: warehouse, quantity: 1 });
     expect(installed.unitCost).toBe(100);
-    await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: day, quantity: 1, unitCost: 200 });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: day, quantity: 1, unitCost: 200 });
     expect(await stock(day)).toMatchObject({ quantity: 2, avgCost: 150 });
 
     const unit = await unitOf(installed.referenceId);
@@ -182,7 +204,7 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
 
   it('lắp trước đây chưa ghi giá: tháo theo bình quân hiện tại, bình quân không đổi', async () => {
     const ong = await material('LAP-ONG');
-    await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: ong, quantity: 4, unitCost: 50 });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: ong, quantity: 4, unitCost: 50 });
     // Lắp theo đường cũ của bản trước: bút toán ghi thẳng sổ cái, giá 0, không chứng từ.
     const unit = await store.item.createInstalledUnit(tenantId, ong);
     if (unit === 'not_found') throw new Error('missing unit');
@@ -202,7 +224,7 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
 
   it('vật tư theo serial: lắp bắt buộc serial, serial Đã xuất; tháo đúng serial về Trong kho, có lịch sử', async () => {
     const may = await material('LAP-MAY', true);
-    await app.receiveStock(admin, {
+    await app.receiveStock(admin, { ...purchaseSource(),
       warehouseCode: warehouse,
       materialCode: may,
       quantity: 2,
@@ -270,8 +292,8 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
 
   it('đường lắp cũ không gửi serial: tự chọn serial Trong kho, Đạt theo thứ tự nhập rồi số serial; tháo, thanh lý tự lấy serial đã lắp', async () => {
     const den = await material('LAP-DEN', true);
-    await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: den, quantity: 1, unitCost: 10, serials: ['AP-0'] });
-    await app.receiveStock(admin, {
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: den, quantity: 1, unitCost: 10, serials: ['AP-0'] });
+    await app.receiveStock(admin, { ...purchaseSource(),
       warehouseCode: warehouse,
       materialCode: den,
       quantity: 3,
@@ -323,31 +345,36 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
     expect(await serialState(den, 'AP-B')).toEqual({ stock_state: 'ISSUED', warehouse_code: null });
 
     // Thanh lý mã theo serial không gửi serial: lấy serial đã xuất của mã, thứ tự cố định.
+    // Mã không có hồ sơ thiết bị: không có tài sản nguồn nên phiếu nhập Chờ duyệt,
+    // serial chưa về kho cho tới khi được duyệt và ghi sổ (ISS-BE-006).
     const back = await app.returnItemToStock(admin, den, { warehouseCode: warehouse });
-    expect(back).toMatchObject({ type: 'RETURN', quantity: 1 });
+    expect(await serialState(den, 'AP-B')).toEqual({ stock_state: 'ISSUED', warehouse_code: null });
+    await approveAndPost(back);
     expect(await serialState(den, 'AP-B')).toEqual({ stock_state: 'IN_STOCK', warehouse_code: warehouse });
     expect(await serialState(den, 'AP-C')).toEqual({ stock_state: 'ISSUED', warehouse_code: null });
     expect(explicit.referenceId).toBeDefined();
   });
 
-  it('thanh lý mã theo serial về kho: bắt buộc serial, serial vào Trong kho, lịch sử RETURN', async () => {
+  it('thanh lý mã theo serial về kho: bắt buộc serial, không tài sản nguồn thì chờ duyệt rồi serial vào Trong kho', async () => {
     const tu = await material('LAP-TU', true);
     const missing = await rejection(app.returnItemToStock(admin, tu, { warehouseCode: warehouse }));
     expect(missing.code).toBe('SERIALS_REQUIRED');
 
     const back = await app.returnItemToStock(admin, tu, { warehouseCode: warehouse, serials: ['TU-01'] });
-    expect(back).toMatchObject({ type: 'RETURN', quantity: 1 });
+    expect(await stock(tu)).toMatchObject({ quantity: 0 });
+    await approveAndPost(back);
     expect(await serialState(tu, 'TU-01')).toEqual({ stock_state: 'IN_STOCK', warehouse_code: warehouse });
-    expect((await serialMovements(tu, 'TU-01')).map((row) => row.movement_type)).toEqual(['RETURN']);
+    expect((await serialMovements(tu, 'TU-01')).length).toBe(1);
     expect(await stock(tu)).toMatchObject({ quantity: 1 });
   });
 
   it('thanh lý một đơn vị đã lắp: nhập về theo giá lúc lắp', async () => {
     const bom = await material('LAP-BOM');
-    await app.receiveStock(admin, { warehouseCode: warehouse, materialCode: bom, quantity: 1, unitCost: 300 });
+    await app.receiveStock(admin, { ...purchaseSource(), warehouseCode: warehouse, materialCode: bom, quantity: 1, unitCost: 300 });
     const installed = await app.installItem(admin, bom, { warehouseCode: warehouse, quantity: 1 });
     const unit = await unitOf(installed.referenceId);
 
+    // Đơn vị trên cây là tài sản nguồn: ghi sổ thẳng như trước (ISS-BE-006, Q1).
     const back = await app.returnItemToStock(admin, unit.code, { warehouseCode: warehouse });
     expect(back).toMatchObject({ type: 'RETURN', quantity: 1, unitCost: 300 });
     expect(await stock(unit.code)).toMatchObject({ quantity: 1, avgCost: 300 });
@@ -355,14 +382,14 @@ integration('Lắp, tháo, thanh lý vật tư theo serial, lô, giá vốn trê
 
   it('vật tư theo lô: lắp tự chọn lô FEFO, tháo trả về đúng lô; chỉ định lô thì lấy đúng lô', async () => {
     const keo = await material('LAP-KEO');
-    await app.receiveStock(admin, {
+    await app.receiveStock(admin, { ...purchaseSource(),
       warehouseCode: warehouse,
       materialCode: keo,
       quantity: 5,
       unitCost: 10,
       lot: { lotNo: 'L-XA', expiresOn: shiftDays(60) },
     });
-    await app.receiveStock(admin, {
+    await app.receiveStock(admin, { ...purchaseSource(),
       warehouseCode: warehouse,
       materialCode: keo,
       quantity: 5,

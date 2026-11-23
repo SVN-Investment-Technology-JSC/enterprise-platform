@@ -4,13 +4,14 @@
  */
 
 const CANONICAL_NUMBER = /^-?\d+(\.\d+)?$/;
-const VN_GROUPED_INTEGER = /^\d{1,3}(\.\d{3})+$/;
+const VN_GROUPED_INTEGER = /^[1-9]\d{0,2}(\.\d{3})+$/;
 
 /**
  * Đọc chuỗi người dùng gõ hoặc từ Excel thành số. Trả `null` nếu không hợp lệ.
  * - Có cả `.` và `,`: dấu xuất hiện cuối cùng là dấu thập phân.
  * - Chỉ có `,`: dấu thập phân.
  * - Chỉ có `.`: ngăn nghìn nếu đúng mẫu `1.500`, `1.234.567`; ngược lại là thập phân (`500000000.01`, `1.5`).
+ *   Phần nguyên bắt đầu bằng 0 (`0.500`, `00.500`) luôn là thập phân.
  * Ô Excel đã là số thì nên dùng thẳng, không đi qua hàm này.
  */
 export function parseVnNumber(text: string | number | null | undefined): number | null {

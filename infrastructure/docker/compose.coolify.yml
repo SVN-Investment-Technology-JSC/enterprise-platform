@@ -298,6 +298,11 @@ services:
       PORT: '3342'
       # Hạn mức dung lượng tệp của cả tenant (theo gói + gói mua thêm).
       PLATFORM_TENANT_LIMITS_URL: http://api:3333/api/platform/internal/v1/tenant-limits
+      # Kho lưu trữ ngoài của tenant (NAS, S3 riêng). Khoá gốc (>= 32 ký tự) mã hoá khoá truy cập kho của
+      # tenant và ký phiếu chuyển tiếp tệp; trống thì tính năng chưa bật. Danh sách máy chủ kho được phép,
+      # cách nhau dấu phẩy (tên máy, *.đuôi, IP, CIDR như 100.64.0.0/10); trống thì chỉ kho công khai https.
+      SHARED_STORAGE_SECRET_KEY: ${SHARED_STORAGE_SECRET_KEY:-}
+      SHARED_EXTERNAL_STORAGE_ALLOWED_HOSTS: ${SHARED_EXTERNAL_STORAGE_ALLOWED_HOSTS:-}
     depends_on:
       api:
         condition: service_healthy

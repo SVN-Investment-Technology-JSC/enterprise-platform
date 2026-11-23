@@ -893,6 +893,17 @@ export interface WorkItemChecklistItem {
   readonly sortOrder: number;
 }
 
+/** Một đầu việc của Công việc khác (việc ngoài dự án); cùng hình dạng với `WorkItemChecklistItem`, khoá theo `taskId`. */
+export interface StandaloneTaskChecklistItem {
+  readonly id: string;
+  readonly taskId: string;
+  readonly title: string;
+  readonly done: boolean;
+  readonly doneAt?: string;
+  readonly doneBy?: string;
+  readonly sortOrder: number;
+}
+
 /** Độ dài tối đa của mô tả trong một báo cáo tiến độ. */
 export const PROGRESS_REPORT_DESCRIPTION_MAX_LENGTH = 2000;
 

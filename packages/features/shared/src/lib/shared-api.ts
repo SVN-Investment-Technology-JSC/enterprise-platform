@@ -6,6 +6,20 @@ import {
   type CreateSharedVersionRequest,
   type EmptySharedTrashResult,
   type RestoreSharedTrashRequest,
+  type SaveSharedExternalStorageRequest,
+  type SaveSharedNasConnectionRequest,
+  type CreateSharedNasUploadRequest,
+  type SharedNasAccount,
+  type SharedNasConnectionSettings,
+  type SharedNasListing,
+  type SharedNasOverview,
+  type SharedNasPermission,
+  type SharedNasSyncResult,
+  type SharedNasTestResult,
+  type SharedNasUploadTicket,
+  type SharedExternalStorageSettings,
+  type SharedStorageTestResult,
+  type SharedStorageTransferResult,
   type SharedDocumentDetail,
   type SharedDocumentQuery,
   type SharedDocumentSummary,
@@ -63,6 +77,73 @@ export function errorMessage(cause: unknown, fallback: string): string {
 export const loadSharedStatus = () => request<SharedStatus>('/status', { cache: 'no-store' });
 
 export const loadStorageUsage = () => request<StorageUsage>('/storage', { cache: 'no-store' });
+
+/* Kho lưu trữ ngoài của tenant (NAS, S3 riêng). */
+export const loadExternalStorage = () =>
+  request<SharedExternalStorageSettings>('/settings/storage', { cache: 'no-store' });
+export const saveExternalStorage = (body: SaveSharedExternalStorageRequest) =>
+  request<SharedExternalStorageSettings>('/settings/storage', { method: 'PUT', body: JSON.stringify(body) });
+export const testExternalStorage = (body: Partial<SaveSharedExternalStorageRequest>) =>
+  request<SharedStorageTestResult>('/settings/storage/test', { method: 'POST', body: JSON.stringify(body) });
+export const transferToExternalStorage = (body: { limit?: number; removePlatformCopy?: boolean }) =>
+  request<SharedStorageTransferResult>('/settings/storage/transfer', { method: 'POST', body: JSON.stringify(body) });
+
+/* Kết nối NAS (quản trị). */
+export const loadNasSettings = () => request<SharedNasConnectionSettings>('/settings/nas', { cache: 'no-store' });
+export const saveNasSettings = (body: SaveSharedNasConnectionRequest) =>
+  request<SharedNasConnectionSettings>('/settings/nas', { method: 'PUT', body: JSON.stringify(body) });
+export const testNasConnection = (body: Partial<SaveSharedNasConnectionRequest>) =>
+  request<SharedNasTestResult>('/settings/nas/test', { method: 'POST', body: JSON.stringify(body) });
+export const syncNas = () => request<SharedNasSyncResult>('/settings/nas/sync', { method: 'POST' });
+export const loadNasAccounts = () => request<SharedNasAccount[]>('/settings/nas/accounts', { cache: 'no-store' });
+export const linkNasAccount = (name: string, erpUserId: string | null) =>
+  request<SharedNasAccount[]>(`/settings/nas/accounts/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ erpUserId }),
+  });
+
+/* Kho NAS (người dùng). */
+const nasShare = (share: string) => `/nas/shares/${encodeURIComponent(share)}`;
+export const loadNasOverview = () => request<SharedNasOverview>('/nas', { cache: 'no-store' });
+export const listNasEntries = (share: string, path: string, offset = 0) =>
+  request<SharedNasListing>(`${nasShare(share)}/entries?${new URLSearchParams({ path, offset: String(offset) })}`, {
+    cache: 'no-store',
+  });
+export const nasDownloadTicket = (share: string, path: string, mode: SharedDownloadMode = 'download') =>
+  request<SharedDownloadTicket>(`${nasShare(share)}/download?${new URLSearchParams({ path, mode })}`, { cache: 'no-store' });
+export const loadNasPermissions = (share: string) =>
+  request<SharedNasPermission[]>(`${nasShare(share)}/permissions`, { cache: 'no-store' });
+export const createNasFolder = (share: string, path: string, name: string) =>
+  request<void>(`${nasShare(share)}/folders`, { method: 'POST', body: JSON.stringify({ path, name }) });
+export const renameNasEntry = (share: string, path: string, name: string) =>
+  request<void>(`${nasShare(share)}/rename`, { method: 'POST', body: JSON.stringify({ path, name }) });
+export const moveNasEntries = (share: string, paths: readonly string[], to: string) =>
+  request<{ moved: number }>(`${nasShare(share)}/move`, { method: 'POST', body: JSON.stringify({ paths, to }) });
+export const deleteNasEntry = (share: string, path: string) =>
+  request<void>(`${nasShare(share)}/delete`, { method: 'POST', body: JSON.stringify({ path }) });
+
+/** Tải một tệp lên NAS: xin phiếu, rồi `PUT` thân tệp qua route chuyển tiếp của máy chủ. */
+export async function uploadToNas(share: string, path: string, file: File, fileName = file.name): Promise<void> {
+  const body: CreateSharedNasUploadRequest = { path, fileName, sizeBytes: file.size };
+  const ticket = await request<SharedNasUploadTicket>(`${nasShare(share)}/uploads`, { method: 'POST', body: JSON.stringify(body) });
+  const response = await fetch(ticket.uploadUrl, { method: 'PUT', body: file, headers: { 'content-type': 'application/octet-stream' } });
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => ({}))) as SharedApiError;
+    throw { code: failure.code ?? 'UPLOAD_FAILED', message: failure.message ?? `Tải tệp lên NAS thất bại (${response.status}).` } satisfies SharedApiError;
+  }
+}
+
+/** Tải tệp trên NAS về máy. */
+export async function openNasFile(share: string, path: string): Promise<void> {
+  const ticket = await nasDownloadTicket(share, path, 'download');
+  const link = document.createElement('a');
+  link.href = ticket.downloadUrl;
+  link.download = ticket.fileName;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
 
 /** Đường về Tenant Portal cho nút Trang chủ trên thanh bên. */
 export async function loadTenantHomePath(): Promise<string> {

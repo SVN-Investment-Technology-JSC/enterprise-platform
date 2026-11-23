@@ -57,6 +57,7 @@ import {
 import {
   createProcedureWorkspaceEvents,
   PROCEDURE_FINANCE_EVENT_TYPES,
+  PROCEDURE_INVENTORY_EVENT_TYPES,
   PROCEDURE_WORKSPACE_EVENT_TYPES,
 } from '@enterprise-platform/module-procedure-engine';
 import {
@@ -193,8 +194,12 @@ const fcmPushConsumer = new RabbitMqConsumer(process.env.RABBITMQ_URL ?? 'amqp:/
 });
 const procedureConsumer = new RabbitMqConsumer(
   process.env.RABBITMQ_URL ?? 'amqp://platform:platform@localhost:5672',
-  // Sự kiện của Workspace và kết quả bước Tài chính (finance.voucher.*) chung một hàng đợi, một consumer.
-  { queue: 'procedure.integrations.v1', bindings: [...PROCEDURE_WORKSPACE_EVENT_TYPES, ...PROCEDURE_FINANCE_EVENT_TYPES] },
+  // Sự kiện của Workspace, kết quả bước Tài chính (finance.voucher.*) và chứng từ xuất của Kho
+  // (báo đã cấp vật tư vào hồ sơ) chung một hàng đợi, một consumer.
+  {
+    queue: 'procedure.integrations.v1',
+    bindings: [...PROCEDURE_WORKSPACE_EVENT_TYPES, ...PROCEDURE_FINANCE_EVENT_TYPES, ...PROCEDURE_INVENTORY_EVENT_TYPES],
+  },
 );
 const moduleDatabases = new TenantDatabaseRegistry();
 const workspaceProcedureEvents = createWorkspaceProcedureEvents(moduleDatabases, tenantPools);

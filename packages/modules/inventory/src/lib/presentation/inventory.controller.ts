@@ -9,11 +9,13 @@ import type {
   CreateWarehouseRequest,
   InstallItemRequest,
   InventorySettingsKey,
-  LotAllocationInput,
+  IssueStockRequest,
+  MovementBatchRequest,
   RegisterSerialsRequest,
   AssignSerialsRequest,
   ReturnItemToStockRequest,
   StockDocumentLotInput,
+  TransferStockRequest,
   UninstallMaterialRequest,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -279,18 +281,7 @@ export class InventoryController {
   @HttpCode(201)
   issueStock(
     @Req() request: InventoryRequest,
-    @Body()
-    body: {
-      warehouseCode: string;
-      materialCode: string;
-      quantity: number;
-      referenceType?: string;
-      referenceId?: string;
-      note?: string;
-      /** Phân bổ theo lô; phần còn lại xuất không theo lô. */
-      lots?: readonly LotAllocationInput[];
-      counterparty?: MovementCounterparty;
-    },
+    @Body() body: IssueStockRequest,
   ) {
     return this.execute(() => this.app.issueStock(this.actor(request), body));
   }
@@ -299,18 +290,7 @@ export class InventoryController {
   @HttpCode(201)
   recordMovementLines(
     @Req() request: InventoryRequest,
-    @Body()
-    body: {
-      kind: 'receipt' | 'issue';
-      counterparty?: MovementCounterparty;
-      lines: {
-        warehouseCode: string;
-        materialCode: string;
-        quantity: number;
-        unitCost?: number;
-        note?: string;
-      }[];
-    },
+    @Body() body: MovementBatchRequest,
   ) {
     return this.execute(() => this.app.recordMovementLines(this.actor(request), body));
   }
@@ -319,16 +299,7 @@ export class InventoryController {
   @HttpCode(201)
   transferStock(
     @Req() request: InventoryRequest,
-    @Body()
-    body: {
-      fromWarehouseCode: string;
-      toWarehouseCode: string;
-      materialCode: string;
-      quantity: number;
-      note?: string;
-      /** Phân bổ theo lô; phần còn lại chuyển không theo lô. */
-      lots?: readonly LotAllocationInput[];
-    },
+    @Body() body: TransferStockRequest,
   ) {
     return this.execute(() => this.app.transferStock(this.actor(request), body));
   }

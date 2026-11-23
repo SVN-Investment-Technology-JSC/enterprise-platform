@@ -1,5 +1,5 @@
 'use client';
-import { formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
+import { formatDateTime as formatSharedDateTime, toast } from '@enterprise-platform/shared-ui';
 import { useInventoryPermissions } from '../inventory-permissions';
 
 import type {
@@ -17,7 +17,10 @@ import {
   submitStocktakeForApproval,
   rejectStocktakeSession,
   approveAndPostStocktake,
+  postStocktake,
   cancelStocktakeSession,
+  loadCurrentUserId,
+  loadInventorySettings,
 } from '../inventory-api';
 import { formatNumber } from '../inventory-labels';
 import { useState, useEffect, useMemo, useRef } from 'react';
@@ -61,6 +64,23 @@ function formatDateTime(value?: string): string {
   return formatSharedDateTime(value, '—');
 }
 
+function errorMessage(err: unknown, fallback = 'Lỗi không xác định'): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/**
+ * Người xem là người lập hoặc người gửi duyệt đợt, và cấu hình không cho tự duyệt.
+ * Chỉ để ẩn nút: server vẫn chặn tự duyệt (`SELF_APPROVAL_FORBIDDEN`).
+ */
+export function isSelfApprovalBlocked(
+  session: Pick<StocktakeSession, 'createdBy' | 'submittedBy'>,
+  viewerId: string | undefined,
+  allowSelfApproval: boolean,
+): boolean {
+  if (allowSelfApproval || !viewerId) return false;
+  return session.createdBy === viewerId || session.submittedBy === viewerId;
+}
+
 export interface StocktakeHubProps {
   workspace: InventoryWorkspace;
   busy?: boolean;
@@ -99,6 +119,14 @@ export function StocktakeHub({
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectReasonInput, setRejectReasonInput] = useState('');
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [cancelReasonInput, setCancelReasonInput] = useState('');
+  const [cancelReasonError, setCancelReasonError] = useState<string>();
+  const [posting, setPosting] = useState(false);
+
+  // Ai đang xem và cấu hình tự duyệt: để ẩn nút duyệt với chính người lập/gửi duyệt.
+  const [viewerId, setViewerId] = useState<string>();
+  const [allowSelfApproval, setAllowSelfApproval] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,6 +146,22 @@ export function StocktakeHub({
   useEffect(() => {
     void reloadSessions();
   }, [workspace]);
+
+  useEffect(() => {
+    let alive = true;
+    void loadCurrentUserId().then((id) => {
+      if (alive) setViewerId(id);
+    });
+    loadInventorySettings()
+      .then((settings) => {
+        if (alive) setAllowSelfApproval(settings['documents.approval']?.value?.allowSelfApproval === true);
+      })
+      // Không đọc được cấu hình thì giữ mặc định của server: không cho tự duyệt.
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Nạp chi tiết các dòng khi chọn đợt
   useEffect(() => {
@@ -254,7 +298,7 @@ export function StocktakeHub({
       setDirty(false);
       if (onNotice) onNotice('Đã lưu nháp tiến độ kiểm đếm.');
     } catch (err) {
-      alert('Không thể lưu số đếm: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể lưu số đếm: ' + errorMessage(err));
     }
   };
 
@@ -267,7 +311,7 @@ export function StocktakeHub({
       setLines(res.lines);
       if (onNotice) onNotice(`Đã chốt snapshot và chuyển đợt ${res.session.code} sang Đang kiểm đếm.`);
     } catch (err) {
-      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể bắt đầu kiểm đếm: ' + errorMessage(err));
     }
   };
 
@@ -293,7 +337,7 @@ export function StocktakeHub({
       setConfirmSubmitOpen(false);
       if (onNotice) onNotice(`Đã gửi trình duyệt đợt kiểm kê ${updated.code}.`);
     } catch (err) {
-      alert('Không thể gửi trình duyệt: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể gửi trình duyệt: ' + errorMessage(err));
     }
   };
 
@@ -311,16 +355,20 @@ export function StocktakeHub({
       setRejectDialogOpen(false);
       if (onNotice) onNotice(`Đã trả đợt kiểm kê ${updated.code} về trạng thái Đang kiểm đếm.`);
     } catch (err) {
-      alert('Lỗi: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể trả đợt về đếm lại: ' + errorMessage(err));
     }
   };
 
   // Duyệt và ghi sổ
-  const handleApproveAndPost = async () => {
-    if (!selectedSessionId) return;
+  const handleApproveAndPost = async (retryOnly = false) => {
+    if (!selectedSessionId || posting) return;
+    setPosting(true);
     try {
       // Server duyệt rồi tạo chứng từ điều chỉnh (nguồn kiểm kê) trong một transaction.
-      const updated = await approveAndPostStocktake(selectedSessionId);
+      // Đợt đã duyệt (ghi sổ lần trước lỗi) chỉ ghi sổ lại; server chống ghi lặp.
+      const updated = retryOnly
+        ? await postStocktake(selectedSessionId)
+        : await approveAndPostStocktake(selectedSessionId);
       setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
       setLines(await loadStocktakeLines(selectedSessionId, workspace));
       if (onNotice) {
@@ -331,19 +379,35 @@ export function StocktakeHub({
         );
       }
     } catch (err) {
-      alert('Không thể duyệt và ghi sổ: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error((retryOnly ? 'Không thể ghi sổ: ' : 'Không thể duyệt và ghi sổ: ') + errorMessage(err));
+      // Duyệt có thể đã xong dù ghi sổ lỗi: nạp lại để hiện đúng trạng thái và nút Ghi sổ.
+      await reloadSessions(selectedSessionId).catch(() => undefined);
+    } finally {
+      setPosting(false);
     }
   };
 
-  // Hủy đợt
+  // Hủy đợt: bắt buộc nhập lý do
+  const handleOpenCancelDialog = () => {
+    setCancelReasonInput('');
+    setCancelReasonError(undefined);
+    setCancelDialogOpen(true);
+  };
+
   const handleCancelSession = async () => {
     if (!selectedSessionId) return;
+    const reason = cancelReasonInput.trim();
+    if (!reason) {
+      setCancelReasonError('Vui lòng nhập lý do hủy đợt kiểm kê.');
+      return;
+    }
     try {
-      const updated = await cancelStocktakeSession(selectedSessionId, 'Người dùng hủy thao tác');
+      const updated = await cancelStocktakeSession(selectedSessionId, reason);
       setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setCancelDialogOpen(false);
       if (onNotice) onNotice(`Đã hủy đợt kiểm kê ${updated.code}.`);
     } catch (err) {
-      alert('Không thể hủy đợt kiểm kê: ' + (err instanceof Error ? err.message : 'Lỗi'));
+      toast.error('Không thể hủy đợt kiểm kê: ' + errorMessage(err));
     }
   };
 
@@ -429,7 +493,7 @@ export function StocktakeHub({
         setDirty(true);
         if (onNotice) onNotice(`Đã nạp số đếm từ Excel cho ${matchCount} mặt hàng.`);
       } catch (err) {
-        alert('Không thể đọc file Excel: ' + (err instanceof Error ? err.message : 'Định dạng không hợp lệ'));
+        toast.error('Không thể đọc file Excel: ' + errorMessage(err, 'Định dạng không hợp lệ'));
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
@@ -505,6 +569,7 @@ export function StocktakeHub({
                 { value: 'DRAFT', label: 'Bản nháp' },
                 { value: 'COUNTING', label: 'Đang kiểm đếm' },
                 { value: 'PENDING_APPROVAL', label: 'Chờ duyệt' },
+                { value: 'APPROVED', label: 'Đã duyệt' },
                 { value: 'POSTED', label: 'Đã ghi sổ' },
                 { value: 'CANCELLED', label: 'Đã hủy' },
               ]}
@@ -656,23 +721,33 @@ export function StocktakeHub({
                     >
                       <RotateCcw size={14} /> Yêu cầu đếm lại
                     </Button>
-                    <Popconfirm
-                      title="Phê duyệt & Ghi sổ cân kho?"
-                      description={
-                        locationChangedLines.length > 0
-                          ? `Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Có ${locationChangedLines.length} mặt hàng thay đổi vị trí sẽ được tự động đồng bộ vào danh mục lưu trữ của kho ${selectedSession.warehouseCode}, cùng bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`
-                          : `Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Hệ thống sẽ tự động tạo bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`
-                      }
-                      okText="Duyệt & Ghi sổ"
-                      cancelText="Hủy"
-                      okType="primary"
-                      placement="bottom-end"
-                      onConfirm={handleApproveAndPost}
-                    >
-                      <Button type="button" className="bg-green-700 font-bold text-white hover:bg-green-800">
-                        <CheckCircle2 size={14} /> Duyệt &amp; Ghi sổ
-                      </Button>
-                    </Popconfirm>
+                    {isSelfApprovalBlocked(selectedSession, viewerId, allowSelfApproval) ? (
+                      <span className="text-[13px] text-slate-500">
+                        Bạn đã lập hoặc gửi duyệt đợt này, cần người khác duyệt.
+                      </span>
+                    ) : (
+                      <Popconfirm
+                        title="Phê duyệt & Ghi sổ cân kho?"
+                        description={
+                          locationChangedLines.length > 0
+                            ? `Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Có ${locationChangedLines.length} mặt hàng thay đổi vị trí sẽ được tự động đồng bộ vào danh mục lưu trữ của kho ${selectedSession.warehouseCode}, cùng bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`
+                            : `Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Hệ thống sẽ tự động tạo bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`
+                        }
+                        okText="Duyệt & Ghi sổ"
+                        cancelText="Hủy"
+                        okType="primary"
+                        placement="bottom-end"
+                        onConfirm={() => handleApproveAndPost()}
+                      >
+                        <Button
+                          type="button"
+                          disabled={posting}
+                          className="bg-green-700 font-bold text-white hover:bg-green-800"
+                        >
+                          <CheckCircle2 size={14} /> Duyệt &amp; Ghi sổ
+                        </Button>
+                      </Popconfirm>
+                    )}
                     {locationChangedLines.length > 0 ? (
                       <Button
                         type="button"
@@ -688,21 +763,29 @@ export function StocktakeHub({
                   </>
                 ) : null}
 
+                {/* 6b. Ghi sổ lại khi đợt đã duyệt mà lần ghi sổ trước lỗi */}
+                {canApproveStocktake && selectedSession.status === 'APPROVED' ? (
+                  <Button
+                    type="button"
+                    disabled={posting}
+                    onClick={() => void handleApproveAndPost(true)}
+                    className="bg-green-700 font-bold text-white hover:bg-green-800"
+                    title="Đợt đã duyệt nhưng chưa ghi sổ. Ghi sổ lại an toàn, không điều chỉnh tồn hai lần."
+                  >
+                    <CheckCircle2 size={14} /> {posting ? 'Đang ghi sổ...' : 'Ghi sổ'}
+                  </Button>
+                ) : null}
+
                 {/* 7. Hủy đợt nếu chưa POSTED */}
                 {canCreateStocktake && selectedSession.status !== 'POSTED' && selectedSession.status !== 'CANCELLED' ? (
-                  <Popconfirm
-                    title="Hủy đợt kiểm kê này?"
-                    description="Hành động này sẽ hủy tiến độ kiểm kê hiện tại và lưu vào lịch sử hủy."
-                    okText="Hủy đợt"
-                    cancelText="Đóng"
-                    okType="danger"
-                    placement="bottom-end"
-                    onConfirm={handleCancelSession}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleOpenCancelDialog}
+                    className="border-red-300 text-red-600"
                   >
-                    <Button type="button" variant="outline" className="border-red-300 text-red-600">
-                      Hủy đợt
-                    </Button>
-                  </Popconfirm>
+                    Hủy đợt
+                  </Button>
                 ) : null}
               </div>
             </div>
@@ -1260,6 +1343,62 @@ export function StocktakeHub({
             <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-5 py-3">
               <Button type="button" onClick={() => setViewChangedLocations(false)}>
                 Đóng
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* DIALOG HỦY ĐỢT KIỂM KÊ (BẮT BUỘC LÝ DO) */}
+      {cancelDialogOpen && selectedSession ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[3px]">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="stocktake-cancel-title"
+            className="w-full max-w-[480px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
+          >
+            <div className="flex items-center gap-[10px] border-b border-slate-100 px-5 py-4">
+              <AlertTriangle size={20} color="#dc2626" />
+              <h3 id="stocktake-cancel-title" className="m-0 text-base font-bold text-slate-900">
+                Hủy đợt kiểm kê {selectedSession.code}
+              </h3>
+            </div>
+            <div className="flex flex-col gap-[10px] px-5 py-4">
+              <Label required htmlFor="stocktake-cancel-reason" className="text-sm">
+                Lý do hủy đợt
+              </Label>
+              <Textarea
+                id="stocktake-cancel-reason"
+                rows={3}
+                value={cancelReasonInput}
+                aria-invalid={cancelReasonError ? true : undefined}
+                aria-describedby={cancelReasonError ? 'stocktake-cancel-reason-error' : undefined}
+                onChange={(e) => {
+                  setCancelReasonInput(e.target.value);
+                  if (cancelReasonError && e.target.value.trim()) setCancelReasonError(undefined);
+                }}
+                placeholder="Nhập lý do hủy đợt kiểm kê..."
+              />
+              {cancelReasonError ? (
+                <span id="stocktake-cancel-reason-error" role="alert" className="text-[13px] text-red-600">
+                  {cancelReasonError}
+                </span>
+              ) : null}
+              <span className="text-[13px] text-slate-500">
+                Đợt kiểm kê sẽ chuyển sang <strong>Đã hủy</strong>, không ghi sổ và lưu lý do vào lịch sử.
+              </span>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <Button type="button" variant="outline" onClick={() => setCancelDialogOpen(false)}>
+                Đóng
+              </Button>
+              <Button
+                type="button"
+                onClick={handleCancelSession}
+                className="bg-red-600 font-bold text-white hover:bg-red-700"
+              >
+                Xác nhận hủy đợt
               </Button>
             </div>
           </div>

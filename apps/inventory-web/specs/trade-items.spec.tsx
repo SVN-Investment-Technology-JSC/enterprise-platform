@@ -213,6 +213,19 @@ describe('trade-items.model', () => {
     expect(rows.map((r) => r.line)).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
+  it('nhập: ô kiểu số giữ nguyên giá trị, chuỗi đọc theo chuẩn Việt Nam', () => {
+    const rows = parseImportRows([
+      { Mã: 'A1', Tên: 'Số lẻ', 'Đơn vị': 'Cái', 'Giá bán': 12.345 },
+      { Mã: 'A2', Tên: 'Nửa', 'Đơn vị': 'Cái', 'Giá bán': 0.5 },
+      { Mã: 'A3', Tên: 'Nghìn', 'Đơn vị': 'Cái', 'Giá bán': 1500 },
+      { Mã: 'A4', Tên: 'Chuỗi 0.500', 'Đơn vị': 'Cái', 'Giá bán': '0.500' },
+      { Mã: 'A5', Tên: 'Số 0', 'Đơn vị': 'Cái', 'Giá bán': 0 },
+      { Mã: 'A6', Tên: 'Số âm', 'Đơn vị': 'Cái', 'Giá bán': -1 },
+    ]);
+    expect(rows.slice(0, 5).map((r) => r.input?.salePrice)).toEqual([12.345, 0.5, 1500, 0.5, 0]);
+    expect(rows[5].error).toBe('Giá bán phải là số không âm.');
+  });
+
   it('nhập: chưa có danh mục thì nhận giá trị tự do', () => {
     const [row] = parseImportRows([{ Mã: 'A', Tên: 'B', 'Đơn vị': 'Cái', 'Phân loại': 'Bất kỳ', 'Sử dụng': 'Tùy ý' }]);
     expect(row.input).toMatchObject({ tradeCategory: 'Bất kỳ', tradeMode: 'Tùy ý' });

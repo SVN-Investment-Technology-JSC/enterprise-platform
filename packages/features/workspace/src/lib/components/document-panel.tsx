@@ -56,6 +56,9 @@ import {
 import { useDirectory } from './use-directory';
 import { Confirm, ConfirmBox } from './confirm-box';
 import { Tooltip } from './tooltip';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
 
 export interface DocumentPanelProps {
   /** Rỗng nghĩa là trang Tài liệu chung: cả tài liệu dự án lẫn cấp đơn vị. */
@@ -87,6 +90,8 @@ export interface DocumentPanelProps {
    * `nonce` mới mỗi lần bấm.
    */
   readonly request?: { readonly kind: 'upload' | 'folder'; readonly nonce: number };
+  /** Báo số tài liệu của phạm vi (chưa lọc theo ô tìm hay thư mục) mỗi lần nạp xong; tab dùng làm số đếm. */
+  readonly onCount?: (count: number) => void;
 }
 
 /**
@@ -108,6 +113,7 @@ export function DocumentPanel({
   workItems,
   focusDocumentId,
   request,
+  onCount,
 }: DocumentPanelProps) {
   const directory = useDirectory();
   const [folders, setFolders] = useState<readonly DocumentFolder[]>([]);
@@ -169,6 +175,9 @@ export function DocumentPanel({
   // Đang xem tài liệu của một công việc: cho gắn tài liệu đã có sẵn trong dự án.
   const attachTo = linkedTo?.entityType === 'work_item' && projectId ? linkedTo : undefined;
 
+  const countRef = useRef(onCount);
+  countRef.current = onCount;
+
   const reload = useCallback(async () => {
     setLoading(true);
     try {
@@ -191,6 +200,7 @@ export function DocumentPanel({
       setFolders(folderList.items);
       setDocuments(documentList.items);
       setError(undefined);
+      if (!search.trim() && !folderId) countRef.current?.(documentList.items.length);
 
       // Số tài liệu của từng thư mục cho cây bên trái. Phải hỏi riêng: danh
       // sách trên đã lọc theo thư mục đang mở nên không đếm được cho cây.
@@ -599,14 +609,13 @@ export function DocumentPanel({
               </p>
             </div>
             <Tooltip content="Đóng">
-              <button
+              <Button variant="ghost" size="icon-sm"
                 type="button"
-                className={styles.iconButton}
                 aria-label="Đóng chi tiết tài liệu"
                 onClick={() => setSelected(undefined)}
               >
                 <X size={15} />
-              </button>
+              </Button>
             </Tooltip>
           </div>
 
@@ -618,20 +627,18 @@ export function DocumentPanel({
           <div className={styles.documentActions}>
             <Tooltip content={currentVersion?.sizeBytes == null ? 'Phiên bản này chưa tải lên xong' : undefined}>
               <span className={styles.tooltipAnchor}>
-                <button
+                <Button
                   type="button"
-                  className={styles.buttonPrimary}
                   disabled={currentVersion?.sizeBytes == null}
                   onClick={() => void download(selected.id)}
                 >
                   <Download size={14} /> Tải xuống
-                </button>
+                </Button>
               </span>
             </Tooltip>
             {currentVersion && currentVersion.sizeBytes != null && isPreviewable(currentVersion.contentType) ? (
-              <button
+              <Button variant="outline"
                 type="button"
-                className={styles.buttonGhost}
                 onClick={() =>
                   setPreview({
                     documentId: selected.id,
@@ -641,7 +648,7 @@ export function DocumentPanel({
                 }
               >
                 <Eye size={14} /> Xem trước
-              </button>
+              </Button>
             ) : null}
             {canWrite ? (
               <>
@@ -653,34 +660,31 @@ export function DocumentPanel({
                   }
                 >
                   <span className={styles.tooltipAnchor}>
-                    <button
+                    <Button variant="outline"
                       type="button"
-                      className={styles.buttonGhost}
                       disabled={selected.lockedByUserId !== currentUserId}
                       onClick={() => setNewVersionFor(selected)}
                     >
                       <FilePlus2 size={14} /> Bản mới
-                    </button>
+                    </Button>
                   </span>
                 </Tooltip>
                 {selected.lockedByUserId ? (
-                  <button
+                  <Button variant="outline"
                     type="button"
-                    className={styles.buttonGhost}
                     onClick={() =>
                       void act(() => api.unlockDocument(selected.id), 'Không mở khoá được.')
                     }
                   >
                     <LockOpen size={14} /> Mở khoá
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button variant="outline"
                     type="button"
-                    className={styles.buttonGhost}
                     onClick={() => void act(() => api.lockDocument(selected.id), 'Không khoá được.')}
                   >
                     <Lock size={14} /> Khoá để sửa
-                  </button>
+                  </Button>
                 )}
               </>
             ) : null}
@@ -740,18 +744,18 @@ export function DocumentPanel({
                       )
                     }
                   >
-                    <button type="button" className={styles.linkButton}>
+                    <Button variant="link" size="xs" type="button" >
                       Gỡ
-                    </button>
+                    </Button>
                   </Confirm>
                 ) : null}
               </li>
             ))}
           </ul>
           {canWrite && selected.status === 'active' ? (
-            <button type="button" className={styles.addLinkButton} onClick={() => setRefOpen(true)}>
+            <Button variant="ghost" size="xs" type="button"  onClick={() => setRefOpen(true)}>
               + Thêm vào thư mục…
-            </button>
+            </Button>
           ) : null}
 
           <h4 className={styles.detailHeading}>Gắn với</h4>
@@ -786,9 +790,9 @@ export function DocumentPanel({
               </Tooltip>
             ))}
             {canWrite && !linkOpen ? (
-              <button type="button" className={styles.addLinkButton} onClick={() => setLinkOpen(true)}>
+              <Button variant="ghost" size="xs" type="button"  onClick={() => setLinkOpen(true)}>
                 + Gắn việc
-              </button>
+              </Button>
             ) : null}
           </div>
           {canWrite && linkOpen ? (
@@ -827,12 +831,11 @@ export function DocumentPanel({
                 <span className={styles.muted}>Dự án này chưa có công việc nào để gắn.</span>
               ) : null}
               <div className={styles.linkFormActions}>
-                <button type="button" className={styles.buttonGhost} onClick={() => setLinkOpen(false)}>
+                <Button variant="outline" type="button"  onClick={() => setLinkOpen(false)}>
                   Đóng
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={styles.buttonPrimary}
                   disabled={!linkTarget}
                   onClick={() =>
                     void act(async () => {
@@ -846,7 +849,7 @@ export function DocumentPanel({
                   }
                 >
                   <Link2 size={14} /> Gắn
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
@@ -864,9 +867,8 @@ export function DocumentPanel({
                 </span>
                 {version.sizeBytes != null && isPreviewable(version.contentType) ? (
                   <Tooltip content="Xem trước">
-                    <button
+                    <Button variant="ghost" size="icon-sm"
                       type="button"
-                      className={styles.iconButton}
                       aria-label={`Xem trước phiên bản ${version.versionNo}`}
                       onClick={() =>
                         setPreview({
@@ -878,21 +880,20 @@ export function DocumentPanel({
                       }
                     >
                       <Eye size={14} />
-                    </button>
+                    </Button>
                   </Tooltip>
                 ) : null}
                 {version.sizeBytes == null ? (
                   <span className={styles.badgeWarn}>Chưa tải lên xong</span>
                 ) : (
                   <Tooltip content={`Tải ${version.fileName}`}>
-                    <button
+                    <Button variant="ghost" size="icon-sm"
                       type="button"
-                      className={styles.iconButton}
                       aria-label={`Tải xuống phiên bản ${version.versionNo}`}
                       onClick={() => void download(selected.id, version.id)}
                     >
                       <Download size={14} />
-                    </button>
+                    </Button>
                   </Tooltip>
                 )}
               </li>
@@ -909,9 +910,9 @@ export function DocumentPanel({
               okType="danger"
               onConfirm={() => act(() => api.archiveDocument(selected.id), 'Không lưu trữ được.')}
             >
-              <button type="button" className={styles.dangerLink}>
+              <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" type="button" >
                 Lưu trữ tài liệu
-              </button>
+              </Button>
             </Confirm>
           ) : null}
         </aside>
@@ -920,6 +921,8 @@ export function DocumentPanel({
   // Bảng tài liệu (cả trang Tài liệu lẫn tab Tài liệu trong dự án) và cây thư mục chiếm đúng phần cao còn lại của màn hình;
   // quá dài thì chỉ cuộn trong bảng/cây.
   const listRef = useRef<HTMLDivElement>(null);
+  // Danh sách tài liệu của một công việc nằm giữa các khối khác trong hộp chi tiết: không kéo dài tới đáy màn hình.
+  const inlineList = compact && Boolean(linkedTo);
   const treeRef = useRef<HTMLElement>(null);
 
   // Bộ lọc gom trong một nút "Bộ lọc" (bảng nổi); đóng khi bấm ra ngoài hoặc nhấn Esc.
@@ -1019,7 +1022,8 @@ export function DocumentPanel({
       <div className={styles.filterBar}>
         <label className={styles.searchField}>
           <Search size={14} aria-hidden />
-          <input
+          <Input
+            className="pl-8"
             type="search"
             value={search}
             placeholder={compact ? 'Tìm theo tên tài liệu' : 'Tìm tài liệu trong mọi thư mục…'}
@@ -1029,9 +1033,8 @@ export function DocumentPanel({
         </label>
 
         <div ref={panelBox} className={styles.timelinePanelBox}>
-          <button
+          <Button variant={filterCount > 0 || panelOpen ? 'secondary' : 'outline'} size="sm"
             type="button"
-            className={filterCount > 0 || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
             aria-haspopup="dialog"
             aria-expanded={panelOpen}
             onClick={() => setPanelOpen((value) => !value)}
@@ -1039,7 +1042,7 @@ export function DocumentPanel({
             <ListFilter size={13} aria-hidden />
             Bộ lọc
             {filterCount > 0 ? <span className={styles.countBadge}>{filterCount}</span> : null}
-          </button>
+          </Button>
           {panelOpen ? (
             <div
               className={`${styles.timelinePanel} ${styles.reqPanel}`}
@@ -1121,16 +1124,12 @@ export function DocumentPanel({
               </div>
               <div className={styles.reqPanelFoot}>
                 <label className={styles.checkbox}>
-                  <input
-                    type="checkbox"
-                    checked={onlyMine}
-                    onChange={(event) => setOnlyMine(event.target.checked)}
-                  />
+                  <Checkbox checked={onlyMine} onCheckedChange={(checked) => setOnlyMine(checked)} />
                   Chỉ của tôi
                 </label>
-                <button type="button" className={styles.buttonGhost} disabled={filterCount === 0} onClick={resetFilters}>
+                <Button variant="outline" type="button"  disabled={filterCount === 0} onClick={resetFilters}>
                   Xoá bộ lọc
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
@@ -1149,25 +1148,23 @@ export function DocumentPanel({
               }
             >
               <span className={styles.tooltipAnchor}>
-                <button
+                <Button
                   type="button"
-                  className={styles.buttonPrimary}
                   // Trong một dự án luôn tải lên được kể cả khi chưa có thư mục: hộp thoại tự tạo thư mục riêng của dự án.
                   disabled={!projectId && visibleFolders.length === 0}
                   onClick={() => setUploadOpen(true)}
                 >
                   <FilePlus2 size={14} /> Tải lên
-                </button>
+                </Button>
               </span>
             </Tooltip>
             {attachTo ? (
-              <button
+              <Button variant="outline"
                 type="button"
-                className={styles.buttonGhost}
                 onClick={() => setAttachOpen(true)}
               >
                 <Link2 size={14} /> Gắn tài liệu có sẵn
-              </button>
+              </Button>
             ) : null}
           </>
         ) : null}
@@ -1180,8 +1177,8 @@ export function DocumentPanel({
       ) : null}
 
       <div
-        ref={listRef}
-        className={`${styles.documentList} ${styles.documentListFill}`}
+        ref={inlineList ? undefined : listRef}
+        className={`${styles.documentList} ${styles.documentListFill} ${inlineList ? styles.documentListInline : ''}`}
       >
         <div className={styles.documentListHead}>
           {/* Đang đứng ở đâu trong kho; bấm một cấp để quay lại cấp đó. */}
@@ -1249,14 +1246,13 @@ export function DocumentPanel({
           )}
           <span className={styles.documentListCount}>{listedDocuments.length} tài liệu</span>
           <Tooltip content="Tải lại">
-            <button
+            <Button variant="ghost" size="icon-sm"
               type="button"
-              className={styles.iconButton}
               aria-label="Tải lại"
               onClick={() => void reload()}
             >
               <RefreshCw size={14} />
-            </button>
+            </Button>
           </Tooltip>
         </div>
 
@@ -1341,14 +1337,13 @@ export function DocumentPanel({
                           content={`Thư mục còn ${countInside(folder)} mục bên trong. Dọn hết rồi mới xoá được.`}
                         >
                           <span className={styles.tooltipAnchor}>
-                            <button
+                            <Button variant="ghost" size="icon-sm"
                               type="button"
-                              className={styles.iconButton}
                               aria-label={`Không xoá được thư mục ${folder.name}`}
                               disabled
                             >
                               <Trash2 size={14} />
-                            </button>
+                            </Button>
                           </span>
                         </Tooltip>
                       ) : (folder.projectId ? canWrite : canDelete) ? (
@@ -1363,13 +1358,12 @@ export function DocumentPanel({
                                 act(() => api.removeFolder(folder.id), 'Không xoá được thư mục.')
                               }
                             >
-                              <button
+                              <Button variant="ghost" size="icon-sm"
                                 type="button"
-                                className={styles.iconButton}
                                 aria-label={`Xoá thư mục ${folder.name}`}
                               >
                                 <Trash2 size={14} />
-                              </button>
+                              </Button>
                             </Confirm>
                           </span>
                         </Tooltip>
@@ -1474,9 +1468,8 @@ export function DocumentPanel({
                   <td className={styles.docRowActions}>
                     {!pending && isPreviewable(document.currentVersion?.contentType) ? (
                       <Tooltip content="Xem trước">
-                        <button
+                        <Button variant="ghost" size="icon-sm"
                           type="button"
-                          className={styles.iconButton}
                           aria-label={`Xem trước ${document.name}`}
                           onClick={() =>
                             setPreview({
@@ -1487,20 +1480,19 @@ export function DocumentPanel({
                           }
                         >
                           <Eye size={14} />
-                        </button>
+                        </Button>
                       </Tooltip>
                     ) : null}
                     <Tooltip content={pending ? 'Phiên bản này chưa tải lên xong' : 'Tải xuống'}>
                       <span className={styles.tooltipAnchor}>
-                        <button
+                        <Button variant="ghost" size="icon-sm"
                           type="button"
-                          className={styles.iconButton}
                           aria-label={`Tải xuống ${document.name}`}
                           disabled={pending}
                           onClick={() => void download(document.id)}
                         >
                           <Download size={14} />
-                        </button>
+                        </Button>
                       </span>
                     </Tooltip>
                   </td>
@@ -1897,13 +1889,14 @@ export function UploadDialog({
 
       {files.length <= 1 ? (
         <Field label="Tên hiển thị" hint="Để trống thì lấy theo tên tệp.">
-          <input value={name} maxLength={255} onChange={(event) => setName(event.target.value)} />
+          <Input value={name} maxLength={255} onChange={(event) => setName(event.target.value)} />
         </Field>
       ) : null}
 
       <Field label="Mô tả">
         <textarea
           rows={2}
+          className="min-h-16 w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
           value={description}
           onChange={(event) => setDescription(event.target.value)}
         />
@@ -1982,6 +1975,7 @@ function NewVersionDialog({
       <Field label="Ghi chú thay đổi" hint="Bắt buộc: người đọc sau cần biết đã đổi những gì.">
         <textarea
           rows={2}
+          className="min-h-16 w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
           value={changeNote}
           required
           maxLength={500}
@@ -2073,7 +2067,7 @@ function FolderDialog({
       onSubmit={() => void submit()}
     >
       <Field label="Tên thư mục">
-        <input
+        <Input
           value={name}
           required
           maxLength={180}
@@ -2250,7 +2244,7 @@ function FolderEditDialog({
     >
       {mode === 'rename' ? (
         <Field label="Tên thư mục">
-          <input
+          <Input
             value={name}
             required
             maxLength={180}

@@ -6,9 +6,11 @@ import {
 import type {
   InventoryTransaction,
   PostedStockDocument,
+  QualityStatus,
   StockDocument,
   StockDocumentLine,
   StockDocumentListQuery,
+  StockDocumentLotInput,
   StockDocumentPage,
   StockDocumentType,
   TransactionType,
@@ -16,6 +18,7 @@ import type {
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 import { randomUUID } from 'node:crypto';
 import type {
+  IdempotentDocumentRef,
   NewStockDocumentInput,
   PostOptions,
   StockDocumentChange,
@@ -40,7 +43,14 @@ import {
   inboundUnitCost,
   outboundUnitCost,
 } from '../domain/costing.js';
-import { requiresSerialsAtPosting, stockEventKind } from '../domain/stock-document-policy.js';
+import {
+  assertPostable,
+  assertSerializedLine,
+  documentRequiresApproval,
+  isExemptOrigin,
+  requiresSerialsAtPosting,
+  stockEventKind,
+} from '../domain/stock-document-policy.js';
 import { lowStockNotificationEvent } from './inventory-notification-events.js';
 import { stockDocumentPostedEvent } from './inventory-stock-events.js';
 import { mapTransaction, writeInventoryOutbox } from './postgres-inventory-store.js';
@@ -205,7 +215,48 @@ interface LockedReservationItem {
   issued: number;
 }
 
-const RESERVATION_STATUS_LABELS: Readonly<Record<string, string>> = {
+/**
+ * Thông tin lô khai trên dòng nhập lúc lưu nháp, lưu ở cột `lot_draft` (JSONB).
+ * Lô chỉ được tạo, hạn dùng còn thiếu chỉ được điền lúc ghi sổ (ISS-BE-066).
+ */
+interface DraftLot extends StockDocumentLotInput {
+  readonly copyLotFrom?: string;
+  readonly newLotQuality?: QualityStatus;
+}
+
+/** Dòng chứng từ để ghi vào thông báo lỗi lô. */
+interface LotLineRef {
+  readonly materialCode: string;
+  readonly lineNo: number;
+}
+
+function lotNotFound(ref: LotLineRef, lotNo: string): InventoryError {
+  return new InventoryError(
+    'LOT_NOT_FOUND',
+    `Dòng ${ref.lineNo}: không tìm thấy lô ${lotNo} của vật tư ${ref.materialCode}.`,
+    404,
+  );
+}
+
+/** Lô đã có hạn dùng hay ngày sản xuất khác thông tin khai trên dòng thì 409. */
+function assertLotCompatible(row: Row, lot: StockDocumentLotInput, ref: LotLineRef): void {
+  const conflicts: string[] = [];
+  if (lot.expiresOn && row.expires_on && lot.expiresOn !== str(row.expires_on)) {
+    conflicts.push(`hạn dùng ${str(row.expires_on)}`);
+  }
+  if (lot.manufacturedOn && row.manufactured_on && lot.manufacturedOn !== str(row.manufactured_on)) {
+    conflicts.push(`ngày sản xuất ${str(row.manufactured_on)}`);
+  }
+  if (conflicts.length > 0) {
+    throw new InventoryError(
+      'LOT_ATTRIBUTE_CONFLICT',
+      `Dòng ${ref.lineNo}: lô ${lot.lotNo} của ${ref.materialCode} đã có ${conflicts.join(', ')}, khác thông tin trên dòng.`,
+      409,
+    );
+  }
+}
+
+const RESERVATION_STATUS_LABELS:Readonly<Record<string, string>> = {
   PENDING: 'chờ giữ',
   COMPLETED: 'xuất đủ',
   CANCELLED: 'bị huỷ',
@@ -297,6 +348,34 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     return this.load(pool, key, false);
   }
 
+  async findByIdempotencyPrefixes(
+    tenantId: string,
+    prefixes: readonly string[],
+  ): Promise<IdempotentDocumentRef[]> {
+    const keys = [...new Set(prefixes.map((prefix) => prefix.trim()).filter(Boolean))];
+    if (!keys.length) return [];
+    const pool = await this.poolFor(tenantId);
+    // Khoá gốc khớp đúng; chứng từ con khớp `<khoá>:%` (thoát ký tự đặc biệt của LIKE).
+    const patterns = keys.map((key) => `${key.replace(/[\\%_]/g, (char) => `\\${char}`)}:%`);
+    const result = await pool.query<Row>(
+      `SELECT id, code, status, idempotency_key, request_hash, source_type, source_id
+         FROM inventory_schema.stock_documents
+        WHERE idempotency_key = ANY($1::text[])
+           OR idempotency_key LIKE ANY($2::text[])
+        ORDER BY idempotency_key`,
+      [keys, patterns],
+    );
+    return result.rows.map((row) => ({
+      id: str(row.id),
+      code: str(row.code),
+      status: str(row.status) as StockDocument['status'],
+      idempotencyKey: str(row.idempotency_key),
+      requestHash: opt(row.request_hash),
+      sourceType: opt(row.source_type),
+      sourceId: opt(row.source_id),
+    }));
+  }
+
   async create(tenantId: string, input: NewStockDocumentInput): Promise<StockDocument> {
     const pool = await this.poolFor(tenantId);
     return inTransaction(pool, async (client) => {
@@ -353,6 +432,21 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       // Gọi lại cùng khoá chống lặp: chứng từ đã ghi sổ thì trả lại kết quả cũ.
       if (created.status === 'POSTED') {
         return { document: created, transactions: await this.loadLedger(client, id) };
+      }
+      // Chứng từ cần duyệt (ISS-BE-006): không ghi sổ ngay, chỉ gửi duyệt. Gọi
+      // lại cùng khoá thì trả chứng từ ở trạng thái hiện tại.
+      if (documentRequiresApproval(created) && !isExemptOrigin(created, options.origin)) {
+        if (created.status === 'DRAFT') {
+          await client.query(
+            `UPDATE inventory_schema.stock_documents
+                SET status = 'PENDING', submitted_by = $2, submitted_at = now(), updated_at = now()
+              WHERE id = $1`,
+            [id, postedBy],
+          );
+        }
+        const pending = await this.load(client, id, false);
+        if (!pending) throw new StockDocumentNotFoundError(id);
+        return { document: pending, transactions: [] };
       }
       const ready = options.autoPickSerials ? await this.pickSerials(client, created) : created;
       const transactions = await this.postLocked(client, tenantId, ready, postedBy, options);
@@ -413,7 +507,9 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       );
       const reversal = await this.load(client, id, true);
       if (!reversal) throw new StockDocumentNotFoundError(id);
-      const transactions = await this.postLocked(client, tenantId, reversal, actorId);
+      const transactions = await this.postLocked(client, tenantId, reversal, actorId, {
+        origin: 'reversal',
+      });
       const document = await this.load(client, id, false);
       if (!document) throw new StockDocumentNotFoundError(id);
       return { document, transactions };
@@ -502,7 +598,8 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     if (documentIds.length === 0) return grouped;
     const result = await client.query<Row>(
       `SELECT l.*, m.code AS material_code, m.name AS material_name, m.unit,
-              lot.lot_no, lot.expires_on::text AS lot_expires_on
+              COALESCE(lot.lot_no, l.lot_draft->>'lotNo') AS lot_no,
+              COALESCE(lot.expires_on::text, l.lot_draft->>'expiresOn') AS lot_expires_on
          FROM inventory_schema.stock_document_lines l
          JOIN inventory_schema.materials m ON m.id = l.material_id
          LEFT JOIN inventory_schema.lots lot ON lot.id = l.lot_id
@@ -606,7 +703,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       return this.replayed(winner.rows[0] ?? {}, input);
     }
     const id = str(inserted.rows[0].id);
-    await this.insertLines(client, id, input.lines, materials, input.createdBy);
+    await this.insertLines(client, id, input.lines, materials);
     return id;
   }
 
@@ -623,18 +720,17 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     documentId: string,
     lines: readonly StockDocumentLineDraft[],
     materials: Map<string, string>,
-    actorId: string,
   ): Promise<void> {
     for (const [index, line] of lines.entries()) {
       const materialId = materials.get(line.materialCode) as string;
-      const lotId = line.lot
-        ? await this.resolveLot(client, line, materialId, index + 1, actorId)
-        : null;
+      const lot = line.lot
+        ? await this.checkLot(client, line, materialId, index + 1)
+        : { lotId: null, draft: null };
       await client.query(
         `INSERT INTO inventory_schema.stock_document_lines
            (document_id, line_no, material_id, quantity, direction, unit_cost, reservation_id, note,
-            lot_id, serial_numbers, source_line_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            lot_id, serial_numbers, source_line_id, lot_draft)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
         [
           documentId,
           index + 1,
@@ -644,93 +740,120 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           line.unitCost,
           line.reservationId ?? null,
           line.note ?? null,
-          lotId,
+          lot.lotId,
           line.serials?.length ? [...line.serials] : null,
           line.sourceLineId ?? null,
+          lot.draft ? JSON.stringify(lot.draft) : null,
         ],
       );
     }
   }
 
   /**
-   * Lô của dòng. Dòng nhập tạo lô mới hoặc dùng lô cùng số lô (T1-17); khai hạn
-   * dùng khác hạn đã có thì 409, lô chưa có hạn thì nhận hạn mới. Dòng xuất chỉ
-   * dùng lô có sẵn. Tồn của lô chỉ đổi lúc ghi sổ.
+   * Lô của dòng lúc lưu nháp, chỉ đọc (ISS-BE-066). Dòng nhập: lô cùng số lô đã
+   * có (T1-17) mà khai hạn dùng hay ngày sản xuất khác thì 409; thông tin lô khai
+   * trên dòng lưu vào `lot_draft`, lô mới hay hạn dùng còn thiếu chỉ ghi vào bảng
+   * lô lúc ghi sổ (`materializeDraftLots`). Dòng xuất chỉ dùng lô có sẵn.
    */
-  private async resolveLot(
+  private async checkLot(
     client: Queryable,
     line: StockDocumentLineDraft,
     materialId: string,
     lineNo: number,
-    actorId: string,
-  ): Promise<string> {
+  ): Promise<{ lotId: string | null; draft: DraftLot | null }> {
     const lot = line.lot as NonNullable<StockDocumentLineDraft['lot']>;
-    if (line.direction === 'IN') {
-      // Lô mới của hàng trả về chép thông tin lô gốc (nếu có) để giữ hạn dùng.
-      const template = line.copyLotFrom
-        ? (
-            await client.query<Row>(
-              `SELECT manufactured_on::text AS manufactured_on, expires_on::text AS expires_on,
-                      supplier, certificate_no
-                 FROM inventory_schema.lots WHERE material_id = $1 AND lot_no = $2`,
-              [materialId, line.copyLotFrom],
-            )
-          ).rows[0]
-        : undefined;
-      if (line.copyLotFrom && !template) {
-        throw new InventoryError(
-          'LOT_NOT_FOUND',
-          `Dòng ${lineNo}: không tìm thấy lô ${line.copyLotFrom} của vật tư ${line.materialCode}.`,
-          404,
+    const ref = { materialCode: line.materialCode, lineNo };
+    if (line.direction !== 'IN') {
+      const row = await this.findLot(client, materialId, lot.lotNo);
+      if (!row) throw lotNotFound(ref, lot.lotNo);
+      return { lotId: str(row.id), draft: null };
+    }
+    const draft: DraftLot = {
+      ...lot,
+      copyLotFrom: line.copyLotFrom,
+      newLotQuality: line.newLotQuality,
+    };
+    if (draft.copyLotFrom) await this.lotTemplate(client, materialId, draft, ref);
+    const row = await this.findLot(client, materialId, lot.lotNo);
+    if (row) assertLotCompatible(row, draft, ref);
+    return { lotId: row ? str(row.id) : null, draft };
+  }
+
+  /**
+   * Lúc ghi sổ: tạo lô mới và điền hạn dùng, ngày sản xuất còn thiếu của lô có sẵn
+   * theo thông tin lô nháp của các dòng nhập, gán `lot_id` cho dòng rồi đọc lại
+   * chứng từ. Dòng cũ đã có `lot_id` mà không có `lot_draft` giữ nguyên.
+   */
+  private async materializeDraftLots(
+    client: Queryable,
+    document: StockDocument,
+    actorId: string,
+  ): Promise<StockDocument> {
+    const pending = await client.query<Row>(
+      `SELECT l.id, l.line_no, l.material_id, l.lot_id, l.lot_draft, m.code AS material_code
+         FROM inventory_schema.stock_document_lines l
+         JOIN inventory_schema.materials m ON m.id = l.material_id
+        WHERE l.document_id = $1 AND l.direction = 'IN' AND l.lot_draft IS NOT NULL
+        ORDER BY l.line_no`,
+      [document.id],
+    );
+    if (pending.rows.length === 0) return document;
+    for (const row of pending.rows) {
+      const lotId = await this.ensureLot(
+        client,
+        str(row.material_id),
+        row.lot_draft as DraftLot,
+        { materialCode: str(row.material_code), lineNo: num(row.line_no) },
+        actorId,
+      );
+      if (opt(row.lot_id) !== lotId) {
+        await client.query(
+          `UPDATE inventory_schema.stock_document_lines SET lot_id = $2 WHERE id = $1`,
+          [str(row.id), lotId],
         );
       }
-      await client.query(
-        `INSERT INTO inventory_schema.lots
-           (material_id, lot_no, manufactured_on, expires_on, supplier, certificate_no, created_by,
-            quality_status, note)
-         VALUES ($1, $2, $3::date, $4::date, $5, $6, $7, $8, $9)
-         ON CONFLICT (material_id, lot_no) DO NOTHING`,
-        [
-          materialId,
-          lot.lotNo,
-          lot.manufacturedOn ?? opt(template?.manufactured_on) ?? null,
-          lot.expiresOn ?? opt(template?.expires_on) ?? null,
-          lot.supplier ?? opt(template?.supplier) ?? null,
-          lot.certificateNo ?? opt(template?.certificate_no) ?? null,
-          actorId,
-          line.newLotQuality ?? 'PASSED',
-          line.copyLotFrom ? `Hàng trả về từ lô ${line.copyLotFrom}` : null,
-        ],
-      );
     }
-    const found = await client.query<Row>(
-      `SELECT id, manufactured_on::text AS manufactured_on, expires_on::text AS expires_on
-         FROM inventory_schema.lots
-        WHERE material_id = $1 AND lot_no = $2`,
-      [materialId, lot.lotNo],
+    const reloaded = await this.load(client, document.id, false);
+    if (!reloaded) throw new StockDocumentNotFoundError(document.id);
+    return reloaded;
+  }
+
+  /**
+   * Tạo lô mới hoặc dùng lô cùng số lô; khai khác hạn dùng, ngày sản xuất đã có
+   * thì 409, lô chưa có thì nhận giá trị mới. Lô mới của hàng trả về chép thông
+   * tin lô gốc (nếu có) để giữ hạn dùng.
+   */
+  private async ensureLot(
+    client: Queryable,
+    materialId: string,
+    lot: DraftLot,
+    ref: LotLineRef,
+    actorId: string,
+  ): Promise<string> {
+    const template = lot.copyLotFrom
+      ? await this.lotTemplate(client, materialId, lot, ref)
+      : undefined;
+    await client.query(
+      `INSERT INTO inventory_schema.lots
+         (material_id, lot_no, manufactured_on, expires_on, supplier, certificate_no, created_by,
+          quality_status, note)
+       VALUES ($1, $2, $3::date, $4::date, $5, $6, $7, $8, $9)
+       ON CONFLICT (material_id, lot_no) DO NOTHING`,
+      [
+        materialId,
+        lot.lotNo,
+        lot.manufacturedOn ?? opt(template?.manufactured_on) ?? null,
+        lot.expiresOn ?? opt(template?.expires_on) ?? null,
+        lot.supplier ?? opt(template?.supplier) ?? null,
+        lot.certificateNo ?? opt(template?.certificate_no) ?? null,
+        actorId,
+        lot.newLotQuality ?? 'PASSED',
+        lot.copyLotFrom ? `Hàng trả về từ lô ${lot.copyLotFrom}` : null,
+      ],
     );
-    const row = found.rows[0];
-    if (!row) {
-      throw new InventoryError(
-        'LOT_NOT_FOUND',
-        `Dòng ${lineNo}: không tìm thấy lô ${lot.lotNo} của vật tư ${line.materialCode}.`,
-        404,
-      );
-    }
-    const conflicts: string[] = [];
-    if (lot.expiresOn && row.expires_on && lot.expiresOn !== str(row.expires_on)) {
-      conflicts.push(`hạn dùng ${str(row.expires_on)}`);
-    }
-    if (lot.manufacturedOn && row.manufactured_on && lot.manufacturedOn !== str(row.manufactured_on)) {
-      conflicts.push(`ngày sản xuất ${str(row.manufactured_on)}`);
-    }
-    if (conflicts.length > 0) {
-      throw new InventoryError(
-        'LOT_ATTRIBUTE_CONFLICT',
-        `Dòng ${lineNo}: lô ${lot.lotNo} của ${line.materialCode} đã có ${conflicts.join(', ')}, khác thông tin trên dòng.`,
-        409,
-      );
-    }
+    const row = await this.findLot(client, materialId, lot.lotNo);
+    if (!row) throw lotNotFound(ref, lot.lotNo);
+    assertLotCompatible(row, lot, ref);
     if ((lot.expiresOn && !row.expires_on) || (lot.manufacturedOn && !row.manufactured_on)) {
       await client.query(
         `UPDATE inventory_schema.lots
@@ -742,6 +865,35 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       );
     }
     return str(row.id);
+  }
+
+  private async findLot(client: Queryable, materialId: string, lotNo: string): Promise<Row | undefined> {
+    const found = await client.query<Row>(
+      `SELECT id, manufactured_on::text AS manufactured_on, expires_on::text AS expires_on
+         FROM inventory_schema.lots
+        WHERE material_id = $1 AND lot_no = $2`,
+      [materialId, lotNo],
+    );
+    return found.rows[0];
+  }
+
+  /** Lô gốc để chép thông tin sang lô mới của hàng trả về; không có thì 404. */
+  private async lotTemplate(
+    client: Queryable,
+    materialId: string,
+    lot: DraftLot,
+    ref: LotLineRef,
+  ): Promise<Row> {
+    const template = (
+      await client.query<Row>(
+        `SELECT manufactured_on::text AS manufactured_on, expires_on::text AS expires_on,
+                supplier, certificate_no
+           FROM inventory_schema.lots WHERE material_id = $1 AND lot_no = $2`,
+        [materialId, lot.copyLotFrom],
+      )
+    ).rows[0];
+    if (!template) throw lotNotFound(ref, String(lot.copyLotFrom));
+    return template;
   }
 
   /** Sửa nháp, hoặc sửa chứng từ bị từ chối và đưa nó về Nháp. */
@@ -779,7 +931,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
         `DELETE FROM inventory_schema.stock_document_lines WHERE document_id = $1`,
         [current.id],
       );
-      await this.insertLines(client, current.id, patch.lines, materials, current.createdBy);
+      await this.insertLines(client, current.id, patch.lines, materials);
     }
   }
 
@@ -862,8 +1014,14 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     if (document.lines.length === 0) {
       throw new InventoryError('VALIDATION', 'Chứng từ không có dòng nào để ghi sổ.');
     }
+    // Mọi đường ghi sổ (ghi ngay, ghi chứng từ đã duyệt, đảo) cùng kiểm duyệt ở đây.
+    assertPostable(document, { origin: options.origin });
     const isReversal = Boolean(document.reversesDocumentId);
-    await this.assertPostableMaterials(client, document, isReversal);
+    await this.assertPostableMaterials(client, document);
+
+    // ISS-BE-066: lô mới, hạn dùng còn thiếu của dòng nhập chỉ ghi vào bảng lô lúc này.
+    document = await this.materializeDraftLots(client, document, postedBy);
+
     const movements = this.movements(document);
     const sourceLineCosts = await this.sourceLineCosts(client, movements);
     // Khoá giữ hàng trước dòng tồn, cùng thứ tự với nhả hàng và job hết hạn.
@@ -1174,33 +1332,24 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
 
   /**
    * Kiểm mặt hàng trước khi ghi sổ: dịch vụ không ghi sổ kho (D6, phòng mã đổi
-   * loại sau khi lập nháp); chứng từ giao hàng, bảo hành, nhập trả phải có đủ
-   * serial cho mặt hàng theo serial.
+   * loại sau khi lập nháp); mặt hàng theo serial phải có số lượng nguyên và đủ
+   * serial ở mọi loại chứng từ, dòng nhập lẫn dòng xuất (ISS-BE-005). Điều chuyển
+   * chỉ có dòng xuất; vế nhập ở kho đích dùng đúng serial của dòng xuất.
    */
-  private async assertPostableMaterials(
-    client: Queryable,
-    document: StockDocument,
-    isReversal: boolean,
-  ): Promise<void> {
+  private async assertPostableMaterials(client: Queryable, document: StockDocument): Promise<void> {
     const result = await client.query<Row>(
       `SELECT id, code, kind, is_serialized FROM inventory_schema.materials WHERE id = ANY($1::uuid[])`,
       [[...new Set(document.lines.map((line) => line.materialId))]],
     );
     const materials = new Map(result.rows.map((row) => [str(row.id), row]));
-    const serialsRequired = requiresSerialsAtPosting(document.docType, isReversal);
+    const serialsRequired = requiresSerialsAtPosting(document);
     for (const line of document.lines) {
       const material = materials.get(line.materialId);
       if (material && str(material.kind) === 'SERVICE') {
         throw new ServiceMaterialNotStockedError(line.materialCode);
       }
       if (serialsRequired && material && Boolean(material.is_serialized)) {
-        const count = line.serials?.length ?? 0;
-        if (count !== line.quantity) {
-          throw new InventoryError(
-            'SERIALS_REQUIRED',
-            `Dòng ${line.lineNo}: ${line.materialCode} theo dõi theo serial; chọn đủ ${line.quantity} serial trước khi ghi sổ (đang có ${count}).`,
-          );
-        }
+        assertSerializedLine(line, line.serials?.length ?? 0, 'posting');
       }
     }
   }

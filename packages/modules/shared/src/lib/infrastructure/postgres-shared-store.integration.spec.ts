@@ -42,7 +42,12 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
   async function document(
     inFolder: SharedFolder,
     name: string,
-    options: { bytes?: number; confidentiality?: DocumentInsert['confidentiality']; createdBy?: string } = {},
+    options: {
+      bytes?: number;
+      confidentiality?: DocumentInsert['confidentiality'];
+      createdBy?: string;
+      storageLocation?: DocumentInsert['storageLocation'];
+    } = {},
   ) {
     const created = await store.documents.create(TENANT, options.createdBy ?? alice, {
       folderId: inFolder.id,
@@ -53,6 +58,7 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
       tags: [],
       sourceLabel: null,
       storageKey: `tenants/${TENANT}/shared/${randomUUID()}/v1-${name}.pdf`,
+      storageLocation: options.storageLocation,
       fileName: `${name}.pdf`,
       contentType: 'application/pdf',
       changeNote: null,
@@ -61,6 +67,10 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
     await store.documents.completeVersion(TENANT, created.version.id, options.bytes ?? 1000);
     return created;
   }
+
+  const keyOf = async (versionId: string) =>
+    (await pool.query<{ storage_key: string }>(`SELECT storage_key FROM shared_schema.document_versions WHERE id = $1`, [versionId]))
+      .rows[0]?.storage_key;
 
   const count = async (table: string, where = 'true') =>
     Number((await pool.query<{ n: string }>(`SELECT count(*) AS n FROM shared_schema.${table} WHERE ${where}`)).rows[0]?.n);
@@ -125,6 +135,154 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
     await store.documents.log(TENANT, alice, { documentId: doc.id, action: 'delete' });
     await store.documents.log(TENANT, alice, { documentId: doc.id, action: 'restore' });
     expect(await store.documents.accessLog(TENANT, doc.id, 10)).toHaveLength(2);
+  });
+
+  describe('kho lưu trữ ngoài', () => {
+    it('cấu hình: lưu lần đầu, sửa theo phiên bản, phiên bản cũ thì không ghi đè', async () => {
+      expect(await store.storageSettings.get(TENANT)).toBeUndefined();
+      const input = {
+        enabled: true,
+        label: 'NAS',
+        accessMode: 'proxy' as const,
+        endpoint: 'http://100.101.2.3:9000',
+        publicEndpoint: null,
+        region: 'us-east-1',
+        bucket: 'erp-documents',
+        pathStyle: true,
+        accessKeyId: 'erp-key',
+        secretCiphertext: 'v1.a.b.c',
+      };
+      const first = await store.storageSettings.save(TENANT, alice, input);
+      expect(first).toMatchObject({ ...input, version: 1, updatedBy: alice });
+      const second = await store.storageSettings.save(TENANT, bob, { ...input, enabled: false }, 1);
+      expect(second).toMatchObject({ enabled: false, version: 2, updatedBy: bob });
+      await expect(store.storageSettings.save(TENANT, alice, input, 1)).resolves.toBeUndefined();
+      expect(await store.storageSettings.get(TENANT)).toMatchObject({ enabled: false, version: 2 });
+      await expect(
+        pool.query(`INSERT INTO shared_schema.storage_settings (id, endpoint, bucket, access_key_id, secret_ciphertext, updated_by)
+                    VALUES (2, 'x', 'y', 'z', 'w', $1)`, [alice]),
+      ).rejects.toBeDefined();
+    });
+
+    it('nơi lưu theo phiên bản: tệp ở kho ngoài không tính vào dung lượng nền tảng; chuyển kho; xoá vĩnh viễn tách khoá theo kho', async () => {
+      const root = await folder('Kho ngoài');
+      const shared = async () => (await store.storage.usageByModule(TENANT)).find((item) => item.moduleKey === 'shared')!;
+      const before = await shared();
+      const usageBefore = await store.storage.locationUsage(TENANT);
+      const onNas = await document(root, 'Trên NAS', { bytes: 7000, storageLocation: 'external' });
+      const onPlatform = await document(root, 'Trên máy chủ', { bytes: 3000 });
+      expect((await shared()).bytes - before.bytes).toBe(3000);
+      expect(await store.documents.storageRefOf(TENANT, onNas.version.id)).toMatchObject({ location: 'external' });
+      const usage = await store.storage.locationUsage(TENANT);
+      expect(usage.external.bytes - usageBefore.external.bytes).toBe(7000);
+      expect(usage.platform.bytes - usageBefore.platform.bytes).toBe(3000);
+
+      const pending = await store.storage.platformObjects(TENANT, 1000);
+      expect(pending.map((item) => item.versionId)).toContain(onPlatform.version.id);
+      expect(pending.map((item) => item.versionId)).not.toContain(onNas.version.id);
+      const remaining = await store.storage.countPlatformObjects(TENANT);
+      await expect(store.storage.markExternal(TENANT, onPlatform.version.id)).resolves.toBe(true);
+      await expect(store.storage.markExternal(TENANT, onPlatform.version.id)).resolves.toBe(false);
+      expect(await store.storage.countPlatformObjects(TENANT)).toBe(remaining - 1);
+      expect((await shared()).bytes).toBe(before.bytes);
+
+      const mixed = await document(root, 'Hai kho', { bytes: 100 });
+      const nasVersion = await store.documents.addVersion(TENANT, alice, {
+        documentId: mixed.document.id,
+        versionNo: 2,
+        storageKey: `tenants/${TENANT}/shared/${randomUUID()}/v2-hai-kho.pdf`,
+        storageLocation: 'external',
+        fileName: 'hai-kho.pdf',
+        contentType: 'application/pdf',
+        changeNote: null,
+      });
+      const platformKey = await keyOf(mixed.version.id);
+      await store.documents.trash(TENANT, mixed.document.id, alice);
+      const purged = await store.documents.purge(TENANT, mixed.document.id, alice);
+      expect(purged.storageKeys).toEqual([platformKey]);
+      expect(purged.externalKeys).toEqual([expect.stringContaining('/v2-hai-kho.pdf')]);
+      expect(nasVersion.versionNo).toBe(2);
+    });
+  });
+
+  describe('kết nối NAS', () => {
+    const connection = {
+      enabled: true,
+      label: 'NAS',
+      provider: 'synology' as const,
+      baseUrl: 'http://100.79.184.77:5000',
+      username: 'erp-connector',
+      secretCiphertext: 'v1.a.b.c',
+      shares: [{ name: 'SAVINA' }, { name: 'KINH DOANH', label: 'Kinh doanh' }],
+      syncMinutes: 15,
+    };
+
+    it('cấu hình: lưu, sửa theo phiên bản, ghi trạng thái đồng bộ', async () => {
+      expect(await store.nas.connection(TENANT)).toBeUndefined();
+      expect(await store.nas.saveConnection(TENANT, alice, connection)).toMatchObject({ ...connection, version: 1 });
+      await expect(store.nas.saveConnection(TENANT, bob, { ...connection, enabled: false }, 2)).resolves.toBeUndefined();
+      await store.nas.saveConnection(TENANT, bob, { ...connection, syncMinutes: 30 }, 1);
+      await store.nas.recordSync(TENANT, { ok: false, message: 'NAS không phản hồi.' });
+      expect(await store.nas.connection(TENANT)).toMatchObject({
+        syncMinutes: 30,
+        version: 2,
+        updatedBy: bob,
+        lastSyncOk: false,
+        lastSyncMessage: 'NAS không phản hồi.',
+        lastSyncAt: expect.any(String),
+      });
+      await expect(store.nas.saveConnection(TENANT, bob, { ...connection, syncMinutes: 2 })).rejects.toBeDefined();
+    });
+
+    it('bản sao người dùng, nhóm, quyền: thay trọn mỗi lượt; một nhân sự chỉ ghép một tài khoản', async () => {
+      const account = (name: string, patch: Record<string, unknown> = {}) => ({
+        name,
+        description: '',
+        disabled: false,
+        groups: ['users'],
+        linkSource: 'none' as const,
+        ...patch,
+      });
+      await store.nas.replaceDirectory(TENANT, {
+        accounts: [account('thuyptd', { erpUserId: alice, linkSource: 'auto', groups: ['users', 'Văn Thư'] }), account('baodt'), account('cu')],
+        groups: [{ name: 'users', description: '', members: 3 }, { name: 'Văn Thư', description: '', members: 1 }],
+        rules: [
+          { share: 'SAVINA', principalType: 'group', principalName: 'users', rule: 'read' },
+          { share: 'SAVINA', principalType: 'group', principalName: 'Văn Thư', rule: 'write' },
+        ],
+      });
+      expect(await store.nas.accountForUser(TENANT, alice)).toMatchObject({ name: 'thuyptd', groups: ['users', 'Văn Thư'], linkSource: 'auto' });
+
+      // Chuyển nhân sự sang tài khoản khác trong cùng lượt không vướng ràng buộc duy nhất.
+      await store.nas.replaceDirectory(TENANT, {
+        accounts: [account('thuyptd'), account('baodt', { erpUserId: alice, linkSource: 'auto' })],
+        groups: [{ name: 'users', description: '', members: 2 }],
+        rules: [{ share: 'SAVINA', principalType: 'group', principalName: 'users', rule: 'read' }],
+      });
+      expect((await store.nas.accounts(TENANT)).map((item) => item.name)).toEqual(['baodt', 'thuyptd']);
+      expect(await store.nas.accountForUser(TENANT, alice)).toMatchObject({ name: 'baodt' });
+      expect(await store.nas.rules(TENANT)).toEqual([{ share: 'SAVINA', principalType: 'group', principalName: 'users', rule: 'read' }]);
+      expect(await store.nas.groups(TENANT)).toEqual([{ name: 'users', description: '', members: 2 }]);
+
+      // Ghép tay: gỡ nhân sự khỏi tài khoản cũ; bỏ ghép tay vẫn đánh dấu là tay.
+      await expect(store.nas.linkAccount(TENANT, 'thuyptd', alice)).resolves.toBe(true);
+      expect(await store.nas.accounts(TENANT)).toEqual([
+        expect.objectContaining({ name: 'baodt', erpUserId: undefined, linkSource: 'manual' }),
+        expect.objectContaining({ name: 'thuyptd', erpUserId: alice, linkSource: 'manual' }),
+      ]);
+      await store.nas.linkAccount(TENANT, 'thuyptd', null);
+      expect(await store.nas.accountForUser(TENANT, alice)).toBeUndefined();
+      await expect(store.nas.linkAccount(TENANT, 'khong-co', bob)).resolves.toBe(false);
+    });
+
+    it('nhật ký truy cập NAS', async () => {
+      await store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'HĐ/a.pdf', action: 'download' });
+      await store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'HĐ/b.pdf', action: 'move', detail: 'Lưu trữ' });
+      await expect(
+        store.nas.log(TENANT, alice, { share: 'SAVINA', path: 'x', action: 'hack' as never }),
+      ).rejects.toBeDefined();
+      expect(await count('nas_access_logs')).toBe(2);
+    });
   });
 
   describe('xoá một tài liệu', () => {
@@ -223,6 +381,7 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
       // Chưa vào Thùng rác thì không xoá vĩnh viễn được.
       await expect(store.documents.purge(TENANT, created.document.id, bob)).resolves.toEqual({
         storageKeys: [],
+        externalKeys: [],
         documents: 0,
         folders: 0,
       });
@@ -449,6 +608,7 @@ integration('Kho tài liệu công ty: xoá, Thùng rác, khôi phục (PostgreS
       const { mid } = await tree();
       await expect(store.folders.purgeBranch(TENANT, mid.id, bob)).resolves.toEqual({
         storageKeys: [],
+        externalKeys: [],
         documents: 0,
         folders: 0,
       });

@@ -1,4 +1,4 @@
--- Migration 0028: stocktake-location-sync
+-- Migration 0029: stocktake-location-sync
 -- Thêm cột lưu vị trí gốc lúc chụp đợt kiểm kê và nới rộng cột bin_location lên 255 ký tự để khớp với material_storage_locations.location_text.
 
 ALTER TABLE inventory_schema.stocktake_lines

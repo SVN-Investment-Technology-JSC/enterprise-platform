@@ -187,7 +187,22 @@ export class ModuleAccess {
         message: 'X-Tenant-ID là bắt buộc cho lời gọi nội bộ.',
       });
     }
+    return { tenantId, database: await this.tenantDatabase(tenantId) };
+  }
 
+  /**
+   * Database của một tenant mà bên gọi đã tự xác thực bằng cách khác (ví dụ phiếu tải
+   * tệp có chữ ký của chính module). Hỏi Platform bằng service token của module; fail
+   * closed khi chưa cấu hình token hoặc Platform không trả lời.
+   */
+  async tenantDatabase(tenantId: string): Promise<TenantDatabaseReference> {
+    const expected = process.env.INTERNAL_SERVICE_TOKEN;
+    if (!expected) {
+      throw new ServiceUnavailableException({
+        code: 'PLATFORM_ACCESS_UNAVAILABLE',
+        message: 'Không thể phân giải database của tenant; yêu cầu bị từ chối an toàn.',
+      });
+    }
     // Đây là endpoint HTTP của Platform, không phải connection string. Tên cũ
     // PLATFORM_TENANT_DATABASE_URL đọc như một DSN nên vẫn được chấp nhận để
     // không phá môi trường đang chạy, nhưng tên đúng là ..._API_URL.
@@ -202,7 +217,7 @@ export class ModuleAccess {
       );
       if (!response.ok) throw new Error(`Tenant database lookup returned ${response.status}.`);
       const body = (await response.json()) as { database: TenantDatabaseReference };
-      return { tenantId, database: body.database };
+      return body.database;
     } catch {
       throw new ServiceUnavailableException({
         code: 'PLATFORM_ACCESS_UNAVAILABLE',

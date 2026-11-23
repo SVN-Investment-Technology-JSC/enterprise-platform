@@ -674,6 +674,37 @@ export class PostgresInventoryStore implements InventoryStore {
       return num(result.rows[0]?.n ?? 0);
     },
 
+    unserializedStock: async (
+      tenantId: string,
+      code: string,
+    ): Promise<{ warehouseCode: string; onHand: number; inStockSerials: number }[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `WITH m AS (SELECT id FROM inventory_schema.materials WHERE code = $1),
+              stock AS (
+                SELECT b.warehouse_id, SUM(b.quantity) AS on_hand
+                  FROM inventory_schema.material_inventory b JOIN m ON m.id = b.material_id
+                 GROUP BY b.warehouse_id),
+              serials AS (
+                SELECT s.current_warehouse_id AS warehouse_id, count(*) AS in_stock
+                  FROM inventory_schema.serial_tracking s JOIN m ON m.id = s.material_id
+                 WHERE s.stock_state = 'IN_STOCK'
+                 GROUP BY s.current_warehouse_id)
+         SELECT w.code AS warehouse_code, COALESCE(stock.on_hand, 0) AS on_hand,
+                COALESCE(serials.in_stock, 0) AS in_stock
+           FROM stock FULL JOIN serials ON serials.warehouse_id = stock.warehouse_id
+           JOIN inventory_schema.warehouses w ON w.id = COALESCE(stock.warehouse_id, serials.warehouse_id)
+          WHERE COALESCE(stock.on_hand, 0) <> COALESCE(serials.in_stock, 0)
+          ORDER BY w.code`,
+        [code],
+      );
+      return result.rows.map((row) => ({
+        warehouseCode: str(row.warehouse_code),
+        onHand: num(row.on_hand),
+        inStockSerials: num(row.in_stock),
+      }));
+    },
+
     listLinks: async (tenantId: string, code: string): Promise<{ label: string; count: number }[]> => {
       const pool = await this.poolFor(tenantId);
       const found = await pool.query<Row>(

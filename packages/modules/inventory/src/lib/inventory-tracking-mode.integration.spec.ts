@@ -13,7 +13,7 @@ const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 function migrationFile(): string {
   let candidate = process.cwd();
   while (!existsSync(join(candidate, 'nx.json'))) candidate = dirname(candidate);
-  return resolve(candidate, 'migrations/tenant/inventory/0027-material-tracking-mode.sql');
+  return resolve(candidate, 'migrations/tenant/inventory/0028-material-tracking-mode.sql');
 }
 
 type ModeRow = { code: string; tracking_mode: string; is_serialized: boolean };
@@ -50,7 +50,7 @@ integration('Migration 0027 material tracking_mode', () => {
 
   beforeAll(async () => {
     database = await TestInventoryDatabase.create(INVENTORY_TEST_ADMIN_URL as string, {
-      stopBefore: '0027-material-tracking-mode',
+      stopBefore: '0028-material-tracking-mode',
     });
     pool = database.pool;
     // Dữ liệu trước 0027: chưa có cột tracking_mode. Nhóm CONSUMABLE KHÔNG được thành theo lô.

@@ -7,11 +7,16 @@ import {
 import {
   assertEditable,
   assertNotSelfApproval,
+  assertNotSelfReversal,
+  assertPostable,
   assertReversible,
   assertTransition,
   canTransition,
+  documentRequiresApproval,
+  POSTING_ORIGINS,
   requiresApproval,
   requiresSerialsAtPosting,
+  assertSerializedLine,
   resolveLineDirection,
   stockEventKind,
 } from './stock-document-policy.js';
@@ -58,7 +63,7 @@ describe('máy trạng thái chứng từ kho (TC-SM-11)', () => {
     }
     expect(() =>
       assertTransition({ docType: 'RECEIPT_OTHER', status: 'DRAFT' }, 'POSTED'),
-    ).toThrow('Chứng từ loại này phải được duyệt trước khi ghi sổ.');
+    ).toThrow('Chứng từ này cần được duyệt trước khi ghi sổ.');
   });
 
   it('ba loại phải duyệt: nhập khác, xuất khác, điều chỉnh; loại có nguồn đã duyệt ghi sổ thẳng (TC-INV-05)', () => {
@@ -66,6 +71,25 @@ describe('máy trạng thái chứng từ kho (TC-SM-11)', () => {
     expect(required.sort()).toEqual(['ADJUSTMENT', 'ISSUE_OTHER', 'RECEIPT_OTHER']);
     for (const type of ['ISSUE_SALES', 'RECEIPT_SALES_RETURN', 'ISSUE_WARRANTY', 'TRANSFER'] as StockDocumentType[]) {
       expect(canTransition(type, 'DRAFT', 'POSTED')).toBe(true);
+    }
+  });
+
+  it('nhập mua, xuất dự án không nguồn cũng phải duyệt; có nguồn thì ghi sổ thẳng (ISS-BE-006)', () => {
+    for (const docType of ['RECEIPT_PURCHASE', 'ISSUE_PROJECT'] as StockDocumentType[]) {
+      expect(documentRequiresApproval({ docType })).toBe(true);
+      expect(documentRequiresApproval({ docType, sourceId: '  ' })).toBe(true);
+      expect(documentRequiresApproval({ docType, sourceId: 'src-1' })).toBe(false);
+      expect(canTransition(docType, 'DRAFT', 'POSTED')).toBe(false);
+      expect(canTransition(docType, 'DRAFT', 'POSTED', 'src-1')).toBe(true);
+      expect(() => assertTransition({ docType, status: 'DRAFT' }, 'POSTED')).toThrow(
+        expect.objectContaining({ statusCode: 409, message: 'Chứng từ này cần được duyệt trước khi ghi sổ.' }),
+      );
+    }
+    for (const docType of ['RECEIPT_OTHER', 'ISSUE_OTHER', 'ADJUSTMENT'] as StockDocumentType[]) {
+      expect(documentRequiresApproval({ docType, sourceId: 'src-1' })).toBe(true);
+    }
+    for (const docType of ['ISSUE_SALES', 'ISSUE_WARRANTY', 'RECEIPT_SALES_RETURN', 'TRANSFER'] as StockDocumentType[]) {
+      expect(documentRequiresApproval({ docType })).toBe(false);
     }
   });
 
@@ -108,10 +132,28 @@ describe('máy trạng thái chứng từ kho (TC-SM-11)', () => {
 });
 
 describe('serial bắt buộc lúc ghi sổ và sự kiện kho (T1-25, T1-27)', () => {
-  it('chỉ xuất bán, xuất bảo hành, nhập trả bắt buộc serial; chứng từ đảo thì không', () => {
-    const required = STOCK_DOCUMENT_TYPES.filter((type) => requiresSerialsAtPosting(type, false));
-    expect(required).toEqual(['RECEIPT_SALES_RETURN', 'ISSUE_SALES', 'ISSUE_WARRANTY']);
-    expect(requiresSerialsAtPosting('ISSUE_SALES', true)).toBe(false);
+  it('mọi loại chứng từ bắt buộc serial cho hàng theo serial; chứng từ đảo thì không (ISS-BE-005)', () => {
+    // Không còn danh sách loại chứng từ: chỉ chứng từ đảo được miễn (chép serial của chứng từ gốc).
+    expect(requiresSerialsAtPosting({ reversesDocumentId: undefined })).toBe(true);
+    expect(requiresSerialsAtPosting({ reversesDocumentId: 'goc' })).toBe(false);
+  });
+
+  it('dòng hàng serial: số lượng nguyên và đúng bằng số serial, lời nhắc tiếng Việt', () => {
+    const line = { lineNo: 2, materialCode: 'VT-SR', quantity: 2 };
+    expect(() => assertSerializedLine(line, 2, 'posting')).not.toThrow();
+    expect(() => assertSerializedLine(line, 1, 'request')).toThrow(
+      expect.objectContaining({
+        statusCode: 400,
+        code: 'SERIALS_REQUIRED',
+        message: 'Dòng 2: VT-SR theo dõi theo serial; nhập đủ 2 serial (đang có 1).',
+      }),
+    );
+    expect(() => assertSerializedLine(line, 3, 'posting')).toThrow(
+      'Dòng 2: VT-SR theo dõi theo serial; chọn đủ 2 serial trước khi ghi sổ (đang có 3).',
+    );
+    expect(() => assertSerializedLine({ ...line, quantity: 1.5 }, 1, 'request')).toThrow(
+      expect.objectContaining({ code: 'SERIALS_REQUIRED', message: expect.stringContaining('Hàng theo dõi serial phải có số lượng nguyên.') }),
+    );
   });
 
   it('chứng từ xuất phát issued, nhập trả hàng bán phát returned, loại khác không phát', () => {
@@ -121,5 +163,72 @@ describe('serial bắt buộc lúc ghi sổ và sự kiện kho (T1-25, T1-27)',
     expect(stockEventKind('RECEIPT_PURCHASE')).toBeNull();
     expect(stockEventKind('TRANSFER')).toBeNull();
     expect(stockEventKind('ADJUSTMENT')).toBeNull();
+  });
+});
+
+describe('mọi đường ghi sổ đều kiểm duyệt (ISS-BE-006)', () => {
+  type Doc = Parameters<typeof assertPostable>[0];
+  const doc = (patch: Partial<Doc>): Doc => ({ docType: 'RECEIPT_OTHER', status: 'DRAFT', ...patch });
+  const blocked = (document: Doc, origin?: (typeof POSTING_ORIGINS)[number]) => {
+    try {
+      assertPostable(document, { origin });
+      return false;
+    } catch (error) {
+      expect(error).toMatchObject({ statusCode: 409, message: 'Chứng từ này cần được duyệt trước khi ghi sổ.' });
+      return true;
+    }
+  };
+
+  it.each(STOCK_DOCUMENT_TYPES.flatMap((docType) => [[docType, false], [docType, true]] as const))(
+    '%s, có nguồn = %s: chưa duyệt thì chặn đúng loại cần duyệt; Đã duyệt thì luôn ghi được',
+    (docType, sourced) => {
+      const sourceId = sourced ? 'src-1' : undefined;
+      const needsApproval =
+        ['RECEIPT_OTHER', 'ISSUE_OTHER', 'ADJUSTMENT'].includes(docType) ||
+        (!sourced && ['RECEIPT_PURCHASE', 'ISSUE_PROJECT'].includes(docType));
+      expect(blocked(doc({ docType, sourceId }))).toBe(needsApproval);
+      expect(blocked(doc({ docType, sourceId, status: 'APPROVED' }))).toBe(false);
+    },
+  );
+
+  it('nguồn miễn chỉ áp cho đúng dạng chứng từ của nó', () => {
+    expect(blocked(doc({ docType: 'ADJUSTMENT', sourceType: 'stocktake', sourceId: 's' }), 'stocktake')).toBe(false);
+    expect(blocked(doc({ docType: 'ADJUSTMENT' }), 'stocktake')).toBe(true);
+    expect(blocked(doc({ docType: 'RECEIPT_OTHER', sourceType: 'stocktake', sourceId: 's' }), 'stocktake')).toBe(true);
+
+    expect(blocked(doc({ sourceType: 'asset', sourceId: 'a' }), 'asset_uninstall')).toBe(false);
+    expect(blocked(doc({ sourceType: 'asset', sourceId: 'a' }), 'asset_return')).toBe(false);
+    expect(blocked(doc({}), 'asset_return')).toBe(true);
+    expect(blocked(doc({ docType: 'ISSUE_OTHER', sourceType: 'asset', sourceId: 'a' }), 'asset_uninstall')).toBe(true);
+
+    expect(blocked(doc({ docType: 'RECEIPT_PURCHASE', sourceType: 'OPENING_BALANCE' }), 'opening_balance')).toBe(false);
+    expect(blocked(doc({ docType: 'RECEIPT_PURCHASE' }), 'opening_balance')).toBe(true);
+    expect(blocked(doc({ sourceType: 'OPENING_BALANCE' }), 'opening_balance')).toBe(true);
+
+    expect(blocked(doc({ reversesDocumentId: 'orig' }), 'reversal')).toBe(false);
+    expect(blocked(doc({}), 'reversal')).toBe(true);
+    // Chứng từ đảo mà không qua đường đảo (không khai nguồn) vẫn bị chặn.
+    expect(blocked(doc({ reversesDocumentId: 'orig' }))).toBe(true);
+
+    // Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): chỉ chứng từ xuất dự án có nguồn hồ sơ.
+    const requisition = { docType: 'ISSUE_PROJECT', sourceType: 'procedure_instance', sourceId: 'i-1' } as const;
+    expect(blocked(doc(requisition), 'procedure_requisition')).toBe(false);
+    expect(blocked(doc({ ...requisition, sourceId: undefined }), 'procedure_requisition')).toBe(true);
+    expect(blocked(doc({ ...requisition, docType: 'ISSUE_OTHER' }), 'procedure_requisition')).toBe(true);
+    expect(blocked(doc({ docType: 'ISSUE_OTHER', sourceType: 'asset', sourceId: 'a' }), 'procedure_requisition')).toBe(true);
+    // Nguồn lạ (chuỗi do client gửi) không miễn được gì.
+    expect(blocked(doc({}), 'client' as never)).toBe(true);
+  });
+
+  it('người lập chứng từ gốc không tự đảo, trừ khi cài đặt cho tự duyệt', () => {
+    expect(() => assertNotSelfReversal({ createdBy: 'u1' }, 'u1', false)).toThrow(
+      expect.objectContaining({
+        statusCode: 403,
+        code: 'STOCK_DOCUMENT_SELF_REVERSAL',
+        message: 'Bạn không được đảo chứng từ do chính mình lập.',
+      }),
+    );
+    expect(() => assertNotSelfReversal({ createdBy: 'u1' }, 'u1', true)).not.toThrow();
+    expect(() => assertNotSelfReversal({ createdBy: 'u1' }, 'u2', false)).not.toThrow();
   });
 });

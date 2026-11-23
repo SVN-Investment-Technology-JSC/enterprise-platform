@@ -1,5 +1,6 @@
 import {
   CLOSED_WORK_ITEM_STATUSES,
+  MAX_CHECKLIST_ITEMS,
   MAX_WORK_ITEM_DEPTH,
   STANDALONE_TASK_SCOPES,
   WORK_ITEM_STATUSES,
@@ -11,6 +12,7 @@ import {
   type StandaloneTask,
   type StandaloneTaskDetail,
   type StandaloneTaskList,
+  type StandaloneTaskChecklistItem,
   type StandaloneTaskProgressReport,
   type StandaloneTaskRole,
   type StandaloneTaskScope,
@@ -31,6 +33,11 @@ import {
 } from '../domain/workspace.error.js';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { parseManualPercent } from '../domain/progress.rules.js';
+import {
+  checklistPercent,
+  parseChecklistTitle,
+  parseChecklistTitles,
+} from '../domain/progress-method.rules.js';
 import {
   parseReportDate,
   parseReportDescription,
@@ -402,6 +409,7 @@ export class StandaloneTaskService {
     actor: WorkspaceActor,
     taskId: string,
     input: ReportWorkItemProgressRequest,
+    origin: 'user' | 'computed' = 'user',
   ): Promise<StandaloneTaskDetail> {
     const { task, role } = await this.load(actor, taskId);
     if (role === 'viewer' || role === 'follower') {
@@ -409,6 +417,14 @@ export class StandaloneTaskService {
     }
     if (task.reversal) {
       throw new WorkspaceValidationError('Công việc đã huỷ hiệu lực, không báo cáo tiến độ được.');
+    }
+    // `computed` chỉ do server gọi sau khi `editableChecklist` đã kiểm quyền. Người chỉ là người giao (không phải người
+    // thực hiện) thì checklist chỉ đổi phần trăm, không mở đường đổi trạng thái.
+    const percentOnly = origin === 'computed' && role === 'assigner' && task.assigneeUserId !== actor.userId;
+    if (origin === 'user' && (await this.store.standaloneTask.listChecklist(actor.tenantId, taskId)).length > 0) {
+      throw new WorkspaceValidationError(
+        'Tiến độ của công việc này tự tính theo đầu việc; hãy tích đầu việc thay vì báo phần trăm.',
+      );
     }
     const percent = parseReportPercent(input?.percent);
     const description = parseReportDescription(input?.description);
@@ -433,7 +449,7 @@ export class StandaloneTaskService {
 
     // Các bước đổi trạng thái đi theo đúng bảng chuyển của vai người báo, nên mỗi bước đều có thể bị từ chối.
     let current: StandaloneTask = task;
-    const can = (to: WorkItemStatus) => allowedStandaloneTaskTransitions(current, role).includes(to);
+    const can = (to: WorkItemStatus) => !percentOnly && allowedStandaloneTaskTransitions(current, role).includes(to);
     const move = async (to: WorkItemStatus, note?: string) => {
       await this.changeStatus(actor, taskId, { status: to, note }, { keepProgress: true });
       current = (await this.store.standaloneTask.findById(actor.tenantId, taskId)) ?? current;
@@ -469,6 +485,111 @@ export class StandaloneTaskService {
     });
     const fresh = (await this.store.standaloneTask.findById(actor.tenantId, taskId)) ?? current;
     return this.toDetail(actor, fresh, role);
+  }
+
+  /** Đầu việc của việc lẻ; ai xem được việc thì xem được. */
+  async checklist(actor: WorkspaceActor, taskId: string): Promise<readonly StandaloneTaskChecklistItem[]> {
+    await this.load(actor, taskId);
+    return this.store.standaloneTask.listChecklist(actor.tenantId, taskId);
+  }
+
+  /**
+   * Quyền và điều kiện để sửa đầu việc: người giao (người tạo), người thực hiện và người cùng làm; người theo dõi
+   * và người chỉ thấy qua cây việc chỉ xem. Việc đã huỷ hiệu lực, đã hoàn thành / huỷ, hoặc có việc con (tiến độ tự
+   * tính từ con) thì không sửa được.
+   */
+  private async editableChecklist(actor: WorkspaceActor, taskId: string): Promise<StandaloneTask> {
+    const { task, role } = await this.load(actor, taskId);
+    if (role === 'viewer' || role === 'follower') {
+      throw new StandaloneTaskForbiddenError('Bạn chỉ được xem công việc này.');
+    }
+    if (task.reversal) {
+      throw new WorkspaceValidationError('Công việc đã huỷ hiệu lực, không sửa được đầu việc.');
+    }
+    if (task.status === 'done' || task.status === 'cancelled') {
+      throw new WorkspaceValidationError(
+        `Công việc đã ${task.status === 'done' ? 'hoàn thành' : 'huỷ'}; hãy mở lại trước khi sửa đầu việc.`,
+      );
+    }
+    if (task.childCount > 0) {
+      throw new WorkspaceValidationError('Công việc có việc con nên tiến độ tự tính từ các việc con, không theo đầu việc.');
+    }
+    return task;
+  }
+
+  /** Đưa tiến độ của việc về khớp với tỷ lệ đầu việc đã tích (chỉ ghi khi số đổi hoặc việc cần sang trạng thái mới). */
+  private async syncChecklistProgress(actor: WorkspaceActor, taskId: string): Promise<void> {
+    const items = await this.store.standaloneTask.listChecklist(actor.tenantId, taskId);
+    const done = items.filter((entry) => entry.done).length;
+    const percent = checklistPercent(done, items.length);
+    const fresh = await this.store.standaloneTask.findById(actor.tenantId, taskId);
+    if (!fresh) return;
+    const settled = fresh.status === 'done' || fresh.status === 'review';
+    if (items.length === 0 && fresh.progressPercent === 0) return;
+    if (percent === fresh.progressPercent && !(percent === 100 && !settled)) return;
+    await this.reportProgress(
+      actor,
+      taskId,
+      { percent, description: `Đầu việc đã xong: ${done}/${items.length}.` },
+      'computed',
+    );
+  }
+
+  async addChecklistItems(
+    actor: WorkspaceActor,
+    taskId: string,
+    titles: readonly string[],
+  ): Promise<readonly StandaloneTaskChecklistItem[]> {
+    await this.editableChecklist(actor, taskId);
+    const parsed = parseChecklistTitles(titles);
+    if (parsed.length === 0) throw new WorkspaceValidationError('Nhập tên ít nhất một đầu việc.');
+    const existing = await this.store.standaloneTask.listChecklist(actor.tenantId, taskId);
+    if (existing.length + parsed.length > MAX_CHECKLIST_ITEMS) {
+      throw new WorkspaceValidationError(`Một công việc có tối đa ${MAX_CHECKLIST_ITEMS} đầu việc.`);
+    }
+    await this.store.standaloneTask.addChecklistItems(actor.tenantId, taskId, parsed);
+    // Từ đầu việc đầu tiên, tiến độ tính theo đầu việc (ghi đè số nhập tay); thêm đầu việc chưa tích làm tỷ lệ giảm.
+    await this.syncChecklistProgress(actor, taskId);
+    return this.store.standaloneTask.listChecklist(actor.tenantId, taskId);
+  }
+
+  async updateChecklistItem(
+    actor: WorkspaceActor,
+    taskId: string,
+    itemId: string,
+    patch: { readonly title?: string; readonly done?: boolean },
+  ): Promise<readonly StandaloneTaskChecklistItem[]> {
+    await this.editableChecklist(actor, taskId);
+    if (patch?.done !== undefined && typeof patch.done !== 'boolean') {
+      throw new WorkspaceValidationError('Trạng thái đầu việc không hợp lệ.');
+    }
+    const title = patch?.title === undefined ? undefined : parseChecklistTitle(patch.title);
+    if (title === undefined && patch?.done === undefined) {
+      throw new WorkspaceValidationError('Không có gì để cập nhật.');
+    }
+    const updated = await this.store.standaloneTask.updateChecklistItem(
+      actor.tenantId,
+      taskId,
+      itemId,
+      { title, done: patch.done },
+      actor.userId,
+    );
+    if (!updated) throw new WorkspaceValidationError('Không tìm thấy đầu việc này trong công việc.');
+    if (patch.done !== undefined) await this.syncChecklistProgress(actor, taskId);
+    return this.store.standaloneTask.listChecklist(actor.tenantId, taskId);
+  }
+
+  async removeChecklistItem(
+    actor: WorkspaceActor,
+    taskId: string,
+    itemId: string,
+  ): Promise<readonly StandaloneTaskChecklistItem[]> {
+    await this.editableChecklist(actor, taskId);
+    if (!(await this.store.standaloneTask.removeChecklistItem(actor.tenantId, taskId, itemId))) {
+      throw new WorkspaceValidationError('Không tìm thấy đầu việc này trong công việc.');
+    }
+    await this.syncChecklistProgress(actor, taskId);
+    return this.store.standaloneTask.listChecklist(actor.tenantId, taskId);
   }
 
   /** Lưu số tiến độ hiện có thành một báo cáo trước khi Hoàn thành / Chờ duyệt ghi đè nó (nếu chưa nằm sẵn trong lịch sử). */

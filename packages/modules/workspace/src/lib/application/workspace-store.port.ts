@@ -78,6 +78,7 @@ import type {
   WorkItemCost,
   WorkItemDependency,
   WorkItemStatus,
+  StandaloneTaskChecklistItem,
   StandaloneTaskProgressReport,
   WorkItemChecklistItem,
   WorkItemProgressMethod,
@@ -1413,6 +1414,24 @@ export interface WorkspaceStore {
     ): Promise<StandaloneTaskProgressReport>;
     /** Lịch sử báo cáo tiến độ, mới nhất trước. */
     listProgressReports(tenantId: string, taskId: string): Promise<readonly StandaloneTaskProgressReport[]>;
+    /** Đầu việc của việc lẻ theo thứ tự. */
+    listChecklist(tenantId: string, taskId: string): Promise<readonly StandaloneTaskChecklistItem[]>;
+    /** Thêm đầu việc vào cuối danh sách. */
+    addChecklistItems(
+      tenantId: string,
+      taskId: string,
+      titles: readonly string[],
+    ): Promise<readonly StandaloneTaskChecklistItem[]>;
+    /** Sửa tên hoặc tích/bỏ tích một đầu việc; `undefined` khi đầu việc không thuộc việc này. */
+    updateChecklistItem(
+      tenantId: string,
+      taskId: string,
+      itemId: string,
+      patch: { readonly title?: string; readonly done?: boolean },
+      actorUserId: string,
+    ): Promise<StandaloneTaskChecklistItem | undefined>;
+    /** Xoá một đầu việc; `false` khi đầu việc không thuộc việc này. */
+    removeChecklistItem(tenantId: string, taskId: string, itemId: string): Promise<boolean>;
     /** Như `workItem.updateBlockedReason`: `undefined` khi việc không còn ở `blocked`. */
     updateBlockedReason(
       tenantId: string,

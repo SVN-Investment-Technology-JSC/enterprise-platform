@@ -604,6 +604,267 @@ export interface StorageUsage {
   readonly byModule: readonly StorageModuleUsage[];
 }
 
+/* ------------------------------------------------------- kho lưu trữ ngoài */
+
+/**
+ * Nơi đang giữ tệp của một phiên bản: kho của nền tảng (máy chủ ERP) hoặc kho S3
+ * riêng của tenant (NAS, MinIO, S3, R2… do tenant tự cấu hình).
+ */
+export const SHARED_STORAGE_LOCATIONS = ['platform', 'external'] as const;
+export type SharedStorageLocation = (typeof SHARED_STORAGE_LOCATIONS)[number];
+
+/**
+ * Cách trình duyệt tới kho ngoài:
+ * - `proxy`: máy chủ ERP chuyển tiếp từng luồng tệp, không lưu lại; kho chỉ cần
+ *   máy chủ ERP thấy được (mạng nội bộ, VPN, Tailscale).
+ * - `direct`: trình duyệt PUT/GET thẳng lên kho bằng URL ký sẵn; kho phải có địa
+ *   chỉ công khai HTTPS và mở CORS cho tên miền ERP.
+ */
+export const SHARED_STORAGE_ACCESS_MODES = ['proxy', 'direct'] as const;
+export type SharedStorageAccessMode = (typeof SHARED_STORAGE_ACCESS_MODES)[number];
+
+export const SHARED_STORAGE_ACCESS_MODE_LABELS: Record<SharedStorageAccessMode, string> = {
+  proxy: 'Qua máy chủ ERP',
+  direct: 'Trình duyệt nối thẳng tới kho',
+};
+
+/** Số tệp, dung lượng đang nằm ở một nơi lưu. */
+export interface SharedStorageLocationUsage {
+  readonly files: number;
+  readonly bytes: number;
+}
+
+/**
+ * Cấu hình kho ngoài trả về giao diện. Khoá bí mật không bao giờ trả về; chỉ
+ * báo đã lưu hay chưa.
+ */
+export interface SharedExternalStorageSettings {
+  /** Máy chủ đã đặt khoá mã hoá (`SHARED_STORAGE_SECRET_KEY`): chưa đặt thì chưa cấu hình được. */
+  readonly available: boolean;
+  /** Người xem được sửa (quản trị tenant). */
+  readonly editable: boolean;
+  /** Đã từng lưu cấu hình; tệp đã ở kho ngoài vẫn đọc theo cấu hình này kể cả khi tắt. */
+  readonly configured: boolean;
+  /** Bật: tệp mới lưu vào kho ngoài. Tắt: tệp mới về kho của nền tảng. */
+  readonly enabled: boolean;
+  readonly label: string;
+  readonly accessMode: SharedStorageAccessMode;
+  readonly endpoint: string;
+  readonly publicEndpoint: string;
+  readonly region: string;
+  readonly bucket: string;
+  readonly pathStyle: boolean;
+  readonly accessKeyId: string;
+  readonly hasSecret: boolean;
+  readonly updatedAt?: string;
+  readonly updatedByName?: string;
+  readonly version: number;
+  readonly usage: Readonly<Record<SharedStorageLocation, SharedStorageLocationUsage>>;
+}
+
+export interface SaveSharedExternalStorageRequest {
+  readonly enabled: boolean;
+  readonly label?: string;
+  readonly accessMode: SharedStorageAccessMode;
+  readonly endpoint: string;
+  readonly publicEndpoint?: string;
+  readonly region?: string;
+  readonly bucket: string;
+  readonly pathStyle?: boolean;
+  readonly accessKeyId: string;
+  /** Để trống thì giữ khoá đã lưu. */
+  readonly secretAccessKey?: string;
+  /** Phiên bản cấu hình lúc mở form, để hai người sửa cùng lúc không đè nhau. */
+  readonly version?: number;
+}
+
+export interface SharedStorageTestResult {
+  readonly ok: boolean;
+  readonly message: string;
+  readonly latencyMs?: number;
+}
+
+export interface SharedStorageTransferResult {
+  readonly moved: number;
+  readonly failed: number;
+  /** Số tệp còn ở kho của nền tảng sau lượt này. */
+  readonly remaining: number;
+  readonly errors: readonly string[];
+}
+
+/** Đường dẫn route chuyển tiếp tệp (chế độ `proxy`), sau tiền tố `api/shared`. */
+export const SHARED_FILE_PROXY_PATH = 'v1/files';
+
+/* ------------------------------------------------------------- kết nối NAS */
+
+/**
+ * Kho NAS: Tài liệu chung hiện thẳng các thư mục chia sẻ của NAS công ty (ánh xạ,
+ * không sao chép). Tệp chỉ nằm trên NAS; quyền lấy từ NAS (người dùng, nhóm, quyền
+ * từng thư mục chia sẻ), tài khoản NAS ghép với nhân sự ERP.
+ */
+export const SHARED_NAS_PROVIDERS = ['synology'] as const;
+export type SharedNasProvider = (typeof SHARED_NAS_PROVIDERS)[number];
+export const SHARED_NAS_PROVIDER_LABELS: Record<SharedNasProvider, string> = { synology: 'Synology DSM' };
+
+/** Quyền trên một thư mục chia sẻ, như NAS: Không truy cập thắng mọi quyền khác, rồi Đọc/Ghi, rồi Chỉ đọc. */
+export const SHARED_NAS_ACCESS = ['none', 'read', 'write'] as const;
+export type SharedNasAccess = (typeof SHARED_NAS_ACCESS)[number];
+export const SHARED_NAS_ACCESS_LABELS: Record<SharedNasAccess, string> = {
+  none: 'Không truy cập',
+  read: 'Chỉ đọc',
+  write: 'Đọc/Ghi',
+};
+
+/** Một dòng quyền đặt trên NAS cho người dùng hay nhóm. */
+export type SharedNasRule = 'deny' | 'read' | 'write';
+export const SHARED_NAS_RULE_LABELS: Record<SharedNasRule, string> = {
+  deny: 'Không truy cập',
+  read: 'Chỉ đọc',
+  write: 'Đọc/Ghi',
+};
+
+export const SHARED_NAS_LINK_SOURCES = ['none', 'auto', 'manual'] as const;
+export type SharedNasLinkSource = (typeof SHARED_NAS_LINK_SOURCES)[number];
+
+/** Thư mục chia sẻ của NAS được ánh xạ sang ERP; `label` là tên hiển thị, trống thì dùng tên gốc. */
+export interface SharedNasShareConfig {
+  readonly name: string;
+  readonly label?: string;
+}
+
+export interface SharedNasSyncStatus {
+  readonly at: string;
+  readonly ok: boolean;
+  readonly message: string;
+}
+
+/** Cấu hình kết nối NAS trả về giao diện; mật khẩu không bao giờ trả về. */
+export interface SharedNasConnectionSettings {
+  /** Máy chủ đã có khoá mã hoá (`SHARED_STORAGE_SECRET_KEY`). */
+  readonly available: boolean;
+  readonly editable: boolean;
+  readonly configured: boolean;
+  readonly enabled: boolean;
+  readonly label: string;
+  readonly provider: SharedNasProvider;
+  readonly baseUrl: string;
+  readonly username: string;
+  readonly hasSecret: boolean;
+  readonly shares: readonly SharedNasShareConfig[];
+  /** Đồng bộ người dùng, nhóm, quyền từ NAS sau ngần này phút. */
+  readonly syncMinutes: number;
+  readonly lastSync?: SharedNasSyncStatus;
+  readonly version: number;
+  readonly updatedAt?: string;
+  readonly updatedByName?: string;
+  readonly accounts: number;
+  readonly linkedAccounts: number;
+}
+
+export interface SaveSharedNasConnectionRequest {
+  readonly enabled: boolean;
+  readonly label?: string;
+  readonly provider: SharedNasProvider;
+  readonly baseUrl: string;
+  readonly username: string;
+  /** Để trống thì giữ mật khẩu đã lưu. */
+  readonly password?: string;
+  readonly shares: readonly SharedNasShareConfig[];
+  readonly syncMinutes?: number;
+  readonly version?: number;
+}
+
+export interface SharedNasTestResult {
+  readonly ok: boolean;
+  readonly message: string;
+  /** Các thư mục chia sẻ đọc được từ NAS, để chọn thư mục ánh xạ. */
+  readonly shares?: readonly { readonly name: string; readonly description?: string }[];
+}
+
+export interface SharedNasSyncResult extends SharedNasSyncStatus {
+  readonly accounts: number;
+  readonly groups: number;
+  readonly linked: number;
+}
+
+/** Tài khoản NAS và nhân sự ERP được ghép. */
+export interface SharedNasAccount {
+  readonly name: string;
+  readonly description: string;
+  readonly disabled: boolean;
+  readonly groups: readonly string[];
+  readonly erpUserId?: string;
+  readonly erpUserName?: string;
+  readonly linkSource: SharedNasLinkSource;
+}
+
+export interface LinkSharedNasAccountRequest {
+  /** Trống: bỏ ghép (và không tự ghép lại). */
+  readonly erpUserId?: string | null;
+}
+
+/** Thư mục chia sẻ người đang xem được vào, kèm quyền và lý do (nhóm hay tài khoản nào cho quyền đó). */
+export interface SharedNasShare {
+  readonly name: string;
+  readonly label: string;
+  readonly access: Exclude<SharedNasAccess, 'none'>;
+  readonly via: readonly string[];
+  /** NAS cho ghi nhưng người này không có quyền ghi tài liệu của phân hệ trong ERP. */
+  readonly writeCappedByErp: boolean;
+}
+
+export interface SharedNasOverview {
+  readonly enabled: boolean;
+  readonly label: string;
+  /** Tài khoản NAS ghép với người đang xem; trống là chưa ghép, không vào được kho NAS. */
+  readonly account?: string;
+  readonly shares: readonly SharedNasShare[];
+  readonly lastSyncAt?: string;
+}
+
+export interface SharedNasEntry {
+  readonly name: string;
+  /** Đường dẫn trong thư mục chia sẻ, không có "/" đầu: "HỢP ĐỒNG 2025/HĐ 01.pdf". */
+  readonly path: string;
+  readonly isDir: boolean;
+  readonly sizeBytes?: number;
+  readonly modifiedAt?: string;
+}
+
+export interface SharedNasListing {
+  readonly share: string;
+  readonly path: string;
+  readonly access: Exclude<SharedNasAccess, 'none'>;
+  readonly canWrite: boolean;
+  readonly entries: readonly SharedNasEntry[];
+  readonly total: number;
+  readonly offset: number;
+}
+
+/** Một dòng quyền của thư mục chia sẻ, để quản trị thấy ai được gì. */
+export interface SharedNasPermission {
+  readonly principalType: 'user' | 'group';
+  readonly principalName: string;
+  readonly rule: SharedNasRule;
+  /** Số tài khoản trong nhóm. */
+  readonly members?: number;
+}
+
+export interface CreateSharedNasUploadRequest {
+  /** Thư mục đích trong thư mục chia sẻ; trống là gốc. */
+  readonly path?: string;
+  readonly fileName: string;
+  readonly sizeBytes: number;
+}
+
+export interface SharedNasUploadTicket {
+  readonly uploadUrl: string;
+  readonly expiresInSeconds: number;
+}
+
+/** Tải lên NAS qua máy chủ tối đa 5 GB một tệp. */
+export const SHARED_NAS_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
+
 /* -------------------------------------------------------------- trạng thái */
 
 export interface SharedCapabilities {
@@ -618,6 +879,8 @@ export interface SharedStatus {
   readonly schemaExists: boolean;
   readonly tablesReady: boolean;
   readonly capabilities: SharedCapabilities;
+  /** Tenant đã bật kết nối NAS: hiện mục Kho NAS. */
+  readonly nasEnabled?: boolean;
 }
 
 /* -------------------------------------------------------------- tiện ích */

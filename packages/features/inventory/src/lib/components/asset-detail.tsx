@@ -65,8 +65,39 @@ const SUB_TABS: readonly SubTabItem[] = [
   { id: 'maintenance-plan', label: 'Kế hoạch bảo trì', icon: '' },
 ];
 
+/** Trạng thái lệnh bảo trì (module Bảo trì) hiển thị trong kế hoạch bảo dưỡng. */
+const MAINTENANCE_STATUS_LABEL: Readonly<Record<string, string>> = {
+  planned: 'Đã lên lịch',
+  generated: 'Đã tạo phiếu',
+  dispatch_pending: 'Chờ giao việc',
+  in_progress: 'Đang thực hiện',
+  blocked: 'Đang vướng',
+  completed: 'Đã hoàn thành',
+  failed: 'Không đạt',
+};
+
+/**
+ * Chuỗi tài sản cha từ gốc tới cha trực tiếp, theo `parentId`. Dừng khi gặp
+ * vòng lặp hoặc cha không có trong danh sách đã tải.
+ */
+export function assetLocationChain(asset: Pick<Asset, 'id' | 'parentId'>, assets: readonly Asset[]): string[] {
+  const byId = new Map(assets.map((item) => [item.id, item]));
+  const names: string[] = [];
+  const seen = new Set<string>([asset.id]);
+  let parentId = asset.parentId;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    names.unshift(parent.name);
+    parentId = parent.parentId;
+  }
+  return names;
+}
+
 export function AssetDetail({
   asset,
+  assets = [],
   materials,
   childMaterials = [],
   onHandByCode,
@@ -80,6 +111,8 @@ export function AssetDetail({
   onAddChild,
 }: {
   asset: Asset;
+  /** Toàn bộ tài sản đã tải, để hiện vị trí theo chuỗi tài sản cha. */
+  assets?: readonly Asset[];
   materials?: readonly Material[];
   childMaterials?: readonly InstalledMaterial[];
   onHandByCode?: ReadonlyMap<string, number>;
@@ -106,22 +139,10 @@ export function AssetDetail({
   const [saving, setSaving] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
 
-  // Default specs fallback if none
-  const specs = Object.entries(
-    asset.specs && Object.keys(asset.specs).length > 0
-      ? asset.specs
-      : {
-          'Model / Ký hiệu': asset.code,
-          'Số Serial': asset.serialNumber ?? 'SN-2024-8892',
-          'Vật liệu chế tạo': 'Thép hợp kim chống mài mòn / Nitrile Rubber NBR',
-          'Kích thước danh định': '120 × 12.9 mm × 15.20 mm',
-          'Nhiệt độ vận hành': '-20°C ~ +85°C',
-          'Áp suất định mức': '100 Bar / 10 MPa',
-          'Nhà sản xuất': 'Siemens AG / SKF Industrial',
-          'Năm lắp đặt & đưa vào vận hành': '2024',
-        },
-  );
+  // Chỉ hiện thông số đã khai báo thật; chưa có thì để trống và mời khai báo.
+  const specs = Object.entries(asset.specs ?? {});
   const taskTemplate = asset.taskTemplate ?? [];
+  const locationChain = useMemo(() => assetLocationChain(asset, assets), [asset, assets]);
 
   // Tự động đóng các form chỉnh sửa (thông số, tổng quan, đầu việc) khi chuyển sang node khác trên cây
   useEffect(() => {
@@ -214,52 +235,8 @@ export function AssetDetail({
     };
   }, [asset.code]);
 
-  // Bộ nhớ lưu trữ nhật ký theo từng mã tài sản (Map assetCode -> IncidentLogRecord[])
-  // Chỉ tài sản mẫu hệ thống (AST-001) mới có sẵn demo logs, vật tư mới lắp vào cây sẽ trống hoàn toàn.
-  const [historyLogsByAsset, setHistoryLogsByAsset] = useState<Record<string, IncidentLogRecord[]>>({
-    'AST-001': [
-      {
-        id: 'log-1',
-        date: '10/08/2026',
-        title: 'Hoàn thành Đại tu định kỳ Cấp 2',
-        badge: 'Bảo trì định kỳ',
-        badgeType: 'success',
-        desc: 'Thực hiện theo Lệnh sửa chữa WO-2026-0412. Đã thay thế phớt chắn dầu, bơm dầu bôi trơn mới và cân chỉnh độ đồng tâm trục.',
-        actor: 'KTV. Nguyễn Văn A (Đội Cơ điện 1)',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-2',
-        date: '15/06/2026',
-        title: 'Cảnh báo nhiệt độ ổ trục tăng nhẹ (+3°C)',
-        badge: 'Cảnh báo thông số',
-        badgeType: 'warn',
-        desc: 'Hệ thống cảm biến SCADA ghi nhận nhiệt độ tăng trong ca 2. Kỹ thuật viên đã kiểm tra tại hiện trường và bổ sung mỡ bôi trơn chịu nhiệt.',
-        actor: 'KTV. Trần Văn B',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-3',
-        date: '20/03/2026',
-        title: 'Thay thế định kỳ phớt làm kín Sealing Ring',
-        badge: 'Thay thế phụ tùng',
-        badgeType: 'info',
-        desc: 'Xuất kho phụ tùng SKU-MTR-001 thay thế theo chu kỳ 6 tháng. Thiết bị hoạt động ổn định sau khi lắp ráp.',
-        actor: 'KTV. Lê Hoàng C',
-        source: 'inventory_local',
-      },
-      {
-        id: 'log-4',
-        date: '01/11/2025',
-        title: 'Đưa vào vận hành chính thức (Commissioning)',
-        badge: 'Bàn giao nghiệm thu',
-        badgeType: 'info',
-        desc: 'Nghiệm thu đóng điện và chạy tải 72 giờ không sự cố tại Phân xưởng 1 (Factory Plant 1).',
-        actor: 'Hội đồng Nghiệm thu Kỹ thuật',
-        source: 'inventory_local',
-      },
-    ],
-  });
+  // Nhật ký ghi nhận trong phiên này theo từng mã tài sản (Map assetCode -> IncidentLogRecord[]); không có dữ liệu mẫu.
+  const [historyLogsByAsset, setHistoryLogsByAsset] = useState<Record<string, IncidentLogRecord[]>>({});
 
   const currentAssetLogs = useMemo(
     () => historyLogsByAsset[asset.code] ?? [],
@@ -334,16 +311,14 @@ export function AssetDetail({
 
     // MTBF: Giờ chạy / số lần sự cố
     const mtbf = incidentCount > 0 ? Math.round(meterHours / incidentCount) : meterHours;
-    // MTTR: ước tính hoặc tính từ phiếu bảo trì
-    const mttr = incidentCount > 0 ? (2.4 + (incidentCount * 0.2)).toFixed(1) : '—';
-    // Tỷ lệ sẵn sàng (Availability Rate)
-    const availabilityRate = totalEvents > 0 ? (incidentCount === 0 ? 99.8 : Math.max(92, 99.5 - incidentCount * 0.8)).toFixed(1) : '100';
 
+    // Chưa có dữ liệu thời gian dừng máy và thời gian sửa thật, nên không ước tính
+    // độ sẵn sàng hay MTTR: hiện "—" thay vì số bịa.
     return {
       meterHours: meterHours.toLocaleString('vi-VN'),
-      availabilityRate: `${availabilityRate}%`,
+      availabilityRate: '—',
       mtbf: incidentCount > 0 ? `${mtbf.toLocaleString('vi-VN')} giờ` : '— (Chưa có sự cố)',
-      mttr: incidentCount > 0 ? `${mttr} giờ` : '—',
+      mttr: '—',
       incidentCount,
       totalCount: totalEvents,
     };
@@ -379,30 +354,8 @@ export function AssetDetail({
     }
   };
 
-  // Mock Maintenance Plans
-  const maintenancePlans = [
-    {
-      level: 'Cấp 1 — Bảo dưỡng hàng tháng (200 giờ)',
-      cycle: '1 tháng / lần',
-      tasks: ['Kiểm tra rung chấn và nhiệt độ bề mặt', 'Kiểm tra mức dầu bôi trơn và độ kín phớt', 'Xiết chặt bulong liên kết chân máy'],
-      duration: '45 phút',
-      status: 'Định kỳ',
-    },
-    {
-      level: 'Cấp 2 — Bảo dưỡng định kỳ 6 tháng (1,200 giờ)',
-      cycle: '6 tháng / lần',
-      tasks: ['Thay mới dầu thủy lực & lọc dầu', 'Kiểm tra độ mòn phớt làm kín Sealing Ring', 'Hiệu chuẩn cảm biến áp suất và rơ le bảo vệ'],
-      duration: '180 phút',
-      status: 'Sắp đến hạn (20 ngày)',
-    },
-    {
-      level: 'Cấp 3 — Đại tu toàn diện hàng năm (5,000 giờ)',
-      cycle: '12 tháng / lần',
-      tasks: ['Tháo rã toàn bộ cụm ổ đỡ & rotor', 'Kiểm tra khuyết tật bằng phương pháp không phá hủy (NDT)', 'Thay thế toàn bộ gioăng phớt, bạc lót và cân bằng động'],
-      duration: '2 ngày',
-      status: 'Kế hoạch Q4/2026',
-    },
-  ];
+  // Kế hoạch bảo dưỡng: chỉ lấy lệnh bảo dưỡng định kỳ thật từ module Bảo trì.
+  const maintenancePlans = maintenanceOccurrences.filter((occ) => occ.kind === 'preventive');
 
   const statusOptions = Object.entries(ASSET_STATUS_LABEL).map(([value, label]) => ({ value, label: String(label) }));
   const criticalityOptions = Object.entries(ASSET_CRITICALITY_LABEL).map(([value, label]) => ({
@@ -647,7 +600,7 @@ export function AssetDetail({
                   className="py-1 px-2.5 text-[13px]"
                   onClick={openSpecs}
                 >
-                  {specs.length === 0 ? '+ Khai báo' : 'Chỉnh sửa'}
+                  {specs.length === 0 ? 'Khai báo' : 'Chỉnh sửa'}
                 </Button>
               ) : null}
             </div>
@@ -765,6 +718,8 @@ export function AssetDetail({
                   </div>
                 </div>
               </div>
+            ) : specs.length === 0 ? (
+              <p className="m-0 py-4 text-center text-sm text-slate-500">Chưa nhập thông số kỹ thuật</p>
             ) : (
               <div className="grid gap-2">
                 {specs.map(([key, value]) => (
@@ -792,21 +747,33 @@ export function AssetDetail({
                 </div>
                 <div>
                   <div className="text-sm font-bold">Mã phản hồi nhanh (QR Code)</div>
-                  <div className="text-[13px] text-slate-500">Mã quét: {asset.qrCode ?? `QR-AMM-${asset.code}`}</div>
-                  <span className={cn(PILL, PILL_TONE.success, 'mt-1')}>
-                    Sẵn sàng quét hiện trường
-                  </span>
+                  {asset.qrCode ? (
+                    <div className="text-[13px] text-slate-500">Mã quét: {asset.qrCode}</div>
+                  ) : (
+                    <div className="text-[13px] text-slate-500">Chưa có mã QR</div>
+                  )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="p-2.5 bg-slate-50 rounded-md">
+                <span className="text-xs text-slate-500 uppercase font-semibold">Vị trí lắp đặt</span>
+                <div className="text-sm font-bold mt-0.5" data-testid="asset-location">
+                  {locationChain.length > 0 ? locationChain.join(' › ') : 'Chưa có vị trí'}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
                 <div className="p-2.5 bg-slate-50 rounded-md">
-                  <span className="text-xs text-slate-500 uppercase font-semibold">Nhà máy trực thuộc</span>
-                  <div className="text-sm font-bold mt-0.5">Factory (Plant 1)</div>
+                  <span className="text-xs text-slate-500 uppercase font-semibold">Hãng sản xuất</span>
+                  <div className="text-sm font-bold mt-0.5">{asset.manufacturer?.trim() || '—'}</div>
                 </div>
                 <div className="p-2.5 bg-slate-50 rounded-md">
-                  <span className="text-xs text-slate-500 uppercase font-semibold">Phân khu lắp đặt</span>
-                  <div className="text-sm font-bold mt-0.5">Khu vực Turbine T1</div>
+                  <span className="text-xs text-slate-500 uppercase font-semibold">Số serial</span>
+                  <div className="text-sm font-bold mt-0.5">{asset.serialNumber?.trim() || '—'}</div>
+                </div>
+                <div className="p-2.5 bg-slate-50 rounded-md">
+                  <span className="text-xs text-slate-500 uppercase font-semibold">Năm sản xuất</span>
+                  <div className="text-sm font-bold mt-0.5">{asset.manufactureYear ?? '—'}</div>
                 </div>
               </div>
             </div>
@@ -1018,27 +985,38 @@ export function AssetDetail({
             </div>
 
             <div className="grid gap-3 mt-3">
-              {maintenancePlans.map((plan, index) => (
-                <div key={index} className="p-4 rounded-[10px] bg-slate-50 border border-slate-200">
-                  <div className="flex justify-between items-center mb-2">
-                    <div>
-                      <strong className="text-sm text-slate-900">{plan.level}</strong>
-                      <span className="ml-2 text-[13px] text-blue-600 font-semibold">({plan.cycle})</span>
+              {maintenancePlans.length === 0 ? (
+                <p className="m-0 py-4 text-center text-sm text-slate-500">
+                  Chưa có kế hoạch bảo dưỡng định kỳ nào cho thiết bị này.
+                </p>
+              ) : (
+                maintenancePlans.map((plan) => (
+                  <div key={plan.id} className="p-4 rounded-[10px] bg-slate-50 border border-slate-200">
+                    <div className="flex justify-between items-center mb-2">
+                      <div>
+                        <strong className="text-sm text-slate-900">{plan.title}</strong>
+                        {plan.code ? (
+                          <span className="ml-2 text-[13px] text-blue-600 font-semibold">({plan.code})</span>
+                        ) : null}
+                      </div>
+                      <span className={cn(PILL, PILL_TONE.info)}>
+                        {MAINTENANCE_STATUS_LABEL[plan.status] ?? plan.status}
+                      </span>
                     </div>
-                    <span className={cn(PILL, PILL_TONE.info)}>
-                      {plan.status}
-                    </span>
+                    {plan.description ? (
+                      <p className="mt-1.5 mx-0 mb-2.5 text-[13px] text-slate-600">{plan.description}</p>
+                    ) : null}
+                    <div className="text-[13px] text-slate-500">
+                      Hạn thực hiện: <strong>{plan.dueAt ? formatDate(plan.dueAt) : '—'}</strong>
+                      {plan.assigneeName ? (
+                        <>
+                          {' '}· Người thực hiện: <strong>{plan.assigneeName}</strong>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
-                  <ul className="mt-1.5 mx-0 mb-2.5 pl-5 text-[13px] text-slate-600">
-                    {plan.tasks.map((t, idx) => (
-                      <li key={idx} className="mb-0.75">{t}</li>
-                    ))}
-                  </ul>
-                  <div className="text-[13px] text-slate-500">
-                    Thời gian dự kiến: <strong>{plan.duration}</strong> · Yêu cầu: <strong>2 Kỹ thuật viên</strong>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </section>
 
@@ -1288,7 +1266,7 @@ export function AssetDetail({
                 <span
                   className="text-xs uppercase text-slate-500 font-bold tracking-[0.5px]"
                 >
-                  TÀI SẢN KỸ THUẬT · EVN
+                  TÀI SẢN KỸ THUẬT
                 </span>
                 <strong className="text-base text-slate-900 tracking-[-0.2px]">
                   {asset.code}

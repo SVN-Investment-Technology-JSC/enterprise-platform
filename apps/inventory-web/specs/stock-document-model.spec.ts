@@ -56,6 +56,17 @@ describe('Nút chứng từ theo trạng thái và quyền (mục 5.6)', () => {
     expect(availableDocumentActions({ docType: 'ISSUE_SALES', status: 'DRAFT' }, approver)).toEqual([]);
   });
 
+  it('Nháp nhập mua, xuất dự án: không nguồn thì Gửi duyệt, có nguồn thì Ghi sổ (ISS-BE-006)', () => {
+    for (const docType of ['RECEIPT_PURCHASE', 'ISSUE_PROJECT'] as const) {
+      expect(availableDocumentActions({ docType, status: 'DRAFT' }, writer)).toEqual(['edit', 'submit', 'cancel']);
+      expect(availableDocumentActions({ docType, status: 'DRAFT', sourceId: 'src' }, writer)).toEqual([
+        'edit',
+        'post',
+        'cancel',
+      ]);
+    }
+  });
+
   it('Chờ duyệt: Duyệt, Từ chối chỉ khi có quyền duyệt; người lập chỉ huỷ được', () => {
     expect(availableDocumentActions({ docType: 'ADJUSTMENT', status: 'PENDING' }, approver)).toEqual([
       'approve',
@@ -72,9 +83,11 @@ describe('Nút chứng từ theo trạng thái và quyền (mục 5.6)', () => {
   it('Đã duyệt ghi sổ hoặc huỷ; Từ chối chỉ sửa; Đã ghi sổ chỉ đảo, trừ chứng từ đảo; Đã huỷ không còn gì', () => {
     expect(availableDocumentActions({ docType: 'ISSUE_OTHER', status: 'APPROVED' }, writer)).toEqual(['post', 'cancel']);
     expect(availableDocumentActions({ docType: 'ISSUE_OTHER', status: 'REJECTED' }, writer)).toEqual(['edit']);
-    expect(availableDocumentActions({ docType: 'RECEIPT_PURCHASE', status: 'POSTED' }, writer)).toEqual(['reverse']);
+    // Đảo cần quyền duyệt chứng từ (ISS-BE-006): thủ kho không thấy nút đảo.
+    expect(availableDocumentActions({ docType: 'RECEIPT_PURCHASE', status: 'POSTED' }, writer)).toEqual([]);
+    expect(availableDocumentActions({ docType: 'RECEIPT_PURCHASE', status: 'POSTED' }, approver)).toEqual(['reverse']);
     expect(
-      availableDocumentActions({ docType: 'RECEIPT_PURCHASE', status: 'POSTED', reversesDocumentId: 'x' }, writer),
+      availableDocumentActions({ docType: 'RECEIPT_PURCHASE', status: 'POSTED', reversesDocumentId: 'x' }, both),
     ).toEqual([]);
     expect(availableDocumentActions({ docType: 'RECEIPT_PURCHASE', status: 'CANCELLED' }, both)).toEqual([]);
   });

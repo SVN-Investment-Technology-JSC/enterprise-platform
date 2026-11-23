@@ -35,3 +35,6 @@ export * from './lib/domain/storage-location-policy.js';
 export * from './lib/application/storage-location-store.port.js';
 export * from './lib/application/storage-location.service.js';
 export * from './lib/presentation/storage-location.controller.js';
+export * from './lib/application/procedure-instance-reader.port.js';
+export * from './lib/application/requisition-fulfilment.service.js';
+export * from './lib/presentation/requisition.controller.js';

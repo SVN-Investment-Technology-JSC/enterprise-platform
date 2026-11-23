@@ -4,6 +4,7 @@ import Page from '../src/app/page';
 import {
   movementHashTarget,
   movementMaterialLabel,
+  movementOutcomeMessage,
   movementTypeLabel,
   movementWarehouseLabel,
   sourceTypeLabel,
@@ -105,6 +106,16 @@ function mockFetch(capabilities: Record<string, boolean>, movementsFail = false)
 }
 
 describe('stock-movement.model', () => {
+  it('lời báo nhập xuất nhanh: chứng từ chờ duyệt báo "Đã gửi duyệt", không báo đã ghi sổ (ISS-BE-006)', () => {
+    expect(movementOutcomeMessage('Đã nhập kho 0 mặt hàng', [], ['PN-1', 'PN-2'])).toBe(
+      'Đã gửi duyệt 2 chứng từ [PN-1, PN-2]; tồn kho chỉ thay đổi sau khi người duyệt duyệt và ghi sổ.',
+    );
+    expect(movementOutcomeMessage('Đã nhập kho 1 mặt hàng', ['TX-1'], [])).toBe(
+      'Đã nhập kho 1 mặt hàng — chứng từ [TX-1].',
+    );
+    expect(movementOutcomeMessage('Đã xuất kho 1 mặt hàng', ['TX-1'], ['PX-1'])).toContain('. Đã gửi duyệt 1 chứng từ [PX-1]');
+  });
+
   it('phân giải hash mới và hash của ba màn cũ', () => {
     expect(movementHashTarget('#stock/movements')).toEqual({ view: 'all', documentKey: undefined });
     expect(movementHashTarget('#stock/movements/PK-0001')).toEqual({ view: 'all', documentKey: 'PK-0001' });

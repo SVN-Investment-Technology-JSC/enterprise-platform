@@ -9,7 +9,7 @@ import { StockDocumentService } from './application/stock-document.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
 import { PostgresStockDocumentStore } from './infrastructure/postgres-stock-document.store.js';
 import { createInventoryJobs, type InventoryJobs } from './inventory-jobs.factory.js';
-import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase } from './inventory-test-support.js';
+import { INVENTORY_TEST_ADMIN_URL, TestInventoryDatabase, projectSource, purchaseSource, documentSource } from './inventory-test-support.js';
 
 const integration = INVENTORY_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -44,7 +44,7 @@ integration('Giữ hàng trên PostgreSQL (INV-07, INV-08, T1-07 đến T1-11)',
     sequence += 1;
     const code = `GH-${sequence}`;
     await app.createMaterial(admin, { code, name: `Vật tư ${code}`, category: 'CONSUMABLE', unit: 'Cái' });
-    if (quantity > 0) await app.receiveStock(clerk, { warehouseCode, materialCode: code, quantity });
+    if (quantity > 0) await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode, materialCode: code, quantity });
     return code;
   }
 
@@ -234,7 +234,7 @@ integration('Giữ hàng trên PostgreSQL (INV-07, INV-08, T1-07 đến T1-11)',
       items: [{ materialCode: code, quantityReserved: 3 }],
     };
     expect((await rejection(app.createStockReservation(sales, request))).statusCode).toBe(409);
-    await app.receiveStock(clerk, { warehouseCode: 'KHO-A', materialCode: code, quantity: 2 });
+    await app.receiveStock(clerk, { ...purchaseSource(), warehouseCode: 'KHO-A', materialCode: code, quantity: 2 });
     const created = await app.createStockReservation(sales, request);
     expect(created.status).toBe('RESERVED');
     expect(await balance(code)).toEqual({ quantity: 3, reserved: 3 });
@@ -259,7 +259,7 @@ integration('Giữ hàng trên PostgreSQL (INV-07, INV-08, T1-07 đến T1-11)',
       const code = await material(10);
       const results = await Promise.allSettled([
         reserve([{ materialCode: code, quantityReserved: 8 }]),
-        app.issueStock(clerk, { warehouseCode: 'KHO-A', materialCode: code, quantity: 5 }),
+        app.issueStock(clerk, { ...projectSource(), warehouseCode: 'KHO-A', materialCode: code, quantity: 5 }),
       ]);
       // 8 + 5 > 10: đúng một bên được, bên kia bị từ chối vì thiếu khả dụng.
       expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
@@ -280,6 +280,7 @@ integration('Giữ hàng trên PostgreSQL (INV-07, INV-08, T1-07 đến T1-11)',
 
     const draft = await documents.create(clerk, {
       docType: 'ISSUE_PROJECT',
+      ...documentSource(),
       warehouseCode: 'KHO-A',
       lines: [{ materialCode: code, quantity: 10 }],
     });
@@ -287,7 +288,7 @@ integration('Giữ hàng trên PostgreSQL (INV-07, INV-08, T1-07 đến T1-11)',
     expect([posted.statusCode, posted.code]).toEqual([409, 'INSUFFICIENT_AVAILABLE_STOCK']);
     expect(posted.message).toMatch(/^Không đủ tồn khả dụng/);
 
-    const legacy = await rejection(app.issueStock(clerk, { warehouseCode: 'KHO-A', materialCode: code, quantity: 10 }));
+    const legacy = await rejection(app.issueStock(clerk, { ...projectSource(), warehouseCode: 'KHO-A', materialCode: code, quantity: 10 }));
     expect([legacy.statusCode, legacy.code]).toEqual([400, 'INSUFFICIENT_STOCK']);
 
     // Lắp vật tư đi đường `append` cũ: cũng kiểm theo khả dụng.

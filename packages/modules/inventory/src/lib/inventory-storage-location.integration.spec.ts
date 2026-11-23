@@ -56,7 +56,7 @@ integration('Vị trí lưu trữ của mặt hàng theo kho', () => {
   }, 60_000);
 
   it('migration chạy lại được', async () => {
-    await expect(database.runMigration('tenant/inventory/0026-material-storage-locations.sql')).resolves.toBeUndefined();
+    await expect(database.runMigration('tenant/inventory/0027-material-storage-locations.sql')).resolves.toBeUndefined();
   });
 
   it('một mặt hàng ở hai kho, mỗi kho một chỗ riêng', async () => {

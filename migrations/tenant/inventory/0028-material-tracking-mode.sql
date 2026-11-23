@@ -46,7 +46,7 @@ BEGIN
        AND m.is_serialized
        AND EXISTS (SELECT 1 FROM inventory_schema.lots l WHERE l.material_id = m.id);
     IF conflict_codes IS NOT NULL THEN
-        RAISE NOTICE '0027: mặt hàng vừa theo serial vừa có lô, đặt SERIAL (lô cũ vẫn đọc được): %', conflict_codes;
+        RAISE NOTICE '0028: mặt hàng vừa theo serial vừa có lô, đặt SERIAL (lô cũ vẫn đọc được): %', conflict_codes;
     END IF;
 END;
 $$;

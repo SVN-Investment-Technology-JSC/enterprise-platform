@@ -55,7 +55,7 @@ function mapLocation(row: Row): MaterialStorageLocation {
 }
 
 /**
- * Vị trí lưu trữ trên Postgres (`0026-material-storage-locations`). Mọi giá trị đi qua tham số; việc ghi dùng khoá
+ * Vị trí lưu trữ trên Postgres (`0027-material-storage-locations`). Mọi giá trị đi qua tham số; việc ghi dùng khoá
  * tư vấn theo cặp (kho, mặt hàng) để hai lần thay thế đồng thời không vướng chỉ mục "một vị trí chính".
  */
 export class PostgresStorageLocationStore implements StorageLocationStore {

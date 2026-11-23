@@ -46,6 +46,13 @@ import {
 } from './application/storage-location-store.port.js';
 import { PostgresStorageLocationStore } from './infrastructure/postgres-storage-location.store.js';
 import { StorageLocationController } from './presentation/storage-location.controller.js';
+import { RequisitionFulfilmentService } from './application/requisition-fulfilment.service.js';
+import {
+  PROCEDURE_INSTANCE_READER,
+  type ProcedureInstanceReader,
+} from './application/procedure-instance-reader.port.js';
+import { HttpProcedureInstanceReader } from './infrastructure/http-procedure-instance.reader.js';
+import { RequisitionController } from './presentation/requisition.controller.js';
 
 @Module({
   controllers: [
@@ -61,6 +68,7 @@ import { StorageLocationController } from './presentation/storage-location.contr
     InventoryReportsController,
     StockMovementController,
     StorageLocationController,
+    RequisitionController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -162,6 +170,18 @@ import { StorageLocationController } from './presentation/storage-location.contr
       useFactory: (store: StorageLocationStore) => new StorageLocationService(store),
       inject: [STORAGE_LOCATION_STORE],
     },
+    // Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): hỏi Quy trình qua API nội bộ (PROCEDURE_API_URL).
+    { provide: PROCEDURE_INSTANCE_READER, useFactory: () => new HttpProcedureInstanceReader() },
+    {
+      provide: RequisitionFulfilmentService,
+      useFactory: (
+        documents: StockDocumentStore,
+        store: InventoryStore,
+        inventory: InventoryApplication,
+        procedures: ProcedureInstanceReader,
+      ) => new RequisitionFulfilmentService(documents, store, inventory, procedures),
+      inject: [STOCK_DOCUMENT_STORE, INVENTORY_STORE, InventoryApplication, PROCEDURE_INSTANCE_READER],
+    },
   ],
   exports: [
     InventoryApplication,
@@ -173,6 +193,7 @@ import { StorageLocationController } from './presentation/storage-location.contr
     InventoryReportService,
     StockMovementService,
     StorageLocationService,
+    RequisitionFulfilmentService,
     AssetDocumentService,
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

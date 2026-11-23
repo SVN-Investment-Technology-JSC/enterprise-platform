@@ -54,8 +54,9 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
     const closeOutside = (event: MouseEvent) => {
       if (box.current && !box.current.contains(event.target as Node)) setMenuOpen(false);
     };
-    document.addEventListener('mousedown', closeOutside);
-    return () => document.removeEventListener('mousedown', closeOutside);
+    // Pha capture: hộp chi tiết công việc chặn mousedown lan lên (stopPropagation) nên pha nổi bọt không tới document.
+    document.addEventListener('mousedown', closeOutside, true);
+    return () => document.removeEventListener('mousedown', closeOutside, true);
   }, [menuOpen]);
 
   const canStart = canWrite && options.length > 0 && !link;

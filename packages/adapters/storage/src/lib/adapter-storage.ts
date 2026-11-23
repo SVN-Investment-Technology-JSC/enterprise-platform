@@ -113,6 +113,25 @@ export class ObjectTooLargeError extends Error {
   }
 }
 
+/** Kho từ chối đoạn `Range` trình duyệt xin (vượt quá độ dài object). */
+export class ObjectRangeNotSatisfiableError extends Error {
+  constructor(readonly key: string) {
+    super(`Range not satisfiable: ${key}`);
+    this.name = 'ObjectRangeNotSatisfiableError';
+  }
+}
+
+/** Luồng đọc một object cùng các header cần chuyển tiếp cho trình duyệt. */
+export interface ObjectStorageStream {
+  readonly body: Readable;
+  readonly contentType: string;
+  readonly contentLength?: number;
+  /** Có khi đọc theo `Range`: `bytes 0-1023/52341`. */
+  readonly contentRange?: string;
+  readonly etag?: string;
+  readonly lastModified?: Date;
+}
+
 /**
  * Đọc nội dung object phía máy chủ qua địa chỉ nội bộ. Tách khỏi các cổng khác
  * để module chỉ cần ghi hay chỉ cần ký URL không phải khai thêm hàm này.
@@ -588,5 +607,127 @@ export class S3ObjectStorage implements ObjectStorageManagementPort, ObjectStora
     const result = await this.internalClient.send(new HeadObjectCommand({Bucket:this.options.bucket,Key:key}),
       {abortSignal:AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS*1000)});
     return {sizeBytes:result.ContentLength ?? 0,contentType:result.ContentType ?? 'application/octet-stream'};
+  }
+
+  /**
+   * Mở luồng đọc object để máy chủ chuyển tiếp thẳng cho trình duyệt, không đưa
+   * cả tệp vào bộ nhớ hay ra đĩa. `range` là header `Range` của trình duyệt
+   * (`bytes=0-1023`), kho trả 206 cùng `contentRange`. Người gọi phải đọc hết
+   * hoặc `destroy()` luồng để trả kết nối.
+   */
+  async openStream(key: string, options: { readonly range?: string; readonly signal?: AbortSignal } = {}): Promise<ObjectStorageStream> {
+    try {
+      const result = await this.internalClient.send(
+        new GetObjectCommand({ Bucket: this.options.bucket, Key: key, Range: options.range }),
+        options.signal ? { abortSignal: options.signal } : {},
+      );
+      const body = result.Body as Readable | undefined;
+      if (!body) throw new Error(`Kho không trả nội dung cho ${key}.`);
+      return {
+        body,
+        contentType: result.ContentType ?? 'application/octet-stream',
+        contentLength: result.ContentLength,
+        contentRange: result.ContentRange,
+        etag: result.ETag,
+        lastModified: result.LastModified,
+      };
+    } catch (error) {
+      const name = (error as { name?: string }).name;
+      const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+      if (name === 'NoSuchKey' || name === 'NotFound' || status === 404) throw new ObjectNotFoundError(key);
+      if (name === 'InvalidRange' || status === 416) throw new ObjectRangeNotSatisfiableError(key);
+      throw error;
+    }
+  }
+
+  /**
+   * Ghi object từ một luồng chưa biết trước độ dài (thân yêu cầu của trình duyệt,
+   * luồng đọc từ kho khác). Gom từng phần 8 MiB trong bộ nhớ rồi gửi: tới 8 MiB là
+   * một `PutObject`, lớn hơn thì tải nhiều phần, lần lượt từng phần, nên bộ nhớ chỉ
+   * giữ khoảng một phần dù tệp lớn bao nhiêu. Vượt `maxBytes` thì dừng, huỷ phần đã
+   * lên và ném `ObjectTooLargeError`.
+   */
+  async uploadStream(
+    key: string,
+    body: AsyncIterable<Uint8Array | string>,
+    contentType: string,
+    options: { readonly maxBytes?: number; readonly signal?: AbortSignal } = {},
+  ): Promise<{ readonly sizeBytes: number }> {
+    const requestOptions = () => {
+      const timeout = AbortSignal.timeout(TENANT_STORAGE_WRITE_TIMEOUT_SECONDS * 1000);
+      return { abortSignal: options.signal ? AbortSignal.any([timeout, options.signal]) : timeout };
+    };
+    const chunks: Buffer[] = [];
+    let buffered = 0;
+    let total = 0;
+    let uploadId: string | undefined;
+    const parts: { PartNumber: number; ETag: string }[] = [];
+    const flush = async () => {
+      const part = Buffer.concat(chunks, buffered);
+      chunks.length = 0;
+      buffered = 0;
+      if (!uploadId) {
+        const created = await this.internalClient.send(
+          new CreateMultipartUploadCommand({ Bucket: this.options.bucket, Key: key, ContentType: contentType }),
+          requestOptions(),
+        );
+        if (!created.UploadId) throw new Error('Kho không trả uploadId cho lần tải nhiều phần.');
+        uploadId = created.UploadId;
+      }
+      const partNumber = parts.length + 1;
+      const uploaded = await this.internalClient.send(
+        new UploadPartCommand({
+          Bucket: this.options.bucket,
+          Key: key,
+          UploadId: uploadId,
+          PartNumber: partNumber,
+          Body: part,
+          ContentLength: part.byteLength,
+        }),
+        requestOptions(),
+      );
+      if (!uploaded.ETag) throw new Error(`Kho không trả ETag cho phần ${partNumber} của ${key}.`);
+      parts.push({ PartNumber: partNumber, ETag: uploaded.ETag });
+    };
+
+    try {
+      for await (const chunk of body) {
+        options.signal?.throwIfAborted();
+        const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+        total += buffer.byteLength;
+        if (options.maxBytes !== undefined && total > options.maxBytes) {
+          throw new ObjectTooLargeError(key, total, options.maxBytes);
+        }
+        chunks.push(buffer);
+        buffered += buffer.byteLength;
+        if (buffered >= FILE_UPLOAD_PART_BYTES) await flush();
+      }
+      if (!uploadId) {
+        await this.internalClient.send(
+          new PutObjectCommand({
+            Bucket: this.options.bucket,
+            Key: key,
+            ContentType: contentType,
+            Body: Buffer.concat(chunks, buffered),
+          }),
+          requestOptions(),
+        );
+        return { sizeBytes: total };
+      }
+      if (buffered > 0) await flush();
+      await this.internalClient.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.options.bucket,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: { Parts: parts },
+        }),
+        requestOptions(),
+      );
+      return { sizeBytes: total };
+    } catch (error) {
+      if (uploadId) await this.abortMultipartUpload(key, uploadId).catch(() => undefined);
+      throw error;
+    }
   }
 }

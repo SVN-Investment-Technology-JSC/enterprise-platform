@@ -27,6 +27,7 @@ function setup(options: { lotEnabled?: boolean; serialEnabled?: boolean; stored?
     hasTrackingFootprint: jest.fn(async () => false),
     changeTrackingMode: jest.fn(async () => undefined),
     countTrackedWithStock: jest.fn(async () => 0),
+    unserializedStock: jest.fn(async () => []),
   };
   const settings = {
     get: jest.fn(async (_tenantId: string, key: string): Promise<SettingsEntry<unknown> | null> =>

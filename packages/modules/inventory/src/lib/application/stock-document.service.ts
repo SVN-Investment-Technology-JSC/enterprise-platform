@@ -27,6 +27,7 @@ import {
 import {
   assertEditable,
   assertNotSelfApproval,
+  assertNotSelfReversal,
   assertReversible,
   assertTransition,
   isIssueType,
@@ -208,10 +209,18 @@ export class StockDocumentService {
     return result.document;
   }
 
-  /** Sửa sai chứng từ đã ghi sổ: chứng từ đảo tham chiếu gốc, ghi sổ ngay; gốc giữ nguyên. */
+  /**
+   * Sửa sai chứng từ đã ghi sổ: chứng từ đảo tham chiếu gốc, ghi sổ ngay; gốc giữ
+   * nguyên. Đảo là quyết định của người duyệt (ISS-BE-006, Q2 = a): cần quyền duyệt
+   * chứng từ kho và người đảo khác người lập chứng từ gốc, trừ khi cài đặt cho tự duyệt.
+   */
   async reverse(actor: InventoryActor, key: string): Promise<PostedStockDocument> {
-    requireStockWriter(actor);
-    return this.documents.reverse(actor.tenantId, key, actor.userId, assertReversible);
+    requireApprover(actor);
+    const allowSelfApproval = await this.allowSelfApproval(actor.tenantId);
+    return this.documents.reverse(actor.tenantId, key, actor.userId, (original) => {
+      assertReversible(original);
+      assertNotSelfReversal(original, actor.userId, allowSelfApproval);
+    });
   }
 
   /**
