@@ -37,6 +37,7 @@ import {
 import { ProcedureAttachmentService } from '../application/procedure-attachment.service.js';
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { ProcedureEngineError } from '../domain/procedure-engine.error.js';
+import type { ReplaceWorkItemInstanceRequest } from '../domain/procedure-workspace-link.js';
 
 interface ProcedureRequest {
   procedureActor?: ProcedureActor;
@@ -277,6 +278,23 @@ export class ProcedureEngineController {
   internalReversalCheck(@Req() request: any, @Param('instanceId') instanceId: string) {
     const tenantId = this.internalTenant(request);
     return this.execute(() => this.procedures.checkReversalForService(tenantId, instanceId));
+  }
+
+  /**
+   * Workspace nhờ đổi quy trình của công việc (đồng bộ để giao diện biết ngay kết quả). Luôn trả 200 cho
+   * kết quả nghiệp vụ: `{ ok: true, instance, previous }` hoặc `{ ok: false, reason }`; lỗi hạ tầng là 5xx.
+   */
+  @Post('internal/workspace/work-items/:workItemId/replace-instance')
+  @HttpCode(200)
+  internalReplaceWorkItemInstance(
+    @Req() request: any,
+    @Param('workItemId') workItemId: string,
+    @Body() input: ReplaceWorkItemInstanceRequest,
+  ) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() =>
+      this.procedures.replaceWorkspaceWorkItemInstance(tenantId, workItemId, input ?? ({} as ReplaceWorkItemInstanceRequest)),
+    );
   }
 
   /** Kho đọc mọi đơn vật tư xuất kho để thủ kho xử lý (chỉ đọc, service token). */

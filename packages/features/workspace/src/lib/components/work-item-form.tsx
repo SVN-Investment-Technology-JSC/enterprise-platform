@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  MAX_WORK_ITEM_ESTIMATE_HOURS,
   MAX_WORK_ITEM_WEIGHT,
   type CreateWorkItemRequest,
   type DirectoryPerson,
@@ -938,6 +939,7 @@ function EditFields({
             <input
               type="number"
               min={0}
+              max={MAX_WORK_ITEM_ESTIMATE_HOURS}
               step="0.5"
               value={form.estimateHours}
               onChange={(event) => set({ estimateHours: event.target.value })}

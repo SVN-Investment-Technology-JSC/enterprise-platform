@@ -40,6 +40,7 @@ function harness(options: {
   const links: Record<string, unknown>[] = [];
   const moves: Record<string, unknown>[] = [];
   const store = {
+    settings: { get: async () => undefined },
     externalRef: {
       findByExternalId: async (_t: string, _m: string, externalId: string) =>
         [...refs].reverse().find((ref) => ref.externalId === externalId),
@@ -86,6 +87,7 @@ function harness(options: {
 
   const createdItems: Record<string, unknown>[] = [];
   const workItems = {
+    applyProcedureOutcome: async () => undefined,
     create: async (_actor: unknown, input: Record<string, unknown>, linked: { instanceId: string }) => {
       createdItems.push(input);
       const item = { id: 'wi-new', projectId: String(input.projectId), code: 'CV009', title: String(input.title) };
@@ -303,5 +305,28 @@ describe('Đơn tạo hộ gắn dự án', () => {
     await h.events.handle(T, 'procedure.instance.workspace_link_requested', { ...link, submitterUserId: 'user-in' });
     expect(h.memberChanges).toEqual([]);
     expect(h.createdItems).toHaveLength(1);
+  });
+});
+
+describe('WorkspaceProcedureEvents: hồ sơ mới sau khi đổi quy trình', () => {
+  it('sự kiện started_for_work_item đến muộn chuyển nguyên payload cho markStarted (ghi idempotent)', async () => {
+    const markStarted = jest.fn(async () => undefined);
+    const store = { procedureRequest: { markStarted } } as unknown as WorkspaceStore;
+    const events = new WorkspaceProcedureEvents(
+      store,
+      { applyProcedureOutcome: async () => undefined } as unknown as WorkItemService,
+      {} as FinanceService,
+    );
+    const payload = {
+      workItemId: 'w1',
+      instanceId: 'inst-new',
+      instanceCode: 'HS-002',
+      title: 'Hồ sơ mới',
+      status: 'running',
+    };
+    await events.handle(T, 'procedure.instance.started_for_work_item', payload);
+    await events.handle(T, 'procedure.instance.started_for_work_item', payload);
+    expect(markStarted).toHaveBeenCalledTimes(2);
+    expect(markStarted).toHaveBeenNthCalledWith(1, T, payload);
   });
 });

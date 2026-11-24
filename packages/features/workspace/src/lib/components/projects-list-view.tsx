@@ -12,7 +12,7 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { Building2, ChevronDown, ChevronRight, FolderInput, ListFilter, Plus, RefreshCw, Tag as TagIcon, MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { matchProjectFilter, type ProjectFilter } from '../project-filter.model';
@@ -891,6 +891,72 @@ export function ProjectsListView({
 /* ========================================================================= */
 
 /** Một nhóm dự án: dòng tiêu đề nhóm rồi các dòng dự án của nhóm. */
+/**
+ * Hàng chip tự vừa bề rộng ô: hiện được bao nhiêu chip thì hiện, phần còn lại gộp thành "+N" (luôn hiện ít nhất một
+ * chip). Đo bằng một bản ẩn của toàn bộ chip nên đổi độ rộng cột là tính lại ngay.
+ */
+function FitChips({
+  chips,
+  more,
+  measureKey,
+}: {
+  chips: readonly ReactNode[];
+  more: (hidden: number) => ReactNode;
+  /** Đổi khi nội dung chip đổi (vd ghép tên các nhãn), để đo lại. */
+  measureKey: string;
+}) {
+  const wrap = useRef<HTMLSpanElement>(null);
+  const meter = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(chips.length);
+  useLayoutEffect(() => {
+    const wrapEl = wrap.current;
+    const meterEl = meter.current;
+    if (!wrapEl || !meterEl) return;
+    const GAP = 4;
+    const compute = () => {
+      const widths = [...meterEl.querySelectorAll<HTMLElement>('[data-fit-chip]')].map(
+        (el) => el.getBoundingClientRect().width,
+      );
+      const moreWidth = meterEl.querySelector<HTMLElement>('[data-fit-more]')?.getBoundingClientRect().width ?? 0;
+      const available = wrapEl.clientWidth;
+      let used = 0;
+      let count = 0;
+      for (let index = 0; index < widths.length; index += 1) {
+        const next = used + (index > 0 ? GAP : 0) + widths[index];
+        const reserve = index < widths.length - 1 ? GAP + moreWidth : 0;
+        if (next + reserve > available) break;
+        used = next;
+        count = index + 1;
+      }
+      setVisible(Math.max(1, count));
+    };
+    compute();
+    const observer = new ResizeObserver(compute);
+    observer.observe(wrapEl);
+    return () => observer.disconnect();
+  }, [chips.length, measureKey]);
+
+  const shown = Math.min(visible, chips.length);
+  const hidden = chips.length - shown;
+  return (
+    <span ref={wrap} className={styles.fitChips}>
+      <span className={styles.chipGroup}>
+        {chips.slice(0, shown)}
+        {hidden > 0 ? more(hidden) : null}
+      </span>
+      {/* Bản ẩn để đo độ rộng tự nhiên của từng chip và của nhãn "+N" rộng nhất. */}
+      <span ref={meter} className={styles.fitChipsMeter} aria-hidden {...({ inert: '' } as object)}>
+        {chips.map((chip, index) => (
+          <span key={index} data-fit-chip>
+            {chip}
+          </span>
+        ))}
+        <span data-fit-more>{more(chips.length - 1)}</span>
+      </span>
+    </span>
+  );
+}
+
 function GroupRows({
   type,
   rows,
@@ -1120,12 +1186,13 @@ function GroupRows({
               }
             >
               {project.tagIds?.length ? (
-                <span className={styles.chipGroup}>
-                  {project.tagIds.slice(0, 2).map((tagId) => {
+                <FitChips
+                  measureKey={project.tagIds.map((tagId) => tagOf(tagId)?.name ?? '').join('|')}
+                  chips={project.tagIds.flatMap((tagId) => {
                     const tag = tagOf(tagId);
-                    if (!tag) return null;
+                    if (!tag) return [];
                     const color = tagColor(tag);
-                    return (
+                    return [
                       <ChipButton
                         key={tagId}
                         tone={{ bg: `${color}14`, fg: color }}
@@ -1134,21 +1201,21 @@ function GroupRows({
                       >
                         <span className={styles.chipDot} />
                         {tag.name}
-                      </ChipButton>
-                    );
+                      </ChipButton>,
+                    ];
                   })}
-                  {project.tagIds.length > 2 ? (
+                  more={(hidden) => (
                     <Tooltip
-                      content={project.tagIds
-                        .slice(2)
+                      content={(project.tagIds ?? [])
+                        .slice((project.tagIds ?? []).length - hidden)
                         .map((tagId) => tagOf(tagId)?.name)
                         .filter(Boolean)
                         .join(', ')}
                     >
-                      <span className={styles.muted}>+{project.tagIds.length - 2}</span>
+                      <span className={styles.muted}>+{hidden}</span>
                     </Tooltip>
-                  ) : null}
-                </span>
+                  )}
+                />
               ) : canEdit ? (
                 <>
                   <span className={styles.emptyDash}>—</span>

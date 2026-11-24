@@ -149,6 +149,7 @@ import type {
   MyWorkAssignedRow,
   ParticipantBusySlot,
   ProjectRollup,
+  StandaloneProcedureOutcomeRules,
   ReportAnalyticsQuery,
   ReportItemsQuery,
   ReportScopeFilter,
@@ -4418,6 +4419,63 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       });
     },
 
+    replaceStarted: async (
+      tenantId: string,
+      input: {
+        workItemId: string;
+        previousInstanceId: string;
+        definitionId: string;
+        instanceId: string;
+        instanceCode: string;
+        title: string;
+        status: string;
+        actorUserId: string;
+      },
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      return inTransaction(pool, async (client) => {
+        const item = await client.query<Row>(
+          `SELECT project_id FROM workspace_schema.work_items WHERE id = $1`,
+          [input.workItemId],
+        );
+        const row = item.rows[0];
+        if (!row) throw new WorkspaceValidationError('Công việc không còn tồn tại.');
+        // Con trỏ hồ sơ cũ bỏ đi; `<> $3` giữ nguyên khi chạy lại với cùng hồ sơ mới.
+        await client.query(
+          `DELETE FROM workspace_schema.external_references
+            WHERE entity_type = 'work_item' AND entity_id = $1
+              AND module_key = 'procedure-engine' AND external_id = $2
+              AND external_id <> $3`,
+          [input.workItemId, input.previousInstanceId, input.instanceId],
+        );
+        await writeExternalRef(client, input.actorUserId, {
+          entityType: 'work_item',
+          entityId: input.workItemId,
+          projectId: str(row.project_id),
+          moduleKey: 'procedure-engine',
+          externalId: input.instanceId,
+          externalCode: input.instanceCode,
+          launchUrl: PROCEDURE_LAUNCH_URL,
+          cachedLabel: input.title,
+          cachedStatus: input.status,
+        });
+        const result = await client.query<Row>(
+          `INSERT INTO workspace_schema.work_item_procedure_requests
+             (work_item_id, project_id, definition_id, status, instance_id, requested_by)
+           VALUES ($1, $2, $3, 'started', $4, $5)
+           ON CONFLICT (work_item_id)
+           DO UPDATE SET definition_id = EXCLUDED.definition_id,
+                         status        = 'started',
+                         instance_id   = EXCLUDED.instance_id,
+                         error         = NULL,
+                         updated_at    = now()
+           RETURNING ${PROCEDURE_REQUEST_COLUMNS}`,
+          [input.workItemId, str(row.project_id), input.definitionId, input.instanceId, input.actorUserId],
+        );
+        return mapProcedureRequest(result.rows[0] as Row);
+      });
+    },
+
     markRejected: async (tenantId: string, workItemId: string, reason: string) => {
       const pool = await this.poolFor(tenantId);
       // Đã mở được hồ sơ (started) thì một lời từ chối đến muộn không đè lên.
@@ -5607,6 +5665,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       outcome: StandaloneTaskProcedureOutcome,
       instanceCode: string,
       today: string,
+      rules?: StandaloneProcedureOutcomeRules,
     ) => {
       const pool = await this.poolFor(tenantId);
       await inTransaction(pool, async (client) => {
@@ -5639,14 +5698,38 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               `Hồ sơ ${instanceCode} ${outcome === 'rejected' ? 'bị từ chối' : 'đã bị huỷ'}.`,
             ),
           );
+          // Cài đặt có chọn thì việc còn mở cũng đổi trạng thái; việc đã đóng hay còn việc con mở thì giữ nguyên.
+          const endedTarget = (outcome === 'rejected' ? rules?.onRejected : rules?.onCancelled) ?? 'none';
+          if (endedTarget === 'none' || task.status === endedTarget) return;
+          if (CLOSED_WORK_ITEM_STATUSES.includes(task.status)) return;
+          if (endedTarget === 'cancelled' && task.openChildCount > 0) return;
+          const endedNote =
+            outcome === 'rejected'
+              ? `Hồ sơ quy trình ${instanceCode} bị từ chối`
+              : `Hồ sơ quy trình ${instanceCode} đã bị huỷ`;
+          const moved = await setStandaloneStatus(
+            client,
+            task.id,
+            STANDALONE_TASK_SYSTEM_ACTOR_ID,
+            task.status,
+            endedTarget,
+            endedNote,
+            today,
+          );
+          if (!moved) return;
+          const endedEvent = statusEvent(moved, STANDALONE_TASK_SYSTEM_ACTOR_ID, task.status, endedTarget, endedNote);
+          if (endedEvent) await writeOutbox(client, tenantId, endedEvent);
           return;
         }
-        // Hồ sơ xong: việc gốc sang Chờ duyệt để người giao duyệt; việc con
+        // Hồ sơ xong: mặc định việc gốc sang Chờ duyệt để người giao duyệt; việc con
         // không có bước duyệt nên Hoàn thành luôn. Việc đã đóng hay còn việc
-        // con mở thì giữ nguyên, người dùng tự xử lý.
-        const target: WorkItemStatus = task.parentId ? 'done' : 'review';
+        // con mở thì giữ nguyên, người dùng tự xử lý. Cài đặt tenant có thể đổi đích hoặc tắt.
+        const mode = rules?.onCompletedStandalone ?? 'review_root_done_child';
+        if (mode === 'none') return;
+        const target: WorkItemStatus =
+          mode === 'always_review' ? 'review' : mode === 'always_done' ? 'done' : task.parentId ? 'done' : 'review';
         if (CLOSED_WORK_ITEM_STATUSES.includes(task.status) || task.status === target) return;
-        if (task.status === 'review' || task.openChildCount > 0) return;
+        if ((task.status === 'review' && mode !== 'always_done') || task.openChildCount > 0) return;
         const note = `Hồ sơ quy trình ${instanceCode} đã hoàn tất.`;
         // Hồ sơ xong nghĩa là phần việc đã làm xong; việc có việc con thì tiến
         // độ vẫn tính từ việc con.

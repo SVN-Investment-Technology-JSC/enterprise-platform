@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ExternalLink, Workflow } from 'lucide-react';
+import { ChevronDown, ExternalLink, Loader2, RefreshCw, Workflow } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ProcedureOption } from '../procedure-api';
 import styles from '../workspace.module.scss';
@@ -24,7 +24,15 @@ export interface ProcedureActionsProps {
   readonly link?: ProcedureLink;
   /** Quyền ghi trong dự án. */
   readonly canWrite: boolean;
+  /** Yêu cầu mở hồ sơ đã gửi, đang chờ module Quy trình: nút hiện vòng xoay và không cho gửi thêm. */
+  readonly pending?: boolean;
   readonly onStart: (definitionId: string) => Promise<void>;
+  /** Quy trình của hồ sơ hiện tại; loại khỏi danh sách khi đổi. */
+  readonly currentDefinitionId?: string;
+  /** Lý do chưa cho đổi quy trình (hồ sơ đã được xử lý...); vắng là cho đổi. */
+  readonly changeBlockReason?: string;
+  /** Vắng thì không có mục Đổi quy trình. Ném lỗi để Dialog hiện thông báo của server. */
+  readonly onChange?: (definitionId: string) => Promise<void>;
 }
 
 /**
@@ -41,7 +49,20 @@ export interface ProcedureActionsProps {
  *   không là do module Quy trình quyết: ở đó chỉ người có liên quan tới hồ sơ
  *   mới đọc được.
  */
-export function ProcedureActions({ options, link, canWrite, onStart }: ProcedureActionsProps) {
+export function ProcedureActions({
+  options,
+  link,
+  canWrite,
+  pending = false,
+  onStart,
+  currentDefinitionId,
+  changeBlockReason,
+  onChange,
+}: ProcedureActionsProps) {
+  const [changeOpen, setChangeOpen] = useState(false);
+  const [changeDefinitionId, setChangeDefinitionId] = useState('');
+  const [changing, setChanging] = useState(false);
+  const [changeError, setChangeError] = useState<string>();
   const [menuOpen, setMenuOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [definitionId, setDefinitionId] = useState('');
@@ -59,10 +80,12 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
     return () => document.removeEventListener('mousedown', closeOutside, true);
   }, [menuOpen]);
 
-  const canStart = canWrite && options.length > 0 && !link;
+  const canStart = canWrite && options.length > 0 && !link && !pending;
   const startHint = link
     ? 'Công việc này đã gắn một hồ sơ quy trình.'
-    : !canWrite
+    : pending
+      ? 'Đang mở hồ sơ cho công việc này; chờ vài giây.'
+      : !canWrite
       ? 'Bạn không có quyền ghi trong dự án này.'
       : options.length === 0
         ? 'Bạn chưa được phân vai S ở quy trình nào đã công bố.'
@@ -86,6 +109,36 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
     }
   };
 
+  const changeOptions = options.filter((option) => option.id !== currentDefinitionId);
+  const canChange = canWrite && Boolean(link) && !pending && !changeBlockReason && changeOptions.length > 0;
+  const changeHint = !link
+    ? 'Công việc chưa gắn hồ sơ quy trình nào.'
+    : !canWrite
+      ? 'Bạn không có quyền ghi trong dự án này.'
+      : pending
+        ? 'Đang mở hồ sơ cho công việc này; chờ vài giây.'
+        : (changeBlockReason ??
+          (changeOptions.length === 0 ? 'Không có quy trình khác để đổi sang.' : undefined));
+
+  const submitChange = async () => {
+    if (!changeDefinitionId) {
+      setChangeError('Hãy chọn quy trình mới.');
+      return;
+    }
+    if (!onChange) return;
+    setChangeError(undefined);
+    setChanging(true);
+    try {
+      await onChange(changeDefinitionId);
+      setChangeOpen(false);
+      setChangeDefinitionId('');
+    } catch (cause) {
+      setChangeError((cause as { message?: string })?.message ?? 'Không đổi được quy trình.');
+    } finally {
+      setChanging(false);
+    }
+  };
+
   return (
     <div className={styles.procedureMenu} ref={box}>
       <button
@@ -93,9 +146,11 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
         className={styles.buttonGhost}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
+        aria-busy={pending}
         onClick={() => setMenuOpen((current) => !current)}
       >
-        <Workflow size={14} /> Quy trình
+        {pending ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Workflow size={14} />}{' '}
+        {pending ? 'Đang mở quy trình…' : 'Quy trình'}
         <ChevronDown size={13} />
       </button>
 
@@ -134,14 +189,61 @@ export function ProcedureActions({ options, link, canWrite, onStart }: Procedure
               </button>
             </span>
           </Tooltip>
+          {onChange ? (
+            <Tooltip content={changeHint}>
+              <span className={styles.tooltipAnchor}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!canChange}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setChangeDefinitionId('');
+                    setChangeError(undefined);
+                    setChangeOpen(true);
+                  }}
+                >
+                  <RefreshCw size={13} /> Đổi quy trình
+                </button>
+              </span>
+            </Tooltip>
+          ) : null}
         </div>
       ) : null}
+
+      <Dialog
+        open={changeOpen}
+        title="Đổi quy trình"
+        submitLabel="Đổi quy trình"
+        submitting={changing}
+        submittingLabel="Đang đổi quy trình…"
+        error={changeError}
+        onClose={() => setChangeOpen(false)}
+        onSubmit={() => void submitChange()}
+      >
+        <p>
+          Hồ sơ {link?.code} sẽ bị xoá và thay bằng hồ sơ mới theo quy trình bạn chọn. Công việc giữ nguyên.
+        </p>
+        <Field label="Quy trình mới">
+          <Choice
+            label="Quy trình mới"
+            value={changeDefinitionId}
+            placeholder="Chọn quy trình…"
+            options={changeOptions.map((option) => ({
+              value: option.id,
+              label: `${option.code} · ${option.name}`,
+            }))}
+            onChange={setChangeDefinitionId}
+          />
+        </Field>
+      </Dialog>
 
       <Dialog
         open={formOpen}
         title="Tạo quy trình cho công việc"
         submitLabel="Mở hồ sơ"
         submitting={submitting}
+        submittingLabel="Đang mở hồ sơ…"
         error={error}
         onClose={() => setFormOpen(false)}
         onSubmit={() => void submit()}

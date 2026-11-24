@@ -3,7 +3,9 @@
 import {
   DEFAULT_PROJECT_TASK_TITLES,
   DEFAULT_PROJECT_PROGRESS_METHOD,
+  DEFAULT_PROCEDURE_LINK_SETTINGS,
   type ChatOnArchivedPolicy,
+  type ProcedureLinkSettings,
   type ProgressReportCompleteStatus,
   type ProjectProgressMethod,
   type ProjectArchiveSettings as Settings,
@@ -162,6 +164,76 @@ const CHAT_ON_ARCHIVED_OPTIONS: readonly ChoiceOption<ChatOnArchivedPolicy>[] = 
   },
 ];
 
+type LinkOptions<K extends keyof ProcedureLinkSettings> = readonly ChoiceOption<ProcedureLinkSettings[K]>[];
+
+const LINK_ON_COMPLETED_WORK_ITEM: LinkOptions<'onCompletedWorkItem'> = [
+  { value: 'none', label: 'Không làm gì', description: 'Công việc giữ nguyên tiến độ và trạng thái.' },
+  { value: 'progress100', label: 'Chỉ đặt tiến độ 100%', description: 'Tiến độ lên 100%, trạng thái giữ nguyên.' },
+  { value: 'review', label: 'Chuyển sang Chờ duyệt', description: 'Tiến độ 100% và chờ người có quyền xác nhận.' },
+  { value: 'done', label: 'Chuyển sang Hoàn thành', description: 'Tiến độ 100% và đóng công việc ngay.' },
+];
+const LINK_COMPLETED_GUARDS: LinkOptions<'completedGuards'> = [
+  {
+    value: 'respect',
+    label: 'Tôn trọng điều kiện',
+    description: 'Còn việc con, việc phải xong trước hoặc điều kiện hoàn thành thì chỉ đặt 100%, không đổi trạng thái.',
+  },
+  {
+    value: 'force',
+    label: 'Bỏ qua điều kiện',
+    description: 'Bỏ qua việc phải xong trước và điều kiện hoàn thành; vẫn không đóng việc còn việc con chưa xong.',
+  },
+];
+const LINK_ON_COMPLETED_STANDALONE: LinkOptions<'onCompletedStandalone'> = [
+  {
+    value: 'review_root_done_child',
+    label: 'Việc gốc chờ duyệt, việc con hoàn thành',
+    description: 'Việc cá nhân cấp gốc sang Chờ duyệt, việc con sang Hoàn thành.',
+  },
+  { value: 'always_review', label: 'Luôn chuyển sang Chờ duyệt', description: 'Mọi việc cá nhân đều chờ người giao xác nhận.' },
+  { value: 'always_done', label: 'Luôn chuyển sang Hoàn thành', description: 'Mọi việc cá nhân đóng ngay.' },
+  { value: 'none', label: 'Không làm gì', description: 'Việc cá nhân giữ nguyên trạng thái.' },
+];
+const LINK_ON_ENDED: LinkOptions<'onRejected'> = [
+  { value: 'none', label: 'Không làm gì', description: 'Công việc giữ nguyên trạng thái.' },
+  { value: 'blocked', label: 'Chuyển sang Bị chặn', description: 'Ghi sẵn lý do có mã hồ sơ quy trình.' },
+  { value: 'todo', label: 'Đưa về Chưa làm', description: 'Công việc quay lại trạng thái Chưa làm.' },
+  { value: 'cancelled', label: 'Huỷ công việc', description: 'Công việc chuyển sang Đã huỷ.' },
+];
+const LINK_ON_REVERSED: LinkOptions<'onReversed'> = [
+  { value: 'cascade', label: 'Đảo ngược theo hồ sơ', description: 'Hồ sơ bị đảo ngược thì công việc cũng bị đảo ngược.' },
+  { value: 'none', label: 'Không làm gì', description: 'Công việc giữ nguyên dù hồ sơ bị đảo ngược.' },
+];
+const LINK_ON_INSTANCE_DELETED: LinkOptions<'onInstanceDeleted'> = [
+  { value: 'delete_item', label: 'Xoá công việc', description: 'Công việc bị xoá cùng hồ sơ quy trình.' },
+  { value: 'unlink_keep', label: 'Giữ lại, gỡ liên kết', description: 'Công việc còn nguyên, chỉ không gắn hồ sơ nữa.' },
+  { value: 'cancel_item', label: 'Huỷ công việc', description: 'Gỡ liên kết và chuyển công việc sang Đã huỷ.' },
+];
+const LINK_ON_STARTED: LinkOptions<'onStarted'> = [
+  { value: 'none', label: 'Không làm gì', description: 'Công việc giữ trạng thái Chưa làm.' },
+  { value: 'in_progress', label: 'Chuyển sang Đang làm', description: 'Công việc Chưa làm tự sang Đang làm.' },
+];
+const LINK_PROGRESS_PULL: LinkOptions<'progressPull'> = [
+  { value: 'on_open', label: 'Cập nhật khi mở công việc', description: 'Mỗi lần mở, tiến độ lấy theo hồ sơ quy trình.' },
+  { value: 'off', label: 'Không tự cập nhật', description: 'Tiến độ công việc không bị hồ sơ ghi đè.' },
+];
+const LINK_PROGRESS_PULL_CLOSED: LinkOptions<'progressPullClosedItems'> = [
+  { value: 'skip', label: 'Bỏ qua', description: 'Việc Hoàn thành, Chờ duyệt, Đã huỷ hoặc bị đảo ngược giữ nguyên tiến độ.' },
+  { value: 'overwrite', label: 'Vẫn ghi đè', description: 'Tiến độ của hồ sơ ghi đè cả việc đã đóng.' },
+];
+const LINK_PROGRESS_PULL_DIRECTION: LinkOptions<'progressPullDirection'> = [
+  { value: 'two_way', label: 'Tăng và giảm', description: 'Tiến độ công việc luôn bằng tiến độ hồ sơ.' },
+  { value: 'increase_only', label: 'Chỉ tăng', description: 'Không bao giờ hạ tiến độ đã có xuống thấp hơn.' },
+];
+const LINK_MANUAL_PROGRESS: LinkOptions<'manualProgressWhenLinked'> = [
+  { value: 'allow', label: 'Cho nhập tay', description: 'Người làm vẫn sửa hoặc báo tiến độ được.' },
+  { value: 'block', label: 'Chặn nhập tay', description: 'Tiến độ chỉ lấy từ hồ sơ quy trình.' },
+];
+const LINK_STATUS_GATES: LinkOptions<'startProcedureStatusGate'> = [
+  { value: 'any', label: 'Mọi trạng thái', description: 'Không giới hạn theo trạng thái công việc.' },
+  { value: 'open_only', label: 'Chỉ việc chưa đóng', description: 'Không cho thao tác khi công việc đã Hoàn thành hoặc Đã huỷ.' },
+];
+
 /** Bản đang soạn của mọi cấu hình trên trang; so với bản đã lưu để biết có thay đổi hay không. */
 interface Draft {
   readonly defaultTasksEnabled: boolean;
@@ -173,6 +245,7 @@ interface Draft {
   readonly autoArchive: boolean;
   readonly reopenProject: ReopenProjectPolicy;
   readonly chatOnArchived: ChatOnArchivedPolicy;
+  readonly procedureLink: ProcedureLinkSettings;
 }
 
 const draftOf = (settings: Settings): Draft => ({
@@ -185,6 +258,7 @@ const draftOf = (settings: Settings): Draft => ({
   autoArchive: settings.autoArchive,
   reopenProject: settings.reopenProject,
   chatOnArchived: settings.chatOnArchived,
+  procedureLink: { ...DEFAULT_PROCEDURE_LINK_SETTINGS, ...settings.procedureLink },
 });
 
 /** Danh sách tên đã làm sạch như server sẽ lưu: bỏ dòng trống, bỏ khoảng trắng thừa. */
@@ -238,6 +312,13 @@ export function GeneralSettings() {
     if (draft.autoArchive !== settings.autoArchive) changes.autoArchive = draft.autoArchive;
     if (draft.reopenProject !== settings.reopenProject) changes.reopenProject = draft.reopenProject;
     if (draft.chatOnArchived !== settings.chatOnArchived) changes.chatOnArchived = draft.chatOnArchived;
+    const changedLink: { -readonly [K in keyof ProcedureLinkSettings]?: ProcedureLinkSettings[K] } = {};
+    for (const key of Object.keys(draft.procedureLink) as (keyof ProcedureLinkSettings)[]) {
+      if (draft.procedureLink[key] !== saved.procedureLink[key]) {
+        (changedLink as Record<string, string>)[key] = draft.procedureLink[key];
+      }
+    }
+    if (Object.keys(changedLink).length > 0) changes.procedureLink = changedLink;
     return changes;
   }, [settings, draft]);
   const dirty = Object.keys(patch).length > 0;
@@ -270,6 +351,28 @@ export function GeneralSettings() {
 
   const locked = !settings.canEdit || saving;
   const update = (changes: Partial<Draft>) => setDraft({ ...draft, ...changes });
+  const link = draft.procedureLink;
+  /** Một dòng cấu hình liên kết Quy trình: tên, một dòng giải thích và các ô chọn. */
+  const linkRow = <K extends keyof ProcedureLinkSettings>(
+    key: K,
+    label: string,
+    hint: string,
+    options: LinkOptions<K>,
+  ) => (
+    <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
+      <div className={styles.gsRowText}>
+        <strong>{label}</strong>
+        <span>{hint}</span>
+      </div>
+      <RadioChoices
+        name={`procedure-link-${key}`}
+        value={link[key]}
+        options={options}
+        disabled={locked}
+        onChange={(next) => update({ procedureLink: { ...link, [key]: next } })}
+      />
+    </div>
+  );
 
   return (
     <div className={styles.gsStack}>
@@ -414,6 +517,85 @@ export function GeneralSettings() {
             onChange={(chatOnArchived) => update({ chatOnArchived })}
           />
         </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Công việc gắn quy trình"
+        description="Công việc dự án và việc cá nhân có thể gắn hồ sơ Quy trình. Các lựa chọn dưới đây quyết định hai bên ảnh hưởng nhau thế nào."
+      >
+        <p className={styles.gsGroupTitle}>Khi hồ sơ quy trình kết thúc</p>
+        {linkRow(
+          'onCompletedWorkItem',
+          'Hồ sơ hoàn thành: công việc dự án',
+          'Việc xảy ra với công việc dự án khi hồ sơ quy trình gắn kèm hoàn thành.',
+          LINK_ON_COMPLETED_WORK_ITEM,
+        )}
+        {linkRow(
+          'completedGuards',
+          'Hồ sơ hoàn thành: điều kiện của công việc',
+          'Áp dụng khi cài đặt trên tự đổi trạng thái công việc.',
+          LINK_COMPLETED_GUARDS,
+        )}
+        {linkRow(
+          'onCompletedStandalone',
+          'Hồ sơ hoàn thành: việc cá nhân',
+          'Việc xảy ra với việc cá nhân khi hồ sơ quy trình gắn kèm hoàn thành.',
+          LINK_ON_COMPLETED_STANDALONE,
+        )}
+        {linkRow('onRejected', 'Hồ sơ bị từ chối', 'Áp cho cả công việc dự án và việc cá nhân.', LINK_ON_ENDED)}
+        {linkRow('onCancelled', 'Hồ sơ bị huỷ', 'Áp cho cả công việc dự án và việc cá nhân.', LINK_ON_ENDED)}
+        {linkRow('onReversed', 'Hồ sơ bị đảo ngược', 'Quyết định công việc có bị đảo ngược theo không.', LINK_ON_REVERSED)}
+        {linkRow(
+          'onInstanceDeleted',
+          'Hồ sơ bị xoá',
+          'Việc xảy ra với công việc đang gắn hồ sơ đã bị xoá.',
+          LINK_ON_INSTANCE_DELETED,
+        )}
+        <p className={styles.gsGroupTitle}>Khi hồ sơ bắt đầu</p>
+        {linkRow(
+          'onStarted',
+          'Hồ sơ bắt đầu',
+          'Việc xảy ra với công việc Chưa làm khi hồ sơ quy trình được tạo và gắn vào.',
+          LINK_ON_STARTED,
+        )}
+        <p className={styles.gsGroupTitle}>Tiến độ lấy từ hồ sơ</p>
+        {linkRow(
+          'progressPull',
+          'Lấy tiến độ từ hồ sơ',
+          'Có tự lấy tiến độ của hồ sơ quy trình về công việc hay không.',
+          LINK_PROGRESS_PULL,
+        )}
+        {linkRow(
+          'progressPullClosedItems',
+          'Công việc đã đóng',
+          'Cách xử lý công việc Hoàn thành, Chờ duyệt, Đã huỷ hoặc bị đảo ngược khi lấy tiến độ.',
+          LINK_PROGRESS_PULL_CLOSED,
+        )}
+        {linkRow(
+          'progressPullDirection',
+          'Chiều thay đổi tiến độ',
+          'Tiến độ lấy từ hồ sơ được phép tăng và giảm hay chỉ tăng.',
+          LINK_PROGRESS_PULL_DIRECTION,
+        )}
+        {linkRow(
+          'manualProgressWhenLinked',
+          'Nhập tiến độ tay',
+          'Người làm có được tự sửa hoặc báo tiến độ khi công việc làm theo quy trình.',
+          LINK_MANUAL_PROGRESS,
+        )}
+        <p className={styles.gsGroupTitle}>Giới hạn theo trạng thái công việc</p>
+        {linkRow(
+          'startProcedureStatusGate',
+          'Bắt đầu quy trình',
+          'Công việc ở trạng thái nào thì được bắt đầu quy trình.',
+          LINK_STATUS_GATES,
+        )}
+        {linkRow(
+          'changeProcedureStatusGate',
+          'Đổi sang quy trình khác',
+          'Công việc ở trạng thái nào thì được đổi sang quy trình khác.',
+          LINK_STATUS_GATES,
+        )}
       </SettingsCard>
 
       {/* Thanh lưu chung: luôn có mặt, chỉ đổi trạng thái bật tắt nên bố cục không xê dịch. */}

@@ -324,6 +324,13 @@ export interface StandaloneTaskCreateModel extends StandaloneTaskWriteModel {
 /** Kết quả cuối của hồ sơ quy trình, theo sự kiện `procedure.instance.completed`. */
 export type StandaloneTaskProcedureOutcome = 'completed' | 'rejected' | 'cancelled';
 
+/** Phần cài đặt liên kết hồ sơ Quy trình mà việc ngoài dự án dùng khi hồ sơ đóng. */
+export interface StandaloneProcedureOutcomeRules {
+  readonly onCompletedStandalone: 'review_root_done_child' | 'always_review' | 'always_done' | 'none';
+  readonly onRejected: 'none' | 'blocked' | 'todo' | 'cancelled';
+  readonly onCancelled: 'none' | 'blocked' | 'todo' | 'cancelled';
+}
+
 /** Số tin chưa đọc của một node, trước khi cuộn lên nhánh cha. */
 export interface UnreadRow {
   readonly entityType: ChatEntityType;
@@ -1289,6 +1296,24 @@ export interface WorkspaceStore {
       },
     ): Promise<void>;
     markRejected(tenantId: string, workItemId: string, reason: string): Promise<void>;
+    /**
+     * Quy trình đã thay hồ sơ cũ bằng hồ sơ mới: bỏ con trỏ hồ sơ cũ, gắn hồ sơ
+     * mới và cập nhật yêu cầu, cùng transaction. Chạy lại với cùng hồ sơ mới là
+     * no-op.
+     */
+    replaceStarted(
+      tenantId: string,
+      input: {
+        readonly workItemId: string;
+        readonly previousInstanceId: string;
+        readonly definitionId: string;
+        readonly instanceId: string;
+        readonly instanceCode: string;
+        readonly title: string;
+        readonly status: string;
+        readonly actorUserId: string;
+      },
+    ): Promise<WorkItemProcedureRequest>;
   };
 
   /** Phát một sự kiện tích hợp qua outbox của Workspace. */
@@ -1494,6 +1519,8 @@ export interface WorkspaceStore {
       outcome: StandaloneTaskProcedureOutcome,
       instanceCode: string,
       today: string,
+      /** Cài đặt liên kết hồ sơ của tenant; vắng thì giữ cách xử lý mặc định. */
+      rules?: StandaloneProcedureOutcomeRules,
     ): Promise<void>;
   };
 

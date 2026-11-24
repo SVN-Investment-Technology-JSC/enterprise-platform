@@ -40,6 +40,7 @@ import {
   canRelinkProcedureWorkspace,
   deriveProcedureAuthorization,
   evaluateFinanceStepActor,
+  holdsProcedureRole,
   linkedWorkItemId,
   isProcedureParticipant,
   canStartWithAssignment,
@@ -112,10 +113,14 @@ import {
   normalizeProcedureSetting,
 } from './procedure-settings.js';
 import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
+import { REPLACE_REASON_ATTACHMENTS, REPLACE_REASON_ENDED, replaceableInstanceReason } from '../domain/procedure-replace.js';
 import {
   standaloneTaskIdempotencyKey,
   workItemIdempotencyKey,
+  workItemReplaceIdempotencyKey,
   workspaceInstanceTitle,
+  type ReplaceWorkItemInstanceOutcome,
+  type ReplaceWorkItemInstanceRequest,
   type StandaloneTaskProcedureRequestedPayload,
   type WorkItemProcedureRequestedPayload,
 } from '../domain/procedure-workspace-link.js';
@@ -125,6 +130,23 @@ import type {
   ProcedureStore,
   ProcedureTenantState,
 } from './procedure-store.port.js';
+
+function replaceSummary(
+  instance: ProcedureInstance,
+  previous: ProcedureInstance,
+): ReplaceWorkItemInstanceOutcome {
+  return {
+    ok: true,
+    instance: {
+      id: instance.id,
+      code: instance.code,
+      title: instance.title,
+      status: instance.status,
+      definitionId: instance.definitionId,
+    },
+    previous: { id: previous.id, code: previous.code },
+  };
+}
 
 /** JSONB and runtime objects can have different key order for the same snapshot. */
 function canonicalSnapshot(value: unknown): string {
@@ -3905,31 +3927,9 @@ export class ProcedureEngineApplication {
       readonly sourceId: string;
     },
   ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
-    const resolved = await this.initiatorActors?.resolve(
-      tenantId,
-      requester.requestedBy,
-      requester.requestedByName,
-    );
-    if (!resolved && !requester.requestedByIsTenantAdmin) {
-      return {
-        ok: false,
-        reason: 'Người tạo công việc chưa có trong sơ đồ tổ chức nên không khớp được vai S của quy trình.',
-      };
-    }
-    const actor: ProcedureActor = {
-      ...(resolved ?? {
-        tenantId,
-        userId: requester.requestedBy,
-        membershipId: requester.requestedBy,
-        displayName: requester.requestedByName || requester.requestedBy,
-        canDesign: false,
-        canPublish: false,
-        organizationUnitIds: [],
-        positionIds: [],
-      }),
-      canCreateInstances: true,
-      isOverride: requester.requestedByIsTenantAdmin,
-    } as ProcedureActor;
+    const requesterActor = await this.workspaceRequesterActor(tenantId, requester);
+    if ('reason' in requesterActor) return { ok: false, reason: requesterActor.reason };
+    const actor = requesterActor.actor;
     try {
       const { instance } = await this.startInstanceDetailed(actor, {
         definitionId: start.definitionId,
@@ -3940,6 +3940,192 @@ export class ProcedureEngineApplication {
         initiatedByName: requester.requestedByName,
       });
       return { ok: true, instance };
+    } catch (error) {
+      if (error instanceof ProcedureEngineError) return { ok: false, reason: error.message };
+      throw error;
+    }
+  }
+
+  /**
+   * Người dùng Workspace làm actor của Quy trình: tra tổ chức để khớp vai S/A; quản trị tenant (Workspace
+   * đã xác thực) bỏ qua vai như ở giao diện.
+   */
+  private async workspaceRequesterActor(
+    tenantId: string,
+    requester: {
+      readonly requestedBy: string;
+      readonly requestedByName?: string;
+      readonly requestedByIsTenantAdmin: boolean;
+    },
+  ): Promise<{ actor: ProcedureActor } | { reason: string }> {
+    const resolved = await this.initiatorActors?.resolve(
+      tenantId,
+      requester.requestedBy,
+      requester.requestedByName,
+    );
+    if (!resolved && !requester.requestedByIsTenantAdmin) {
+      return {
+        reason: 'Người tạo công việc chưa có trong sơ đồ tổ chức nên không khớp được vai S của quy trình.',
+      };
+    }
+    return {
+      actor: {
+        ...(resolved ?? {
+          tenantId,
+          userId: requester.requestedBy,
+          membershipId: requester.requestedBy,
+          displayName: requester.requestedByName || requester.requestedBy,
+          canDesign: false,
+          canPublish: false,
+          organizationUnitIds: [],
+          positionIds: [],
+        }),
+        canCreateInstances: true,
+        isOverride: requester.requestedByIsTenantAdmin,
+      } as ProcedureActor,
+    };
+  }
+
+  /**
+   * "Đổi quy trình" cho công việc Workspace: trong MỘT transaction xoá mềm hồ sơ cũ (đánh dấu
+   * `replacedByInstanceId` để không phát `procedure.instance.deleted`, công việc được giữ) và mở hồ sơ
+   * mới của quy trình khác cho cùng công việc. Hồ sơ mới phát `started_for_work_item` như mọi hồ sơ
+   * mở cho công việc.
+   *
+   * Luật nghiệp vụ nằm ở đây (Workspace chỉ chuyển tiếp): hồ sơ cũ thuộc công việc, đang chạy, còn
+   * nguyên vẹn (`replaceableInstanceReason`, chưa có tệp đính kèm), quy trình mới khác quy trình cũ,
+   * người yêu cầu là người tạo hồ sơ / giữ vai A / quản trị và giữ vai S của quy trình mới (quản trị bỏ
+   * qua). Lỗi nghiệp vụ trả `{ ok: false, reason }`; lỗi hạ tầng ném ra. Gọi lại cùng hồ sơ cũ trả đúng
+   * hồ sơ mới đã tạo, không mở thêm.
+   */
+  async replaceWorkspaceWorkItemInstance(
+    tenantId: string,
+    workItemId: string,
+    request: ReplaceWorkItemInstanceRequest,
+  ): Promise<ReplaceWorkItemInstanceOutcome> {
+    const expectedId = request.expectedInstanceId?.trim();
+    const definitionId = request.definitionId?.trim();
+    if (!workItemId?.trim() || !expectedId || !definitionId) {
+      return { ok: false, reason: 'Thiếu công việc, hồ sơ hiện tại hoặc quy trình mới.' };
+    }
+    const requesterActor = await this.workspaceRequesterActor(tenantId, request);
+    if ('reason' in requesterActor) return { ok: false, reason: requesterActor.reason };
+    const actor = requesterActor.actor;
+    const replaceKey = workItemReplaceIdempotencyKey(workItemId, expectedId);
+    const title = workspaceInstanceTitle(request.projectCode, request.workItemCode, request.workItemTitle);
+    try {
+      const newDefinition = (await this.store.read(tenantId)).definitions.find(
+        (candidate) => candidate.id === definitionId && !candidate.deletedAt,
+      );
+      const firstStepId = newDefinition
+        ? firstFlowStepId(buildFlowIndex(newDefinition.steps, newDefinition.gateways))
+        : null;
+      const startManagers = await this.loadManagers(
+        tenantId,
+        actor.userId,
+        undefined,
+        !!newDefinition?.steps.some((step) =>
+          step.assignments.some((assignment) => assignment.subjectType === 'initiator_manager'),
+        ),
+      );
+      const startCheck = await this.checkMaterials(
+        tenantId,
+        newDefinition?.steps.find((step) => step.id === firstStepId)?.materials,
+      ).catch(() => undefined);
+      // Tệp đính kèm nằm ở bảng riêng, đếm NGOÀI transaction (như các lời gọi hạ tầng khác).
+      const attachmentCount = (await this.attachments?.countForInstance?.(tenantId, expectedId)) ?? 0;
+
+      return await this.store.transaction(tenantId, (state): ReplaceWorkItemInstanceOutcome => {
+        const key = `start:${replaceKey}`;
+        const old = state.instances.find((candidate) => candidate.id === expectedId);
+        const existing = state.idempotency[key]
+          ? state.instances.find((candidate) => candidate.id === state.idempotency[key])
+          : undefined;
+        if (existing && old) {
+          if (existing.definitionId !== definitionId) {
+            throw new ProcedureEngineError(
+              'conflict',
+              `Công việc vừa được người khác đổi sang hồ sơ ${existing.code}; hãy tải lại rồi chọn lại.`,
+            );
+          }
+          return replaceSummary(existing, old);
+        }
+
+        if (!old) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ hiện tại của công việc.');
+        if (old.sourceType !== 'workspace_work_item' || old.sourceId !== workItemId) {
+          throw new ProcedureEngineError('conflict', 'Hồ sơ này không thuộc công việc đang đổi quy trình.');
+        }
+        if (old.deletion || old.status !== 'running' || old.reversal) {
+          throw new ProcedureEngineError('conflict', replaceableInstanceReason(old) ?? REPLACE_REASON_ENDED);
+        }
+        if (old.definitionId === definitionId) {
+          throw new ProcedureEngineError('validation', 'Quy trình mới trùng với quy trình của hồ sơ hiện tại.');
+        }
+        if (!actor.isOverride && old.initiatedBy !== actor.userId && !holdsProcedureRole(old, actor, 'A')) {
+          throw new ProcedureEngineError(
+            'forbidden',
+            'Chỉ người tạo hồ sơ, người phê duyệt (vai A) hoặc quản trị mới đổi được quy trình.',
+          );
+        }
+        const untouched = replaceableInstanceReason(old);
+        if (untouched) throw new ProcedureEngineError('conflict', untouched);
+        if (attachmentCount > 0) throw new ProcedureEngineError('conflict', REPLACE_REASON_ATTACHMENTS);
+
+        const definition = this.requireDefinition(state.definitions, definitionId);
+        if (definition.status !== 'published') {
+          throw new ProcedureEngineError('conflict', 'Quy trình mới chưa được công bố.');
+        }
+        if (
+          !actor.isOverride &&
+          !definition.steps.some((step) =>
+            step.assignments.some((assignment) => canStartWithAssignment(assignment, actor)),
+          )
+        ) {
+          throw new ProcedureEngineError('forbidden', 'Bạn chưa được phân vai S để khởi tạo quy trình này.');
+        }
+
+        const now = this.clock.now().toISOString();
+        const instance = this.buildInstance(definition, now, {
+          title,
+          initiatedBy: actor.userId,
+          initiatedByName: request.requestedByName || actor.displayName,
+          sourceType: 'workspace_work_item',
+          sourceId: workItemId,
+          initiatorPositionId: startManagers.initiatorPositionId,
+          managers: startManagers.managers,
+          idempotencyKey: key,
+        });
+        const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
+        if (firstStep && startCheck) firstStep.materialCheck = startCheck;
+        state.instances.push(instance);
+        state.idempotency[key] = instance.id;
+
+        const reason = `Đổi quy trình sang ${definition.name} (${definition.code})`;
+        old.status = 'cancelled';
+        old.completedAt = now;
+        const current = old.steps.find((step) => step.id === old.currentStepId);
+        if (current && current.status !== 'completed') {
+          current.status = 'cancelled';
+          current.completedAt = now;
+        }
+        old.deletion = {
+          deletedAt: now,
+          deletedBy: actor.userId,
+          deletedByName: actor.displayName,
+          reason,
+          replacedByInstanceId: instance.id,
+        };
+        old.activity.unshift({
+          id: this.ids.next(),
+          action: 'delete',
+          actorId: actor.userId,
+          actorName: actor.displayName,
+          summary: 'Đã xoá hồ sơ do đổi quy trình.',
+          comment: `${reason}; hồ sơ mới ${instance.code}.`,
+          createdAt: now,
+        });
+        return replaceSummary(instance, old);
+      });
     } catch (error) {
       if (error instanceof ProcedureEngineError) return { ok: false, reason: error.message };
       throw error;

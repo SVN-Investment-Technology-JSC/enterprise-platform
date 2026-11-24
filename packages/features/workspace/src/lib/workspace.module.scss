@@ -9974,6 +9974,17 @@ button.kpiCard {
   padding: 16px 20px;
 }
 
+.gsGroupTitle {
+  margin: 0;
+  padding: 10px 20px;
+  background: var(--ep-surface-muted, rgba(0, 0, 0, 0.03));
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .gsRowStack {
   flex-direction: column;
   align-items: stretch;
@@ -10721,10 +10732,40 @@ button.kpiCard {
   opacity: 0;
 }
 
-/* Nhãn: tối đa hai nhãn trên một dòng, còn lại gộp thành "+N" (rê chuột xem đủ). */
+/* Nhãn: hiện vừa bề rộng ô (xem FitChips), phần còn lại gộp thành "+N" (rê chuột xem đủ). */
+.fitChips {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Bản ẩn dùng để đo, không chiếm chỗ và không nhận chuột. */
+.fitChipsMeter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  gap: 4px;
+  height: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
 .projectsTable .chipGroup {
   flex-wrap: nowrap;
   overflow: hidden;
+  // Không rộng hơn ô: cột Nhãn hẹp thì các nhãn co lại (cắt chữ) thay vì tràn đè sang cột Trạng thái.
+  max-width: 100%;
+  min-width: 0;
+
+  > .chipStatic {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
 }
 
 /* Nút "⋯" cuối dòng: chỉ hiện khi rê chuột, tab tới hoặc đang mở menu, để bảng khỏi lặp một biểu tượng ở mọi dòng. */

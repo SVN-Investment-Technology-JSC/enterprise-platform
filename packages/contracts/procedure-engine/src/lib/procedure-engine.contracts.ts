@@ -244,6 +244,11 @@ export interface ProcedureInstanceDeletion {
   deletedBy: string;
   deletedByName?: string;
   reason: string;
+  /**
+   * Có khi hồ sơ bị xoá vì "Đổi quy trình" của công việc Workspace: id hồ sơ thay thế. Công việc được
+   * giữ nguyên nên không phát `procedure.instance.deleted`.
+   */
+  replacedByInstanceId?: string;
 }
 
 export interface DeleteProcedureInstanceRequest {

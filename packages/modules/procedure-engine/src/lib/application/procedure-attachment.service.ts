@@ -278,6 +278,13 @@ export class ProcedureAttachmentService {
     return Number(result.rows[0]?.count ?? 0);
   }
 
+  async countForInstance(tenantId: string, instanceId: string): Promise<number> {
+    const pool=await this.pools.forTenant(this.references.require(tenantId));
+    const result=await pool.query<{count:string}>(
+      `SELECT count(*)::text AS count FROM procedure_schema.attachments WHERE instance_id=$1`,[instanceId]);
+    return Number(result.rows[0]?.count ?? 0);
+  }
+
   private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,subtaskId:row.subtask_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString(),origin:attachmentOrigin(row)}}
 }
 

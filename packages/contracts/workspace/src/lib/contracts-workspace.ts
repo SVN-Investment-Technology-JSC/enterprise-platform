@@ -319,6 +319,12 @@ export const LEGACY_PROJECT_PROGRESS_METHOD: ProjectProgressMethod = 'weighted_h
 /** Trần của `weight` (tỷ trọng) công việc; khớp cột NUMERIC(8,2). */
 export const MAX_WORK_ITEM_WEIGHT = 100000;
 
+/**
+ * Giờ ước lượng tối đa của một công việc: cột `estimate_hours` là `NUMERIC(7,2)` nên chỉ chứa tới 99.999,99; lớn hơn là
+ * Postgres báo tràn số (lỗi 500), nên chặn trước ở server và ở ô nhập.
+ */
+export const MAX_WORK_ITEM_ESTIMATE_HOURS = 99999.99;
+
 export interface Project {
   readonly id: string;
   readonly code: string;
@@ -512,6 +518,8 @@ export interface ProjectArchiveSettings {
   readonly progressReportRequireDescription: boolean;
   /** Báo tiến độ trên 0% cho việc đang Chưa làm thì tự chuyển sang Đang làm. */
   readonly progressReportStartsWork: boolean;
+  /** Cách công việc phản ứng với hồ sơ Quy trình gắn kèm (Cài đặt > Liên kết Quy trình). */
+  readonly procedureLink: ProcedureLinkSettings;
   readonly canEdit: boolean;
 }
 
@@ -525,6 +533,8 @@ export interface SaveProjectArchiveSettingsRequest {
   readonly progressReportCompleteStatus?: ProgressReportCompleteStatus;
   readonly progressReportRequireDescription?: boolean;
   readonly progressReportStartsWork?: boolean;
+  /** Gửi từng phần: trường vắng giữ giá trị hiện tại. */
+  readonly procedureLink?: Partial<ProcedureLinkSettings>;
 }
 
 /** Dự án đã lưu trữ chỉ xem; riêng trao đổi do tenant chọn: `block` chặn nhắn, `allow` vẫn cho nhắn. Mặc định `block`. */
@@ -785,6 +795,11 @@ export interface WorkItemProcedureRequest {
 
 /** Gửi lại yêu cầu mở hồ sơ (Thử lại), có thể với quy trình khác. */
 export interface RequestWorkItemProcedureRequest {
+  readonly definitionId: string;
+}
+
+/** Đổi quy trình của công việc đã có hồ sơ: xoá hồ sơ cũ, mở hồ sơ mới theo quy trình này. */
+export interface ChangeWorkItemProcedureRequest {
   readonly definitionId: string;
 }
 
@@ -3222,4 +3237,104 @@ export const DEFAULT_WORKSPACE_LABEL_SETTINGS: WorkspaceLabelSettings = {
     { key: 'high', label: 'Cao', color: '#9a3412' },
     { key: 'urgent', label: 'Khẩn cấp', color: '#991b1b' },
   ],
+};
+
+/** Khi hồ sơ Quy trình hoàn tất, công việc trong dự án: giữ nguyên, chỉ đặt 100%, chuyển Chờ duyệt, hoặc Hoàn thành. */
+export const PROCEDURE_LINK_ON_COMPLETED_WORK_ITEM = ['none', 'progress100', 'review', 'done'] as const;
+export type ProcedureLinkOnCompletedWorkItem = (typeof PROCEDURE_LINK_ON_COMPLETED_WORK_ITEM)[number];
+
+/** `respect`: việc con còn mở, tiền nhiệm FS, điều kiện hoàn thành chặn việc tự chuyển trạng thái; `force`: bỏ qua FS và điều kiện (vẫn không đóng việc còn con mở). */
+export const PROCEDURE_LINK_COMPLETED_GUARDS = ['respect', 'force'] as const;
+export type ProcedureLinkCompletedGuards = (typeof PROCEDURE_LINK_COMPLETED_GUARDS)[number];
+
+/** Khi hồ sơ hoàn tất, Công việc khác (việc ngoài dự án). `review_root_done_child` là cách hiện hành. */
+export const PROCEDURE_LINK_ON_COMPLETED_STANDALONE = [
+  'review_root_done_child',
+  'always_review',
+  'always_done',
+  'none',
+] as const;
+export type ProcedureLinkOnCompletedStandalone = (typeof PROCEDURE_LINK_ON_COMPLETED_STANDALONE)[number];
+
+/** Trạng thái đích khi hồ sơ bị từ chối hoặc huỷ (áp cho việc trong dự án và Công việc khác). */
+export const PROCEDURE_LINK_ON_ENDED = ['none', 'blocked', 'todo', 'cancelled'] as const;
+export type ProcedureLinkOnEnded = (typeof PROCEDURE_LINK_ON_ENDED)[number];
+
+export const PROCEDURE_LINK_ON_REVERSED = ['cascade', 'none'] as const;
+export type ProcedureLinkOnReversed = (typeof PROCEDURE_LINK_ON_REVERSED)[number];
+
+/** Khi hồ sơ bị xoá: xoá công việc gắn hồ sơ (hiện hành), chỉ gỡ liên kết giữ công việc, hoặc huỷ công việc. */
+export const PROCEDURE_LINK_ON_INSTANCE_DELETED = ['delete_item', 'unlink_keep', 'cancel_item'] as const;
+export type ProcedureLinkOnInstanceDeleted = (typeof PROCEDURE_LINK_ON_INSTANCE_DELETED)[number];
+
+export const PROCEDURE_LINK_ON_STARTED = ['none', 'in_progress'] as const;
+export type ProcedureLinkOnStarted = (typeof PROCEDURE_LINK_ON_STARTED)[number];
+
+export const PROCEDURE_LINK_PROGRESS_PULL = ['on_open', 'off'] as const;
+export type ProcedureLinkProgressPull = (typeof PROCEDURE_LINK_PROGRESS_PULL)[number];
+
+export const PROCEDURE_LINK_PROGRESS_PULL_CLOSED_ITEMS = ['skip', 'overwrite'] as const;
+export type ProcedureLinkProgressPullClosedItems = (typeof PROCEDURE_LINK_PROGRESS_PULL_CLOSED_ITEMS)[number];
+
+export const PROCEDURE_LINK_PROGRESS_PULL_DIRECTION = ['two_way', 'increase_only'] as const;
+export type ProcedureLinkProgressPullDirection = (typeof PROCEDURE_LINK_PROGRESS_PULL_DIRECTION)[number];
+
+export const PROCEDURE_LINK_MANUAL_PROGRESS = ['allow', 'block'] as const;
+export type ProcedureLinkManualProgress = (typeof PROCEDURE_LINK_MANUAL_PROGRESS)[number];
+
+export const PROCEDURE_LINK_STATUS_GATES = ['any', 'open_only'] as const;
+export type ProcedureLinkStatusGate = (typeof PROCEDURE_LINK_STATUS_GATES)[number];
+
+/** Cài đặt liên kết giữa công việc và hồ sơ Quy trình, lưu theo tenant. */
+export interface ProcedureLinkSettings {
+  readonly onCompletedWorkItem: ProcedureLinkOnCompletedWorkItem;
+  readonly completedGuards: ProcedureLinkCompletedGuards;
+  readonly onCompletedStandalone: ProcedureLinkOnCompletedStandalone;
+  readonly onRejected: ProcedureLinkOnEnded;
+  readonly onCancelled: ProcedureLinkOnEnded;
+  readonly onReversed: ProcedureLinkOnReversed;
+  readonly onInstanceDeleted: ProcedureLinkOnInstanceDeleted;
+  readonly onStarted: ProcedureLinkOnStarted;
+  readonly progressPull: ProcedureLinkProgressPull;
+  readonly progressPullClosedItems: ProcedureLinkProgressPullClosedItems;
+  readonly progressPullDirection: ProcedureLinkProgressPullDirection;
+  readonly manualProgressWhenLinked: ProcedureLinkManualProgress;
+  readonly startProcedureStatusGate: ProcedureLinkStatusGate;
+  readonly changeProcedureStatusGate: ProcedureLinkStatusGate;
+}
+
+/** Mặc định giữ cách chạy hiện hành, trừ `progressPullClosedItems: skip` (sửa lỗi 100% về 0%). */
+export const DEFAULT_PROCEDURE_LINK_SETTINGS: ProcedureLinkSettings = {
+  onCompletedWorkItem: 'none',
+  completedGuards: 'respect',
+  onCompletedStandalone: 'review_root_done_child',
+  onRejected: 'none',
+  onCancelled: 'none',
+  onReversed: 'cascade',
+  onInstanceDeleted: 'delete_item',
+  onStarted: 'none',
+  progressPull: 'on_open',
+  progressPullClosedItems: 'skip',
+  progressPullDirection: 'two_way',
+  manualProgressWhenLinked: 'allow',
+  startProcedureStatusGate: 'any',
+  changeProcedureStatusGate: 'any',
+};
+
+/** Từng trường cài đặt liên kết Quy trình và các giá trị hợp lệ; dùng chung để kiểm tra ở server. */
+export const PROCEDURE_LINK_OPTIONS: { readonly [K in keyof ProcedureLinkSettings]: readonly string[] } = {
+  onCompletedWorkItem: PROCEDURE_LINK_ON_COMPLETED_WORK_ITEM,
+  completedGuards: PROCEDURE_LINK_COMPLETED_GUARDS,
+  onCompletedStandalone: PROCEDURE_LINK_ON_COMPLETED_STANDALONE,
+  onRejected: PROCEDURE_LINK_ON_ENDED,
+  onCancelled: PROCEDURE_LINK_ON_ENDED,
+  onReversed: PROCEDURE_LINK_ON_REVERSED,
+  onInstanceDeleted: PROCEDURE_LINK_ON_INSTANCE_DELETED,
+  onStarted: PROCEDURE_LINK_ON_STARTED,
+  progressPull: PROCEDURE_LINK_PROGRESS_PULL,
+  progressPullClosedItems: PROCEDURE_LINK_PROGRESS_PULL_CLOSED_ITEMS,
+  progressPullDirection: PROCEDURE_LINK_PROGRESS_PULL_DIRECTION,
+  manualProgressWhenLinked: PROCEDURE_LINK_MANUAL_PROGRESS,
+  startProcedureStatusGate: PROCEDURE_LINK_STATUS_GATES,
+  changeProcedureStatusGate: PROCEDURE_LINK_STATUS_GATES,
 };

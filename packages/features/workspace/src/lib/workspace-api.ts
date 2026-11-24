@@ -981,6 +981,13 @@ export const requestWorkItemProcedure = (workItemId: string, definitionId: strin
     body: JSON.stringify({ definitionId }),
   });
 
+/** Đổi hồ sơ quy trình đã mở nhầm sang quy trình khác; công việc giữ nguyên. */
+export const changeWorkItemProcedure = (id: string, definitionId: string) =>
+  request<WorkItemProcedureRequest>(`/work-items/${id}/procedure/change`, {
+    method: 'POST',
+    body: JSON.stringify({ definitionId }),
+  });
+
 export const unlinkWorkItem = (workItemId: string, referenceId: string) =>
   request<void>(`/work-items/${workItemId}/links/${referenceId}`, { method: 'DELETE' });
 

@@ -20,6 +20,7 @@ import type {
   CreateDocumentRequest,
   CreateEventRequest,
   CreateExternalReferenceRequest,
+  ChangeWorkItemProcedureRequest,
   RequestWorkItemProcedureRequest,
   CreateFolderRequest,
   UpdateFolderRequest,
@@ -1434,6 +1435,19 @@ export class WorkspaceController {
   ) {
     return this.execute(() =>
       this.workItems.requestProcedure(this.actor(request), id, String(body?.definitionId ?? '')),
+    );
+  }
+
+  /** Đổi quy trình của công việc có hồ sơ mở nhầm; công việc được giữ nguyên. */
+  @Post('work-items/:id/procedure/change')
+  @HttpCode(200)
+  changeWorkItemProcedure(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ChangeWorkItemProcedureRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.changeProcedure(this.actor(request), id, String(body?.definitionId ?? '')),
     );
   }
 

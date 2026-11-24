@@ -4,7 +4,9 @@ import {
   DEPENDENCY_TYPES,
   LEGACY_PROJECT_PROGRESS_METHOD,
   MAX_CHECKLIST_ITEMS,
+  MAX_WORK_ITEM_ESTIMATE_HOURS,
   MAX_WORK_ITEM_WEIGHT,
+  STANDALONE_TASK_SYSTEM_ACTOR_ID,
   WORK_ITEM_EXECUTION_TYPES,
   WORK_ITEM_REOPEN_POLICIES,
   WORK_ITEM_STATUSES,
@@ -28,7 +30,19 @@ import {
   type WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
+import {
+  changeProcedureBlockedMessage,
+  manualProgressBlockedMessage,
+  startProcedureBlockedMessage,
+} from '../domain/procedure-link.rules.js';
 import { evaluateCompletion, parseCompletionInput } from '../domain/completion.rules.js';
+import {
+  isClosedStatus,
+  procedureOutcomeNote,
+  statusPath,
+  workItemOutcomeTarget,
+  type ProcedureOutcomeKind,
+} from '../domain/procedure-outcome.rules.js';
 import {
   checklistPercent,
   parseChecklistTitle,
@@ -83,6 +97,7 @@ import {
 } from './project.service.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
+import type { ProcedureInstanceReplacer } from './procedure-instance-replacer.port.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import { WorkspaceLabelService } from './workspace-label.service.js';
@@ -110,6 +125,8 @@ export class WorkItemService {
     private readonly projects: ProjectService,
     private readonly procedureReversal?: ProcedureReversalChecker,
     private readonly fleet?: FleetTransportService,
+    /** Nhờ Quy trình đổi hồ sơ; vắng (test) thì không đổi quy trình được. */
+    private readonly instanceReplacer?: ProcedureInstanceReplacer,
   ) {}
 
   /** Danh mục mức ưu tiên ở Cài đặt; đọc lại mỗi lần nên không cần chia sẻ thực thể. */
@@ -186,9 +203,7 @@ export class WorkItemService {
         ? { quantityTarget: parseQuantityTarget(input.quantityTarget), quantityUnit: parseQuantityUnit(input.quantityUnit) }
         : { quantityTarget: undefined, quantityUnit: undefined };
     const checklistTitles = progressMethod === 'checklist' ? parseChecklistTitles(input.checklistTitles) : [];
-    if (input.estimateHours != null && !(Number(input.estimateHours) > 0)) {
-      throw new WorkspaceValidationError('Giờ ước lượng phải lớn hơn 0.');
-    }
+    assertEstimateHours(input.estimateHours);
     // `phase` chỉ là vỏ chứa việc con: gán người hay ước lượng giờ cho nó sẽ
     // bị tính hai lần khi cuộn tiến độ.
     if (
@@ -332,6 +347,8 @@ export class WorkItemService {
     if (item.status === 'cancelled' || item.reversal) {
       throw new WorkspaceValidationError('Công việc đã huỷ, không mở quy trình được.');
     }
+    const startGate = startProcedureBlockedMessage(await this.projects.procedureLinkSettings(actor.tenantId), item.status);
+    if (startGate) throw new WorkspaceValidationError(startGate);
     const refs = await this.store.externalRef.listByEntity(actor.tenantId, 'work_item', item.id);
     if (refs.some((ref) => ref.moduleKey === 'procedure-engine')) {
       throw new WorkspaceValidationError('Công việc đã có hồ sơ quy trình.');
@@ -345,6 +362,78 @@ export class WorkItemService {
       projectCode: access.project.code,
       requestedByName: actor.displayName,
       requestedByIsTenantAdmin: actor.isTenantAdmin,
+    });
+  }
+
+  /**
+   * Đổi quy trình của công việc có hồ sơ mở nhầm: Quy trình xoá hồ sơ cũ và mở
+   * hồ sơ mới trong một transaction của nó (đồng bộ), rồi Workspace trỏ lại
+   * con trỏ. Công việc được giữ nguyên. Hồ sơ còn nguyên hay không do Quy
+   * trình quyết định; ở đây chỉ kiểm quyền và trạng thái công việc.
+   */
+  async changeProcedure(
+    actor: WorkspaceActor,
+    workItemId: string,
+    definitionId: string,
+  ): Promise<WorkItemProcedureRequest> {
+    const { item, access } = await this.load(actor, workItemId);
+    assertProjectWritable(access.project);
+    requireProjectRole(access, 'member');
+    if (item.itemType === 'phase') {
+      throw new WorkspaceValidationError('Nhóm công việc không chạy theo quy trình.');
+    }
+    if (item.status === 'cancelled' || item.reversal) {
+      throw new WorkspaceValidationError('Công việc đã huỷ, không đổi quy trình được.');
+    }
+    const changeGate = changeProcedureBlockedMessage(
+      await this.projects.procedureLinkSettings(actor.tenantId),
+      item.status,
+    );
+    if (changeGate) throw new WorkspaceValidationError(changeGate);
+    const refs = await this.store.externalRef.listByEntity(actor.tenantId, 'work_item', item.id);
+    const current = refs.find((ref) => ref.moduleKey === 'procedure-engine');
+    if (!current) throw new WorkspaceValidationError('Công việc chưa có hồ sơ quy trình.');
+    const nextDefinitionId = requireUuid(definitionId, 'Quy trình');
+    const requests = await this.store.procedureRequest.listByProject(actor.tenantId, item.projectId);
+    const currentRequest = requests.find((row) => row.workItemId === item.id);
+    if (currentRequest && currentRequest.definitionId === nextDefinitionId) {
+      throw new WorkspaceValidationError(
+        'Công việc đang chạy theo quy trình này rồi; hãy chọn quy trình khác.',
+      );
+    }
+    if (!this.instanceReplacer) {
+      throw new WorkspaceValidationError('Chưa cấu hình kết nối tới Quy trình để đổi quy trình.');
+    }
+    let result: Awaited<ReturnType<ProcedureInstanceReplacer['replace']>>;
+    try {
+      result = await this.instanceReplacer.replace(actor.tenantId, {
+        workItemId: item.id,
+        expectedInstanceId: current.externalId,
+        definitionId: nextDefinitionId,
+        requestedBy: actor.userId,
+        requestedByName: actor.displayName,
+        requestedByIsTenantAdmin: actor.isTenantAdmin,
+        workItemCode: item.code,
+        workItemTitle: item.title,
+        projectCode: access.project.code,
+      });
+    } catch {
+      // Mất kết nối hoặc Quy trình lỗi: không biết đã đổi hay chưa. Chọn lại sau khi tải lại trang là an toàn, vì
+      // gửi lại cùng hồ sơ cũ luôn trả cùng hồ sơ mới (khoá chống trùng theo hồ sơ cũ).
+      throw new WorkspaceValidationError(
+        'Chưa nhận được phản hồi từ module Quy trình. Hãy tải lại trang để xem hồ sơ hiện tại rồi thử lại.',
+      );
+    }
+    if (!result.ok) throw new WorkspaceValidationError(result.reason);
+    return this.store.procedureRequest.replaceStarted(actor.tenantId, {
+      workItemId: item.id,
+      previousInstanceId: current.externalId,
+      definitionId: result.instance.definitionId || nextDefinitionId,
+      instanceId: result.instance.id,
+      instanceCode: result.instance.code,
+      title: result.instance.title,
+      status: result.instance.status,
+      actorUserId: actor.userId,
     });
   }
 
@@ -377,6 +466,14 @@ export class WorkItemService {
     if (input.priority !== undefined) {
       Object.assign(patch, { priority: await this.labels.requirePriority(actor.tenantId, input.priority) });
     }
+    // Chỉ nhập tay (`manualProgressPercent`) bị chặn; `progressPercent` là đường kéo tiến độ từ hồ sơ về nên giữ mở.
+    if (input.manualProgressPercent !== undefined) {
+      const manualGate = manualProgressBlockedMessage(
+        await this.projects.procedureLinkSettings(actor.tenantId),
+        item.executionType,
+      );
+      if (manualGate) throw new WorkspaceValidationError(manualGate);
+    }
     if (input.progressPercent !== undefined) {
       const percent = Math.trunc(Number(input.progressPercent));
       if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
@@ -388,6 +485,7 @@ export class WorkItemService {
       Object.assign(patch, { manualProgressPercent: parseManualPercent(input.manualProgressPercent) });
     }
     assertWeight(input.weight);
+    assertEstimateHours(input.estimateHours);
     const currentMethod = item.progressMethod ?? DEFAULT_WORK_ITEM_PROGRESS_METHOD;
     const nextMethod = input.progressMethod === undefined ? currentMethod : parseProgressMethod(input.progressMethod);
     const touchesQuantity =
@@ -763,6 +861,13 @@ export class WorkItemService {
         'Công việc đã huỷ hiệu lực, không báo cáo tiến độ được; hãy lập công việc điều chỉnh.',
       );
     }
+    if (origin === 'user') {
+      const manualGate = manualProgressBlockedMessage(
+        await this.projects.procedureLinkSettings(actor.tenantId),
+        item.executionType,
+      );
+      if (manualGate) throw new WorkspaceValidationError(manualGate);
+    }
     const method = item.progressMethod ?? 'manual';
     const computedMethod = method === 'quantity' || method === 'checklist';
     let percent: number;
@@ -1137,6 +1242,114 @@ export class WorkItemService {
       canDeleteDocuments: false,
     };
     await this.recalculate(system, item.projectId);
+  }
+
+  /**
+   * Hồ sơ Quy trình gắn công việc vừa bắt đầu / hoàn tất / bị từ chối / bị huỷ / bị xoá → đổi công việc theo cài đặt
+   * liên kết của tenant (`procedureLink`). Chạy từ sự kiện nên không kiểm vai trò dự án, không ném lỗi nghiệp vụ
+   * (không đi được thì bỏ qua) và gọi lại không làm gì thêm: mọi quyết định dựa trên trạng thái hiện tại của việc.
+   */
+  async applyProcedureOutcome(
+    tenantId: string,
+    workItemId: string,
+    kind: ProcedureOutcomeKind,
+    input: { readonly instanceCode: string },
+  ): Promise<void> {
+    const item = await this.store.workItem.findById(tenantId, workItemId);
+    if (!item || item.reversal || item.status === 'cancelled') return;
+    const settings = await this.projects.procedureLinkSettings(tenantId);
+    const system: WorkspaceActor = {
+      tenantId,
+      userId: STANDALONE_TASK_SYSTEM_ACTOR_ID,
+      displayName: 'Hệ thống',
+      isTenantAdmin: true,
+      canManage: false,
+      canWriteTasks: true,
+      canWriteDocuments: false,
+      canDeleteDocuments: false,
+    };
+    const note = procedureOutcomeNote(kind, input.instanceCode);
+
+    if (kind === 'completed' && settings.onCompletedWorkItem === 'progress100') {
+      await this.setProgressFull(system, item);
+      return;
+    }
+    const target = workItemOutcomeTarget(kind, settings);
+    if (!target || item.status === target) return;
+    // Việc đã đóng không tự đổi lại; hồ sơ bắt đầu chỉ đưa việc Chưa làm sang Đang làm.
+    if (item.status === 'done') return;
+    if (kind === 'started' && item.status !== 'todo') return;
+    // Không bao giờ đóng hay đẩy duyệt việc còn việc con chưa đóng: tiến độ của nó tính từ việc con.
+    if (
+      (isClosedStatus(target) || kind === 'completed') &&
+      (await this.store.workItem.openChildCount(tenantId, item.id)) > 0
+    ) {
+      return;
+    }
+    if (kind === 'completed' && target === 'done' && settings.completedGuards === 'respect') {
+      if (await this.completionBlocked(tenantId, item)) {
+        await this.setProgressFull(system, item);
+        return;
+      }
+    }
+    const path = statusPath(item.status, target);
+    if (!path || path.length === 0) return;
+
+    if (!['done', 'review'].includes(item.status) && (target === 'done' || target === 'review')) {
+      await this.snapshotProgress(system, item);
+    }
+    const today = todayKey(timezoneOf(tenantId));
+    let blockedReason: string | undefined;
+    if (target === 'blocked') blockedReason = parseBlockedReason(note);
+    try {
+      for (const step of path) {
+        await this.store.workItem.changeStatus(
+          tenantId,
+          item.id,
+          system.userId,
+          step,
+          step === 'blocked' ? blockedReason : note,
+          today,
+        );
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceValidationError) return;
+      throw error;
+    }
+    if (item.status === 'review' && (target === 'todo' || target === 'in_progress')) {
+      const fresh = await this.store.workItem.findById(tenantId, item.id);
+      const computed = (item.progressMethod ?? 'manual') === 'quantity' || item.progressMethod === 'checklist';
+      if (fresh) {
+        if (computed) await this.writeComputedProgress(system, fresh);
+        else await this.restoreProgress(system, item);
+      }
+    }
+    await this.recalculate(system, item.projectId);
+    if (target === 'cancelled') await this.fleet?.release(tenantId, 'WORK_ITEM', item.id);
+  }
+
+  /** Còn tiền nhiệm FS chưa xong hoặc điều kiện hoàn thành cần người xác nhận: việc không tự Hoàn thành được. */
+  private async completionBlocked(tenantId: string, item: WorkItem): Promise<boolean> {
+    if (item.completion && item.completion.conditions.length > 0) return true;
+    const edges = await this.store.dependency.listBySuccessor(tenantId, item.id);
+    for (const edge of edges.filter((candidate) => candidate.dependencyType === 'FS')) {
+      const predecessor = await this.store.workItem.findById(tenantId, edge.predecessorId);
+      if (predecessor && predecessor.status !== 'done') return true;
+    }
+    return false;
+  }
+
+  /**
+   * Đặt tiến độ 100% mà giữ nguyên trạng thái. Việc có việc con, hoặc tính theo khối lượng / đầu việc, có số tự
+   * tính từ dữ liệu của chúng nên bỏ qua.
+   */
+  private async setProgressFull(actor: WorkspaceActor, item: WorkItem): Promise<void> {
+    if (item.progressPercent >= 100 || item.status === 'cancelled') return;
+    if ((item.progressMethod ?? 'manual') === 'quantity' || item.progressMethod === 'checklist') return;
+    const all = await this.store.workItem.listByProject(actor.tenantId, item.projectId);
+    if (all.some((node) => node.parentId === item.id && node.status !== 'cancelled')) return;
+    await this.store.workItem.update(actor.tenantId, item.id, { manualProgressPercent: 100 }, actor.userId);
+    await this.recalculate(actor, item.projectId);
   }
 
   private async linkedInstanceId(tenantId: string, workItemId: string): Promise<string | undefined> {
@@ -1523,6 +1736,18 @@ function requireText(value: unknown, label: string, maxLength: number): string {
     throw new WorkspaceValidationError(`${label} không được dài quá ${maxLength} ký tự.`);
   }
   return text;
+}
+
+/** Giờ ước lượng: số lớn hơn 0 và tối đa `MAX_WORK_ITEM_ESTIMATE_HOURS`; `null`/vắng nghĩa là chưa đặt hoặc bỏ. */
+export function assertEstimateHours(hours: number | null | undefined): void {
+  if (hours === null || hours === undefined) return;
+  const value = Number(hours);
+  if (!Number.isFinite(value) || !(value > 0)) {
+    throw new WorkspaceValidationError('Giờ ước lượng phải là số lớn hơn 0.');
+  }
+  if (value > MAX_WORK_ITEM_ESTIMATE_HOURS) {
+    throw new WorkspaceValidationError('Giờ ước lượng tối đa là 99.999,99 giờ.');
+  }
 }
 
 /** Tỷ trọng: số không âm, tối đa `MAX_WORK_ITEM_WEIGHT`; `null`/vắng nghĩa là chưa đặt. */

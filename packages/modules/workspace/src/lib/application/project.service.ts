@@ -14,6 +14,8 @@ import {
   SELECTABLE_PROJECT_PROGRESS_METHODS,
   DEFAULT_PROJECT_PROGRESS_METHOD,
   PROGRESS_REPORT_COMPLETE_STATUSES,
+  PROCEDURE_LINK_OPTIONS,
+  type ProcedureLinkSettings,
   type ProjectProgressMethod,
   type ChatOnArchivedPolicy,
   type CreateProjectRequest,
@@ -52,6 +54,11 @@ import {
   loadProgressReportSettings,
   type ProgressReportSettings,
 } from './progress-report-settings.js';
+import {
+  PROCEDURE_LINK_FIELD_LABELS,
+  PROCEDURE_LINK_KEY,
+  loadProcedureLinkSettings,
+} from './procedure-link-settings.js';
 import type { ProjectCodeService } from './project-code.service.js';
 import type { ProjectGroupService } from './project-group.service.js';
 import type { ProjectRoleService } from './project-role.service.js';
@@ -426,6 +433,11 @@ export class ProjectService {
     return requested as ProjectProgressMethod;
   }
 
+  /** Cài đặt liên kết công việc với hồ sơ Quy trình; chưa cấu hình hay giá trị hỏng thì dùng mặc định. */
+  procedureLinkSettings(tenantId: string): Promise<ProcedureLinkSettings> {
+    return loadProcedureLinkSettings(this.store, tenantId);
+  }
+
   /** Cài đặt báo cáo tiến độ công việc; chưa cấu hình hay giá trị hỏng thì dùng mặc định. */
   progressReportSettings(tenantId: string): Promise<ProgressReportSettings> {
     return loadProgressReportSettings(this.store, tenantId);
@@ -506,6 +518,7 @@ export class ProjectService {
       ...(await this.defaultTaskSettings(actor.tenantId)),
       defaultProgressMethod: await this.defaultProgressMethod(actor.tenantId),
       ...progressReportSettingsView(await this.progressReportSettings(actor.tenantId)),
+      procedureLink: await this.procedureLinkSettings(actor.tenantId),
       canEdit: actor.canManage || actor.isTenantAdmin,
     };
   }
@@ -525,7 +538,8 @@ export class ProjectService {
       input?.defaultProgressMethod === undefined &&
       input?.progressReportCompleteStatus === undefined &&
       input?.progressReportRequireDescription === undefined &&
-      input?.progressReportStartsWork === undefined
+      input?.progressReportStartsWork === undefined &&
+      input?.procedureLink === undefined
     ) {
       throw new WorkspaceValidationError('Không có cài đặt nào để lưu.');
     }
@@ -590,6 +604,31 @@ export class ProjectService {
           requireDescription: input.progressReportRequireDescription ?? current.requireDescription,
           startsWork: input.progressReportStartsWork ?? current.startsWork,
         },
+        actor.userId,
+      );
+    }
+    if (input.procedureLink !== undefined) {
+      const patch = input.procedureLink as Record<string, unknown> | null;
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        throw new WorkspaceValidationError('Cài đặt liên kết Quy trình không hợp lệ.');
+      }
+      const changes: Record<string, string> = {};
+      for (const [field, value] of Object.entries(patch)) {
+        if (value === undefined) continue;
+        const options = (PROCEDURE_LINK_OPTIONS as Record<string, readonly string[]>)[field];
+        if (!options) throw new WorkspaceValidationError(`Cài đặt liên kết Quy trình không có mục "${field}".`);
+        if (typeof value !== 'string' || !options.includes(value)) {
+          throw new WorkspaceValidationError(
+            `Chọn giá trị hợp lệ cho "${PROCEDURE_LINK_FIELD_LABELS[field as keyof ProcedureLinkSettings]}".`,
+          );
+        }
+        changes[field] = value;
+      }
+      const current = await this.procedureLinkSettings(actor.tenantId);
+      await this.store.settings.set(
+        actor.tenantId,
+        PROCEDURE_LINK_KEY,
+        { ...current, ...changes },
         actor.userId,
       );
     }
