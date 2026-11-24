@@ -12,6 +12,9 @@ import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { ErrorToast } from './error-toast';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
 import { Tooltip } from './tooltip';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
@@ -72,9 +75,9 @@ export function ProjectRoleSettings() {
             : 'Chỉ quản trị viên được thêm hoặc sửa vai trò.'}
         </p>
         {canEdit ? (
-          <button type="button" className={styles.buttonPrimary} onClick={() => setEditing(null)}>
+          <Button type="button" onClick={() => setEditing(null)}>
             <Plus size={15} /> Thêm vai trò
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -114,14 +117,15 @@ export function ProjectRoleSettings() {
                     {canEdit ? (
                       <span className={styles.roleActions}>
                         <Tooltip content="Sửa vai trò">
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
                             aria-label={`Sửa vai trò ${role.name}`}
                             onClick={() => setEditing(role)}
                           >
                             <Pencil size={13} />
-                          </button>
+                          </Button>
                         </Tooltip>
                         {role.isSystem ? null : (
                           <Tooltip
@@ -144,14 +148,15 @@ export function ProjectRoleSettings() {
                                 disabled={role.memberCount > 0}
                                 onConfirm={() => remove(role)}
                               >
-                                <button
+                                <Button
                                   type="button"
-                                  className={styles.iconButton}
+                                  variant="outline"
+                                  size="icon-sm"
                                   aria-label={`Xoá vai trò ${role.name}`}
                                   disabled={role.memberCount > 0}
                                 >
                                   <Trash2 size={13} />
-                                </button>
+                                </Button>
                               </Confirm>
                             </span>
                           </Tooltip>
@@ -240,7 +245,8 @@ function RoleFormDialog({
       onSubmit={() => void submit()}
     >
       <Field label="Tên vai trò" required>
-        <input
+        <Input
+          className="w-full"
           value={name}
           maxLength={80}
           placeholder="Ví dụ: Giám sát kỹ thuật"
@@ -256,10 +262,10 @@ function RoleFormDialog({
         ) : null}
         {PROJECT_PERMISSIONS.map((permission) => (
           <label key={permission} className={styles.permissionOption}>
-            <input
-              type="checkbox"
+            <Checkbox
               checked={locked || permissions.has(permission)}
-              onChange={() =>
+              disabled={locked}
+              onCheckedChange={() =>
                 setPermissions((current) => {
                   const next = new Set(current);
                   if (next.has(permission)) next.delete(permission);
@@ -359,16 +365,17 @@ function RolePermissionsDialog({
               <span className={styles.memberName}>{PROJECT_PERMISSION_LABELS[permission]}</span>
               {editable ? (
                 <Tooltip content="Gỡ quyền">
-                  <button
+                  <Button
                     type="button"
-                    className={styles.iconButton}
+                    variant="outline"
+                    size="icon-sm"
                     aria-label={`Gỡ quyền ${PROJECT_PERMISSION_LABELS[permission]}`}
                     onClick={() =>
                       setPermissions((current) => current.filter((entry) => entry !== permission))
                     }
                   >
                     <X size={13} />
-                  </button>
+                  </Button>
                 </Tooltip>
               ) : null}
             </li>
@@ -394,14 +401,9 @@ function RolePermissionsDialog({
               }))}
               onChange={setAdding}
             />
-            <button
-              type="button"
-              className={styles.buttonGhost}
-              disabled={!adding}
-              onClick={add}
-            >
+            <Button type="button" variant="outline" disabled={!adding} onClick={add}>
               <Plus size={14} /> Thêm
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}

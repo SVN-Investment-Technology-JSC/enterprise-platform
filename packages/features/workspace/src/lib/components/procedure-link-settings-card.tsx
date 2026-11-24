@@ -4,6 +4,7 @@ import { DEFAULT_PROCEDURE_LINK_SETTINGS, type ProcedureLinkSettings } from '@en
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
 import { Choice } from './choice';
 import {
   LINK_SECTIONS,
@@ -181,14 +182,15 @@ export function ProcedureLinkSettingsCard({ link, saved, locked, onChange }: Car
             thế nào.
           </p>
         </div>
-        <button
+        <Button
           type="button"
-          className={styles.buttonSmall}
+          variant="outline"
+          size="sm"
           disabled={locked || isDefault(link, allKeys)}
           onClick={() => onChange({ ...DEFAULT_PROCEDURE_LINK_SETTINGS })}
         >
           Khôi phục mặc định
-        </button>
+        </Button>
       </header>
       <div className={styles.gsBody}>
         {LINK_SECTIONS.map((section) => (

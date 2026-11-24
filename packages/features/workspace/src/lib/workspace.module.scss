@@ -11922,13 +11922,16 @@ button.kpiCard {
 
 /* Bảng bố cục cố định rộng hơn tổng các cột (khung được kéo rộng, hay cột bị co lại): cột cuối bỏ độ rộng cố định để
    giãn ra lấp chỗ trống; bảng vẫn có `min-width` bằng tổng các cột nên không bao giờ hẹp hơn số đo đã lưu. */
-table[style*='table-layout: fixed'] > thead > tr > th[data-column-id]:last-child {
+table.columnsResized[style*='table-layout: fixed'] > thead > tr > th[data-column-id]:not([data-column-id='actions']):not(:has(~ th[data-column-id]:not([data-column-id='actions']))) {
   width: auto !important;
   max-width: none !important;
 }
 
-/* Cột cuối tự giãn lấp phần còn lại của khung nên không cần tay nắm kéo độ rộng. */
-th[data-column-id]:last-child .columnResizeHandle {
+/* Cột dữ liệu cuối (sau nó chỉ còn cột nút "⋯", id `actions`) tự giãn lấp phần còn lại của khung nên không có tay nắm kéo độ
+   rộng; cột nút "⋯" (`actions`) và cột ô chọn (`select`) là cột cố định nên cũng không kéo được. */
+th[data-column-id]:not([data-column-id='actions']):not(:has(~ th[data-column-id]:not([data-column-id='actions']))) .columnResizeHandle,
+th[data-column-id='actions'] .columnResizeHandle,
+th[data-column-id='select'] .columnResizeHandle {
   display: none;
 }
 

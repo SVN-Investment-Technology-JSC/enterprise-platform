@@ -4,6 +4,7 @@ import { MAX_PROJECT_TEMPLATE_TASKS, MAX_PROJECT_TEMPLATE_TITLE_LENGTH } from '@
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
 import { useRef, type ReactNode } from 'react';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
 import { Tooltip } from './tooltip';
 
 export interface TaskTitleListEditorProps {
@@ -126,10 +127,10 @@ export function TaskTitleListEditor({
       ) : null}
       {disabled ? null : (
         <div className={styles.taskTitleActions}>
-          <button type="button" className={styles.buttonSmall} disabled={atLimit} onClick={() => add()}>
+          <Button type="button" variant="outline" size="sm" disabled={atLimit} onClick={() => add()}>
             <Plus size={14} /> Thêm công việc
             {atLimit ? ` (tối đa ${max})` : ''}
-          </button>
+          </Button>
           {extraActions}
         </div>
       )}

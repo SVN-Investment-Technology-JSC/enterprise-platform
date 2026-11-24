@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { PROGRESS_METHOD_INFO, PROGRESS_METHOD_ORDER } from '../project-progress-methods';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
 import { ProcedureLinkSettingsCard } from './procedure-link-settings-card';
 import { TaskTitleListEditor } from './task-title-list-editor';
 
@@ -329,13 +330,14 @@ export function GeneralSettings() {
             emptyText="Danh sách đang trống: bật tự tạo sẵn cũng không tạo công việc nào."
             onChange={(defaultTaskTitles) => update({ defaultTaskTitles })}
             extraActions={
-              <button
+              <Button
                 type="button"
-                className={styles.buttonSmall}
+                variant="outline"
+                size="sm"
                 onClick={() => update({ defaultTaskTitles: [...DEFAULT_PROJECT_TASK_TITLES] })}
               >
                 Dùng mẫu gợi ý
-              </button>
+              </Button>
             }
           />
         </div>
@@ -444,17 +446,17 @@ export function GeneralSettings() {
               ? 'Có thay đổi chưa lưu.'
               : 'Chưa có thay đổi nào.'}
         </span>
-        <button
+        <Button
           type="button"
-          className={styles.buttonGhost}
+          variant="outline"
           disabled={!dirty || locked}
           onClick={() => setDraft(draftOf(settings))}
         >
           Hoàn tác
-        </button>
-        <button type="button" className={styles.buttonPrimary} disabled={!dirty || locked} onClick={() => void save()}>
+        </Button>
+        <Button type="button" disabled={!dirty || locked} onClick={() => void save()}>
           {saving ? 'Đang lưu…' : 'Lưu cấu hình'}
-        </button>
+        </Button>
       </div>
     </div>
   );

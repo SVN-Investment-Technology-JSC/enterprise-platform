@@ -14,6 +14,8 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { ErrorToast } from './error-toast';
 import { Field } from './dialog';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { Tooltip } from './tooltip';
 import { upperCaseKeepingCaret } from './upper-case-input';
 
@@ -118,8 +120,9 @@ export function ProjectCodeSettings() {
       </p>
 
       <Field label="Quy tắc mã dự án" hint={settings.isDefault ? 'Đang dùng quy tắc mặc định.' : undefined}>
-        <input
+        <Input
           ref={input}
+          className="w-full"
           value={template}
           disabled={!canEdit}
           maxLength={64}
@@ -132,14 +135,15 @@ export function ProjectCodeSettings() {
         <div className={styles.codeTokens}>
           {PROJECT_CODE_TOKENS.map((entry) => (
             <Tooltip key={entry.token} content={entry.label}>
-              <button
+              <Button
                 type="button"
-                className={styles.buttonSmall}
+                variant="outline"
+                size="sm"
                 aria-label={`${entry.token} ${entry.label}`}
                 onClick={() => insert(entry.token)}
               >
                 {entry.token}
-              </button>
+              </Button>
             </Tooltip>
           ))}
         </div>
@@ -192,14 +196,13 @@ export function ProjectCodeSettings() {
 
       {canEdit ? (
         <div>
-          <button
+          <Button
             type="button"
-            className={styles.buttonPrimary}
             disabled={saving || !changed || Boolean(problem)}
             onClick={() => void save()}
           >
             {saving ? 'Đang lưu…' : 'Lưu quy tắc'}
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>
