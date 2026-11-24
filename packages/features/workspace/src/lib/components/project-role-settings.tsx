@@ -11,6 +11,7 @@ import { Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Tooltip } from './tooltip';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
@@ -77,11 +78,7 @@ export function ProjectRoleSettings() {
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       {!list ? (
         error ? null : <p className={styles.muted}>Đang tải vai trò…</p>

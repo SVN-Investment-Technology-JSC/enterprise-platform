@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  MAX_WORK_ITEM_ESTIMATE_HOURS,
   WORK_ITEM_TYPES,
   type DirectoryPerson,
   type WorkItemPriority,
@@ -402,6 +403,7 @@ export function WorkItemDraftEditor({
               id={`draft-hours-${row.key}`}
               type="number"
               min={0}
+              max={MAX_WORK_ITEM_ESTIMATE_HOURS}
               step="0.5"
               placeholder="0"
               aria-label={`Giờ ước lượng ${index + 1}`}

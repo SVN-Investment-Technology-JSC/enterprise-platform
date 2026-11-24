@@ -20,6 +20,7 @@ import type {
   CreateDocumentRequest,
   CreateEventRequest,
   CreateExternalReferenceRequest,
+  ChangeWorkItemProcedureRequest,
   RequestWorkItemProcedureRequest,
   CreateFolderRequest,
   UpdateFolderRequest,
@@ -1018,6 +1019,12 @@ export class WorkspaceController {
 
   /* -------------------------------------------------------- Đọc nội bộ */
 
+  /** Cài đặt `engine*` của tenant cho module Quy trình (chỉ đọc, không có dữ liệu người dùng). */
+  @Get('internal/procedure-link-settings')
+  internalProcedureLinkSettings(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.internalLookup.procedureEngineSettings(this.actor(request)));
+  }
+
   /**
    * Nhãn công việc cho module khác. Guard chỉ cho qua khi có service token và
    * `x-tenant-id`; payload không có tài chính, mô tả hay thành viên.
@@ -1064,9 +1071,16 @@ export class WorkspaceController {
     @Query('priority') priority?: string,
     @Query('projectId') projectId?: string,
     @Query('sort') sort?: string,
+    @Query('q') q?: string,
+    @Query('fields') fields?: string,
+    @Query('personIds') personIds?: string,
   ) {
     return this.execute(() =>
-      this.myWorkService.overview(this.actor(request), { status, priority, projectId }, sort),
+      this.myWorkService.overview(
+        this.actor(request),
+        { status, priority, projectId, q, fields, personIds },
+        sort,
+      ),
     );
   }
 
@@ -1080,12 +1094,15 @@ export class WorkspaceController {
     @Query('sort') sort?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('fields') fields?: string,
+    @Query('personIds') personIds?: string,
   ) {
     return this.execute(() =>
       this.myWorkService.groupItems(
         this.actor(request),
         projectId,
-        { status, priority },
+        { status, priority, q, fields, personIds },
         sort,
         page,
         pageSize,
@@ -1100,9 +1117,19 @@ export class WorkspaceController {
     @Query('sort') sort?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('fields') fields?: string,
+    @Query('personIds') personIds?: string,
   ) {
     return this.execute(() =>
-      this.myWorkService.standalonePage(this.actor(request), sort, page, pageSize),
+      this.myWorkService.standalonePage(
+        this.actor(request),
+        sort,
+        page,
+        pageSize,
+        undefined,
+        { q, fields, personIds },
+      ),
     );
   }
 
@@ -1414,6 +1441,19 @@ export class WorkspaceController {
   ) {
     return this.execute(() =>
       this.workItems.requestProcedure(this.actor(request), id, String(body?.definitionId ?? '')),
+    );
+  }
+
+  /** Đổi quy trình của công việc có hồ sơ mở nhầm; công việc được giữ nguyên. */
+  @Post('work-items/:id/procedure/change')
+  @HttpCode(200)
+  changeWorkItemProcedure(
+    @Req() request: WorkspaceRequest,
+    @Param('id') id: string,
+    @Body() body: ChangeWorkItemProcedureRequest,
+  ) {
+    return this.execute(() =>
+      this.workItems.changeProcedure(this.actor(request), id, String(body?.definitionId ?? '')),
     );
   }
 

@@ -11,6 +11,9 @@ export interface SubtaskEvidenceCounter {
 
   countForSubtask(tenantId: string, instanceId: string, subtaskId: string): Promise<number>;
 
+  /** Tổng số tệp đính kèm của hồ sơ; "Đổi quy trình" chỉ cho hồ sơ chưa có tệp nào. */
+  countForInstance?(tenantId: string, instanceId: string): Promise<number>;
+
   /**
    * Đính kèm một tệp do hệ thống sinh ra vào hồ sơ.
    *

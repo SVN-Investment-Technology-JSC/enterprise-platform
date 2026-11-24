@@ -28,6 +28,12 @@ import { standaloneTaskRoleOf } from '../domain/standalone-task.rules.js';
 import { WorkspaceValidationError } from '../domain/workspace.error.js';
 import { dayWindow, timezoneOf, todayKey, weekWindow } from '../domain/tenant-time.js';
 import { buildOccurrences } from './calendar.service.js';
+import {
+  matchesItemSearch,
+  matchesTaskSearch,
+  parseSearch,
+  type RawMyWorkSearch,
+} from './my-work-search.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { MyWorkAssignedRow, WorkspaceStore } from './workspace-store.port.js';
 
@@ -144,6 +150,7 @@ export class MyWorkService {
       ]);
 
     const filter = parseFilter(rawFilter);
+    const search = parseSearch(rawFilter);
     const sort = parseSort(rawSort);
 
     const items = bucketise(assigned, today.dateKey, week.dateKey, timezone, now);
@@ -157,14 +164,20 @@ export class MyWorkService {
     );
     const todayEvents = await this.expandToday(actor, myEvents, today.from, today.to);
 
-    const matching = items.filter((entry) => matchesFilter(entry, filter));
+    const matching = items.filter(
+      (entry) => matchesFilter(entry, filter) && (!search || matchesItemSearch(entry, search)),
+    );
+    // Việc ngoài dự án chỉ chịu tìm kiếm, không chịu bộ lọc trạng thái/ưu tiên/dự án (như trước đây).
+    const searchedTasks = search
+      ? standaloneTasks.filter((entry) => matchesTaskSearch(entry, search))
+      : standaloneTasks;
 
     return {
       counters: countersOf(items, standaloneTasks, completedThisWeek),
       groups: summarizeGroups(matching, sort),
       standalone: {
-        total: standaloneTasks.length,
-        counts: countsOf(standaloneTasks, (entry) => entry.task.status, (entry) => entry.bucket),
+        total: searchedTasks.length,
+        counts: countsOf(searchedTasks, (entry) => entry.task.status, (entry) => entry.bucket),
       },
       filterOptions: filterOptionsOf(assigned),
       todayEvents,
@@ -197,6 +210,7 @@ export class MyWorkService {
 
     const assigned = await this.store.myWork.assignedItems(actor.tenantId, actor.userId);
     const filter = parseFilter(rawFilter);
+    const search = parseSearch(rawFilter);
     const sort = parseSort(rawSort);
     const page = parsePage(rawPage);
     const pageSize = parsePageSize(rawPageSize);
@@ -210,11 +224,13 @@ export class MyWorkService {
     );
     // Cách xếp khác `due` hoà nhau thì xếp tiếp theo id: phân trang bằng offset cần thứ tự xác định, nếu không hai lần gọi
     // có thể trả cùng một dòng ở hai trang hoặc bỏ sót dòng.
-    const rows = bucketise(mine, today.dateKey, week.dateKey, timezone, now).sort(
-      sort === 'due'
-        ? ITEM_ORDER.due
-        : (left, right) => ITEM_ORDER[sort](left, right) || left.item.id.localeCompare(right.item.id),
-    );
+    const rows = bucketise(mine, today.dateKey, week.dateKey, timezone, now)
+      .filter((entry) => !search || matchesItemSearch(entry, search))
+      .sort(
+        sort === 'due'
+          ? ITEM_ORDER.due
+          : (left, right) => ITEM_ORDER[sort](left, right) || left.item.id.localeCompare(right.item.id),
+      );
 
     return {
       items: rows.slice((page - 1) * pageSize, page * pageSize),
@@ -231,6 +247,7 @@ export class MyWorkService {
     rawPage?: unknown,
     rawPageSize?: unknown,
     now: Date = new Date(),
+    rawSearch: RawMyWorkSearch = {},
   ): Promise<MyWorkStandalonePage> {
     const timezone = timezoneOf(actor.tenantId);
     const today = dayWindow(now, timezone);
@@ -241,7 +258,10 @@ export class MyWorkService {
     const pageSize = parsePageSize(rawPageSize);
 
     const tasks = await this.store.standaloneTask.forMyWork(actor.tenantId, actor.userId);
-    const rows = bucketiseTasks(tasks, actor.userId, today.dateKey, week.dateKey, timezone, now);
+    const search = parseSearch(rawSearch);
+    const rows = bucketiseTasks(tasks, actor.userId, today.dateKey, week.dateKey, timezone, now).filter(
+      (entry) => !search || matchesTaskSearch(entry, search),
+    );
     // `due` giữ thứ tự của bucketiseTasks (nhóm hạn, chờ duyệt, ưu tiên, hạn).
     if (sort !== 'due') {
       rows.sort((left, right) => TASK_ORDER[sort](left, right) || left.task.id.localeCompare(right.task.id));
@@ -408,7 +428,7 @@ function daysSince(fromKey: string, toKey: string): number {
    ------------------------------------------------------------------------- */
 
 /** Bộ lọc thô từ query string; service tự kiểm giá trị. */
-export interface RawMyWorkFilter {
+export interface RawMyWorkFilter extends RawMyWorkSearch {
   readonly status?: unknown;
   readonly priority?: unknown;
   readonly projectId?: unknown;

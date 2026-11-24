@@ -213,6 +213,38 @@ export function workItemIdempotencyKey(workItemId: string): string {
   return `workspace-work-item:${workItemId}`;
 }
 
+/** Khoá chống trùng của hồ sơ thay thế `oldInstanceId` khi "Đổi quy trình"; gọi lại trả đúng hồ sơ mới. */
+export function workItemReplaceIdempotencyKey(workItemId: string, oldInstanceId: string): string {
+  return `${workItemIdempotencyKey(workItemId)}:replace:${oldInstanceId}`;
+}
+
+/** Workspace → Quy trình (HTTP nội bộ): thay hồ sơ đang gắn công việc bằng hồ sơ của quy trình khác. */
+export interface ReplaceWorkItemInstanceRequest {
+  /** Hồ sơ Workspace đang thấy gắn với công việc; lệch với thực tế thì từ chối. */
+  readonly expectedInstanceId: string;
+  readonly definitionId: string;
+  readonly requestedBy: string;
+  readonly requestedByName?: string;
+  readonly requestedByIsTenantAdmin: boolean;
+  readonly workItemCode: string;
+  readonly workItemTitle: string;
+  readonly projectCode: string;
+}
+
+export type ReplaceWorkItemInstanceOutcome =
+  | {
+      readonly ok: true;
+      readonly instance: {
+        readonly id: string;
+        readonly code: string;
+        readonly title: string;
+        readonly status: string;
+        readonly definitionId: string;
+      };
+      readonly previous: { readonly id: string; readonly code: string };
+    }
+  | { readonly ok: false; readonly reason: string };
+
 export interface StartedForWorkItemPayload {
   readonly workItemId: string;
   readonly instanceId: string;
@@ -253,7 +285,13 @@ export function workspaceLinkEvents(
   for (const instance of after) {
     const prior = previous.get(instance.id);
     const link = instance.workspaceLink;
-    if (instance.deletion && !prior?.deletion && (link || instance.sourceType === 'workspace_work_item')) {
+    // Hồ sơ bị thay do "Đổi quy trình": công việc được giữ, nên không báo Workspace xoá nó.
+    if (
+      instance.deletion &&
+      !instance.deletion.replacedByInstanceId &&
+      !prior?.deletion &&
+      (link || instance.sourceType === 'workspace_work_item')
+    ) {
       const workItemId =
         link?.status === 'linked'
           ? link.workItemId

@@ -115,6 +115,16 @@ describe('InternalLookupService', () => {
     });
   });
 
+  it('cài đặt Quy trình cho module Quy trình: chỉ khoá engine*, chưa cấu hình thì mặc định', async () => {
+    const get = jest.fn().mockResolvedValue({ engineChangeWho: 'admin_only', onStarted: 'in_progress' });
+    const store = { settings: { get } } as unknown as WorkspaceStore;
+    const result = await new InternalLookupService(store).procedureEngineSettings(service);
+    expect(get).toHaveBeenCalledWith('t1', 'procedure_link');
+    expect(result).toMatchObject({ engineChangeWho: 'admin_only', engineReverseWho: 'admin_only', engineAttachmentMirror: 'all' });
+    expect(result).not.toHaveProperty('onStarted');
+    expect(Object.keys(result)).toHaveLength(9);
+  });
+
   it('id không tồn tại thì 404 đúng mã', async () => {
     const lookup = new InternalLookupService(makeStore());
     await expect(lookup.workItem(service, 'khong-co')).rejects.toMatchObject({

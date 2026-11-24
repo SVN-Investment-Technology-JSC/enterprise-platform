@@ -79,6 +79,11 @@ export interface ToneOption {
  * Ô chọn dạng chip: vẫn là `SearchableSelect` (kiểu chọn thuần tuý, tìm trong danh sách xổ ra), chỉ khoác thêm vỏ
  * chip. Đầu chip có thể có chấm màu, biểu tượng hay chữ dẫn ("Sắp xếp"); màu chip theo `tone` của giá trị đang chọn.
  */
+/** Danh sách ChipSelect có tối đa chừng này mục thì bỏ ô tìm kiếm (chỉ bấm chọn). */
+const CHIP_MAX_OPTIONS_WITHOUT_SEARCH = 8;
+/** Độ rộng tối thiểu của danh sách ngắn: vừa nhãn dài nhất ("Hoàn thành", "Vướng mắc"), không rộng như danh sách có ô tìm. */
+const SHORT_LIST_MIN_WIDTH = 140;
+
 export function ChipSelect({
   label,
   value,
@@ -131,6 +136,7 @@ export function ChipSelect({
   const leadPx = (lead ? 19 : 0) + (dot ? 12 : 0) + (prefix ? size.prefix + 8 : 0);
   const width = Math.min(maxWidth, Math.round(10 + leadPx + size.text + 36));
   const byValue = new Map(all.map((option) => [option.value, option]));
+  const shortList = !create && all.length <= CHIP_MAX_OPTIONS_WITHOUT_SEARCH;
 
   const tip = title ?? (selected ? `${prefix ? `${prefix}: ` : ''}${selected.label}` : label);
 
@@ -171,6 +177,9 @@ export function ChipSelect({
         disabled={disabled}
         height={CHIP_HEIGHT}
         searchInDropdown
+        // Danh sách ngắn (trạng thái, ưu tiên...) chỉ cần bấm chọn: bỏ ô tìm. Danh sách dài hay có ô thêm mục mới giữ ô tìm.
+        hideDropdownSearch={shortList}
+        dropdownMinWidth={shortList ? SHORT_LIST_MIN_WIDTH : undefined}
         clearable={false}
         dropdownFooter={
           create

@@ -769,6 +769,28 @@ describe('StandaloneTaskService công việc điều chỉnh', () => {
   });
 });
 
+describe('StandaloneTaskService cổng tiến độ khi có hồ sơ quy trình', () => {
+  it('block: chặn nhập tay và báo cáo tiến độ của việc chạy theo quy trình', async () => {
+    const { store } = makeStore();
+    Object.assign(store, {
+      settings: { get: async () => ({ manualProgressWhenLinked: 'block' }) },
+    });
+    const service = new StandaloneTaskService(store, makeDirectory());
+    const detail = await service.create(actor(BOSS), {
+      title: 'Mua vật tư',
+      assigneeUserId: DOER,
+      executionType: 'procedure',
+      procedureDefinitionId: '66666666-6666-4666-8666-666666666666',
+    });
+    await expect(
+      service.update(actor(BOSS), detail.task.id, { manualProgressPercent: 30 }),
+    ).rejects.toThrow(/hồ sơ quy trình/);
+    await expect(
+      service.reportProgress(actor(DOER), detail.task.id, { percent: 30 }),
+    ).rejects.toThrow(/hồ sơ quy trình/);
+  });
+});
+
 describe('StandaloneTaskService.reportProgress', () => {
   it('người thực hiện báo 40% việc Chưa làm: tự sang Đang làm, ghi số và một dòng lịch sử', async () => {
     const { service, id, tasks, reports, statusCalls } = await seeded();

@@ -2,8 +2,12 @@
 
 import {
   MY_WORK_PAGE_SIZES,
+  MY_WORK_SEARCH_FIELDS,
+  MY_WORK_SEARCH_MAX_LENGTH,
   allowedStandaloneTaskTransitions,
   canTransitionWorkItem,
+  type MyWorkSearch,
+  type MyWorkSearchField,
   type CreateProjectRequest,
   type CreateWorkItemRequest,
   type MyWorkEvent,
@@ -41,11 +45,14 @@ import {
   ListFilter,
   Plus,
   RefreshCw,
+  Search,
   X,
 } from 'lucide-react';
 import {
+  Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -80,8 +87,10 @@ import {
   workItemStatusKeys,
   workItemStatusLabel,
   workItemStatusTone,
+  externalStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import {
   ChipButton,
   ChipSelect,
@@ -101,6 +110,48 @@ import { STANDALONE_PROGRESS_ADAPTER, useProgressReport } from './use-progress-r
 import { progressCellMode } from '../progress-cell-rules';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
+import { Input } from '../ui/input';
+import { Checkbox } from '../ui/checkbox';
+import { buildMyWorkSearch, searchWords, splitHighlight } from '../my-work-search';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
+
+/** Nhãn các trường tìm trong bảng "Tìm theo". */
+const SEARCH_FIELD_LABELS: Record<MyWorkSearchField, string> = {
+  code: 'Mã việc',
+  title: 'Tên việc',
+  description: 'Mô tả',
+  project: 'Dự án',
+  people: 'Người giao / người liên quan',
+};
+
+/** Từ đủ ít nhóm thì tự mở các nhóm khớp để thấy kết quả ngay. */
+const SEARCH_AUTO_OPEN_MAX_GROUPS = 5;
+const SEARCH_DEBOUNCE_MS = 300;
+
+/** Các từ cần tô đậm theo từng cột (chỉ mã và tên việc). */
+interface SearchHighlight {
+  readonly code: readonly string[];
+  readonly title: readonly string[];
+}
+
+/** Chữ có tô đậm phần khớp chữ tìm; không có từ nào thì trả nguyên chữ. */
+function Highlight({ text, words }: { text: string; words?: readonly string[] }) {
+  if (!words || words.length === 0) return <>{text}</>;
+  return (
+    <>
+      {splitHighlight(text, words).map((segment, index) =>
+        segment.hit ? (
+          <mark key={index} className={styles.mwSearchMark}>
+            {segment.text}
+          </mark>
+        ) : (
+          segment.text
+        ),
+      )}
+    </>
+  );
+}
 
 const INVITATION_RESPONSES: readonly {
   value: ParticipantResponse;
@@ -125,6 +176,31 @@ const PAGE_SIZE_OPTIONS = MY_WORK_PAGE_SIZES.map((size) => ({ value: String(size
 
 /** Số cột của bảng (Công việc, Dự án, Ưu tiên, Trạng thái, Hạn, Tiến độ). */
 const TABLE_COLUMNS = 6;
+
+/** Các cột bảng theo thứ tự mặc định; người dùng kéo tiêu đề để đổi chỗ (cột "Công việc" được ghim ở đầu). */
+const MY_WORK_COLUMNS = ['work', 'assigner', 'priority', 'status', 'due', 'progress'] as const;
+type MyWorkColumnId = (typeof MY_WORK_COLUMNS)[number];
+const MY_WORK_PINNED: readonly string[] = ['work'];
+const MY_WORK_COLUMN_LABELS: Record<MyWorkColumnId, string> = {
+  work: 'Công việc',
+  assigner: 'Người giao',
+  priority: 'Ưu tiên',
+  status: 'Trạng thái',
+  due: 'Hạn',
+  progress: 'Tiến độ',
+};
+const MY_WORK_COL_CLASS: Record<MyWorkColumnId, string | undefined> = {
+  work: undefined,
+  assigner: styles.myWorkColAssigner,
+  priority: styles.myWorkColPriority,
+  status: styles.myWorkColStatus,
+  due: styles.myWorkColDue,
+  progress: styles.myWorkColProgress,
+};
+
+/** Các ô của một hàng theo thứ tự cột hiện tại. */
+const renderCells = (order: readonly string[], cells: Record<MyWorkColumnId, ReactNode>) =>
+  order.map((id) => <Fragment key={id}>{cells[id as MyWorkColumnId]}</Fragment>);
 
 const messageOf = (cause: unknown, fallback: string): string =>
   (cause as { message?: string })?.message ?? fallback;
@@ -173,12 +249,66 @@ export function MyWorkView(props: MyWorkViewProps = {}) {
 
 function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
   const directory = useDirectory();
-  const { ui, setFilter, setSort, clearFilter, toggleGroup, toggleStandalone, setPage, setPageSize } = useMyWorkUi();
+  const { ui, setFilter, setSort, clearFilter, setSearch, toggleGroup, toggleStandalone, setPage, setPageSize } =
+    useMyWorkUi();
+
+  // Tìm kiếm: `draft` là chữ đang gõ (hiện ngay), vào store sau 300ms hoặc khi bấm Enter.
+  const [draft, setDraft] = useState(ui.search.q);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const searchBox = useRef<HTMLDivElement>(null);
+  const searchFields = ui.search.fields;
+  const commitSearch = useCallback(
+    (q: string, fields: readonly MyWorkSearchField[] = searchFields) => setSearch({ q, fields }),
+    [setSearch, searchFields],
+  );
+  useEffect(() => {
+    setDraft(ui.search.q);
+  }, [ui.search.q]);
+  useEffect(() => {
+    if (draft === ui.search.q) return undefined;
+    const timer = window.setTimeout(() => commitSearch(draft), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [draft, ui.search.q, commitSearch]);
+  useEffect(() => {
+    if (!searchPanelOpen) return undefined;
+    const close = (event: MouseEvent) => {
+      if (!searchBox.current?.contains(event.target as Node)) setSearchPanelOpen(false);
+    };
+    document.addEventListener('mousedown', close, true);
+    return () => document.removeEventListener('mousedown', close, true);
+  }, [searchPanelOpen]);
+  const toggleSearchField = (field: MyWorkSearchField) => {
+    const has = searchFields.includes(field);
+    if (has && searchFields.length === 1) return;
+    const next = MY_WORK_SEARCH_FIELDS.filter((value) => (value === field ? !has : searchFields.includes(value)));
+    commitSearch(draft, next);
+  };
+
+  // Điều kiện tìm gửi lên server: `personIds` tra từ danh bạ khi có tìm theo người.
+  const search = useMemo<MyWorkSearch | undefined>(
+    () => buildMyWorkSearch(ui.search.q, ui.search.fields, directory.people),
+    [ui.search.q, ui.search.fields, directory.people],
+  );
+  const searchActive = search !== undefined;
+  const highlight = useMemo<SearchHighlight>(() => {
+    const words = searchActive ? searchWords(ui.search.q) : [];
+    return {
+      code: ui.search.fields.includes('code') ? words : [],
+      title: ui.search.fields.includes('title') ? words : [],
+    };
+  }, [searchActive, ui.search.q, ui.search.fields]);
+  // Nhóm người dùng tự thu lại trong lúc đang tự mở theo tìm kiếm; về rỗng khi đổi điều kiện tìm.
+  const [closedBySearch, setClosedBySearch] = useState<readonly string[]>([]);
+  useEffect(() => {
+    setClosedBySearch([]);
+  }, [ui.search.q, ui.search.fields]);
+
   const overviewQuery = useMyWorkOverviewQuery({
     sort: ui.sort,
     status: (ui.status || undefined) as WorkItemStatus | undefined,
     priority: (ui.priority || undefined) as WorkItemPriority | undefined,
     projectId: ui.projectId || undefined,
+    search,
   });
   // `data` giữ bản của lần trước trong lúc đổi bộ lọc nạp lại, nên số liệu và danh sách không nháy trống.
   const overview = overviewQuery.data;
@@ -283,6 +413,9 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
 
   // Nút "Tạo mới" ở góc trên phải: hai hộp thoại tạo dự án / tạo công việc.
   const [me, setMe] = useState('');
+  const columnOrder = useColumnOrder('my-work', me || undefined, MY_WORK_COLUMNS, MY_WORK_PINNED);
+  const sizing = useColumnWidths('my-work', me || undefined, MY_WORK_COLUMNS);
+  const tableSizingStyle = explicitTableStyle(columnOrder.order, sizing.widths);
   const [projectFormOpen, setProjectFormOpen] = useState(false);
   const [itemFormOpen, setItemFormOpen] = useState(false);
   /** Mọi dự án người dùng thấy, dùng cho ô chọn "Dự án" trong form Công việc mới. */
@@ -522,6 +655,15 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
     label: `${project.code} · ${project.name}`,
   }));
   const totalItems = groups.reduce((sum, group) => sum + group.total, 0);
+  const hasStandalone = Boolean(standalone && standalone.total > 0);
+  const searchEmpty = searchActive && Boolean(overview) && groups.length === 0 && !hasStandalone;
+  // Đang tìm và kết quả gọn thì mở sẵn các nhóm khớp; không đụng `ui.expanded` đã nhớ.
+  const autoOpen = searchActive && groups.length + (hasStandalone ? 1 : 0) <= SEARCH_AUTO_OPEN_MAX_GROUPS;
+  const isOpen = (key: string, remembered: boolean) => (autoOpen ? !closedBySearch.includes(key) : remembered);
+  const toggleOpen = (key: string, remembered: () => void) =>
+    autoOpen
+      ? setClosedBySearch((list) => (list.includes(key) ? list.filter((value) => value !== key) : [...list, key]))
+      : remembered();
 
   return (
     <div className={styles.tabBody}>
@@ -533,11 +675,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
         </p>
       ) : null}
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       <div className={styles.myWorkHead}>
         <div className={`${styles.pageHeadCard} ${styles.myWorkHeadCard}`}>
@@ -588,6 +726,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
               ) : null}
             </button>
           </Tooltip>
+          <ResetColumnLayoutButton order={columnOrder} sizing={sizing} />
           <Tooltip content="Tải lại">
             <button
               type="button"
@@ -645,6 +784,84 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
         <div ref={frame} className={styles.ledgerCard}>
           <header className={styles.ledgerHead}>
             <div className={styles.reqHeadLeft}>
+              <div className={styles.timelinePanelBox}>
+                <div className={styles.mwSearchBox} role="search">
+                  <Search size={14} aria-hidden className={styles.mwSearchIcon} />
+                  <Input
+                    type="text"
+                    value={draft}
+                    maxLength={MY_WORK_SEARCH_MAX_LENGTH}
+                    placeholder="Tìm theo mã, tên, mô tả, dự án, người…"
+                    aria-label="Tìm công việc"
+                    className="pl-8 pr-7"
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commitSearch(draft);
+                      } else if (event.key === 'Escape') {
+                        setDraft('');
+                        commitSearch('');
+                      }
+                    }}
+                  />
+                  {draft ? (
+                    <button
+                      type="button"
+                      className={styles.mwSearchClear}
+                      aria-label="Xoá tìm kiếm"
+                      onClick={() => {
+                        setDraft('');
+                        commitSearch('');
+                      }}
+                    >
+                      <X size={13} aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div ref={searchBox} className={styles.timelinePanelBox}>
+                <button
+                  type="button"
+                  className={
+                    searchFields.length < MY_WORK_SEARCH_FIELDS.length || searchPanelOpen
+                      ? styles.timelineToggleOn
+                      : styles.timelineToggle
+                  }
+                  aria-haspopup="dialog"
+                  aria-expanded={searchPanelOpen}
+                  onClick={() => setSearchPanelOpen((value) => !value)}
+                >
+                  Tìm theo
+                  {searchFields.length < MY_WORK_SEARCH_FIELDS.length ? (
+                    <span className={styles.countBadge}>{searchFields.length}</span>
+                  ) : null}
+                </button>
+                {searchPanelOpen ? (
+                  <div
+                    className={`${styles.timelinePanel} ${styles.timelinePanelLeft} ${styles.mwSearchPanel}`}
+                    role="dialog"
+                    aria-label="Chọn trường để tìm"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') {
+                        event.stopPropagation();
+                        setSearchPanelOpen(false);
+                      }
+                    }}
+                  >
+                    {MY_WORK_SEARCH_FIELDS.map((field) => (
+                      <label key={field} className={styles.mwSearchField}>
+                        <Checkbox
+                          checked={searchFields.includes(field)}
+                          disabled={searchFields.length === 1 && searchFields.includes(field)}
+                          onCheckedChange={() => toggleSearchField(field)}
+                        />
+                        {SEARCH_FIELD_LABELS[field]}
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <div ref={panelBox} className={styles.timelinePanelBox}>
                 <button
                   type="button"
@@ -746,33 +963,49 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
           ) : null}
 
           <div className={styles.ledgerScroll}>
-            <table className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.myWorkTable}`}>
+            <table
+              hidden={searchEmpty}
+              className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.myWorkTable}${sizing.customized ? ` ${styles.columnsResized}` : ''}`}
+              style={tableSizingStyle}
+            >
               {/* Chiều rộng cột cố định: mở hay thu một nhóm không làm các cột dịch chỗ. */}
               <colgroup>
-                <col />
-                <col className={styles.myWorkColAssigner} />
-                <col className={styles.myWorkColPriority} />
-                <col className={styles.myWorkColStatus} />
-                <col className={styles.myWorkColDue} />
-                <col className={styles.myWorkColProgress} />
+                {columnOrder.order.map((id) => (
+                  <col
+                    key={id}
+                    className={MY_WORK_COL_CLASS[id as MyWorkColumnId]}
+                    style={tableSizingStyle ? { width: sizing.widths?.[id] } : undefined}
+                  />
+                ))}
               </colgroup>
               <thead>
                 <tr>
-                  <th>Công việc</th>
-                  <th>Người giao</th>
-                  <th>Ưu tiên</th>
-                  <th>Trạng thái</th>
-                  <th>Hạn</th>
-                  <th>Tiến độ</th>
+                  {columnOrder.order.map((id) => (
+                    <ReorderableTh
+                      key={id}
+                      tableKey="my-work"
+                      id={id}
+                      order={columnOrder.order}
+                      pinned={MY_WORK_PINNED}
+                      onMove={columnOrder.move}
+                      sizing={sizing}
+                      label={MY_WORK_COLUMN_LABELS[id as MyWorkColumnId]}
+                    >
+                      {MY_WORK_COLUMN_LABELS[id as MyWorkColumnId]}
+                    </ReorderableTh>
+                  ))}
                 </tr>
               </thead>
               {groups.map((group) => (
                 <ProjectGroupBody
                   key={group.projectId}
+                  order={columnOrder.order}
                   group={group}
                   ui={ui}
-                  open={ui.expanded.includes(group.projectId)}
-                  onToggle={() => toggleGroup(group.projectId)}
+                  search={search}
+                  highlight={highlight}
+                  open={isOpen(group.projectId, ui.expanded.includes(group.projectId))}
+                  onToggle={() => toggleOpen(group.projectId, () => toggleGroup(group.projectId))}
                   onOpen={onOpen}
                   assignerName={(entry) => directory.nameOf(entry.item.createdBy)}
                   savingItem={savingItem}
@@ -785,11 +1018,14 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
               ))}
               {standalone && standalone.total > 0 ? (
                 <StandaloneBody
+                  order={columnOrder.order}
                   total={standalone.total}
                   counts={standalone.counts}
                   ui={ui}
-                  open={ui.standaloneOpen}
-                  onToggle={toggleStandalone}
+                  search={search}
+                  highlight={highlight}
+                  open={isOpen(MY_WORK_STANDALONE_KEY, ui.standaloneOpen)}
+                  onToggle={() => toggleOpen(MY_WORK_STANDALONE_KEY, toggleStandalone)}
                   onOpenTask={onOpenTask}
                   savingItem={savingItem}
                   assignerName={(entry) => directory.nameOf(entry.task.createdBy)}
@@ -802,7 +1038,9 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
             </table>
             {overview && groups.length === 0 ? (
               <p className={styles.emptyRow}>
-                {hasFilter
+                {searchEmpty
+                  ? `Không có việc nào khớp “${ui.search.q.trim()}”${hasFilter ? ' với bộ lọc hiện tại' : ''}.`
+                  : hasFilter
                   ? 'Không có việc nào khớp bộ lọc.'
                   : standalone && standalone.total > 0
                     ? 'Bạn không có việc dự án nào đang mở.'
@@ -898,7 +1136,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
                         — {card.workItemTitle}
                       </span>
                       </Tooltip>
-                      <span className={styles.externalStatus}>{card.cachedStatus ?? '—'}</span>
+                      <span className={styles.externalStatus}>{externalStatusLabel(card.cachedStatus) ?? '—'}</span>
                     </li>
                   ))}
                 </ul>
@@ -1077,8 +1315,11 @@ function PageBar({
  * trong lúc nạp trang khác mà không đụng hàng tóm tắt.
  */
 function ProjectGroupBody({
+  order,
   group,
   ui,
+  search,
+  highlight,
   open,
   onToggle,
   onOpen,
@@ -1090,8 +1331,11 @@ function ProjectGroupBody({
   onPage,
   onPageSize,
 }: {
+  order: readonly string[];
   group: MyWorkGroupSummary;
   ui: MyWorkUiState;
+  search?: MyWorkSearch;
+  highlight: SearchHighlight;
   open: boolean;
   onToggle: () => void;
   onOpen?: MyWorkViewProps['onOpen'];
@@ -1112,6 +1356,7 @@ function ProjectGroupBody({
       sort: ui.sort,
       page,
       pageSize: ui.pageSize,
+      search,
     },
     { skip: !open },
   );
@@ -1129,6 +1374,8 @@ function ProjectGroupBody({
   return (
     <tbody className={query.isFetching && data ? styles.myWorkDim : undefined} aria-busy={query.isFetching}>
       <tr className={styles.groupRow}>
+        {renderCells(order, {
+          work: (
         <th scope="row">
           <div className={styles.workCell}>
             <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
@@ -1154,7 +1401,9 @@ function ProjectGroupBody({
             ) : null}
           </div>
         </th>
-        <td />
+          ),
+          assigner: <td />,
+          priority: (
         <td>
           {group.topPriority ? (
             <span className={styles.groupSummaryText}>
@@ -1168,9 +1417,13 @@ function ProjectGroupBody({
             <span className={styles.groupSummaryMuted}>—</span>
           )}
         </td>
+          ),
+          status: (
         <td>
           <GroupCounts counts={counts} unit="việc" />
         </td>
+          ),
+          due: (
         <td>
           {counts.overdue > 0 ? (
             <span className={styles.groupOverdue}>Quá hạn {counts.overdue}</span>
@@ -1180,6 +1433,8 @@ function ProjectGroupBody({
             <span className={styles.groupSummaryMuted}>—</span>
           )}
         </td>
+          ),
+          progress: (
         <td>
           <Tooltip content={`Tiến độ trung bình của ${group.total} việc`}>
             <span className={styles.progressCell}>
@@ -1190,6 +1445,8 @@ function ProjectGroupBody({
             </span>
           </Tooltip>
         </td>
+          ),
+        })}
       </tr>
       {open && !data && !query.isError ? <NoteRow>Đang tải…</NoteRow> : null}
       {open && query.isError ? (
@@ -1206,7 +1463,9 @@ function ProjectGroupBody({
         ? data.items.map((entry) => (
             <MyWorkRow
               key={entry.item.id}
+              order={order}
               entry={entry}
+              highlight={highlight}
               busy={savingItem === entry.item.id}
               assignerName={assignerName(entry)}
               onOpen={onOpen}
@@ -1225,9 +1484,12 @@ function ProjectGroupBody({
 
 /** Khối "Công việc khác" (việc ngoài dự án): một nhóm cuối bảng, cùng cách mở và phân trang như nhóm dự án. */
 function StandaloneBody({
+  order,
   total,
   counts,
   ui,
+  search,
+  highlight,
   open,
   onToggle,
   onOpenTask,
@@ -1238,9 +1500,12 @@ function StandaloneBody({
   onPage,
   onPageSize,
 }: {
+  order: readonly string[];
   total: number;
   counts: MyWorkGroupCounts;
   ui: MyWorkUiState;
+  search?: MyWorkSearch;
+  highlight: SearchHighlight;
   open: boolean;
   onToggle: () => void;
   onOpenTask?: (taskId: string) => void;
@@ -1252,7 +1517,10 @@ function StandaloneBody({
   onPageSize: (size: number) => void;
 }) {
   const page = ui.pages[MY_WORK_STANDALONE_KEY] ?? 1;
-  const query = useMyWorkStandaloneQuery({ sort: ui.sort, page, pageSize: ui.pageSize }, { skip: !open });
+  const query = useMyWorkStandaloneQuery(
+    { sort: ui.sort, page, pageSize: ui.pageSize, search },
+    { skip: !open },
+  );
   const data = query.data;
   const shownTotal = data?.total ?? total;
   const pages = pagesOf(shownTotal, ui.pageSize);
@@ -1268,22 +1536,30 @@ function StandaloneBody({
       aria-busy={query.isFetching}
     >
       <tr className={styles.groupRow}>
-        <th scope="row">
-          <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
-            {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
-            <ClipboardList size={14} aria-hidden /> Công việc khác
-            <span className={styles.groupSummaryMuted}>· {total} việc</span>
-          </button>
-        </th>
-        <td />
-        <td />
-        <td>
-          <GroupCounts counts={counts} unit="việc" />
-        </td>
-        <td>
-          {counts.overdue > 0 ? <span className={styles.groupOverdue}>Quá hạn {counts.overdue}</span> : null}
-        </td>
-        <td />
+        {renderCells(order, {
+          work: (
+            <th scope="row">
+              <button type="button" className={styles.groupToggle} aria-expanded={open} onClick={onToggle}>
+                {open ? <ChevronDown size={14} aria-hidden /> : <ChevronRight size={14} aria-hidden />}
+                <ClipboardList size={14} aria-hidden /> Công việc khác
+                <span className={styles.groupSummaryMuted}>· {total} việc</span>
+              </button>
+            </th>
+          ),
+          assigner: <td />,
+          priority: <td />,
+          status: (
+            <td>
+              <GroupCounts counts={counts} unit="việc" />
+            </td>
+          ),
+          due: (
+            <td>
+              {counts.overdue > 0 ? <span className={styles.groupOverdue}>Quá hạn {counts.overdue}</span> : null}
+            </td>
+          ),
+          progress: <td />,
+        })}
       </tr>
       {open && !data && !query.isError ? <NoteRow>Đang tải…</NoteRow> : null}
       {open && query.isError ? (
@@ -1300,7 +1576,9 @@ function StandaloneBody({
         ? data.items.map((entry) => (
             <StandaloneTaskRow
               key={entry.task.id}
+              order={order}
               entry={entry}
+              highlight={highlight}
               busy={savingItem === entry.task.id}
               assignerName={assignerName(entry)}
               onOpenTask={onOpenTask}
@@ -1321,7 +1599,9 @@ function StandaloneBody({
  * lệ; server vẫn kiểm quyền và ràng buộc (việc con chưa đóng, tiền nhiệm chưa xong) rồi báo lỗi nếu không được.
  */
 function MyWorkRow({
+  order,
   entry,
+  highlight,
   busy,
   assignerName,
   onOpen,
@@ -1329,7 +1609,9 @@ function MyWorkRow({
   onPatch,
   onQuantity,
 }: {
+  order: readonly string[];
   entry: MyWorkItem;
+  highlight: SearchHighlight;
   busy: boolean;
   assignerName: string;
   onOpen?: MyWorkViewProps['onOpen'];
@@ -1360,8 +1642,8 @@ function MyWorkRow({
     });
   }
 
-  return (
-    <tr>
+  const cells: Record<MyWorkColumnId, ReactNode> = {
+    work: (
       <td>
         <div className={`${styles.workCell} ${styles.workChild}`}>
           <span className={styles.workIndent} aria-hidden />
@@ -1370,16 +1652,24 @@ function MyWorkRow({
             className={styles.cellTitleButton}
             onClick={() => onOpen?.(item.projectId, `work-item/${item.id}`)}
           >
-            <span className={styles.treeCode}>{item.code}</span>
+            <span className={styles.treeCode}>
+              <Highlight text={item.code} words={highlight.code} />
+            </span>
             <Tooltip content={item.title}>
-              <span className={styles.workTitle}>{item.title}</span>
+              <span className={styles.workTitle}>
+                <Highlight text={item.title} words={highlight.title} />
+              </span>
             </Tooltip>
           </button>
         </div>
       </td>
+    ),
+    assigner: (
       <td className={styles.cellSub}>
         <span className={styles.workTitle}>{assignerName}</span>
       </td>
+    ),
+    priority: (
       <td className={styles.inlineCell}>
         <ChipSelect
           label={`Ưu tiên của ${item.code}`}
@@ -1393,6 +1683,8 @@ function MyWorkRow({
           }
         />
       </td>
+    ),
+    status: (
       <td className={styles.inlineCell}>
         {item.reversal ? (
           <ChipButton tone={workItemStatusTone(item)}>{workItemStatusLabel(item)}</ChipButton>
@@ -1410,6 +1702,8 @@ function MyWorkRow({
           </span>
         )}
       </td>
+    ),
+    due: (
       <td className={styles.inlineCell}>
         <DateChip
           label={`Hạn của ${item.code}`}
@@ -1422,6 +1716,8 @@ function MyWorkRow({
           }
         />
       </td>
+    ),
+    progress: (
       <td>
         {(() => {
           // Việc có việc con không có trong bảng này theo cách riêng, nên chỉ xét cách tính của chính nó.
@@ -1441,8 +1737,10 @@ function MyWorkRow({
           );
         })()}
       </td>
-    </tr>
-  );
+    ),
+  };
+
+  return <tr>{renderCells(order, cells)}</tr>;
 }
 
 /**
@@ -1451,14 +1749,18 @@ function MyWorkRow({
  * do nên không có ở đây, làm ở trang Công việc khác.
  */
 function StandaloneTaskRow({
+  order,
   entry,
+  highlight,
   busy,
   assignerName,
   onOpenTask,
   onStatus,
   onPatch,
 }: {
+  order: readonly string[];
   entry: MyWorkStandaloneTask;
+  highlight: SearchHighlight;
   busy: boolean;
   assignerName: string;
   onOpenTask?: (taskId: string) => void;
@@ -1487,19 +1789,25 @@ function StandaloneTaskRow({
       tone: priorityTone(priority),
     }));
 
-  return (
-    <tr>
+  const cells: Record<MyWorkColumnId, ReactNode> = {
+    work: (
       <td>
         <div className={`${styles.workCell} ${styles.workChild}`}>
           <span className={styles.workIndent} aria-hidden />
           <button type="button" className={styles.cellTitleButton} onClick={() => onOpenTask?.(task.id)}>
-            <span className={styles.treeCode}>{task.code}</span>
+            <span className={styles.treeCode}>
+              <Highlight text={task.code} words={highlight.code} />
+            </span>
             <Tooltip content={task.title}>
-              <span className={styles.workTitle}>{task.title}</span>
+              <span className={styles.workTitle}>
+                <Highlight text={task.title} words={highlight.title} />
+              </span>
             </Tooltip>
           </button>
         </div>
       </td>
+    ),
+    assigner: (
       <td className={styles.cellSub}>
         {entry.awaitingMyApproval ? (
           <span className={styles.inlineIcon}>
@@ -1509,6 +1817,8 @@ function StandaloneTaskRow({
           assignerName
         )}
       </td>
+    ),
+    priority: (
       <td className={styles.inlineCell}>
         {isAssigner && open ? (
           <ChipSelect
@@ -1529,6 +1839,8 @@ function StandaloneTaskRow({
           </ChipButton>
         )}
       </td>
+    ),
+    status: (
       <td className={styles.inlineCell}>
         <span className={styles.blockedCell}>
           {statusOptions.length > 1 ? (
@@ -1549,6 +1861,8 @@ function StandaloneTaskRow({
           {task.status === 'blocked' && !task.reversal ? <BlockedReasonMark reason={task.blockedReason} /> : null}
         </span>
       </td>
+    ),
+    due: (
       <td className={styles.inlineCell}>
         {isAssigner && open ? (
           <DateChip
@@ -1568,6 +1882,8 @@ function StandaloneTaskRow({
           </ChipButton>
         )}
       </td>
+    ),
+    progress: (
       <td>
         <ProgressCell
           label={`Tiến độ của ${task.code}`}
@@ -1578,8 +1894,10 @@ function StandaloneTaskRow({
           onCommit={(next) => onPatch({ manualProgressPercent: next }, 'Không lưu được tiến độ.')}
         />
       </td>
-    </tr>
-  );
+    ),
+  };
+
+  return <tr>{renderCells(order, cells)}</tr>;
 }
 
 /**

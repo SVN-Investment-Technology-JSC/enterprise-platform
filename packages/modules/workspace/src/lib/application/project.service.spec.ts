@@ -356,6 +356,32 @@ describe('ProjectService.autoArchiveIfDone — tự đóng hồ sơ khi mọi vi
       service.saveArchiveSettings(admin, { autoArchive: 'co' as unknown as boolean }),
     ).rejects.toMatchObject({ code: 'VALIDATION' });
   });
+
+  it('cài đặt liên kết Quy trình: kiểm từng trường, gộp phần gửi lên vào giá trị hiện tại', async () => {
+    const saved: { key: string; value: unknown }[] = [];
+    const store = {
+      settings: {
+        get: async (_t: string, key: string) => (key === 'procedure_link' ? { onStarted: 'in_progress' } : undefined),
+        set: async (_t: string, key: string, value: unknown) => {
+          saved.push({ key, value });
+        },
+      },
+    } as unknown as WorkspaceStore;
+    const service = new ProjectService(store);
+    const admin = { ...owner, isTenantAdmin: true };
+    await expect(
+      service.saveArchiveSettings(admin, { procedureLink: { onRejected: 'xoa' as never } }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    await expect(
+      service.saveArchiveSettings(admin, { procedureLink: { khac: 'a' } as never }),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+    expect(saved).toEqual([]);
+    await service.saveArchiveSettings(admin, { procedureLink: { onCompletedWorkItem: 'review' } });
+    expect(saved).toHaveLength(1);
+    expect(saved[0].key).toBe('procedure_link');
+    expect(saved[0].value).toMatchObject({ onCompletedWorkItem: 'review', onStarted: 'in_progress', onReversed: 'cascade' });
+    expect((await service.archiveSettings(admin)).procedureLink.onStarted).toBe('in_progress');
+  });
 });
 
 describe('workspace.project.admin — xem và thao tác mọi dự án', () => {

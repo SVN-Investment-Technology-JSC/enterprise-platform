@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Field } from './dialog';
 import { Tooltip } from './tooltip';
 import { upperCaseKeepingCaret } from './upper-case-input';
@@ -182,11 +183,7 @@ export function ProjectCodeSettings() {
         </div>
       )}
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
       {notice ? (
         <p role="status" className={styles.notice}>
           {notice}

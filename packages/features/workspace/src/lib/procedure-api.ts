@@ -42,6 +42,12 @@ export interface ProcedureInstanceView {
   readonly doneSteps: number;
   readonly totalSteps: number;
   readonly progressPercent: number;
+  /** Trạng thái từng bước theo thứ tự; dùng đoán hồ sơ còn nguyên để cho đổi quy trình. */
+  readonly stepStatuses?: readonly string[];
+  /** Vị trí bước hiện tại trong danh sách bước (0 là bước đầu); vắng khi không xác định được. */
+  readonly currentStepIndex?: number;
+  /** Số dòng trong nhật ký hồ sơ; hồ sơ mới mở chỉ có đúng một dòng bắt đầu. */
+  readonly activityCount?: number;
 }
 
 interface ProcedureWorkspacePayload {
@@ -53,7 +59,9 @@ interface ProcedureWorkspacePayload {
     code: string;
     title?: string;
     status?: string;
-    steps?: readonly { status?: string }[];
+    currentStepId?: string;
+    activity?: readonly unknown[];
+    steps?: readonly { id?: string; status?: string }[];
     /**
      * Tiến độ do Quy trình tự tính trên ĐƯỜNG ĐI thực tế. Có rẽ nhánh thì bước
      * ở nhánh không đi không bao giờ "xong", nên đếm trên tổng số bước sẽ sai.
@@ -143,8 +151,16 @@ export async function loadInstance(
   if (!instance) return undefined;
   const steps = instance.steps ?? [];
   const progress = instance.progress;
+  const touched = {
+    stepStatuses: steps.map((step) => step.status ?? ''),
+    currentStepIndex: instance.currentStepId
+      ? steps.findIndex((step) => step.id === instance.currentStepId)
+      : undefined,
+    activityCount: instance.activity?.length,
+  };
   if (progress && progress.total > 0) {
     return {
+      ...touched,
       id: instance.id,
       code: instance.code,
       title: instance.title,
@@ -156,6 +172,7 @@ export async function loadInstance(
     };
   }
   return {
+    ...touched,
     id: instance.id,
     code: instance.code,
     title: instance.title,

@@ -33,6 +33,8 @@ import {
 } from '../domain/workspace.error.js';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import { parseManualPercent } from '../domain/progress.rules.js';
+import { manualProgressBlockedMessage } from '../domain/procedure-link.rules.js';
+import { loadProcedureLinkSettings } from './procedure-link-settings.js';
 import {
   checklistPercent,
   parseChecklistTitle,
@@ -220,6 +222,13 @@ export class StandaloneTaskService {
 
     if (role === 'viewer') {
       throw new StandaloneTaskForbiddenError('Bạn chỉ được xem công việc này.');
+    }
+    if (progressPercent !== undefined || manualProgressPercent !== undefined) {
+      const manualGate = manualProgressBlockedMessage(
+        await loadProcedureLinkSettings(this.store, actor.tenantId),
+        task.executionType,
+      );
+      if (manualGate) throw new WorkspaceValidationError(manualGate);
     }
     if (role !== 'assigner') {
       const contentKeys = Object.keys(body).filter(
@@ -425,6 +434,13 @@ export class StandaloneTaskService {
       throw new WorkspaceValidationError(
         'Tiến độ của công việc này tự tính theo đầu việc; hãy tích đầu việc thay vì báo phần trăm.',
       );
+    }
+    if (origin === 'user') {
+      const manualGate = manualProgressBlockedMessage(
+        await loadProcedureLinkSettings(this.store, actor.tenantId),
+        task.executionType,
+      );
+      if (manualGate) throw new WorkspaceValidationError(manualGate);
     }
     const percent = parseReportPercent(input?.percent);
     const description = parseReportDescription(input?.description);

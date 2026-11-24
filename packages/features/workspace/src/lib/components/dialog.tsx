@@ -1,7 +1,8 @@
 'use client';
 
 import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
-import { X } from 'lucide-react';
+import { toast } from '@enterprise-platform/shared-ui';
+import { Loader2, X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '../workspace.module.scss';
@@ -15,6 +16,8 @@ export interface DialogProps {
   /** Nhãn nút đóng ở chân hộp thoại; `null` thì ẩn hẳn nút này. */
   readonly cancelLabel?: string | null;
   readonly submitting?: boolean;
+  /** Chữ trên nút gửi trong lúc `submitting`; mặc định "Đang lưu…". */
+  readonly submittingLabel?: string;
   /** Khoá nút gửi khi form chưa đủ dữ liệu bắt buộc (vd lý do còn trống). */
   readonly submitDisabled?: boolean;
   readonly error?: string;
@@ -59,6 +62,7 @@ export function Dialog({
   submitLabel = 'Lưu',
   cancelLabel = 'Huỷ',
   submitting = false,
+  submittingLabel = 'Đang lưu…',
   submitDisabled = false,
   error,
   size = 'default',
@@ -78,6 +82,13 @@ export function Dialog({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   useEffect(() => setMounted(true), []);
+
+  // Lỗi của lần gửi hiện bằng toast (không chèn vào form làm lệch bố cục). Chạy lại mỗi khi một lần gửi kết thúc
+  // mà vẫn còn lỗi, nên cùng một thông báo bấm lại vẫn hiện lại. Form nhúng trong card Trợ lý giữ khung lỗi tại chỗ.
+  useEffect(() => {
+    if (!open || embedded || submitting || !error) return;
+    toast.error(error);
+  }, [open, embedded, submitting, error]);
 
   useEffect(() => {
     if (!open) return;
@@ -134,7 +145,7 @@ export function Dialog({
     >
       <div className={styles.dialogScroll}>
         {children}
-        {error ? (
+        {error && embedded ? (
           <p role="alert" className={styles.alert}>
             {error}
           </p>
@@ -151,8 +162,16 @@ export function Dialog({
           type="submit"
           className={styles.buttonPrimary}
           disabled={submitting || submitDisabled}
+          aria-busy={submitting}
         >
-          {submitting ? 'Đang lưu…' : submitLabel}
+          {submitting ? (
+            <>
+              <Loader2 size={14} className="animate-spin" aria-hidden />
+              {submittingLabel}
+            </>
+          ) : (
+            submitLabel
+          )}
         </button>
       </footer>
       )}

@@ -6286,7 +6286,8 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  max-width: 14rem;
+  // Theo bề rộng ô: còn chỗ thì hiện đủ chữ, hết chỗ mới cắt bằng "…".
+  max-width: 100%;
   padding: 3px 8px;
   border-radius: var(--ep-radius-sm);
   background: rgb(124 58 237 / 10%);
@@ -9974,6 +9975,17 @@ button.kpiCard {
   padding: 16px 20px;
 }
 
+.gsGroupTitle {
+  margin: 0;
+  padding: 10px 20px;
+  background: var(--ep-surface-muted, rgba(0, 0, 0, 0.03));
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .gsRowStack {
   flex-direction: column;
   align-items: stretch;
@@ -10721,10 +10733,40 @@ button.kpiCard {
   opacity: 0;
 }
 
-/* Nhãn: tối đa hai nhãn trên một dòng, còn lại gộp thành "+N" (rê chuột xem đủ). */
+/* Nhãn: hiện vừa bề rộng ô (xem FitChips), phần còn lại gộp thành "+N" (rê chuột xem đủ). */
+.fitChips {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Bản ẩn dùng để đo, không chiếm chỗ và không nhận chuột. */
+.fitChipsMeter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  gap: 4px;
+  height: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
 .projectsTable .chipGroup {
   flex-wrap: nowrap;
   overflow: hidden;
+  // Không rộng hơn ô: cột Nhãn hẹp thì các nhãn co lại (cắt chữ) thay vì tràn đè sang cột Trạng thái.
+  max-width: 100%;
+  min-width: 0;
+
+  > .chipStatic {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
 }
 
 /* Nút "⋯" cuối dòng: chỉ hiện khi rê chuột, tab tới hoặc đang mở menu, để bảng khỏi lặp một biểu tượng ở mọi dòng. */
@@ -11800,4 +11842,368 @@ button.kpiCard {
   background: var(--ep-accent-soft);
   color: #5c4500;
   font-weight: 600;
+}
+
+/* Tìm kiếm đa trường của "Công việc của tôi": ô nhập có biểu tượng kính lúp và nút xoá, kèm bảng chọn trường tìm. */
+.mwSearchBox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 320px;
+  max-width: 100%;
+}
+
+.mwSearchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--ep-text-muted);
+  pointer-events: none;
+}
+
+.mwSearchClear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ep-text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-line);
+    color: var(--ep-text, #111827);
+  }
+}
+
+.mwSearchPanel {
+  width: 280px;
+  gap: 6px;
+}
+
+.mwSearchField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.mwSearchMark {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: rgb(250 204 21 / 35%);
+  color: inherit;
+}
+
+/* Bảng đã chỉnh độ rộng cột (bố cục cố định): chữ dài hơn cột thì cắt bằng dấu "…"; kéo rộng cột ra để xem hết. */
+.columnsResized {
+  td,
+  th {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // Nhãn dạng viên thuốc (ưu tiên, trạng thái...) tự co vừa ô và tự cắt chữ bằng "…" ngay trong viên, để ô không hiện
+  // thêm dấu "…" lẻ loi cạnh nhãn.
+  td > .pill {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* Bảng bố cục cố định rộng hơn tổng các cột (khung được kéo rộng, hay cột bị co lại): cột cuối bỏ độ rộng cố định để
+   giãn ra lấp chỗ trống; bảng vẫn có `min-width` bằng tổng các cột nên không bao giờ hẹp hơn số đo đã lưu. */
+table[style*='table-layout: fixed'] > thead > tr > th[data-column-id]:last-child {
+  width: auto !important;
+  max-width: none !important;
+}
+
+/* Cột cuối tự giãn lấp phần còn lại của khung nên không cần tay nắm kéo độ rộng. */
+th[data-column-id]:last-child .columnResizeHandle {
+  display: none;
+}
+
+/* Tay nắm kéo độ rộng cột ở mép phải tiêu đề: thanh 2px luôn hiện (xám đậm vừa phải), rê chuột/focus/đang kéo thì dày 3px
+   và đổi sang màu chính. Vùng bấm rộng 8px. */
+.columnResizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 4px;
+    right: 0;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 999px;
+    background: var(--ep-text-muted, #6b7280);
+    opacity: 0.55;
+    transition:
+      width 0.12s,
+      opacity 0.12s,
+      background-color 0.12s;
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    width: 3px;
+    background: var(--ep-accent-strong, #d9ab00);
+    opacity: 1;
+  }
+}
+
+.columnResizeHandleActive::after {
+  width: 3px;
+  background: var(--ep-accent-strong, #d9ab00);
+  opacity: 1;
+}
+
+/* Thẻ "Công việc gắn quy trình": phần gập, hàng hai cột, thanh phân đoạn. */
+.plHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+}
+
+.plSection {
+  display: flex;
+  flex-direction: column;
+}
+
+.plSectionHead {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  border: 0;
+  background: var(--ep-surface-soft, transparent);
+  color: var(--ep-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--ep-hover);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.plSectionText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Mũi tên báo mục mở/thu gọn được: xoay lên khi mục đang mở. */
+.plChevron {
+  flex: none;
+  color: var(--ep-text-muted);
+  transition: transform 0.18s ease;
+}
+
+.plChevronOpen {
+  transform: rotate(180deg);
+}
+
+.plSectionTitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.plSummary {
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.plEdited,
+.plCount,
+.plChip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: var(--ep-accent-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.plCount {
+  background: var(--ep-surface-soft, rgba(0, 0, 0, 0.05));
+  color: var(--ep-text-sub);
+}
+
+.plChip {
+  margin-left: 8px;
+  background: var(--ep-surface-soft, rgba(0, 0, 0, 0.05));
+  color: var(--ep-text-sub);
+  font-weight: 500;
+}
+
+.plSectionBody {
+  display: flex;
+  flex-direction: column;
+}
+
+.plRow {
+  display: grid;
+  // Cột điều khiển rộng vừa đủ để các lựa chọn nằm trên một dòng (tối đa 62% hàng); hết chỗ thì tự xuống dòng.
+  grid-template-columns: minmax(0, 1fr) fit-content(62%);
+  align-items: start;
+  gap: 8px 24px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--ep-border);
+
+  @media (max-width: 760px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.plRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--ep-text-muted);
+    font-size: 12px;
+  }
+}
+
+.plRowControl {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plRowControlSelect {
+  // Ô chọn (danh sách xổ) tự co theo nội dung nên cần độ rộng riêng để hiện đủ nhãn dài nhất, vd "Gốc chờ duyệt, con hoàn thành".
+  width: 340px;
+  max-width: 100%;
+}
+
+.plCurrentHint {
+  // Dòng mô tả dài không được kéo rộng cột điều khiển: chỉ các lựa chọn quyết định độ rộng.
+  contain: inline-size;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.plSegmented {
+  display: flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.plSegment {
+  padding: 6px 12px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ep-accent-strong);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+// Lựa chọn đang dùng: nền vàng đậm, chữ tối, dễ thấy hơn nền nhạt trước đây.
+.plSegmentOn {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent);
+  color: #1a1a1a;
+  font-weight: 700;
+
+  &:hover:not(:disabled) {
+    border-color: var(--ep-accent-strong);
+  }
+}
+
+.plAdvancedToggle,
+.plTextButton {
+  align-self: flex-start;
+  margin: 6px 20px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-link);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled {
+    color: var(--ep-text-muted);
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.plSectionFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  padding: 0 20px;
+  border-top: 1px solid var(--ep-border);
+  color: var(--ep-text-muted);
+  font-size: 12px;
+
+  .plTextButton {
+    margin: 6px 0;
+  }
 }

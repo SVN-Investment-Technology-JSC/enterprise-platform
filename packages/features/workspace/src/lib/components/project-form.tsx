@@ -34,6 +34,7 @@ import { createProjectGroupNamed } from '../project-group-create';
 import { PROGRESS_METHOD_INFO, PROGRESS_METHOD_ORDER } from '../project-progress-methods';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
@@ -590,11 +591,7 @@ export function ProjectForm({
             clearable
             onChange={(value) => void chooseCrmCustomer(value)}
           />
-          {customerError ? (
-            <p role="alert" className={styles.alert}>
-              {customerError}
-            </p>
-          ) : null}
+          <ErrorToast message={customerError} />
           <a className={styles.linkButton} href="/modules/crm">
             <Plus size={13} /> Tạo khách hàng ở CRM
           </a>
@@ -647,11 +644,7 @@ export function ProjectForm({
                 }}
               />
             </div>
-            {customerError ? (
-              <p role="alert" className={styles.alert}>
-                {customerError}
-              </p>
-            ) : null}
+            <ErrorToast message={customerError} />
             <div className={styles.rowActions}>
               <button
                 type="button"

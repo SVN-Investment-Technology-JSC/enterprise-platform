@@ -52,6 +52,7 @@ import {
   priorityTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { Dialog } from './dialog';
 import { Pager, usePaged } from './pager';
@@ -449,11 +450,7 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
         </div>
       </div>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
       {notice ? (
         <p role="status" className={styles.notice}>
           {notice}

@@ -21,6 +21,7 @@ import { cn } from '../utils';
 import { ProgressCell } from './inline-cells';
 import { progressCellMode } from '../progress-cell-rules';
 import { Tooltip } from './tooltip';
+import type { PendingProcedure } from '../procedure-pending';
 import { ProcedureActions, type ProcedureLink } from './procedure-actions';
 import type { SelectedNode } from './project-tree';
 import { useDirectory } from './use-directory';
@@ -56,8 +57,17 @@ export interface NodeHeaderProps {
   readonly quickAction?: { readonly label: string; readonly onClick: () => void };
   readonly startableProcedures: readonly ProcedureOption[];
   readonly procedureLink?: ProcedureLink;
+  /** Trạng thái yêu cầu mở hồ sơ của công việc đang chọn (đang chờ, bị từ chối...); vắng khi đã có hồ sơ. */
+  readonly procedureState?: PendingProcedure;
   /** Vắng khi đang đứng ở dự án: chỉ công việc mới gắn được hồ sơ quy trình. */
   readonly onStartProcedure?: (definitionId: string) => Promise<void>;
+  /** Quy trình của hồ sơ đang gắn; loại khỏi danh sách khi đổi quy trình. */
+  readonly procedureDefinitionId?: string;
+  /** Lý do chưa cho tạo hồ sơ quy trình (theo cài đặt trạng thái của tenant); vắng là cho tạo. */
+  readonly procedureStartBlockReason?: string;
+  /** Lý do chưa cho đổi quy trình; vắng là cho đổi. */
+  readonly procedureChangeBlockReason?: string;
+  readonly onChangeProcedure?: (definitionId: string) => Promise<void>;
 }
 
 /**
@@ -84,7 +94,12 @@ export function NodeHeader({
   quickAction,
   startableProcedures,
   procedureLink,
+  procedureState,
   onStartProcedure,
+  procedureDefinitionId,
+  procedureStartBlockReason,
+  procedureChangeBlockReason,
+  onChangeProcedure,
 }: NodeHeaderProps) {
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
@@ -421,8 +436,18 @@ export function NodeHeader({
             options={startableProcedures}
             link={procedureLink}
             canWrite={canWrite}
+            pending={procedureState?.status === 'pending'}
             onStart={onStartProcedure}
+            currentDefinitionId={procedureDefinitionId}
+            startBlockReason={procedureStartBlockReason}
+            changeBlockReason={procedureChangeBlockReason}
+            onChange={onChangeProcedure}
           />
+          {procedureState?.status === 'pending' ? (
+            <span className={styles.muted} role="status">
+              Đang chờ module Quy trình mở hồ sơ; hồ sơ sẽ hiện ở đây ngay khi xong.
+            </span>
+          ) : null}
           {procedureLink ? (
             <span className={styles.muted}>
               Tiến độ lấy từ hồ sơ {procedureLink.code}

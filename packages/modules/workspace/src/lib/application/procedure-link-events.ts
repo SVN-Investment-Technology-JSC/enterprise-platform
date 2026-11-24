@@ -31,6 +31,8 @@ import {
   WorkspaceSchemaNotReadyError,
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
+import type { ProcedureOutcomeKind } from '../domain/procedure-outcome.rules.js';
+import { loadProcedureLinkSettings, parentProcedureWaitRules } from './procedure-link-settings.js';
 import type { DocumentService } from './document.service.js';
 import type { FinanceService } from './finance.service.js';
 import type { ProjectService } from './project.service.js';
@@ -112,9 +114,11 @@ export class WorkspaceProcedureEvents {
     } else if (type === PROCEDURE_STARTED_FOR_WORK_ITEM) {
       const started = payload as ProcedureStartedForWorkItemPayload;
       await this.store.procedureRequest.markStarted(tenantId, started);
+      await this.applyToWorkItem(tenantId, started.workItemId, 'started', started.instanceCode);
     } else if (type === PROCEDURE_INSTANCE_REVERSED) {
       // Hồ sơ gắn công việc bị huỷ hiệu lực → công việc huỷ hiệu lực theo.
       const reversed = payload as ProcedureInstanceReversedPayload;
+      if ((await loadProcedureLinkSettings(this.store, tenantId)).onReversed === 'none') return;
       if (reversed.sourceType === STANDALONE_TASK_PROCEDURE_SOURCE) {
         await this.reverseStandaloneTask(tenantId, reversed);
         return;
@@ -138,6 +142,15 @@ export class WorkspaceProcedureEvents {
         started.instanceId,
         started.instanceCode,
       );
+      // Cài đặt "Khi hồ sơ bắt đầu chạy" áp cho cả việc ngoài dự án (sự kiện đến lại thì store không làm gì thêm).
+      if ((await loadProcedureLinkSettings(this.store, tenantId)).onStarted === 'in_progress') {
+        await this.store.standaloneTask.applyProcedureStarted(
+          tenantId,
+          started.taskId,
+          started.instanceCode,
+          todayKey(timezoneOf(tenantId)),
+        );
+      }
     } else if (type === PROCEDURE_STANDALONE_TASK_START_REJECTED) {
       const rejected = payload as ProcedureStandaloneTaskStartRejectedPayload;
       await this.store.standaloneTask.markProcedureStartRejected(
@@ -148,7 +161,9 @@ export class WorkspaceProcedureEvents {
     } else if (type === PROCEDURE_INSTANCE_COMPLETED) {
       // Sự kiện chung cho mọi hồ sơ; chỉ hồ sơ mở cho việc ngoài dự án là của Workspace.
       const completed = payload as ProcedureInstanceCompletedPayload;
-      if (completed?.sourceType !== STANDALONE_TASK_PROCEDURE_SOURCE || !completed.instanceId) return;
+      if (!completed?.instanceId) return;
+      // Hồ sơ bị thay do "Đổi quy trình": công việc đang gắn hồ sơ mới, kết quả huỷ của hồ sơ cũ không áp.
+      if (completed.replacedByInstanceId) return;
       const outcome =
         completed.status === 'completed'
           ? 'completed'
@@ -158,13 +173,59 @@ export class WorkspaceProcedureEvents {
               ? 'cancelled'
               : undefined;
       if (!outcome) return;
-      await this.store.standaloneTask.applyProcedureOutcome(
+      if (completed.sourceType === STANDALONE_TASK_PROCEDURE_SOURCE) {
+        await this.store.standaloneTask.applyProcedureOutcome(
+          tenantId,
+          completed.instanceId,
+          outcome,
+          completed.instanceCode,
+          todayKey(timezoneOf(tenantId)),
+          await loadProcedureLinkSettings(this.store, tenantId),
+        );
+        return;
+      }
+      // Hồ sơ gắn công việc trong dự án: payload không mang mã công việc nên tìm qua liên kết ngoài.
+      const reference = await this.store.externalRef.findByExternalId(
         tenantId,
+        'procedure-engine',
         completed.instanceId,
-        outcome,
-        completed.instanceCode,
-        todayKey(timezoneOf(tenantId)),
       );
+      if (reference?.entityType !== 'work_item') return;
+      // Ghi trạng thái kết thúc lên liên kết ngoài trước khi đánh giá lại: luật "cha chờ hồ sơ" coi
+      // `cached_status = completed` là hồ sơ đã hoàn tất, và giá trị này lấy từ chính sự kiện này (không phải từ lần
+      // đồng bộ nhãn). Hồ sơ bị từ chối / huỷ cũng được ghi (rejected / cancelled) nhưng không tính là hoàn tất.
+      await this.store.externalRef.refreshCache(tenantId, [{ id: reference.id, cachedStatus: completed.status }]);
+      await this.applyToWorkItem(tenantId, reference.entityId, outcome, completed.instanceCode);
+      // Hoàn tất luôn đánh giá lại (cha đang chờ có thể đóng được); từ chối / hủy chỉ khi cài đặt cho cha thôi chờ.
+      // Đánh giá lại là idempotent: giao lại sự kiện không đổi thêm gì.
+      const reevaluate =
+        outcome === 'completed' ||
+        parentProcedureWaitRules(await loadProcedureLinkSettings(this.store, tenantId)).stopWaitingWhenProcedureFailed;
+      if (reevaluate) await this.reevaluateParents(tenantId, reference.entityId);
+    }
+  }
+
+  /** Đánh giá lại việc cha chờ hồ sơ; lỗi nghiệp vụ không làm kẹt hàng chờ, lỗi hạ tầng thì ném để thử lại. */
+  private async reevaluateParents(tenantId: string, workItemId: string): Promise<void> {
+    try {
+      await this.workItems.reevaluateAfterProcedureCompleted(tenantId, workItemId);
+    } catch (error) {
+      if (!(error instanceof WorkspaceError) || error instanceof WorkspaceSchemaNotReadyError) throw error;
+    }
+  }
+
+  /** Đổi công việc theo cài đặt liên kết; lỗi nghiệp vụ không được làm kẹt hàng chờ sự kiện, lỗi hạ tầng thì ném để thử lại. */
+  private async applyToWorkItem(
+    tenantId: string,
+    workItemId: string | undefined,
+    kind: ProcedureOutcomeKind,
+    instanceCode: string,
+  ): Promise<void> {
+    if (!workItemId) return;
+    try {
+      await this.workItems.applyProcedureOutcome(tenantId, workItemId, kind, { instanceCode });
+    } catch (error) {
+      if (!(error instanceof WorkspaceError) || error instanceof WorkspaceSchemaNotReadyError) throw error;
     }
   }
 
@@ -276,6 +337,7 @@ export class WorkspaceProcedureEvents {
           instanceStatus: request.instanceStatus,
         },
       );
+      await this.applyToWorkItem(tenantId, item.id, 'started', request.instanceCode);
       if (draft.estimatedCost !== undefined) {
         // Chi phí ghi qua đúng luật tài chính; người không có quyền thì bỏ qua
         // phần chi phí, công việc và liên kết vẫn giữ.
@@ -392,6 +454,17 @@ export class WorkspaceProcedureEvents {
     );
     const workItemId = reference?.entityType === 'work_item' ? reference.entityId : deleted.workItemId;
     if (!workItemId) return;
+    const mode = (await loadProcedureLinkSettings(this.store, tenantId)).onInstanceDeleted;
+    if (mode !== 'delete_item') {
+      // Giữ công việc: gỡ liên kết với hồ sơ đã xoá (không để liên kết treo); `cancel_item` thì huỷ thêm công việc.
+      if (reference?.entityType === 'work_item') await this.store.externalRef.remove(tenantId, reference.id);
+      // Không còn hồ sơ nào: công việc thôi là việc chạy theo quy trình, để "Nhập tay tiến độ" không còn bị chặn.
+      await this.store.procedureRequest.revertToManual(tenantId, workItemId);
+      if (mode === 'cancel_item') {
+        await this.applyToWorkItem(tenantId, workItemId, 'deleted', deleted.instanceCode);
+      }
+      return;
+    }
     await this.deletion.removeForProcedure(tenantId, workItemId, {
       instanceId: deleted.instanceId,
       removedBy: deleted.deletedBy,
@@ -557,6 +630,7 @@ export class WorkspaceProcedureEvents {
       });
     }
 
+    await this.applyToWorkItem(tenantId, created.id, 'started', request.instanceCode);
     await this.store.integration.emit(tenantId, {
       type: WORK_ITEM_PROCEDURE_LINKED,
       aggregateType: 'workspace-work-item',

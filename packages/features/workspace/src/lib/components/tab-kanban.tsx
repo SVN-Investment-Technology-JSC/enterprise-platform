@@ -17,6 +17,7 @@ import {
   workItemStatusKeys,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { BlockedReasonMark } from './blocked-reason-dialog';
 import { useDirectory } from './use-directory';
 
@@ -123,11 +124,7 @@ export function TabKanban({
 
   return (
     <div className={styles.tabBody}>
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
       <div
         className={styles.kanban}
         // Kéo thẻ sát mép trái/phải thì bảng tự cuộn ngang, để thả được vào
