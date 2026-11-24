@@ -22,6 +22,7 @@ import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-o
 import * as api from '../workspace-api';
 import { CONTRACT_STATUS_LABELS, CONTRACT_STATUS_TONE, formatDate } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
 import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
@@ -395,11 +396,7 @@ export function CustomersView({
           <p className={styles.muted}>Đang tải khách hàng…</p>
         ) : detail ? (
           <div className={styles.taskDetail}>
-            {error ? (
-              <p role="alert" className={styles.alert}>
-                {error}
-              </p>
-            ) : null}
+            <ErrorToast message={error} />
 
             <header className={styles.panelHeadRow}>
               <div>

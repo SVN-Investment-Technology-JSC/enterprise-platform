@@ -5,6 +5,7 @@ import { Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Tooltip } from './tooltip';
 import { Dialog, Field } from './dialog';
 import { tagColor, useTags } from './use-tags';
@@ -57,11 +58,7 @@ export function TagSettings() {
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       {!tags.loaded ? (
         <p className={styles.muted}>Đang tải nhãn…</p>

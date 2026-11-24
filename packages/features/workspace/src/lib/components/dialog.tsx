@@ -1,6 +1,7 @@
 'use client';
 
 import { useAssistantEmbed } from '@enterprise-platform/feature-module-shell';
+import { toast } from '@enterprise-platform/shared-ui';
 import { X } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -79,6 +80,13 @@ export function Dialog({
 
   useEffect(() => setMounted(true), []);
 
+  // Lỗi của lần gửi hiện bằng toast (không chèn vào form làm lệch bố cục). Chạy lại mỗi khi một lần gửi kết thúc
+  // mà vẫn còn lỗi, nên cùng một thông báo bấm lại vẫn hiện lại. Form nhúng trong card Trợ lý giữ khung lỗi tại chỗ.
+  useEffect(() => {
+    if (!open || embedded || submitting || !error) return;
+    toast.error(error);
+  }, [open, embedded, submitting, error]);
+
   useEffect(() => {
     if (!open) return;
     setDirty(false);
@@ -134,7 +142,7 @@ export function Dialog({
     >
       <div className={styles.dialogScroll}>
         {children}
-        {error ? (
+        {error && embedded ? (
           <p role="alert" className={styles.alert}>
             {error}
           </p>

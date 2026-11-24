@@ -53,6 +53,7 @@ import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../pro
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { BlockedReasonNotice, useBlockedReasonPrompt } from './blocked-reason-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
@@ -1220,11 +1221,7 @@ export function ProjectsView({
         />
       ) : null}
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       {listLoaded && !openId ? (
         <div className={styles.emptyState}>

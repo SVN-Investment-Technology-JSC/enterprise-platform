@@ -30,6 +30,7 @@ import { toast } from '@enterprise-platform/shared-ui';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { ChipButton, ChipSelect, GroupCounts } from './inline-cells';
 import { ProjectProgressBar } from './project-progress-bar';
@@ -705,11 +706,7 @@ export function ProjectsListView({
           </div>
         </header>
 
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
+        <ErrorToast message={error} />
 
         <div className={styles.ledgerScroll}>
           <table

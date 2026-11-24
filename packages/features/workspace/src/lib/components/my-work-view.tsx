@@ -87,8 +87,10 @@ import {
   workItemStatusKeys,
   workItemStatusLabel,
   workItemStatusTone,
+  externalStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import {
   ChipButton,
   ChipSelect,
@@ -673,11 +675,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
         </p>
       ) : null}
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       <div className={styles.myWorkHead}>
         <div className={`${styles.pageHeadCard} ${styles.myWorkHeadCard}`}>
@@ -1138,7 +1136,7 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
                         — {card.workItemTitle}
                       </span>
                       </Tooltip>
-                      <span className={styles.externalStatus}>{card.cachedStatus ?? '—'}</span>
+                      <span className={styles.externalStatus}>{externalStatusLabel(card.cachedStatus) ?? '—'}</span>
                     </li>
                   ))}
                 </ul>

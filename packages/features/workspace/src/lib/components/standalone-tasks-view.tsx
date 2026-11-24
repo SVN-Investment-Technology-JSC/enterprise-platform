@@ -47,6 +47,7 @@ import {
   standaloneTaskStatusTone,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { BlockedReasonNotice, useBlockedReasonPrompt } from './blocked-reason-dialog';
 import { Choice } from './choice';
 import { ReverseStandaloneTaskDialog } from './reverse-standalone-task-dialog';
@@ -332,11 +333,7 @@ export function StandaloneTasksView({
           />
         </div>
 
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
+        <ErrorToast message={error} />
 
         <ul className={styles.taskList}>
           {visible.map(({ task, parent }) => (
@@ -902,11 +899,7 @@ function TaskDetail({
           Bị trả lại ({formatDateTime(lastReturn.createdAt)}): {lastReturn.note}
         </p>
       ) : null}
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       <section className={styles.panel} aria-label="Thông tin công việc">
       <h3>Thông tin</h3>

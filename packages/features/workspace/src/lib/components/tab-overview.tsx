@@ -16,8 +16,10 @@ import {
   ITEM_TYPE_LABELS,
   formatDate,
   workItemStatusLabel,
+  externalStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
@@ -206,7 +208,7 @@ export function TabOverview({
               {ref.cachedLabel && ref.externalCode ? `— ${ref.cachedLabel}` : ''}
             </span>
             <span className={styles.memberRole}>
-              {ref.cachedStatus ?? '—'}
+              {externalStatusLabel(ref.cachedStatus) ?? '—'}
               {ref.syncedAt ? ` · cập nhật ${formatDate(ref.syncedAt.slice(0, 10))}` : ''}
               {canUnlinkRefs && onUnlinkRef ? (
                 <>
@@ -556,7 +558,7 @@ function DependencyPanel({
           </Button>
         </div>
       ) : null}
-      {error ? <p className={styles.alert}>{error}</p> : null}
+      <ErrorToast message={error} />
     </Wrapper>
   );
 }

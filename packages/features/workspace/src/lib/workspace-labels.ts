@@ -350,6 +350,24 @@ export const STANDALONE_TASK_PROCEDURE_STATUS_LABELS: Record<StandaloneTaskProce
   cancelled: 'Hồ sơ đã huỷ',
 };
 
+/** Trạng thái hồ sơ quy trình của module Quy trình (lưu nguyên văn trong `cachedStatus`) sang chữ hiển thị. */
+const EXTERNAL_PROCEDURE_STATUS_LABELS: Record<string, string> = {
+  running: 'Hồ sơ đang chạy',
+  completed: 'Hồ sơ đã hoàn tất',
+  rejected: 'Hồ sơ bị từ chối',
+  cancelled: 'Hồ sơ đã huỷ',
+  reversed: 'Hồ sơ đã huỷ hiệu lực',
+  pending: 'Đang mở hồ sơ',
+  started: 'Hồ sơ đang chạy',
+  start_rejected: 'Không mở được hồ sơ',
+};
+
+/** Chữ tường minh cho trạng thái lưu tạm của liên kết ngoài; trạng thái lạ giữ nguyên để không mất thông tin. */
+export function externalStatusLabel(status: string | undefined | null): string | undefined {
+  if (!status) return undefined;
+  return EXTERNAL_PROCEDURE_STATUS_LABELS[status] ?? status;
+}
+
 /** Ba ngăn của trang "Công việc ngoài dự án". */
 export const STANDALONE_TASK_SCOPE_LABELS: Record<StandaloneTaskScope, string> = {
   assigned_to_me: 'Giao cho tôi',

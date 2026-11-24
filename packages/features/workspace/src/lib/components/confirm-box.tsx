@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 
 export interface ConfirmBoxProps {
   readonly open: boolean;
@@ -87,11 +88,7 @@ export function ConfirmBox({
         <h3>{title}</h3>
         {message ? <div className={styles.confirmMessage}>{message}</div> : null}
         {children}
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
+        <ErrorToast message={error} />
         <div className={styles.confirmActions}>
           <button type="button" className={styles.buttonGhost} autoFocus disabled={busy} onClick={onCancel}>
             {cancelLabel}

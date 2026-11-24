@@ -26,6 +26,7 @@ import {
   priorityKeys,
   priorityLabel,
   workItemStatusKeys,
+  externalStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { BlockedReasonMark } from './blocked-reason-dialog';
@@ -916,7 +917,7 @@ function TabWorkImpl({
                             return (
 <td key="process" className={styles.wbsColProcess}>
                         {procedure ? (
-                          <Tooltip content={procedure.cachedStatus ?? undefined}>
+                          <Tooltip content={externalStatusLabel(procedure.cachedStatus)}>
                             <a
                               className={styles.wbsProcedure}
                               href={procedure.launchUrl}

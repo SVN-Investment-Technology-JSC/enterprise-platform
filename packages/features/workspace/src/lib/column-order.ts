@@ -210,13 +210,13 @@ export function sanitizeColumnWidths(
 }
 
 /**
- * Kiểu của `<table>` khi mọi cột hiện đã có độ rộng tường minh: bố cục cố định, tổng bề ngang bằng tổng các cột (bảng
- * rộng hơn khung thì khung cuộn ngang). Trả `undefined` khi chưa tuỳ chỉnh hoặc còn cột chưa có số đo.
+ * Kiểu của `<table>` khi mọi cột hiện đã có độ rộng tường minh: bố cục cố định, tổng bề ngang tối thiểu bằng tổng các cột (bảng
+ * rộng hơn khung thì khung cuộn ngang; khung rộng hơn thì cột cuối giãn ra lấp chỗ trống, xem `.columnsResized`). Trả `undefined` khi chưa tuỳ chỉnh hoặc còn cột chưa có số đo.
  */
 export function explicitTableStyle(
   visibleIds: readonly string[],
   widths: Readonly<Record<string, number>> | undefined,
-): { tableLayout: 'fixed'; width: number; minWidth: number } | undefined {
+): { tableLayout: 'fixed'; width: '100%'; minWidth: number } | undefined {
   if (!widths) return undefined;
   let total = 0;
   for (const id of visibleIds) {
@@ -224,7 +224,7 @@ export function explicitTableStyle(
     if (width === undefined) return undefined;
     total += width;
   }
-  return { tableLayout: 'fixed', width: total, minWidth: total };
+  return { tableLayout: 'fixed', width: '100%', minWidth: total };
 }
 
 const widthKey = (tableKey: string, userId: string | undefined) =>

@@ -62,6 +62,7 @@ import {
 import * as api from '../workspace-api';
 import { formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { ChatAttachments, UNKNOWN_ATTACHMENT_NAME } from './chat-attachments';
 import { Choice } from './choice';
 import { UploadDialog } from './document-panel';
@@ -716,11 +717,7 @@ export function ChatDrawer({
         ) : null}
       </p>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
       {notice ? (
         <p role="status" className={styles.notice}>
           {notice}

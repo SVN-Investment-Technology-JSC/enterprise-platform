@@ -129,7 +129,7 @@ describe('độ rộng cột', () => {
     expect(explicitTableStyle(['a', 'b'], { a: 100 })).toBeUndefined();
     expect(explicitTableStyle(['a', 'b'], { a: 100, b: 50, c: 999 })).toEqual({
       tableLayout: 'fixed',
-      width: 150,
+      width: '100%',
       minWidth: 150,
     });
   });

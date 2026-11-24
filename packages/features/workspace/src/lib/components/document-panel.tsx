@@ -40,6 +40,7 @@ import {
 import * as api from '../workspace-api';
 import { formatDate, formatDateTime } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { FilePicker } from './file-picker';
 import { Choice } from './choice';
 import { useFillViewportHeight } from './use-fill-viewport';
@@ -1193,11 +1194,7 @@ export function DocumentPanel({
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       <div
         ref={inlineList ? undefined : listRef}

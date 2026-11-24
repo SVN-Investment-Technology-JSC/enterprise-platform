@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import { applyLabelSettings, toneOfColor } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Tooltip } from './tooltip';
 
 /** Màu chọn nhanh cho trạng thái và mức ưu tiên; gồm cả các màu mặc định. */
@@ -136,11 +137,7 @@ export function LabelSettings() {
         onChange={(next) => setGroup('priorities', next)}
       />
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
       {notice ? (
         <p role="status" className={styles.notice}>
           {notice}
