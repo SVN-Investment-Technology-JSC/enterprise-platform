@@ -339,7 +339,7 @@ export function WorkspaceBoard({
   // Mở thẳng một hồ sơ qua đường dẫn (`#workspace/<mã hồ sơ>`, như link từ Công việc): hồ sơ có thể nằm ngoài tab đang xem
   // (đã hoàn tất, đã huỷ...) hay bị bộ lọc loại, nên đưa bộ lọc về đúng tab của hồ sơ đó, bỏ các lọc phụ, rồi nhảy tới trang
   // chứa nó. Chỉ làm một lần cho mỗi mã hồ sơ để không giành quyền với người đang tự lọc.
-  const deepLinked = useRef<string>();
+  const deepLinked = useRef<string | undefined>(undefined);
   const [jumpToPageOf, setJumpToPageOf] = useState<string>();
   useEffect(() => {
     if (!initialInstanceId || deepLinked.current === initialInstanceId) return;
