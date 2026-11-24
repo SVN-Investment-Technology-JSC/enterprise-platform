@@ -23,11 +23,9 @@ import type {
   WorkItemProcedureRequest,
 } from '@enterprise-platform/contracts-workspace';
 import {
-  DEFAULT_PROCEDURE_LINK_SETTINGS,
   DEFAULT_ROLE_PERMISSIONS,
   PROJECT_PERMISSIONS,
   WORK_ITEM_STATUS_TRANSITIONS,
-  type ProcedureLinkSettings,
   type ProjectPermission,
   type SystemProjectRole,
 } from '@enterprise-platform/contracts-workspace';
@@ -93,6 +91,8 @@ import { ChecklistPanel } from './checklist-panel';
 import { canEditChecklist, canShowChecklist } from '../checklist-access';
 import { WorkItemForm } from './work-item-form';
 import { procedureChangeBlockReason } from '../procedure-change';
+import { changeProcedureGateReason, startProcedureGateReason } from '../procedure-link-gate';
+import { loadProcedureLinkSettings, useProcedureLinkSettings } from '../use-procedure-link-settings';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
 /**
@@ -276,6 +276,8 @@ export function ProjectsView({
   /** Thư mục tài liệu của dự án, để khung trao đổi tải tệp mới lên được. */
   const [projectFolders, setProjectFolders] = useState<readonly DocumentFolder[]>([]);
   const [startableProcedures, setStartableProcedures] = useState<readonly ProcedureOption[]>([]);
+  /** Cài đặt "Công việc gắn quy trình": quyết định nút Tạo / Đổi quy trình mờ hay sáng theo trạng thái công việc. */
+  const procedureLinkSettings = useProcedureLinkSettings();
   /** Hồ sơ quy trình của công việc đang chọn, đã đọc tiến độ từ module Quy trình. */
   const [procedureView, setProcedureView] = useState<ProcedureInstanceView>();
   const [retryFor, setRetryFor] = useState<WorkItem>();
@@ -816,7 +818,6 @@ export function ProjectsView({
    * khác trong mã nguồn này. Ghi đè chỉ áp cho **việc lá**: việc có con lấy
    * tiến độ bằng cách cuộn từ con lên, hai nguồn ghi vào một chỗ sẽ đá nhau.
    */
-  const progressPullSettingsRef = useRef<Promise<ProcedureLinkSettings> | undefined>(undefined);
   useEffect(() => {
     if (!selectedItem || !procedureRef) {
       setProcedureView(undefined);
@@ -828,12 +829,8 @@ export function ProjectsView({
       setProcedureView(instance);
       const hasChildren = (detail?.items ?? []).some((item) => item.parentId === selectedItem.id);
       if (hasChildren || !canWrite) return;
-      // Cài đặt "Công việc gắn quy trình" của tenant quyết định có ghi không; tải một lần mỗi lần mở trang.
-      progressPullSettingsRef.current ??= api
-        .loadProjectArchiveSettings()
-        .then((loaded) => ({ ...DEFAULT_PROCEDURE_LINK_SETTINGS, ...loaded.procedureLink }))
-        .catch(() => DEFAULT_PROCEDURE_LINK_SETTINGS);
-      const pullSettings = await progressPullSettingsRef.current;
+      // Cài đặt "Công việc gắn quy trình" của tenant quyết định có ghi không (bản nhớ dùng chung với các nút Quy trình).
+      const pullSettings = await loadProcedureLinkSettings();
       if (!alive) return;
       const nextProgress = procedureProgressToWrite(selectedItem, instance.progressPercent, pullSettings);
       if (nextProgress === undefined) return;
@@ -1515,9 +1512,13 @@ export function ProjectsView({
             procedureDefinitionId={
               detail.procedureRequests.find((request) => request.workItemId === selectedItem.id)?.definitionId
             }
-            procedureChangeBlockReason={procedureChangeBlockReason(
-              procedureView && procedureView.id === procedureRef?.externalId ? procedureView : undefined,
-            )}
+            procedureStartBlockReason={startProcedureGateReason(procedureLinkSettings, selectedItem.status)}
+            procedureChangeBlockReason={
+              changeProcedureGateReason(procedureLinkSettings, selectedItem.status) ??
+              procedureChangeBlockReason(
+                procedureView && procedureView.id === procedureRef?.externalId ? procedureView : undefined,
+              )
+            }
             onChangeProcedure={(definitionId) => changeProcedure(selectedItem, definitionId)}
           />
           {selectedItem.status === 'blocked' && !selectedItem.reversal ? (

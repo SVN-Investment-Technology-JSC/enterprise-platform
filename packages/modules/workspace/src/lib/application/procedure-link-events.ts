@@ -32,7 +32,7 @@ import {
   WorkspaceValidationError,
 } from '../domain/workspace.error.js';
 import type { ProcedureOutcomeKind } from '../domain/procedure-outcome.rules.js';
-import { loadProcedureLinkSettings } from './procedure-link-settings.js';
+import { loadProcedureLinkSettings, parentProcedureWaitRules } from './procedure-link-settings.js';
 import type { DocumentService } from './document.service.js';
 import type { FinanceService } from './finance.service.js';
 import type { ProjectService } from './project.service.js';
@@ -142,6 +142,15 @@ export class WorkspaceProcedureEvents {
         started.instanceId,
         started.instanceCode,
       );
+      // Cài đặt "Khi hồ sơ bắt đầu chạy" áp cho cả việc ngoài dự án (sự kiện đến lại thì store không làm gì thêm).
+      if ((await loadProcedureLinkSettings(this.store, tenantId)).onStarted === 'in_progress') {
+        await this.store.standaloneTask.applyProcedureStarted(
+          tenantId,
+          started.taskId,
+          started.instanceCode,
+          todayKey(timezoneOf(tenantId)),
+        );
+      }
     } else if (type === PROCEDURE_STANDALONE_TASK_START_REJECTED) {
       const rejected = payload as ProcedureStandaloneTaskStartRejectedPayload;
       await this.store.standaloneTask.markProcedureStartRejected(
@@ -153,6 +162,8 @@ export class WorkspaceProcedureEvents {
       // Sự kiện chung cho mọi hồ sơ; chỉ hồ sơ mở cho việc ngoài dự án là của Workspace.
       const completed = payload as ProcedureInstanceCompletedPayload;
       if (!completed?.instanceId) return;
+      // Hồ sơ bị thay do "Đổi quy trình": công việc đang gắn hồ sơ mới, kết quả huỷ của hồ sơ cũ không áp.
+      if (completed.replacedByInstanceId) return;
       const outcome =
         completed.status === 'completed'
           ? 'completed'
@@ -180,7 +191,26 @@ export class WorkspaceProcedureEvents {
         completed.instanceId,
       );
       if (reference?.entityType !== 'work_item') return;
+      // Ghi trạng thái kết thúc lên liên kết ngoài trước khi đánh giá lại: luật "cha chờ hồ sơ" coi
+      // `cached_status = completed` là hồ sơ đã hoàn tất, và giá trị này lấy từ chính sự kiện này (không phải từ lần
+      // đồng bộ nhãn). Hồ sơ bị từ chối / huỷ cũng được ghi (rejected / cancelled) nhưng không tính là hoàn tất.
+      await this.store.externalRef.refreshCache(tenantId, [{ id: reference.id, cachedStatus: completed.status }]);
       await this.applyToWorkItem(tenantId, reference.entityId, outcome, completed.instanceCode);
+      // Hoàn tất luôn đánh giá lại (cha đang chờ có thể đóng được); từ chối / hủy chỉ khi cài đặt cho cha thôi chờ.
+      // Đánh giá lại là idempotent: giao lại sự kiện không đổi thêm gì.
+      const reevaluate =
+        outcome === 'completed' ||
+        parentProcedureWaitRules(await loadProcedureLinkSettings(this.store, tenantId)).stopWaitingWhenProcedureFailed;
+      if (reevaluate) await this.reevaluateParents(tenantId, reference.entityId);
+    }
+  }
+
+  /** Đánh giá lại việc cha chờ hồ sơ; lỗi nghiệp vụ không làm kẹt hàng chờ, lỗi hạ tầng thì ném để thử lại. */
+  private async reevaluateParents(tenantId: string, workItemId: string): Promise<void> {
+    try {
+      await this.workItems.reevaluateAfterProcedureCompleted(tenantId, workItemId);
+    } catch (error) {
+      if (!(error instanceof WorkspaceError) || error instanceof WorkspaceSchemaNotReadyError) throw error;
     }
   }
 
@@ -428,6 +458,8 @@ export class WorkspaceProcedureEvents {
     if (mode !== 'delete_item') {
       // Giữ công việc: gỡ liên kết với hồ sơ đã xoá (không để liên kết treo); `cancel_item` thì huỷ thêm công việc.
       if (reference?.entityType === 'work_item') await this.store.externalRef.remove(tenantId, reference.id);
+      // Không còn hồ sơ nào: công việc thôi là việc chạy theo quy trình, để "Nhập tay tiến độ" không còn bị chặn.
+      await this.store.procedureRequest.revertToManual(tenantId, workItemId);
       if (mode === 'cancel_item') {
         await this.applyToWorkItem(tenantId, workItemId, 'deleted', deleted.instanceCode);
       }

@@ -336,6 +336,26 @@ export function WorkspaceBoard({
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string>();
   useEffect(() => { if (initialInstanceId) setSelectedId(initialInstanceId); }, [initialInstanceId]);
+  // Mở thẳng một hồ sơ qua đường dẫn (`#workspace/<mã hồ sơ>`, như link từ Công việc): hồ sơ có thể nằm ngoài tab đang xem
+  // (đã hoàn tất, đã huỷ...) hay bị bộ lọc loại, nên đưa bộ lọc về đúng tab của hồ sơ đó, bỏ các lọc phụ, rồi nhảy tới trang
+  // chứa nó. Chỉ làm một lần cho mỗi mã hồ sơ để không giành quyền với người đang tự lọc.
+  const deepLinked = useRef<string>();
+  const [jumpToPageOf, setJumpToPageOf] = useState<string>();
+  useEffect(() => {
+    if (!initialInstanceId || deepLinked.current === initialInstanceId) return;
+    const target = instances.find((instance) => instance.id === initialInstanceId);
+    if (!target) return;
+    deepLinked.current = initialInstanceId;
+    setFilter((current) =>
+      current === 'all' || current === target.status ? current : (target.status as Filter),
+    );
+    setSource('all');
+    setSlaFilter('all');
+    setFrom('');
+    setTo('');
+    setQuery('');
+    setJumpToPageOf(initialInstanceId);
+  }, [initialInstanceId, instances]);
   // Trao đổi, tệp và nhật ký mở thành tab ngay trong khung chi tiết.
   const [detailTab, setDetailTab] = useState<'flow' | 'chat' | 'files' | 'history'>('flow');
   const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
@@ -393,6 +413,13 @@ export function WorkspaceBoard({
   }, [filter, instances, query, source, slaFilter, from, to, dateSort]);
 
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+  useEffect(() => {
+    if (!jumpToPageOf) return;
+    const index = visible.findIndex((instance) => instance.id === jumpToPageOf);
+    if (index < 0) return;
+    setPage(Math.floor(index / pageSize) + 1);
+    setJumpToPageOf(undefined);
+  }, [jumpToPageOf, visible, pageSize]);
   const currentPage = Math.min(page, pageCount);
   const paged = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 

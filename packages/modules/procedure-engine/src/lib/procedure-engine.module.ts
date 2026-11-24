@@ -8,6 +8,8 @@ import {
   type FinanceIntegrationResolver,
 } from './application/finance-integration.port.js';
 import { HttpFinanceIntegrationResolver } from './infrastructure/http-finance-integration.resolver.js';
+import { WORKSPACE_LINK_SETTINGS, type WorkspaceLinkSettingsReader } from './application/workspace-link-settings.port.js';
+import { HttpWorkspaceLinkSettingsReader } from './infrastructure/http-workspace-link-settings.reader.js';
 import { Module } from '@nestjs/common';
 import { PostgresPoolRegistry, TenantDatabaseRegistry } from '@enterprise-platform/adapter-database';
 import { ProcedureEngineApplication } from './application/procedure-engine.application.js';
@@ -55,9 +57,12 @@ import { ProcedureTaskApprovalService } from './application/procedure-task-appro
     },
     {
       provide: ProcedureAttachmentService,
-      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
-        new ProcedureAttachmentService(references, pools),
-      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+      useFactory: (
+        references: TenantDatabaseRegistry,
+        pools: PostgresPoolRegistry,
+        workspaceLinkSettings: WorkspaceLinkSettingsReader,
+      ) => new ProcedureAttachmentService(references, pools, undefined, workspaceLinkSettings),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry, WORKSPACE_LINK_SETTINGS],
     },
     {
       provide: PROCEDURE_STORE,
@@ -86,6 +91,11 @@ import { ProcedureTaskApprovalService } from './application/procedure-task-appro
       useFactory: () => new HttpFinanceIntegrationResolver(),
     },
     {
+      // Một thực thể dùng chung: cache 30 giây nằm trong nó.
+      provide: WORKSPACE_LINK_SETTINGS,
+      useFactory: () => new HttpWorkspaceLinkSettingsReader(),
+    },
+    {
       provide: ProcedureEngineApplication,
       useFactory: (
         store: ProcedureStore,
@@ -97,6 +107,7 @@ import { ProcedureTaskApprovalService } from './application/procedure-task-appro
         initiatorActors: InitiatorActorResolver,
         reversalGuard: InstanceReversalGuard,
         financeIntegration: FinanceIntegrationResolver,
+        workspaceLinkSettings: WorkspaceLinkSettingsReader,
       ) =>
         new ProcedureEngineApplication(
           store,
@@ -108,6 +119,7 @@ import { ProcedureTaskApprovalService } from './application/procedure-task-appro
           initiatorActors,
           reversalGuard,
           financeIntegration,
+          workspaceLinkSettings,
         ),
       inject: [
         PROCEDURE_STORE,
@@ -119,6 +131,7 @@ import { ProcedureTaskApprovalService } from './application/procedure-task-appro
         INITIATOR_ACTOR_RESOLVER,
         INSTANCE_REVERSAL_GUARD,
         FINANCE_INTEGRATION_RESOLVER,
+        WORKSPACE_LINK_SETTINGS,
       ],
     },
   ],

@@ -113,7 +113,8 @@ import { expectedProgress } from '../domain/progress.rules.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { standaloneTaskChanges, workItemChanges } from '../domain/work-item-changes.js';
 import {
-  PROCEDURE_LAUNCH_URL,
+  procedureLaunchUrl,
+  resolveLaunchUrl,
   STANDALONE_TASK_PROCEDURE_REQUESTED,
   STANDALONE_TASK_REVERSED,
   WORK_ITEM_PROCEDURE_LINKED,
@@ -222,7 +223,7 @@ function mapProjectRequest(row: Row): ProjectRequest {
     status: str(row.status) as ProjectRequestStatus,
     procedureInstanceId: opt(row.procedure_instance_id),
     procedureInstanceCode: opt(row.procedure_instance_code),
-    launchUrl: opt(row.launch_url),
+    launchUrl: row.launch_url == null ? undefined : resolveLaunchUrl('procedure-engine', opt(row.procedure_instance_id), str(row.launch_url)),
     submittedAt: iso(row.submitted_at),
     statusChangedAt: row.status_changed_at == null ? undefined : iso(row.status_changed_at),
     linkedViaKind: opt(row.linked_via_kind),
@@ -657,7 +658,7 @@ function mapExternalRef(row: Row): ExternalReference {
     moduleKey: str(row.module_key) as ExternalModuleKey,
     externalId: str(row.external_id),
     externalCode: opt(row.external_code),
-    launchUrl: str(row.launch_url),
+    launchUrl: resolveLaunchUrl(str(row.module_key), opt(row.external_id), str(row.launch_url)),
     cachedLabel: opt(row.cached_label),
     cachedStatus: opt(row.cached_status),
     syncedAt: row.synced_at == null ? undefined : iso(row.synced_at),
@@ -1449,12 +1450,28 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
                 weight, planned_start, planned_end, progress_method, equal_child_weight,
                 (completion_rule <> 'none' AND EXISTS (
                    SELECT 1 FROM workspace_schema.work_item_completion_conditions c
-                    WHERE c.work_item_id = work_items.id)) AS requires_confirmation
-           FROM workspace_schema.work_items WHERE project_id = $1`,
+                    WHERE c.work_item_id = work_items.id)) AS requires_confirmation,
+                -- Tình trạng hồ sơ gắn: căn cứ cached_status do sự kiện hồ sơ kết thúc ghi, chỉ dùng cho luật chờ hồ sơ của cha.
+                CASE
+                  WHEN NOT EXISTS (SELECT 1 FROM workspace_schema.external_references r
+                                WHERE r.entity_type = 'work_item' AND r.entity_id = work_items.id
+                                  AND r.module_key = 'procedure-engine') THEN 'none'
+                  WHEN EXISTS (SELECT 1 FROM workspace_schema.external_references r
+                                WHERE r.entity_type = 'work_item' AND r.entity_id = work_items.id
+                                  AND r.module_key = 'procedure-engine'
+                                  AND COALESCE(r.cached_status, '') NOT IN ('completed', 'rejected', 'cancelled')) THEN 'running'
+                  WHEN EXISTS (SELECT 1 FROM workspace_schema.external_references r
+                                WHERE r.entity_type = 'work_item' AND r.entity_id = work_items.id
+                                  AND r.module_key = 'procedure-engine'
+                                  AND r.cached_status IN ('rejected', 'cancelled')) THEN 'failed'
+                  ELSE 'completed'
+                END AS procedure_state
+            FROM workspace_schema.work_items WHERE project_id = $1`,
         [projectId],
       );
       return result.rows.map((row) => ({
         requiresConfirmation: row.requires_confirmation === true,
+        procedureState: str(row.procedure_state) as WorkItemProgressRow['procedureState'],
         id: str(row.id),
         parentId: row.parent_id == null ? null : str(row.parent_id),
         status: str(row.status) as WorkItemStatus,
@@ -1720,7 +1737,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             moduleKey: 'procedure-engine',
             externalId: linked.instanceId,
             externalCode: linked.instanceCode,
-            launchUrl: PROCEDURE_LAUNCH_URL,
+            launchUrl: procedureLaunchUrl(linked.instanceId),
             cachedLabel: null,
             cachedStatus: linked.instanceStatus,
           });
@@ -3794,7 +3811,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       // `cached_status` KHÔNG được dùng làm căn cứ cho quyết định nghiệp vụ.
       const result = await pool.query<Row>(
         `SELECT r.id, r.entity_id AS work_item_id, w.title AS work_item_title,
-                r.module_key, r.external_code, r.launch_url,
+                r.module_key, r.external_id, r.external_code, r.launch_url,
                 r.cached_label, r.cached_status, r.synced_at
            FROM workspace_schema.external_references r
            JOIN workspace_schema.work_items w ON w.id = r.entity_id
@@ -3811,7 +3828,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
         workItemTitle: str(row.work_item_title),
         moduleKey: str(row.module_key),
         externalCode: opt(row.external_code),
-        launchUrl: str(row.launch_url),
+        launchUrl: resolveLaunchUrl(str(row.module_key), opt(row.external_id), str(row.launch_url)),
         cachedLabel: opt(row.cached_label),
         cachedStatus: opt(row.cached_status),
         syncedAt: row.synced_at == null ? undefined : iso(row.synced_at),
@@ -4406,7 +4423,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           moduleKey: 'procedure-engine',
           externalId: input.instanceId,
           externalCode: input.instanceCode,
-          launchUrl: PROCEDURE_LAUNCH_URL,
+          launchUrl: procedureLaunchUrl(input.instanceId),
           cachedLabel: input.title,
           cachedStatus: input.status,
         });
@@ -4417,6 +4434,16 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           [input.workItemId, input.instanceId],
         );
       });
+    },
+
+    revertToManual: async (tenantId: string, workItemId: string) => {
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `UPDATE workspace_schema.work_items
+            SET execution_type = 'manual', updated_at = now()
+          WHERE id = $1 AND execution_type = 'procedure'`,
+        [workItemId],
+      );
     },
 
     replaceStarted: async (
@@ -4455,7 +4482,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           moduleKey: 'procedure-engine',
           externalId: input.instanceId,
           externalCode: input.instanceCode,
-          launchUrl: PROCEDURE_LAUNCH_URL,
+          launchUrl: procedureLaunchUrl(input.instanceId),
           cachedLabel: input.title,
           cachedStatus: input.status,
         });
@@ -5631,6 +5658,37 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             AND procedure_status IN ('pending','start_rejected')`,
         [taskId, instanceId, instanceCode],
       );
+    },
+
+    applyProcedureStarted: async (
+      tenantId: string,
+      taskId: string,
+      instanceCode: string,
+      today: string,
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        const found = await client.query<Row>(
+          `SELECT id FROM workspace_schema.standalone_tasks
+            WHERE id = $1 AND execution_type = 'procedure' AND status = 'todo'
+            FOR UPDATE`,
+          [taskId],
+        );
+        if (!found.rows[0]) return;
+        const note = `Hồ sơ quy trình ${instanceCode} đã bắt đầu chạy.`;
+        const moved = await setStandaloneStatus(
+          client,
+          taskId,
+          STANDALONE_TASK_SYSTEM_ACTOR_ID,
+          'todo',
+          'in_progress',
+          note,
+          today,
+        );
+        if (!moved) return;
+        const event = statusEvent(moved, STANDALONE_TASK_SYSTEM_ACTOR_ID, 'todo', 'in_progress', note);
+        if (event) await writeOutbox(client, tenantId, event);
+      });
     },
 
     markProcedureStartRejected: async (tenantId: string, taskId: string, reason: string) => {

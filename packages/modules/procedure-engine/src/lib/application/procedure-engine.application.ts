@@ -37,6 +37,8 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
   canDeleteProcedureInstance,
+  isWorkspaceLinkedInstance,
+  type ProcedureDeleteLinkedMode,
   canRelinkProcedureWorkspace,
   deriveProcedureAuthorization,
   evaluateFinanceStepActor,
@@ -113,7 +115,21 @@ import {
   normalizeProcedureSetting,
 } from './procedure-settings.js';
 import { computeSlaDueAt } from '@enterprise-platform/contracts-procedure-engine';
-import { REPLACE_REASON_ATTACHMENTS, REPLACE_REASON_ENDED, replaceableInstanceReason } from '../domain/procedure-replace.js';
+import type { WorkspaceLinkSettingsReader } from './workspace-link-settings.port.js';
+import {
+  DEFAULT_PROCEDURE_ENGINE_SETTINGS,
+  normalizeProcedureEngineSettings,
+  type ProcedureEngineSettings,
+} from './workspace-link-settings.js';
+import {
+  REPLACE_REASON_ATTACHMENTS,
+  REPLACE_REASON_DISABLED,
+  REPLACE_REASON_ENDED,
+  replaceableInstanceReason,
+} from '../domain/procedure-replace.js';
+
+/** Lý do mặc định khi cài đặt `engineReasonRequired = optional` và người dùng để trống. */
+const NO_REASON_GIVEN = 'Không ghi lý do.';
 import {
   standaloneTaskIdempotencyKey,
   workItemIdempotencyKey,
@@ -263,7 +279,27 @@ export class ProcedureEngineApplication {
      * có bước Tài chính KHÔNG công bố được — không ai xác nhận Tài chính nhận phiếu.
      */
     private readonly financeIntegration?: FinanceIntegrationResolver,
+    /**
+     * Cài đặt "Công việc gắn quy trình" của tenant, đọc từ Workspace. Vắng mặt (test, InMemory) thì dùng mặc định
+     * == hành vi cũ. Gọi NGOÀI `store.transaction`.
+     */
+    private readonly workspaceLinkSettings?: WorkspaceLinkSettingsReader,
   ) {}
+
+  /** Cài đặt gần nhất đọc được của từng tenant, cho chỗ đồng bộ chỉ cần gợi ý giao diện (`withAuthorization`). */
+  private readonly lastLinkSettings = new Map<string, ProcedureEngineSettings>();
+
+  /** Cài đặt engine* hiệu lực của tenant; không bao giờ ném lỗi, lỗi thì mặc định. */
+  async getProcedureLinkSettings(tenantId: string): Promise<ProcedureEngineSettings> {
+    if (!this.workspaceLinkSettings) return DEFAULT_PROCEDURE_ENGINE_SETTINGS;
+    try {
+      const settings = normalizeProcedureEngineSettings(await this.workspaceLinkSettings.get(tenantId));
+      this.lastLinkSettings.set(tenantId, settings);
+      return settings;
+    } catch {
+      return DEFAULT_PROCEDURE_ENGINE_SETTINGS;
+    }
+  }
 
   /**
    * Đọc cả cấu hình module. Khoá chưa có dòng trả về mặc định với `version: 0`,
@@ -340,6 +376,10 @@ export class ProcedureEngineApplication {
     // only the current one — so an approver at step 4 can watch it approach while
     // it sits at step 2. Origin does not matter: manual and maintenance-generated
     // work orders appear in the same list.
+    // Làm nóng cài đặt gắn công việc để cờ `canDelete` của hồ sơ gắn Workspace theo đúng cài đặt (chỉ gợi ý UI).
+    if (state.instances.some((instance) => isWorkspaceLinkedInstance(instance))) {
+      await this.getProcedureLinkSettings(actor.tenantId);
+    }
     const visibleInstances = [...state.instances]
       .filter((instance) => isProcedureParticipant(instance, actor))
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
@@ -1132,26 +1172,34 @@ export class ProcedureEngineApplication {
     instanceId: string,
     input?: DeleteProcedureInstanceRequest,
   ): Promise<void> {
-    const reason = input?.reason?.trim() ?? '';
-    if (reason.length < 3) {
+    const snapshot = (await this.store.read(actor.tenantId)).instances;
+    const target = snapshot.find((candidate) => candidate.id === instanceId);
+    // Cài đặt chỉ áp cho hồ sơ gắn Workspace (đọc ngoài transaction).
+    const linked = !!target && isWorkspaceLinkedInstance(target);
+    const linkSettings = linked
+      ? await this.getProcedureLinkSettings(actor.tenantId)
+      : DEFAULT_PROCEDURE_ENGINE_SETTINGS;
+    let reason = input?.reason?.trim() ?? '';
+    const reasonOptional = linked && linkSettings.engineReasonRequired === 'optional';
+    if (!reason && reasonOptional) reason = NO_REASON_GIVEN;
+    if (!reasonOptional && reason.length < 3) {
       throw new ProcedureEngineError('validation', 'Cần ghi lý do xoá đơn (ít nhất 3 ký tự).');
     }
     if (reason.length > 1000) {
       throw new ProcedureEngineError('validation', 'Lý do xoá đơn tối đa 1000 ký tự.');
     }
-    const snapshot = (await this.store.read(actor.tenantId)).instances;
-    const target = snapshot.find((candidate) => candidate.id === instanceId);
     if (!target || !isProcedureParticipant(target, actor)) {
       throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
     }
-    this.assertDeletable(snapshot, target, actor);
+    const deleteMode = linkSettings.engineDeleteLinkedWho;
+    this.assertDeletable(snapshot, target, actor, deleteMode);
 
     let held: string[] = [];
     await this.store.transaction(actor.tenantId, (state) => {
       const instance = state.instances.find((candidate) => candidate.id === instanceId);
       if (!instance || instance.deletion) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
       // Kiểm lại trong transaction: trạng thái hay hồ sơ xin vật tư có thể vừa đổi.
-      this.assertDeletable(state.instances, instance, actor);
+      this.assertDeletable(state.instances, instance, actor, deleteMode);
       const now = this.clock.now().toISOString();
       if (instance.status === 'running') {
         held = instance.steps.flatMap((step) => step.materialReservations ?? []);
@@ -1189,6 +1237,7 @@ export class ProcedureEngineApplication {
     instances: readonly ProcedureInstance[],
     target: ProcedureInstance,
     actor: ProcedureActor,
+    mode: ProcedureDeleteLinkedMode = 'initiator_approver_admin',
   ): void {
     if (target.status === 'completed' || target.status === 'reversed') {
       throw new ProcedureEngineError(
@@ -1196,12 +1245,17 @@ export class ProcedureEngineApplication {
         'Đơn đã hoàn thành không xoá được; dùng "Huỷ hiệu lực" nếu cần hoàn tác.',
       );
     }
-    if (!canDeleteProcedureInstance(target, actor)) {
+    if (!canDeleteProcedureInstance(target, actor, mode)) {
+      const linkedMode = isWorkspaceLinkedInstance(target) ? mode : 'initiator_approver_admin';
       throw new ProcedureEngineError(
         'forbidden',
-        target.initiatedBy === actor.userId
-          ? 'Đơn đã được tham vấn hoặc duyệt (nút C/A), người submit không xoá được nữa; nhờ người phê duyệt (vai A) hoặc quản trị.'
-          : 'Chỉ người phê duyệt (vai A), người submit (khi đơn chưa qua nút C/A) hoặc quản trị mới xoá được đơn.',
+        linkedMode === 'admin_only'
+          ? 'Chỉ quản trị mới xoá được hồ sơ gắn công việc.'
+          : linkedMode === 'approver_admin'
+            ? 'Chỉ người phê duyệt (vai A) hoặc quản trị mới xoá được hồ sơ gắn công việc.'
+            : target.initiatedBy === actor.userId
+              ? 'Đơn đã được tham vấn hoặc duyệt (nút C/A), người submit không xoá được nữa; nhờ người phê duyệt (vai A) hoặc quản trị.'
+              : 'Chỉ người phê duyệt (vai A), người submit (khi đơn chưa qua nút C/A) hoặc quản trị mới xoá được đơn.',
       );
     }
     const children = instances.filter(
@@ -1300,11 +1354,33 @@ export class ProcedureEngineApplication {
     instanceId: string,
     input: ReverseProcedureInstanceRequest,
   ): Promise<ProcedureInstance> {
-    if (!actor.isOverride) {
-      throw new ProcedureEngineError('forbidden', 'Chỉ quản trị mới huỷ hiệu lực được hồ sơ.');
+    // Cài đặt chỉ áp cho hồ sơ gắn Workspace; hồ sơ nguồn khác: chỉ quản trị, lý do bắt buộc.
+    const reversalTarget = (await this.store.read(actor.tenantId)).instances.find(
+      (candidate) => candidate.id === instanceId,
+    );
+    const linked = !!reversalTarget && isWorkspaceLinkedInstance(reversalTarget);
+    const linkSettings = linked
+      ? await this.getProcedureLinkSettings(actor.tenantId)
+      : DEFAULT_PROCEDURE_ENGINE_SETTINGS;
+    if (
+      !actor.isOverride &&
+      !(
+        linkSettings.engineReverseWho === 'admin_or_approver' &&
+        reversalTarget &&
+        holdsProcedureRole(reversalTarget, actor, 'A')
+      )
+    ) {
+      throw new ProcedureEngineError(
+        'forbidden',
+        linkSettings.engineReverseWho === 'admin_or_approver' && linked
+          ? 'Chỉ quản trị hoặc người phê duyệt (vai A) mới huỷ hiệu lực được hồ sơ.'
+          : 'Chỉ quản trị mới huỷ hiệu lực được hồ sơ.',
+      );
     }
-    const reason = input?.reason?.trim() ?? '';
-    if (reason.length < 3) {
+    let reason = input?.reason?.trim() ?? '';
+    const reasonOptional = linked && linkSettings.engineReasonRequired === 'optional';
+    if (!reason && reasonOptional) reason = NO_REASON_GIVEN;
+    if (!reasonOptional && reason.length < 3) {
       throw new ProcedureEngineError('validation', 'Cần ghi lý do huỷ hiệu lực (ít nhất 3 ký tự).');
     }
     if (reason.length > 1000) {
@@ -1406,11 +1482,15 @@ export class ProcedureEngineApplication {
     const target = snapshot.find((candidate) => candidate.id === instanceId);
     if (!target) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
     if (target.status === 'reversed') return target;
-    if (target.status !== 'completed' && target.status !== 'rejected') {
-      throw new ProcedureEngineError(
-        'conflict',
-        'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành hoặc đã từ chối.',
-      );
+    // `completed_only` chỉ áp cho hồ sơ gắn Workspace; hồ sơ nguồn khác giữ luật cũ.
+    const rejectedAllowed =
+      !isWorkspaceLinkedInstance(target) ||
+      (await this.getProcedureLinkSettings(tenantId)).engineReverseStatuses === 'completed_or_rejected';
+    const reversibleStatusMessage = rejectedAllowed
+      ? 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành hoặc đã từ chối.'
+      : 'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành.';
+    if (target.status !== 'completed' && !(target.status === 'rejected' && rejectedAllowed)) {
+      throw new ProcedureEngineError('conflict', reversibleStatusMessage);
     }
     this.assertReversible(snapshot, target);
     // Hỏi module nguồn TRƯỚC khi đổi trạng thái: bên kia từ chối thì bên này
@@ -1421,11 +1501,8 @@ export class ProcedureEngineApplication {
       const instance = state.instances.find((candidate) => candidate.id === instanceId);
       if (!instance) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ.');
       if (instance.status === 'reversed') return instance;
-      if (instance.status !== 'completed' && instance.status !== 'rejected') {
-        throw new ProcedureEngineError(
-          'conflict',
-          'Chỉ huỷ hiệu lực được hồ sơ đã hoàn thành hoặc đã từ chối.',
-        );
+      if (instance.status !== 'completed' && !(instance.status === 'rejected' && rejectedAllowed)) {
+        throw new ProcedureEngineError('conflict', reversibleStatusMessage);
       }
       // Kiểm lại trong transaction: một hồ sơ xin vật tư có thể vừa được mở.
       this.assertReversible(state.instances, instance);
@@ -3369,6 +3446,7 @@ export class ProcedureEngineApplication {
    */
   async getInstance(actor: ProcedureActor, instanceId: string): Promise<ProcedureInstance> {
     const instance = await this.participantInstance(actor, instanceId);
+    if (isWorkspaceLinkedInstance(instance)) await this.getProcedureLinkSettings(actor.tenantId);
     return this.withAuthorization(instance, actor);
   }
 
@@ -3709,7 +3787,11 @@ export class ProcedureEngineApplication {
     return {
       ...instance,
       sourceSummary: instance.sourceSummary ?? null,
-      authorization: deriveProcedureAuthorization(instance, actor),
+      authorization: deriveProcedureAuthorization(
+        instance,
+        actor,
+        this.lastLinkSettings.get(actor.tenantId)?.engineDeleteLinkedWho,
+      ),
     };
   }
 
@@ -3957,13 +4039,17 @@ export class ProcedureEngineApplication {
       readonly requestedByName?: string;
       readonly requestedByIsTenantAdmin: boolean;
     },
+    settings?: ProcedureEngineSettings,
   ): Promise<{ actor: ProcedureActor } | { reason: string }> {
     const resolved = await this.initiatorActors?.resolve(
       tenantId,
       requester.requestedBy,
       requester.requestedByName,
     );
-    if (!resolved && !requester.requestedByIsTenantAdmin) {
+    // `allow_if_role_matches`: không chặn sớm người chưa có trong sơ đồ tổ chức; vai S của quy trình quyết định.
+    const blockUnresolved =
+      (settings ?? (await this.getProcedureLinkSettings(tenantId))).engineStartWithoutOrgChart === 'block';
+    if (!resolved && !requester.requestedByIsTenantAdmin && blockUnresolved) {
       return {
         reason: 'Người tạo công việc chưa có trong sơ đồ tổ chức nên không khớp được vai S của quy trình.',
       };
@@ -4008,7 +4094,9 @@ export class ProcedureEngineApplication {
     if (!workItemId?.trim() || !expectedId || !definitionId) {
       return { ok: false, reason: 'Thiếu công việc, hồ sơ hiện tại hoặc quy trình mới.' };
     }
-    const requesterActor = await this.workspaceRequesterActor(tenantId, request);
+    const settings = await this.getProcedureLinkSettings(tenantId);
+    if (settings.engineChangeEligibility === 'never') return { ok: false, reason: REPLACE_REASON_DISABLED };
+    const requesterActor = await this.workspaceRequesterActor(tenantId, request, settings);
     if ('reason' in requesterActor) return { ok: false, reason: requesterActor.reason };
     const actor = requesterActor.actor;
     const replaceKey = workItemReplaceIdempotencyKey(workItemId, expectedId);
@@ -4033,7 +4121,10 @@ export class ProcedureEngineApplication {
         newDefinition?.steps.find((step) => step.id === firstStepId)?.materials,
       ).catch(() => undefined);
       // Tệp đính kèm nằm ở bảng riêng, đếm NGOÀI transaction (như các lời gọi hạ tầng khác).
-      const attachmentCount = (await this.attachments?.countForInstance?.(tenantId, expectedId)) ?? 0;
+      const attachmentCount =
+        settings.engineChangeEligibility === 'untouched'
+          ? ((await this.attachments?.countForInstance?.(tenantId, expectedId)) ?? 0)
+          : 0;
 
       return await this.store.transaction(tenantId, (state): ReplaceWorkItemInstanceOutcome => {
         const key = `start:${replaceKey}`;
@@ -4056,18 +4147,30 @@ export class ProcedureEngineApplication {
           throw new ProcedureEngineError('conflict', 'Hồ sơ này không thuộc công việc đang đổi quy trình.');
         }
         if (old.deletion || old.status !== 'running' || old.reversal) {
-          throw new ProcedureEngineError('conflict', replaceableInstanceReason(old) ?? REPLACE_REASON_ENDED);
+          throw new ProcedureEngineError(
+            'conflict',
+            replaceableInstanceReason(old, settings.engineChangeEligibility) ?? REPLACE_REASON_ENDED,
+          );
         }
         if (old.definitionId === definitionId) {
           throw new ProcedureEngineError('validation', 'Quy trình mới trùng với quy trình của hồ sơ hiện tại.');
         }
-        if (!actor.isOverride && old.initiatedBy !== actor.userId && !holdsProcedureRole(old, actor, 'A')) {
+        const changeWho = settings.engineChangeWho;
+        const mayChange =
+          actor.isOverride ||
+          (changeWho === 'creator_approver_admin' && old.initiatedBy === actor.userId) ||
+          (changeWho !== 'admin_only' && holdsProcedureRole(old, actor, 'A'));
+        if (!mayChange) {
           throw new ProcedureEngineError(
             'forbidden',
-            'Chỉ người tạo hồ sơ, người phê duyệt (vai A) hoặc quản trị mới đổi được quy trình.',
+            changeWho === 'admin_only'
+              ? 'Chỉ quản trị mới đổi được quy trình.'
+              : changeWho === 'approver_admin'
+                ? 'Chỉ người phê duyệt (vai A) hoặc quản trị mới đổi được quy trình.'
+                : 'Chỉ người tạo hồ sơ, người phê duyệt (vai A) hoặc quản trị mới đổi được quy trình.',
           );
         }
-        const untouched = replaceableInstanceReason(old);
+        const untouched = replaceableInstanceReason(old, settings.engineChangeEligibility);
         if (untouched) throw new ProcedureEngineError('conflict', untouched);
         if (attachmentCount > 0) throw new ProcedureEngineError('conflict', REPLACE_REASON_ATTACHMENTS);
 
@@ -4108,22 +4211,36 @@ export class ProcedureEngineApplication {
           current.status = 'cancelled';
           current.completedAt = now;
         }
-        old.deletion = {
-          deletedAt: now,
-          deletedBy: actor.userId,
-          deletedByName: actor.displayName,
-          reason,
-          replacedByInstanceId: instance.id,
-        };
-        old.activity.unshift({
-          id: this.ids.next(),
-          action: 'delete',
-          actorId: actor.userId,
-          actorName: actor.displayName,
-          summary: 'Đã xoá hồ sơ do đổi quy trình.',
-          comment: `${reason}; hồ sơ mới ${instance.code}.`,
-          createdAt: now,
-        });
+        if (settings.engineChangeOldInstanceFate === 'cancel_keep') {
+          // Giữ hồ sơ cũ để tra cứu: Đã huỷ, không xoá mềm, ghi hồ sơ thay thế.
+          old.replacedByInstanceId = instance.id;
+          old.activity.unshift({
+            id: this.ids.next(),
+            action: 'cancel',
+            actorId: actor.userId,
+            actorName: actor.displayName,
+            summary: 'Đã huỷ hồ sơ do đổi quy trình.',
+            comment: `${reason}; hồ sơ mới ${instance.code}.`,
+            createdAt: now,
+          });
+        } else {
+          old.deletion = {
+            deletedAt: now,
+            deletedBy: actor.userId,
+            deletedByName: actor.displayName,
+            reason,
+            replacedByInstanceId: instance.id,
+          };
+          old.activity.unshift({
+            id: this.ids.next(),
+            action: 'delete',
+            actorId: actor.userId,
+            actorName: actor.displayName,
+            summary: 'Đã xoá hồ sơ do đổi quy trình.',
+            comment: `${reason}; hồ sơ mới ${instance.code}.`,
+            createdAt: now,
+          });
+        }
         return replaceSummary(instance, old);
       });
     } catch (error) {

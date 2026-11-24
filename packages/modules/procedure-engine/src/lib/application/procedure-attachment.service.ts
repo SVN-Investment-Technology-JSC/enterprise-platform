@@ -1,5 +1,11 @@
 import { PostgresPoolRegistry, TenantDatabaseRegistry, inTransaction } from '@enterprise-platform/adapter-database';
 import { createIntegrationEvent } from '@enterprise-platform/contracts-integration';
+import type { WorkspaceLinkSettingsReader } from './workspace-link-settings.port.js';
+import {
+  DEFAULT_PROCEDURE_ENGINE_SETTINGS,
+  normalizeProcedureEngineSettings,
+  type ProcedureEngineSettings,
+} from './workspace-link-settings.js';
 import { S3ObjectStorage, TENANT_UPLOAD_URL_TTL_SECONDS, type ObjectStoragePort } from '@enterprise-platform/adapter-storage';
 import {
   PROCEDURE_ATTACHMENT_MAX_BYTES,
@@ -41,6 +47,8 @@ export class ProcedureAttachmentService {
       accessKeyId: process.env.S3_ACCESS_KEY_ID ?? 'platform',
       secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? 'platform-development-secret',
     }),
+    /** Cài đặt gắn tệp sang công việc (engineAttachmentMirror); vắng mặt thì mặc định. */
+    protected readonly workspaceLinkSettings?: WorkspaceLinkSettingsReader,
   ) {}
 
   /**
@@ -180,7 +188,8 @@ export class ProcedureAttachmentService {
       throw new ProcedureEngineError('conflict', 'Không tải được bảng kê lên kho tệp.');
     }
     const instance = await this.loadInstance(pool, instanceId);
-    await inTransaction(pool, (client) => this.emitAdded(client, tenantId, instance, row));
+    const mirror = await this.mirrorMode(tenantId, instance);
+    await inTransaction(pool, (client) => this.emitAdded(client, tenantId, instance, row, mirror));
     return this.map(row);
   }
 
@@ -200,8 +209,24 @@ export class ProcedureAttachmentService {
     if (!row || row.uploaded_by !== actor.userId) {
       throw new ProcedureEngineError('not_found', 'Không tìm thấy tệp đính kèm.');
     }
-    await inTransaction(pool, (client) => this.emitAdded(client, actor.tenantId, instance, row));
+    const mirror = await this.mirrorMode(actor.tenantId, instance);
+    await inTransaction(pool, (client) => this.emitAdded(client, actor.tenantId, instance, row, mirror));
     return this.map(row);
+  }
+
+  /**
+   * Cài đặt đưa tệp sang công việc. Đọc NGOÀI transaction và chỉ khi hồ sơ gắn Workspace; reader lỗi hay vắng
+   * thì `all` (hành vi cũ).
+   */
+  private async mirrorMode(tenantId: string, instance: ProcedureInstance): Promise<ProcedureEngineSettings['engineAttachmentMirror']> {
+    if (!this.workspaceLinkSettings || (!instance.workspaceLink && instance.sourceType !== 'workspace_work_item')) {
+      return DEFAULT_PROCEDURE_ENGINE_SETTINGS.engineAttachmentMirror;
+    }
+    try {
+      return normalizeProcedureEngineSettings(await this.workspaceLinkSettings.get(tenantId)).engineAttachmentMirror;
+    } catch {
+      return DEFAULT_PROCEDURE_ENGINE_SETTINGS.engineAttachmentMirror;
+    }
   }
 
   /**
@@ -213,10 +238,12 @@ export class ProcedureAttachmentService {
     tenantId: string,
     instance: ProcedureInstance,
     row: AttachmentRow,
+    mirror: ProcedureEngineSettings['engineAttachmentMirror'] = 'all',
   ): Promise<void> {
     if (!instance.workspaceLink && instance.sourceType !== 'workspace_work_item') return;
     // Workspace đã từ chối gắn dự án: không có công việc nào để nhận tệp.
     if (instance.workspaceLink?.status === 'rejected') return;
+    if (!shouldMirrorAttachment(instance, row, mirror)) return;
     const payload: AttachmentAddedPayload = {
       instanceId: instance.id,
       instanceCode: instance.code,
@@ -286,6 +313,22 @@ export class ProcedureAttachmentService {
   }
 
   private map(row:AttachmentRow):ProcedureAttachment{return {id:row.id,instanceId:row.instance_id,stepInstanceId:row.step_instance_id??undefined,subtaskId:row.subtask_id??undefined,fileName:row.file_name,contentType:row.content_type,sizeBytes:row.size_bytes?Number(row.size_bytes):undefined,uploadedBy:row.uploaded_by,createdAt:row.created_at.toISOString(),origin:attachmentOrigin(row)}}
+}
+
+/**
+ * Tệp có được đưa sang thư mục công việc không (cài đặt `engineAttachmentMirror`): `all` mọi tệp, `none` không tệp
+ * nào, `final_step_only` chỉ tệp gắn bước có thứ tự lớn nhất (tệp hệ thống/bổ sung không gắn bước thì không).
+ */
+export function shouldMirrorAttachment(
+  instance: { readonly steps: readonly { readonly id: string; readonly order: number }[] },
+  row: Pick<AttachmentRow, 'step_instance_id'>,
+  mode: ProcedureEngineSettings['engineAttachmentMirror'],
+): boolean {
+  if (mode === 'all') return true;
+  if (mode === 'none') return false;
+  if (!row.step_instance_id || instance.steps.length === 0) return false;
+  const last = instance.steps.reduce((best, step) => (step.order > best.order ? step : best));
+  return last.id === row.step_instance_id;
 }
 
 /** Tệp không gắn bước: do hệ thống sinh (bảng kê) hay người tham gia bổ sung. */

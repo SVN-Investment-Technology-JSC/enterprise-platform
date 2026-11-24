@@ -1,8 +1,12 @@
-import { DEFAULT_PROCEDURE_LINK_SETTINGS } from '@enterprise-platform/contracts-workspace';
+import {
+  DEFAULT_PROCEDURE_LINK_SETTINGS,
+  PROCEDURE_ENGINE_SETTING_KEYS,
+} from '@enterprise-platform/contracts-workspace';
 import {
   PROCEDURE_LINK_KEY,
   loadProcedureLinkSettings,
   normalizeProcedureLinkSettings,
+  pickProcedureEngineSettings,
 } from './procedure-link-settings.js';
 
 describe('normalizeProcedureLinkSettings', () => {
@@ -22,6 +26,38 @@ describe('normalizeProcedureLinkSettings', () => {
     expect(result.onInstanceDeleted).toBe('unlink_keep');
     expect(result.onRejected).toBe(DEFAULT_PROCEDURE_LINK_SETTINGS.onRejected);
     expect(result.progressPullClosedItems).toBe('skip');
+  });
+});
+
+describe('cài đặt do module Quy trình thực thi (engine*)', () => {
+  it('mặc định giữ hành vi hiện hành và dữ liệu cũ thiếu trường vẫn chuẩn hoá được', () => {
+    const result = normalizeProcedureLinkSettings({ onStarted: 'in_progress' });
+    for (const key of PROCEDURE_ENGINE_SETTING_KEYS) {
+      expect(result[key]).toBe(DEFAULT_PROCEDURE_LINK_SETTINGS[key]);
+    }
+    expect(DEFAULT_PROCEDURE_LINK_SETTINGS).toMatchObject({
+      engineChangeEligibility: 'untouched',
+      engineChangeWho: 'creator_approver_admin',
+      engineChangeOldInstanceFate: 'delete',
+      engineReverseWho: 'admin_only',
+      engineReverseStatuses: 'completed_or_rejected',
+      engineDeleteLinkedWho: 'initiator_approver_admin',
+      engineAttachmentMirror: 'all',
+      engineStartWithoutOrgChart: 'block',
+      engineReasonRequired: 'required',
+    });
+  });
+
+  it('giữ giá trị hợp lệ, giá trị lạ về mặc định', () => {
+    const result = normalizeProcedureLinkSettings({ engineChangeWho: 'admin_only', engineReverseWho: 'moi-nguoi' });
+    expect(result.engineChangeWho).toBe('admin_only');
+    expect(result.engineReverseWho).toBe('admin_only');
+  });
+
+  it('pickProcedureEngineSettings chỉ trả đúng các khoá engine*', () => {
+    const picked = pickProcedureEngineSettings(normalizeProcedureLinkSettings({ onStarted: 'in_progress' }));
+    expect(Object.keys(picked).sort()).toEqual([...PROCEDURE_ENGINE_SETTING_KEYS].sort());
+    expect(picked).not.toHaveProperty('onStarted');
   });
 });
 

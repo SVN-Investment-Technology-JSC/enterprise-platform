@@ -29,6 +29,8 @@ export interface ProcedureActionsProps {
   readonly onStart: (definitionId: string) => Promise<void>;
   /** Quy trình của hồ sơ hiện tại; loại khỏi danh sách khi đổi. */
   readonly currentDefinitionId?: string;
+  /** Lý do chưa cho tạo hồ sơ (công việc đã đóng theo cài đặt của tenant...); vắng là cho tạo. */
+  readonly startBlockReason?: string;
   /** Lý do chưa cho đổi quy trình (hồ sơ đã được xử lý...); vắng là cho đổi. */
   readonly changeBlockReason?: string;
   /** Vắng thì không có mục Đổi quy trình. Ném lỗi để Dialog hiện thông báo của server. */
@@ -56,6 +58,7 @@ export function ProcedureActions({
   pending = false,
   onStart,
   currentDefinitionId,
+  startBlockReason,
   changeBlockReason,
   onChange,
 }: ProcedureActionsProps) {
@@ -80,7 +83,7 @@ export function ProcedureActions({
     return () => document.removeEventListener('mousedown', closeOutside, true);
   }, [menuOpen]);
 
-  const canStart = canWrite && options.length > 0 && !link && !pending;
+  const canStart = canWrite && options.length > 0 && !link && !pending && !startBlockReason;
   const startHint = link
     ? 'Công việc này đã gắn một hồ sơ quy trình.'
     : pending
@@ -89,7 +92,7 @@ export function ProcedureActions({
       ? 'Bạn không có quyền ghi trong dự án này.'
       : options.length === 0
         ? 'Bạn chưa được phân vai S ở quy trình nào đã công bố.'
-        : undefined;
+        : startBlockReason;
 
   const submit = async () => {
     if (!definitionId) {

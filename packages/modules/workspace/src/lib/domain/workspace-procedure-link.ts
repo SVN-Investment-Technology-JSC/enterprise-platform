@@ -43,8 +43,28 @@ export interface ProcedureInstanceReversedPayload {
   readonly adjustmentRequested: boolean;
 }
 
-/** Đường mở hồ sơ ở module Quy trình. */
+/** Đường mở danh sách hồ sơ ở module Quy trình (chưa chỉ tới hồ sơ nào). */
 export const PROCEDURE_LAUNCH_URL = '/modules/procedure#workspace';
+
+/** Đường mở ĐÚNG một hồ sơ ở module Quy trình (`#workspace/<mã hồ sơ>`); thiếu mã hồ sơ thì về danh sách. */
+export function procedureLaunchUrl(instanceId?: string | null): string {
+  return instanceId ? `${PROCEDURE_LAUNCH_URL}/${encodeURIComponent(instanceId)}` : PROCEDURE_LAUNCH_URL;
+}
+
+/**
+ * Đường mở lưu trong bảng cũ chỉ là `PROCEDURE_LAUNCH_URL` chung cho mọi hồ sơ: khi đọc ra thì ghép thêm mã hồ sơ để bấm
+ * vào là tới đúng hồ sơ. Đường đã chỉ tới một hồ sơ, hay của module khác, giữ nguyên.
+ */
+export function resolveLaunchUrl(
+  moduleKey: string | undefined,
+  externalId: string | null | undefined,
+  stored: string | null | undefined,
+): string {
+  if (moduleKey === 'procedure-engine' && externalId && (stored ?? PROCEDURE_LAUNCH_URL) === PROCEDURE_LAUNCH_URL) {
+    return procedureLaunchUrl(externalId);
+  }
+  return stored ?? '';
+}
 
 export interface ProcedureLinkRequestedPayload {
   readonly instanceId: string;
@@ -179,4 +199,6 @@ export interface ProcedureInstanceCompletedPayload {
   readonly status: string;
   readonly sourceType?: string;
   readonly sourceId?: string;
+  /** Có khi hồ sơ bị thay do "Đổi quy trình": công việc được giữ nên không áp kết quả huỷ. */
+  readonly replacedByInstanceId?: string;
 }

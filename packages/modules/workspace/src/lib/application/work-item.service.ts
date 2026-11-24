@@ -28,6 +28,7 @@ import {
   type WorkItemStatusHistoryEntry,
   type WorkItemTree,
   type WorkItemProcedureRequest,
+  type ProcedureLinkOnAllChildrenDone,
 } from '@enterprise-platform/contracts-workspace';
 import { parseBlockedReason } from '../domain/blocked-reason.rules.js';
 import {
@@ -95,6 +96,7 @@ import {
   type ProjectAccess,
   type ProjectService,
 } from './project.service.js';
+import { parentProcedureWaitRules } from './procedure-link-settings.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { ProcedureInstanceReplacer } from './procedure-instance-replacer.port.js';
@@ -1328,6 +1330,27 @@ export class WorkItemService {
     if (target === 'cancelled') await this.fleet?.release(tenantId, 'WORK_ITEM', item.id);
   }
 
+  /**
+   * Hồ sơ Quy trình của công việc vừa kết thúc (liên kết ngoài đã ghi trạng thái kết thúc): đánh giá lại cây, vì công
+   * việc cha đang chờ hồ sơ (`parentWaitsForProcedure = wait`) có thể đã đủ điều kiện tự đóng — việc con đã xong từ
+   * trước, giờ hồ sơ hoàn tất (hoặc bị từ chối / hủy mà cài đặt cho thôi chờ). Gọi lại không làm gì thêm: cha đã đóng thì không còn trong danh sách cần đổi.
+   */
+  async reevaluateAfterProcedureCompleted(tenantId: string, workItemId: string): Promise<void> {
+    const item = await this.store.workItem.findById(tenantId, workItemId);
+    if (!item || item.reversal || item.status === 'cancelled') return;
+    const system: WorkspaceActor = {
+      tenantId,
+      userId: STANDALONE_TASK_SYSTEM_ACTOR_ID,
+      displayName: 'Hệ thống',
+      isTenantAdmin: true,
+      canManage: false,
+      canWriteTasks: true,
+      canWriteDocuments: false,
+      canDeleteDocuments: false,
+    };
+    await this.recalculate(system, item.projectId);
+  }
+
   /** Còn tiền nhiệm FS chưa xong hoặc điều kiện hoàn thành cần người xác nhận: việc không tự Hoàn thành được. */
   private async completionBlocked(tenantId: string, item: WorkItem): Promise<boolean> {
     if (item.completion && item.completion.conditions.length > 0) return true;
@@ -1597,26 +1620,54 @@ export class WorkItemService {
       method: row.method,
       equalChildWeight: row.equalChildWeight,
       requiresConfirmation: row.requiresConfirmation,
+      procedureState: row.procedureState,
     }));
 
     const changed = rollUpProgress(nodes);
     await this.store.workItem.applyProgress(actor.tenantId, changed);
 
-    // Công việc cha tự hoàn thành khi mọi việc con đã xong. Gọi thẳng store
-    // (không qua `changeStatus` của service) nên không lặp lại recalculate, và
-    // cũng không vướng hàng rào "việc con chưa đóng" — ở đây con đã xong hết.
-    const toComplete = autoCompleteParents(nodes);
-    if (toComplete.size > 0) {
+    // Công việc cha tự đổi trạng thái khi mọi việc con đã xong, theo cài đặt liên kết Quy trình của tenant (mặc định:
+    // tự Hoàn thành; cha có hồ sơ riêng có thể chờ hồ sơ hoàn tất). Gọi thẳng store (không qua `changeStatus` của
+    // service) nên không lặp lại recalculate, và cũng không vướng hàng rào "việc con chưa đóng" — ở đây con đã xong hết.
+    // Cài đặt chỉ làm tập cần đổi nhỏ đi so với mặc định, nên không có ứng viên thì khỏi đọc cài đặt.
+    let closeTarget: ProcedureLinkOnAllChildrenDone = 'done';
+    let toClose = autoCompleteParents(nodes);
+    if (toClose.size > 0) {
+      const linkSettings = await this.projects.procedureLinkSettings(actor.tenantId);
+      closeTarget = linkSettings.onAllChildrenDone;
+      toClose = autoCompleteParents(nodes, { target: closeTarget, ...parentProcedureWaitRules(linkSettings) });
+    }
+    const toComplete = closeTarget === 'done' ? toClose : new Set<string>();
+    if (toClose.size > 0) {
       const today = todayKey(timezoneOf(actor.tenantId));
-      for (const parentId of toComplete) {
-        await this.store.workItem.changeStatus(
-          actor.tenantId,
-          parentId,
-          actor.userId,
-          'done',
-          'Tự động hoàn thành khi mọi công việc con đã xong.',
-          today,
-        );
+      for (const parentId of toClose) {
+        if (closeTarget === 'done') {
+          await this.store.workItem.changeStatus(
+            actor.tenantId,
+            parentId,
+            actor.userId,
+            'done',
+            'Tự động hoàn thành khi mọi công việc con đã xong.',
+            today,
+          );
+          continue;
+        }
+        const from = nodes.find((node) => node.id === parentId)?.status;
+        const path = from ? statusPath(from, 'review') : undefined;
+        try {
+          for (const step of path ?? []) {
+            await this.store.workItem.changeStatus(
+              actor.tenantId,
+              parentId,
+              actor.userId,
+              step,
+              'Tự chuyển Chờ duyệt khi mọi công việc con đã xong.',
+              today,
+            );
+          }
+        } catch (error) {
+          if (!(error instanceof WorkspaceValidationError)) throw error;
+        }
       }
     }
 

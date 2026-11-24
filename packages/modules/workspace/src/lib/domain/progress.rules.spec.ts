@@ -197,6 +197,79 @@ describe('autoCompleteParents (WS-U6)', () => {
   });
 });
 
+describe('autoCompleteParents: cài đặt "khi mọi việc con xong" và "cha chờ hồ sơ"', () => {
+  const parent = (extra: Partial<ProgressNode> = {}): ProgressNode => ({
+    id: 'p',
+    parentId: null,
+    status: 'in_progress',
+    progressPercent: 90,
+    ...extra,
+  });
+  const child: ProgressNode = { id: 'c', parentId: 'p', status: 'done', progressPercent: 100 };
+
+  it('target done (mặc định): cha chuyển Hoàn thành', () => {
+    expect([...autoCompleteParents([parent(), child], { target: 'done' })]).toEqual(['p']);
+  });
+
+  it('target review: cha chuyển Chờ duyệt, không kéo theo ông; cha đã Chờ duyệt thì không trả lại', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'g', parentId: null, status: 'in_progress', progressPercent: 50 },
+      { ...parent(), parentId: 'g' },
+      child,
+    ];
+    expect([...autoCompleteParents(nodes, { target: 'review' })]).toEqual(['p']);
+    const reviewing = [nodes[0], { ...nodes[1], status: 'review' as const }, child];
+    expect(autoCompleteParents(reviewing, { target: 'review' }).size).toBe(0);
+  });
+
+  it('target none: không cha nào tự đổi', () => {
+    expect(autoCompleteParents([parent(), child], { target: 'none', waitForProcedure: true }).size).toBe(0);
+  });
+
+  it('chờ hồ sơ: cha có hồ sơ chưa hoàn tất không tự đóng và chặn cả ông', () => {
+    const nodes: ProgressNode[] = [
+      { id: 'g', parentId: null, status: 'in_progress', progressPercent: 50 },
+      { ...parent({ procedureState: 'running' }), parentId: 'g' },
+      child,
+    ];
+    expect(autoCompleteParents(nodes, { waitForProcedure: true }).size).toBe(0);
+    // Không bật chờ hồ sơ thì chạy như cũ.
+    expect([...autoCompleteParents(nodes)].sort()).toEqual(['g', 'p']);
+  });
+
+  it('chờ hồ sơ: hồ sơ đã hoàn tất thì cha đóng', () => {
+    const nodes = [parent({ procedureState: 'completed' }), child];
+    expect([...autoCompleteParents(nodes, { waitForProcedure: true })]).toEqual(['p']);
+  });
+
+  it('chờ hồ sơ: cha không có hồ sơ vẫn đóng như thường', () => {
+    expect([...autoCompleteParents([parent({ procedureState: 'none' }), child], { waitForProcedure: true })]).toEqual(['p']);
+  });
+
+  it('hồ sơ bị từ chối / hủy: keep_waiting vẫn chờ, stop_waiting thì cha đóng', () => {
+    const nodes = [parent({ procedureState: 'failed' }), child];
+    expect(autoCompleteParents(nodes, { waitForProcedure: true }).size).toBe(0);
+    expect(autoCompleteParents(nodes, { waitForProcedure: true, stopWaitingWhenProcedureFailed: false }).size).toBe(0);
+    expect([...autoCompleteParents(nodes, { waitForProcedure: true, stopWaitingWhenProcedureFailed: true })]).toEqual(['p']);
+  });
+
+  it('thôi chờ khi hồ sơ lỗi không mở khóa hồ sơ đang chạy; không bật chờ hồ sơ thì cha đóng như thường', () => {
+    expect([...autoCompleteParents([parent({ procedureState: 'failed' }), child], { stopWaitingWhenProcedureFailed: true })]).toEqual(['p']);
+    expect(
+      autoCompleteParents([parent({ procedureState: 'running' }), child], {
+        waitForProcedure: true,
+        stopWaitingWhenProcedureFailed: true,
+      }).size,
+    ).toBe(0);
+  });
+
+  it('cha có điều kiện hoàn thành bắt buộc vẫn không tự đóng ở mọi target', () => {
+    for (const target of ['done', 'review'] as const) {
+      expect(autoCompleteParents([parent({ requiresConfirmation: true }), child], { target }).size).toBe(0);
+    }
+  });
+});
+
 describe('isClosed', () => {
   it('done và cancelled là trạng thái đóng', () => {
     expect(isClosed('done')).toBe(true);

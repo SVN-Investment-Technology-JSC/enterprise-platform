@@ -63,6 +63,8 @@ export interface NodeHeaderProps {
   readonly onStartProcedure?: (definitionId: string) => Promise<void>;
   /** Quy trình của hồ sơ đang gắn; loại khỏi danh sách khi đổi quy trình. */
   readonly procedureDefinitionId?: string;
+  /** Lý do chưa cho tạo hồ sơ quy trình (theo cài đặt trạng thái của tenant); vắng là cho tạo. */
+  readonly procedureStartBlockReason?: string;
   /** Lý do chưa cho đổi quy trình; vắng là cho đổi. */
   readonly procedureChangeBlockReason?: string;
   readonly onChangeProcedure?: (definitionId: string) => Promise<void>;
@@ -95,6 +97,7 @@ export function NodeHeader({
   procedureState,
   onStartProcedure,
   procedureDefinitionId,
+  procedureStartBlockReason,
   procedureChangeBlockReason,
   onChangeProcedure,
 }: NodeHeaderProps) {
@@ -436,6 +439,7 @@ export function NodeHeader({
             pending={procedureState?.status === 'pending'}
             onStart={onStartProcedure}
             currentDefinitionId={procedureDefinitionId}
+            startBlockReason={procedureStartBlockReason}
             changeBlockReason={procedureChangeBlockReason}
             onChange={onChangeProcedure}
           />

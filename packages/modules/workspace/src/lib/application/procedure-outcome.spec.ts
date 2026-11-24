@@ -63,6 +63,7 @@ function setup(items: WorkItem[], procedureLink: Record<string, string> = {}, de
     },
     externalRef: {
       listByEntity: async () => [],
+      refreshCache: async () => undefined,
       findByExternalId: async (_t: string, _m: string, externalId: string) =>
         externalId === 'inst-1'
           ? { id: 'ref-1', entityType: 'work_item', entityId: 'w1', projectId: 'p1', moduleKey: 'procedure-engine', externalId }
@@ -71,7 +72,12 @@ function setup(items: WorkItem[], procedureLink: Record<string, string> = {}, de
         removedRefs.push(id);
       },
     },
-    standaloneTask: { applyProcedureOutcome: jest.fn(async () => undefined) },
+    standaloneTask: {
+      applyProcedureOutcome: jest.fn(async () => undefined),
+      markProcedureStarted: jest.fn(async () => undefined),
+      applyProcedureStarted: jest.fn(async () => undefined),
+    },
+    procedureRequest: { revertToManual: jest.fn(async () => undefined) },
   } as unknown as WorkspaceStore;
   const service = new WorkItemService(store, new ProjectService(store));
   return { store, service, statusCalls, updates, removedRefs, byId };
@@ -346,6 +352,8 @@ describe('WorkspaceProcedureEvents: áp cài đặt liên kết hồ sơ', () =>
     expect(removeForProcedure).not.toHaveBeenCalled();
     expect(s.removedRefs).toEqual(['ref-1']);
     expect(s.statusCalls).toEqual([]);
+    // Không còn hồ sơ: việc trả về Thủ công để "Nhập tay tiến độ: chặn" không còn áp.
+    expect(s.store.procedureRequest.revertToManual).toHaveBeenCalledWith(T, 'w1');
   });
 
   it('onInstanceDeleted: cancel_item gỡ liên kết rồi huỷ công việc', async () => {
@@ -355,6 +363,31 @@ describe('WorkspaceProcedureEvents: áp cài đặt liên kết hồ sơ', () =>
     expect(removeForProcedure).not.toHaveBeenCalled();
     expect(s.removedRefs).toEqual(['ref-1']);
     expect(s.statusCalls.map((call) => call.next)).toEqual(['cancelled']);
+    expect(s.store.procedureRequest.revertToManual).toHaveBeenCalledWith(T, 'w1');
+  });
+
+  it('onInstanceDeleted: delete_item không cần trả về Thủ công (công việc bị xoá)', async () => {
+    const s = setup([item({ id: 'w1' })]);
+    await eventsFor(s).events.handle(T, 'procedure.instance.deleted', deletedPayload);
+    expect(s.store.procedureRequest.revertToManual).not.toHaveBeenCalled();
+  });
+
+  it('onStarted: việc ngoài dự án cũng sang Đang làm khi cài đặt bật', async () => {
+    const on = setup([], { onStarted: 'in_progress' });
+    await eventsFor(on).events.handle(T, 'procedure.instance.started_for_standalone_task', {
+      taskId: 'st1',
+      instanceId: 'inst-1',
+      instanceCode: 'PR-1',
+    });
+    expect(on.store.standaloneTask.markProcedureStarted).toHaveBeenCalledTimes(1);
+    expect(on.store.standaloneTask.applyProcedureStarted).toHaveBeenCalledWith(T, 'st1', 'PR-1', expect.any(String));
+    const off = setup([]);
+    await eventsFor(off).events.handle(T, 'procedure.instance.started_for_standalone_task', {
+      taskId: 'st1',
+      instanceId: 'inst-1',
+      instanceCode: 'PR-1',
+    });
+    expect(off.store.standaloneTask.applyProcedureStarted).not.toHaveBeenCalled();
   });
 
   it('onStarted: hồ sơ đã mở cho công việc đưa việc Chưa làm sang Đang làm', async () => {

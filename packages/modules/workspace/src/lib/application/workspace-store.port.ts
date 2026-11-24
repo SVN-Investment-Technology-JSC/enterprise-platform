@@ -155,6 +155,11 @@ export interface WorkItemProgressRow {
   readonly equalChildWeight?: boolean;
   /** Có điều kiện hoàn thành bắt buộc: không được tự hoàn thành khi việc con xong. */
   readonly requiresConfirmation?: boolean;
+  /**
+   * Tình trạng hồ sơ Quy trình gắn, suy từ `external_references.cached_status`: `none` không có hồ sơ; `running` còn
+   * hồ sơ chưa kết thúc; `completed` mọi hồ sơ đã hoàn tất; `failed` đã kết thúc nhưng có hồ sơ bị từ chối / hủy.
+   */
+  readonly procedureState?: 'none' | 'running' | 'completed' | 'failed';
 }
 
 
@@ -329,6 +334,8 @@ export interface StandaloneProcedureOutcomeRules {
   readonly onCompletedStandalone: 'review_root_done_child' | 'always_review' | 'always_done' | 'none';
   readonly onRejected: 'none' | 'blocked' | 'todo' | 'cancelled';
   readonly onCancelled: 'none' | 'blocked' | 'todo' | 'cancelled';
+  /** Khi hồ sơ bắt đầu chạy; vắng thì giữ nguyên trạng thái. */
+  readonly onStarted?: 'none' | 'in_progress';
 }
 
 /** Số tin chưa đọc của một node, trước khi cuộn lên nhánh cha. */
@@ -1297,6 +1304,11 @@ export interface WorkspaceStore {
     ): Promise<void>;
     markRejected(tenantId: string, workItemId: string, reason: string): Promise<void>;
     /**
+     * Công việc không còn gắn hồ sơ nào (hồ sơ bị xoá mà công việc được giữ): trả về "Thủ công" để không còn bị
+     * coi là việc chạy theo quy trình. Gọi lại, hoặc việc vốn đã Thủ công, là no-op.
+     */
+    revertToManual(tenantId: string, workItemId: string): Promise<void>;
+    /**
      * Quy trình đã thay hồ sơ cũ bằng hồ sơ mới: bỏ con trỏ hồ sơ cũ, gắn hồ sơ
      * mới và cập nhật yêu cầu, cùng transaction. Chạy lại với cùng hồ sơ mới là
      * no-op.
@@ -1508,6 +1520,16 @@ export interface WorkspaceStore {
       instanceCode: string,
     ): Promise<void>;
     markProcedureStartRejected(tenantId: string, taskId: string, reason: string): Promise<void>;
+    /**
+     * Hồ sơ vừa bắt đầu chạy: đưa việc Chưa làm sang Đang làm (theo cài đặt `onStarted`). Việc ở trạng thái
+     * khác, hoặc gọi lại, là no-op.
+     */
+    applyProcedureStarted(
+      tenantId: string,
+      taskId: string,
+      instanceCode: string,
+      today: string,
+    ): Promise<void>;
     /**
      * Hồ sơ đã đóng. Hoàn tất thì việc gốc tự sang Chờ duyệt, việc con tự
      * Hoàn thành; bị từ chối hay huỷ thì chỉ ghi nhận và báo người liên quan.

@@ -26,18 +26,30 @@ export const REPLACE_REASON_ATTRIBUTES =
   'Hồ sơ đã có dữ liệu được nhập nên không đổi quy trình được; ' + HINT;
 export const REPLACE_REASON_EXTERNAL =
   'Hồ sơ đã tạo dữ liệu ở module khác nên không đổi quy trình được; ' + HINT;
+export const REPLACE_REASON_DISABLED = 'Quy trình của công việc không được phép đổi theo cài đặt.';
 export const REPLACE_REASON_ATTACHMENTS =
   'Hồ sơ đã có tệp đính kèm nên không đổi quy trình được; ' + HINT;
 
+/** Khi nào được đổi quy trình (cài đặt `engineChangeEligibility`). */
+export type ReplaceEligibilityMode = 'untouched' | 'no_step_handled' | 'never';
+
 /**
- * Lý do hồ sơ KHÔNG đổi quy trình được; `undefined` = còn nguyên vẹn, đổi được.
+ * Lý do hồ sơ KHÔNG đổi quy trình được; `undefined` = đổi được.
  *
  * Thuần trên bản chụp hồ sơ. Tệp đính kèm nằm ở bảng riêng nên bên gọi kiểm thêm
- * (`REPLACE_REASON_ATTACHMENTS`).
+ * (`REPLACE_REASON_ATTACHMENTS`, bỏ qua khi `no_step_handled`).
+ *
+ * `mode`: `untouched` (mặc định) cần hồ sơ còn nguyên vẹn; `no_step_handled` cho đổi dù đã có trao đổi, uỷ quyền
+ * hay dữ liệu nhập, nhưng vẫn chặn khi có bước đã xử lý, vật tư giữ chỗ hoặc dữ liệu ở module khác;
+ * `never` chặn hẳn.
  */
-export function replaceableInstanceReason(instance: ProcedureInstance): string | undefined {
-  if (instance.deletion) return REPLACE_REASON_DELETED;
+export function replaceableInstanceReason(
+  instance: ProcedureInstance,
+  mode: ReplaceEligibilityMode = 'untouched',
+): string | undefined {
+  if (instance.deletion || instance.replacedByInstanceId) return REPLACE_REASON_DELETED;
   if (instance.status !== 'running' || instance.reversal) return REPLACE_REASON_ENDED;
+  if (mode === 'never') return REPLACE_REASON_DISABLED;
 
   const current = instance.steps.find((step) => step.id === instance.currentStepId);
   const first = firstInstanceStep(instance);
@@ -53,8 +65,9 @@ export function replaceableInstanceReason(instance: ProcedureInstance): string |
     return REPLACE_REASON_MOVED_ON;
   }
 
-  if (instance.activity.some((entry) => entry.action !== 'start')) return REPLACE_REASON_ACTIVITY;
-  if ((instance.delegations ?? []).length > 0 || (instance.subtasks ?? []).length > 0) {
+  const strict = mode === 'untouched';
+  if (strict && instance.activity.some((entry) => entry.action !== 'start')) return REPLACE_REASON_ACTIVITY;
+  if (strict && ((instance.delegations ?? []).length > 0 || (instance.subtasks ?? []).length > 0)) {
     return REPLACE_REASON_DELEGATED;
   }
   if (
@@ -63,7 +76,7 @@ export function replaceableInstanceReason(instance: ProcedureInstance): string |
   ) {
     return REPLACE_REASON_MATERIALS;
   }
-  if (Object.keys(instance.attributeValues ?? {}).length > 0) return REPLACE_REASON_ATTRIBUTES;
+  if (strict && Object.keys(instance.attributeValues ?? {}).length > 0) return REPLACE_REASON_ATTRIBUTES;
   if (
     instance.sourceSummary ||
     instance.workspaceLink ||

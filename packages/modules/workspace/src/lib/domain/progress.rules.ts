@@ -22,6 +22,12 @@ export interface ProgressNode {
    * phải có người xác nhận từng điều kiện.
    */
   readonly requiresConfirmation?: boolean;
+  /**
+   * Tình trạng hồ sơ Quy trình gắn với công việc, căn cứ `cached_status` của liên kết ngoài do sự kiện hồ sơ kết thúc
+   * ghi vào: `none` không có hồ sơ (mặc định); `running` chưa kết thúc; `completed` đã hoàn tất; `failed` kết thúc mà
+   * không hoàn tất (bị từ chối / hủy).
+   */
+  readonly procedureState?: 'none' | 'running' | 'completed' | 'failed';
   /** Tỷ trọng người dùng đặt cho công việc gốc; chỉ dùng khi dự án tính theo `weighted_weight`. */
   readonly weight?: number | null;
   /** Ngày dự kiến `YYYY-MM-DD`; chỉ dùng khi dự án tính theo `weighted_days`. */
@@ -174,6 +180,15 @@ export function rollUpProgress(nodes: readonly ProgressNode[]): Map<string, numb
   return evaluate(nodes).changed;
 }
 
+export interface AutoCompleteParentsOptions {
+  /** Trạng thái cha tự chuyển tới khi mọi việc con đã xong; `none` là không tự đổi. Mặc định `done`. */
+  readonly target?: 'done' | 'review' | 'none';
+  /** Cha có hồ sơ Quy trình chưa hoàn tất thì chờ hồ sơ. Mặc định tắt. */
+  readonly waitForProcedure?: boolean;
+  /** Chỉ dùng khi `waitForProcedure`: hồ sơ bị từ chối / hủy thì thôi chờ, cha đóng như cha không có hồ sơ. Mặc định tắt. */
+  readonly stopWaitingWhenProcedureFailed?: boolean;
+}
+
 /**
  * Các node cha cần tự chuyển sang `done` vì mọi việc con đã hoàn thành.
  *
@@ -185,8 +200,22 @@ export function rollUpProgress(nodes: readonly ProgressNode[]): Map<string, numb
  *
  * Chỉ trả về những cha hiện chưa `done` và chưa `cancelled`, tức là những node
  * thật sự cần đổi trạng thái.
+ *
+ * Tuỳ chọn (mặc định giữ cách chạy cũ):
+ * - `target: 'done'` cha chuyển Hoàn thành, và việc cha xong kéo theo ông của nó trong cùng một lượt;
+ *   `'review'` cha chuyển Chờ duyệt (chưa phải đã xong nên không kéo theo ông; cha đang Chờ duyệt thì không trả lại);
+ *   `'none'` không cha nào tự đổi.
+ * - `waitForProcedure`: cha có hồ sơ Quy trình mà hồ sơ chưa hoàn tất thì chưa được tự đóng, và chặn cả cây phía trên
+ *   như cha có điều kiện hoàn thành. Cha không có hồ sơ không bị ảnh hưởng. Hồ sơ bị từ chối / hủy vẫn chặn,
+ *   trừ khi `stopWaitingWhenProcedureFailed`.
  */
-export function autoCompleteParents(nodes: readonly ProgressNode[]): Set<string> {
+export function autoCompleteParents(
+  nodes: readonly ProgressNode[],
+  options: AutoCompleteParentsOptions = {},
+): Set<string> {
+  const target = options.target ?? 'done';
+  const waitForProcedure = options.waitForProcedure ?? false;
+  const stopWaitingWhenFailed = waitForProcedure && (options.stopWaitingWhenProcedureFailed ?? false);
   const childrenByParent = new Map<string, ProgressNode[]>();
   for (const node of nodes) {
     if (!node.parentId) continue;
@@ -215,12 +244,18 @@ export function autoCompleteParents(nodes: readonly ProgressNode[]): Set<string>
     }
 
     const childrenDone = children.every((child) => isSubtreeComplete(child));
-    // Node có điều kiện bắt buộc chưa `done` thì chưa tính là xong, kéo theo cả cha của nó: không tự lách điều kiện.
-    const allDone = childrenDone && (!node.requiresConfirmation || node.status === 'done');
+    const selfDone = node.status === 'done';
+    // Node có điều kiện bắt buộc, hay đang chờ hồ sơ Quy trình của chính nó, thì chưa được tự đóng và chưa tính là
+    // xong, kéo theo cả cha của nó: không tự lách điều kiện.
+    const state = node.procedureState ?? 'none';
+    const waiting = waitForProcedure && (state === 'running' || (state === 'failed' && !stopWaitingWhenFailed));
+    const gated = node.requiresConfirmation === true || waiting;
+    // `done`: node sẽ xong ngay nên tính là xong cho cha. `review` / `none`: chỉ khi node đã `done` thật.
+    const allDone = childrenDone && (selfDone || (!gated && target === 'done'));
     completed.set(node.id, allDone);
-    // Node có con mà cả cây con đã xong, nhưng bản thân chưa đóng → cần flip.
-    if (allDone && node.status !== 'done' && node.status !== 'cancelled') {
-      result.add(node.id);
+    // Node có con mà cả cây con đã xong, nhưng bản thân chưa đóng → cần đổi trạng thái.
+    if (childrenDone && !gated && target !== 'none' && node.status !== 'done' && node.status !== 'cancelled') {
+      if (target === 'done' || node.status !== 'review') result.add(node.id);
     }
     return allDone;
   };

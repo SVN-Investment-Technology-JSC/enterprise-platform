@@ -186,6 +186,10 @@ export function procedureNotificationEvents(
           sourceId: instance.sourceId,
           completedAt: instance.completedAt,
           actorId: resolveFinalActorId(instance),
+          // Hồ sơ bị thay do "Đổi quy trình": công việc được giữ, bên nhận không áp kết quả huỷ lên công việc.
+          ...(instance.replacedByInstanceId ?? instance.deletion?.replacedByInstanceId
+            ? { replacedByInstanceId: instance.replacedByInstanceId ?? instance.deletion?.replacedByInstanceId }
+            : {}),
         },
       });
     }

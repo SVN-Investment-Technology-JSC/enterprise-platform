@@ -1,3 +1,4 @@
+/** @jest-environment node */
 import {
   NO_VOUCHER_FILTER,
   buildWorkItemMoneyRows,

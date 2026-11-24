@@ -1019,6 +1019,12 @@ export class WorkspaceController {
 
   /* -------------------------------------------------------- Đọc nội bộ */
 
+  /** Cài đặt `engine*` của tenant cho module Quy trình (chỉ đọc, không có dữ liệu người dùng). */
+  @Get('internal/procedure-link-settings')
+  internalProcedureLinkSettings(@Req() request: WorkspaceRequest) {
+    return this.execute(() => this.internalLookup.procedureEngineSettings(this.actor(request)));
+  }
+
   /**
    * Nhãn công việc cho module khác. Guard chỉ cho qua khi có service token và
    * `x-tenant-id`; payload không có tài chính, mô tả hay thành viên.
