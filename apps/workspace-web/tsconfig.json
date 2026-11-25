@@ -51,9 +51,6 @@
   ],
   "references": [
     {
-      "path": "../../packages/contracts/workspace"
-    },
-    {
       "path": "../../packages/shared/ui"
     }
   ]

@@ -1,6 +1,6 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { SerialHub } from '../../../packages/features/inventory/src/lib/components/serial-hub';
+import { SerialHub } from '@enterprise-platform/feature-inventory';
 
 const mockLoadAllSerials = jest.fn();
 
