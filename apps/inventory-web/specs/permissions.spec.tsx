@@ -7,6 +7,7 @@ describe('Inventory capability-driven controls', () => {
   afterEach(() => {
     cleanup();
     global.fetch = originalFetch;
+    sessionStorage.clear();
     window.history.replaceState(null, '', '/');
   });
 

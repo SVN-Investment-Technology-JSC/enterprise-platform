@@ -258,7 +258,7 @@ export function InventoryScreen() {
         lastStockSubTabRef.current = subKey;
         setStoredStockSubTab(subKey);
       }
-    } else {
+    } else if (typeof window !== 'undefined' && (window.location.hash === '#stock' || window.location.hash === '#stock/')) {
       // Khi URL hash chỉ là #stock (không có subtab)
       const remembered = lastStockSubTabRef.current || getStoredStockSubTab();
       if (remembered && remembered !== 'goods') {

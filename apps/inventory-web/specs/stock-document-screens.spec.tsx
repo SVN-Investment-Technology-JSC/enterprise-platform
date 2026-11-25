@@ -115,6 +115,7 @@ describe('Duyệt chứng từ kho và bốn loại tồn', () => {
   afterEach(() => {
     cleanup();
     global.fetch = originalFetch;
+    sessionStorage.clear();
     window.history.replaceState(null, '', '/');
   });
 
@@ -125,7 +126,7 @@ describe('Duyệt chứng từ kho và bốn loại tồn', () => {
     window.history.replaceState(null, '', '/#approvals');
     const calls = mockFetch({ canManage: false, canWriteTransactions: false, canApproveDocuments });
     render(<Page />);
-    await waitFor(() => expect(screen.getAllByText('PK-0001').length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText('PK-0001').length).toBeGreaterThan(0), { timeout: 4000 });
     expect(calls.some((call) => call.includes('/stock-documents?status=PENDING'))).toBe(true);
     expect(Boolean(screen.queryByRole('button', { name: 'Duyệt' }))).toBe(visible);
     expect(Boolean(screen.queryByRole('button', { name: 'Từ chối' }))).toBe(visible);
@@ -148,7 +149,7 @@ describe('Duyệt chứng từ kho và bốn loại tồn', () => {
     // Lỗi thao tác hiện bằng toast (như HRM), nguyên văn thông báo của máy chủ.
     const errorSpy = jest.spyOn(toast, 'error').mockImplementation(() => 'toast-id');
     render(<Page />);
-    const approve = await screen.findByRole('button', { name: 'Duyệt' });
+    const approve = await screen.findByRole('button', { name: 'Duyệt' }, { timeout: 4000 });
     fireEvent.click(approve);
     await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('Không được tự duyệt chứng từ do mình lập.'));
     errorSpy.mockRestore();

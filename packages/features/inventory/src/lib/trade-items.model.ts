@@ -315,6 +315,7 @@ export function tradeTemplateGuide(): Record<string, string>[] {
     g('Nhóm', 'Không', 'Hàng hóa hoặc Dịch vụ. Bỏ cột này thì chọn loại cho cả tệp ở bước ghép cột.'),
     g('Phân loại', 'Không', 'Mục trong danh mục Cài đặt. Mục chưa có thì được hỏi: thêm vào Cài đặt, bỏ trống hoặc ghép vào mục có sẵn.'),
     g('Đơn vị', 'Có', 'Đơn vị tính, ví dụ Cái, Bộ, Gói, Mét.'),
+    g('Cách theo dõi', 'Không', 'Số lượng (mặc định), Lô hoặc Serial.'),
     g('Sử dụng', 'Không', 'Chỉ bán, Có thể bán và quà tặng, Chỉ tặng... theo danh mục Cài đặt.'),
     g('Giá bán', 'Không', 'Số không âm (VND). Bỏ trống là chưa khai báo, khác với 0.'),
     g('Giá vốn', 'Không', 'Giá nhập (VND). Bỏ trống là chưa khai báo, khác với 0.'),
