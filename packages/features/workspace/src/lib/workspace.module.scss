@@ -509,6 +509,34 @@
   dd {
     margin: 0;
   }
+
+  // Mỗi cặp nhãn/giá trị nằm trong một thẻ div; bố cục hai cột mặc định coi như không có thẻ đó.
+  > div {
+    display: contents;
+  }
+}
+
+// Chi tiết của một công việc: lưới nhiều cột, nhãn nhỏ nằm trên giá trị để quét mắt nhanh và đỡ tốn chiều dọc.
+.definitionGrid {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px 24px;
+
+  > div {
+    display: block;
+    min-width: 0;
+  }
+
+  dt {
+    margin-bottom: 2px;
+    font-size: 12px;
+  }
+
+  dd {
+    color: var(--ep-text);
+    font-size: 14px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Chi tiết công việc có phương tiện: hai cột, thông tin bên trái, thẻ xe bên phải; màn hẹp thì xếp dọc. */
@@ -6461,10 +6489,103 @@
   padding-top: 8px;
 }
 
-// Tab "Hồ sơ liên kết": mỗi dòng chỉ một hồ sơ nên không cần cao 40px.
-.memberList.linkRecords > li {
-  min-height: 28px;
-  padding: 2px 0;
+// Mục "Hồ sơ liên kết" trong tab Chi tiết: ngăn cách với phần thông tin phía trên.
+.detailLinks {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ep-border);
+
+  h3 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+}
+
+// Hồ sơ liên kết: mỗi hồ sơ hai dòng (mã và tên / trạng thái và ngày cập nhật), nút gỡ liên kết ở bên phải.
+.linkRecordList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linkRecord {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'main action'
+    'meta action';
+  align-items: center;
+  gap: 3px 12px;
+  padding: 8px 0;
+  font-size: 13.5px;
+
+  & + & {
+    border-top: 1px solid var(--ep-line);
+  }
+
+  a {
+    flex: none;
+    color: var(--ep-link);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+}
+
+.linkRecordMain {
+  display: flex;
+  grid-area: main;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.linkRecordName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ep-text-sub);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkRecordMeta {
+  display: flex;
+  grid-area: meta;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+}
+
+.linkRecordAction {
+  grid-area: action;
+}
+
+.linkRecordStatus {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.linkStatusOk {
+  background: rgb(16 185 129 / 12%);
+  color: #047857;
+}
+
+.linkStatusBad {
+  background: rgb(239 68 68 / 10%);
+  color: #b91c1c;
+}
+
+.linkStatusRun {
+  background: var(--ep-accent-soft);
+  color: var(--ep-accent-strong);
 }
 
 .quantityNote {

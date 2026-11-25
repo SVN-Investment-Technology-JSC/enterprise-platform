@@ -1583,7 +1583,7 @@ export function ProjectsView({
             onUnlinkRef={(workItemId, referenceId) =>
               run(() => api.unlinkWorkItem(workItemId, referenceId), 'Không gỡ được liên kết.')
             }
-            // Các bước hồ sơ quy trình nằm trong tab "Hồ sơ liên kết".
+            // Các bước hồ sơ quy trình nằm trong mục "Hồ sơ liên kết" của tab Chi tiết.
             procedureSteps={
               procedureRef ? (
                 <ProcedureStepsPanel
