@@ -41,6 +41,7 @@ import {
   saveHrmProcedureBinding,
 } from '../infrastructure/hrm-procedure-links.js';
 import { transitionLeave } from '../infrastructure/hrm-leave-operations.js';
+import { cascadeOvertimeGroupStatus } from '../infrastructure/hrm-overtime.js';
 import {
   fieldCatalogFor,
   loadBindingMappings,
@@ -264,11 +265,14 @@ export class HrmOperationsController {
           'CANCELLED',
           'Người gửi rút đơn',
         );
-      else
+      else {
         await db.query(
           `UPDATE hrm_schema.${table} SET status='CANCELLED' WHERE tenant_id=$1 AND id=$2`,
           [tenantId, id],
         );
+        // Đơn làm thêm nhiều khoảng: rút khoảng chính thì các khoảng còn chờ cùng nhóm cũng bị hủy (không để lại khoảng mồ côi).
+        if (kind === 'ot') await cascadeOvertimeGroupStatus(db, tenantId, principal.userId, id, 'CANCELLED');
+      }
       await db.query(
         `INSERT INTO hrm_schema.audit_log(tenant_id,actor_id,action,entity_type,entity_id,detail) VALUES($1,$2,'REQUEST_WITHDRAW',$3,$4,'{}')`,
         [tenantId, principal.userId, kind, id],

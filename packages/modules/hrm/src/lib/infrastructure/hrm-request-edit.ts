@@ -1,3 +1,4 @@
+import { cascadeOvertimeGroupStatus } from './hrm-overtime.js';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type { HrmRequestKind } from '@enterprise-platform/contracts-hrm';
@@ -66,11 +67,14 @@ export async function supersedeRequest(
     assertLifecycleVersion(old, replacement.expectedUpdatedAt);
   if (input.kind === 'leave')
     await transitionLeave(db, input.tenantId, input.actorId, replacement.id, 'CANCELLED', 'Người gửi sửa đơn');
-  else
+  else {
     await db.query(`UPDATE hrm_schema.${table} SET status='CANCELLED' WHERE tenant_id=$1 AND id=$2`, [
       input.tenantId,
       replacement.id,
     ]);
+    // Đơn làm thêm nhiều khoảng: các khoảng còn chờ cùng nhóm cũng phải hủy, tránh để lại khoảng mồ côi.
+    if (input.kind === 'ot') await cascadeOvertimeGroupStatus(db, input.tenantId, input.actorId, replacement.id, 'CANCELLED');
+  }
 }
 
 /** Nối đơn cũ với đơn mới: ghi vết, chuyển luồng trao đổi sang đơn mới và để lại một dòng báo đã sửa. */
