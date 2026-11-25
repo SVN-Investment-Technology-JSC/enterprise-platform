@@ -99,6 +99,11 @@ export interface ChatDrawerProps {
   readonly projectId?: string;
   /** Gọi sau khi tải lên xong, để nơi gọi nạp lại danh sách tài liệu. */
   readonly onDocumentUploaded?: () => void;
+  /**
+   * Tin cần xem (đi từ thông báo nhắc tên): mở luồng từ tin đó trong một lượt tải rồi cuộn tới và làm nổi bật nó.
+   * Mỗi lần mở chỉ áp một lần; tin nằm quá xa thì giữ trang mới nhất và báo ngắn.
+   */
+  readonly focusMessageId?: string;
 }
 
 /** Gần đáy đủ để coi là "đang đọc tin mới nhất", tính bằng px. */
@@ -135,6 +140,7 @@ export function ChatDrawer({
   folders = [],
   projectId,
   onDocumentUploaded,
+  focusMessageId,
 }: ChatDrawerProps) {
   const directory = useDirectory();
   const live = useRealtimeStatus();
@@ -189,6 +195,10 @@ export function ChatDrawer({
   // Cờ đồng bộ chống tải trùng: sự kiện cuộn bắn liên tiếp trước khi `loadingOlder` (state, cập
   // nhật bất đồng bộ) kịp đổi, nên chỉ dựa vào state thì cùng một trang bị gọi hai ba lần.
   const olderInFlight = useRef(false);
+  // Tin cần xem chờ tải về (đưa vào lần tải kế tiếp) và tin đã tải về chờ cuộn tới sau khi dựng.
+  const focusPending = useRef<string | undefined>(undefined);
+  const focusToScroll = useRef<string | undefined>(undefined);
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   /**
    * Tải trang mới nhất. `silent` là làm mới do realtime: không xoá danh sách
@@ -199,8 +209,20 @@ export function ChatDrawer({
       const seq = ++loadSeq.current;
       if (!silent) setLoading(true);
       try {
-        const thread = await api.loadChatThread(entityType, entityId);
+        // Chỉ lần tải đầu của lượt mở này mới xin "từ tin cần xem"; các lần làm mới realtime sau đó lấy trang mới nhất.
+        const until = silent ? undefined : focusPending.current;
+        const thread = await api.loadChatThread(entityType, entityId, undefined, until);
         if (seq !== loadSeq.current) return;
+        if (until) {
+          focusPending.current = undefined;
+          if (thread.focusFound) {
+            // Không bám đáy: danh sách đã bắt đầu từ tin cần xem, cuộn tới nó ở bước dựng.
+            stickToBottom.current = false;
+            focusToScroll.current = until;
+          } else {
+            setNotice('Không mở được đúng tin được nhắc (tin quá cũ hoặc đã bị xoá), đang hiện các tin mới nhất.');
+          }
+        }
         setReaders((current) => thread.readers ?? current);
         if (silent) {
           // Trang mới nhất chỉ có vài tin: nếu có nhiều tin đến hơn một trang trong lúc chờ
@@ -260,8 +282,11 @@ export function ChatDrawer({
     prependAnchor.current = undefined;
     autoFillBlocked.current = false;
     olderInFlight.current = false;
-    void reload(sameThread && messagesRef.current.length > 0);
-  }, [open, reload, entityType, entityId]);
+    focusPending.current = focusMessageId;
+    focusToScroll.current = undefined;
+    // Có tin cần xem thì phải tải thay hẳn (không làm mới ngầm trên tin đang có): danh sách bắt đầu từ tin đó.
+    void reload(sameThread && messagesRef.current.length > 0 && !focusMessageId);
+  }, [open, reload, entityType, entityId, focusMessageId]);
 
   // Luồng đọc từ trên xuống, nên tin mới nhất nằm cuối. Sau khi chèn tin cũ lên
   // đầu thì giữ nguyên chỗ đang đọc; còn lại chỉ kéo xuống đáy khi đang sát đáy.
@@ -276,6 +301,21 @@ export function ChatDrawer({
       body.scrollTop = body.scrollHeight - anchor.height + anchor.top;
       prependAnchor.current = undefined;
       return;
+    }
+    // Đi từ thông báo nhắc tên: cuộn riêng vùng tin tới tin cần xem (đặt khoảng một phần ba từ trên xuống để còn
+    // thấy ngữ cảnh phía trên) rồi làm nổi bật ít giây. Tin chưa dựng xong (danh sách hoãn một nhịp) thì chờ lần sau.
+    const focusId = focusToScroll.current;
+    if (focusId && body) {
+      const target = body.querySelector<HTMLElement>(`[data-message-id="${focusId}"]`);
+      if (target) {
+        focusToScroll.current = undefined;
+        body.scrollTop +=
+          target.getBoundingClientRect().top - body.getBoundingClientRect().top - body.clientHeight / 3;
+        target.classList.add(styles.chatMessageFocus);
+        clearTimeout(focusTimer.current);
+        focusTimer.current = setTimeout(() => target.classList.remove(styles.chatMessageFocus), 2800);
+        return;
+      }
     }
     // Cuộn riêng vùng tin nhắn: `scrollIntoView` còn kéo cả các khung cuộn cha (trang
     // phía sau) và làm bố cục giật.
@@ -669,21 +709,23 @@ export function ChatDrawer({
 
         {roots.map((message) => (
           <div key={message.id}>
-            <Bubble
-              message={message}
-              mine={message.createdBy === currentUserId}
-              authorName={directory.nameOf(message.createdBy)}
-              renderText={renderText}
-              canWrite={canWrite}
-              attachmentNames={attachmentNamesOf(message)}
-              minute={minute}
-              // Trả lời của trả lời bị chặn (tối đa hai cấp).
-              onReply={message.parentId ? undefined : startReply}
-              onEdit={startEdit}
-              onDelete={remove}
-            />
+            <div data-message-id={message.id}>
+              <Bubble
+                message={message}
+                mine={message.createdBy === currentUserId}
+                authorName={directory.nameOf(message.createdBy)}
+                renderText={renderText}
+                canWrite={canWrite}
+                attachmentNames={attachmentNamesOf(message)}
+                minute={minute}
+                // Trả lời của trả lời bị chặn (tối đa hai cấp).
+                onReply={message.parentId ? undefined : startReply}
+                onEdit={startEdit}
+                onDelete={remove}
+              />
+            </div>
             {repliesOf(message.id).map((reply) => (
-              <div key={reply.id} className={styles.chatReply}>
+              <div key={reply.id} data-message-id={reply.id} className={styles.chatReply}>
                 <Bubble
                   message={reply}
                   mine={reply.createdBy === currentUserId}

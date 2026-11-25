@@ -477,7 +477,7 @@ export function WorkspaceScreen() {
       {!labelsReady ? (
         <p className={styles.muted}>Đang tải…</p>
       ) : view === 'my-work' && !provisioning ? (
-        <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
+        <MyWorkView onOpen={openInProject} onOpenTask={openTask} target={sub} />
       ) : view === 'tasks' && !provisioning ? (
         <StandaloneTasksView
           focusTaskId={sub}

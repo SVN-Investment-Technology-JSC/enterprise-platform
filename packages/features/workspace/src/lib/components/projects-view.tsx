@@ -269,6 +269,8 @@ export function ProjectsView({
   // bật / tắt thanh cuộn (thanh cuộn xuất hiện làm cả khối rộng hẹp khác nhau 15px, thấy rõ là giật).
   useFillViewportHeight(areaPane, undefined, area + (detail ? ':loaded' : ':loading'));
   const [chatOpen, setChatOpen] = useState(false);
+  /** Tin cần cuộn tới khi mở khung trao đổi từ thông báo nhắc tên; bỏ khi đóng khung để lần mở sau không nhảy lại. */
+  const [chatFocusMessageId, setChatFocusMessageId] = useState<string>();
   // Chỗ trên hàng tab dành cho công tắc và thanh lọc của tab Trao đổi (null cho tới khi hàng đó được dựng).
   const [chatToolsSlot, setChatToolsSlot] = useState<HTMLElement | null>(null);
   const [unread, setUnread] = useState<UnreadSummary>();
@@ -422,7 +424,7 @@ export function ProjectsView({
   useEffect(() => {
     if (!notificationTarget || appliedTarget.current === notificationTarget) return;
     if (!detail || detail.project.id !== openId) return;
-    const [kind, first, second] = notificationTarget.split('/');
+    const [kind, first, second, third] = notificationTarget.split('/');
     // `#projects/project/{id}`: mở dự án ở tab Công việc.
     if (kind === 'project') {
       appliedTarget.current = notificationTarget;
@@ -434,9 +436,16 @@ export function ProjectsView({
       appliedTarget.current = notificationTarget;
       setSelected({ kind: 'work-item', id: first });
     }
-    // `#projects/chat/{work_item|project}/{id}`: mở node rồi mở luôn khung trao đổi.
+    // `#projects/chat/{work_item|project}/{id}[/{messageId}]`: mở node rồi mở luôn khung trao đổi, kèm cuộn tới tin.
     if (kind === 'chat' && first && second) {
       appliedTarget.current = notificationTarget;
+      let messageId: string | undefined;
+      try {
+        messageId = third ? decodeURIComponent(third) : undefined;
+      } catch {
+        messageId = undefined;
+      }
+      setChatFocusMessageId(messageId);
       if (first === 'work_item' && detail.items.some((item) => item.id === second)) {
         setSelected({ kind: 'work-item', id: second });
       } else {
@@ -558,6 +567,7 @@ export function ProjectsView({
       // thoáng hiện khối đầu của dự án trước.
       setDetail(undefined);
       setChatOpen(false);
+      setChatFocusMessageId(undefined);
       return;
     }
     void refreshDetail(openId);
@@ -1626,7 +1636,11 @@ export function ProjectsView({
         projectId={openId}
         onDocumentUploaded={() => setCalendarToken((token) => token + 1)}
         currentUserId={me}
-        onClose={() => setChatOpen(false)}
+        focusMessageId={chatFocusMessageId}
+        onClose={() => {
+          setChatOpen(false);
+          setChatFocusMessageId(undefined);
+        }}
         onChanged={() => {
           if (!openId) return;
           void refreshUnread(openId);

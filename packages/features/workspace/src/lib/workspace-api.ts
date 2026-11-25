@@ -21,6 +21,7 @@ import type {
   ProjectRequest,
   ChatEntityType,
   ChatMessage,
+  ChatMessageLocation,
   ChatThread,
   ProjectChatFeedPage,
   ProjectChatFeedQuery,
@@ -543,11 +544,23 @@ export const listProjectDependencies = (projectId: string) =>
 
 /** Luồng tin của một node; node chưa ai nhắn vẫn trả luồng rỗng. */
 /** `before` = id tin cũ nhất đang có, để lấy trang liền trước nó. */
-export const loadChatThread = (entityType: ChatEntityType, entityId: string, before?: string) =>
-  request<ChatThread>(
-    `/chat/${entityType}/${entityId}${before ? `?before=${encodeURIComponent(before)}` : ''}`,
-    { cache: 'no-store' },
-  );
+export const loadChatThread = (
+  entityType: ChatEntityType,
+  entityId: string,
+  before?: string,
+  /** Id tin cần xem: lấy một lượt từ tin đó tới tin mới nhất (thay vì trang mới nhất). Bỏ qua khi có `before`. */
+  until?: string,
+) => {
+  const params = new URLSearchParams();
+  if (before) params.set('before', before);
+  else if (until) params.set('until', until);
+  const query = params.toString();
+  return request<ChatThread>(`/chat/${entityType}/${entityId}${query ? `?${query}` : ''}`, { cache: 'no-store' });
+};
+
+/** Tin nhắn nằm ở node nào, để mở đúng việc hoặc dự án từ link thông báo nhắc tên. */
+export const getChatMessageLocation = (messageId: string) =>
+  request<ChatMessageLocation>(`/chat/messages/${encodeURIComponent(messageId)}/location`, { cache: 'no-store' });
 
 export const sendChatMessage = (body: SendChatMessageRequest) =>
   request<SendChatMessageResponse>('/chat/messages', {

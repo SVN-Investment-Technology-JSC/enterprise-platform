@@ -4409,6 +4409,25 @@
   border-left: 2px solid var(--ep-border);
 }
 
+// Tin được cuộn tới từ thông báo nhắc tên: nền nổi bật ít giây rồi nhạt dần (class gỡ sau ~2,8 giây).
+.chatMessageFocus {
+  border-radius: 10px;
+  animation: chatMessageFocusFade 2.8s ease-out;
+}
+
+@keyframes chatMessageFocusFade {
+  0%,
+  60% {
+    background: var(--ep-accent-soft);
+    box-shadow: 0 0 0 4px var(--ep-accent-soft);
+  }
+
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 4px transparent;
+  }
+}
+
 .chatMeta {
   display: flex;
   align-items: baseline;
@@ -12396,25 +12415,6 @@ th[data-column-id='select'] .columnResizeHandle {
   font-weight: 600;
 }
 
-.procedureStepsSummaryRun {
-  border-left-color: var(--ep-accent-strong);
-  background: var(--ep-accent-soft);
-}
-
-.procedureStepsSummaryOk {
-  border-left-color: var(--ep-success);
-  background: rgb(16 185 129 / 10%);
-}
-
-.procedureStepsSummaryWarn {
-  border-left-color: #d97706;
-  background: rgb(245 158 11 / 12%);
-}
-
-.procedureStepsSummaryBad {
-  border-left-color: var(--ep-danger);
-  background: rgb(239 68 68 / 10%);
-}
 // Tiêu đề và dòng tóm tắt trên cùng một hàng; hàng hẹp thì dòng tóm tắt xuống dòng dưới.
 .procedureStepsTitleRow {
   display: flex;
@@ -12437,6 +12437,25 @@ th[data-column-id='select'] .columnResizeHandle {
   }
 }
 
+.procedureStepsSummaryRun {
+  border-left-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+}
+
+.procedureStepsSummaryOk {
+  border-left-color: var(--ep-success);
+  background: rgb(16 185 129 / 10%);
+}
+
+.procedureStepsSummaryWarn {
+  border-left-color: #d97706;
+  background: rgb(245 158 11 / 12%);
+}
+
+.procedureStepsSummaryBad {
+  border-left-color: var(--ep-danger);
+  background: rgb(239 68 68 / 10%);
+}
 
 .procedureFlowClamp {
   overflow: hidden;
