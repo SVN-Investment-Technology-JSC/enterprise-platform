@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 
-/** Chức năng đã gộp thành tab của trang khác; giữ đường dẫn cũ để liên kết và dấu trang cũ vẫn dùng được. */
+/** Tạm ứng do ứng dụng kế toán quản lý; đường dẫn cũ chuyển sang trang Bảng công. */
 export default function Page() {
-  redirect('/payroll?view=advances');
+  redirect('/timekeeping?view=timesheets');
 }

@@ -207,7 +207,7 @@ export default function OvertimeCompSettingsScreen() {
           <Section title="Công thức tính từ làm thêm / ca đêm">
             <div className="space-y-1 sm:col-span-2 lg:col-span-3">
               <Check
-                label="Bật công thức tính (cắt trần làm thêm và cộng quỹ khi chốt công tháng)"
+                label="Bật công thức tính (cắt trần làm thêm và quy đổi giờ dư thành nghỉ bù)"
                 checked={form.enabled}
                 disabled={!canManage}
                 onChange={(v) =>
@@ -216,8 +216,21 @@ export default function OvertimeCompSettingsScreen() {
               />
               <p className="pl-6 text-[12px] text-slate-500">
                 {form.enabled
-                  ? 'Cuối mỗi tháng, giờ làm thêm vượt trần được quy đổi và cộng vào quỹ nghỉ bù theo các thiết lập bên dưới.'
+                  ? 'Giờ làm thêm vượt trần được quy đổi thành ngày nghỉ bù theo các thiết lập bên dưới; quỹ được cộng khi HR xác nhận hoặc tự động nếu bật ô bên dưới.'
                   : 'Đang tắt: không cắt trần làm thêm, không đổi công thức lương và không tự cộng quỹ khi chốt công. Các thiết lập bên dưới chưa được áp dụng.'}
+              </p>
+            </div>
+            <div className="space-y-1 sm:col-span-2 lg:col-span-3">
+              <Check
+                label="Tự động cộng quỹ nghỉ bù khi chốt công"
+                checked={form.enabled && form.autoAccrue}
+                disabled={!canManage || !form.enabled}
+                onChange={(v) => set('autoAccrue', v)}
+              />
+              <p className="pl-6 text-[12px] text-slate-500">
+                {form.enabled && form.autoAccrue
+                  ? 'Khi chốt công và ở tác vụ nền cuối tháng, hệ thống cộng quỹ ngay, không cần HR xác nhận.'
+                  : 'Đang tắt (khuyến nghị): sau khi chốt công, HR xem trước số ngày nghỉ bù từng nhân viên và bấm xác nhận thì quỹ mới được cộng.'}
               </p>
             </div>
             {text('normalHoursPerDay', 'Số giờ chuẩn một ngày làm việc')}
@@ -335,7 +348,9 @@ export default function OvertimeCompSettingsScreen() {
               <li key={v.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                 <span className="font-semibold">Phiên bản {v.versionNo}</span>
                 <span className="text-slate-600">
-                  {formatCompDate(v.effectiveFrom)} - {v.effectiveTo ? formatCompDate(v.effectiveTo) : 'chưa kết thúc'}
+                  {phaseOf(v) === 'REPLACED'
+                    ? `Từ ${formatCompDate(v.effectiveFrom)}`
+                    : `${formatCompDate(v.effectiveFrom)} - ${v.effectiveTo ? formatCompDate(v.effectiveTo) : 'chưa kết thúc'}`}
                 </span>
                 <Badge variant={phaseOf(v) === 'CURRENT' ? 'default' : 'outline'}>{COMP_VERSION_PHASE_LABELS[phaseOf(v)]}</Badge>
                 <Badge variant={v.config.enabled ? 'default' : 'outline'}>{v.config.enabled ? 'Bật' : 'Tắt'}</Badge>

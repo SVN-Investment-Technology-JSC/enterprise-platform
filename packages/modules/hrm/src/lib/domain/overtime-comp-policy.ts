@@ -9,6 +9,8 @@ export interface OvertimeCompPolicy {
   readonly enabled: boolean;
   /** Bật quản lý quỹ nghỉ bù (giữ chỗ, trừ quỹ đơn Nghỉ bù). Tách khỏi `enabled` để dùng được khi chưa bật tính OT tự động. */
   readonly fundEnabled: boolean;
+  /** Tự cộng quỹ nghỉ bù khi chốt công và ở tác vụ nền cuối tháng. Tắt (mặc định): chỉ cộng khi HR xác nhận. */
+  readonly autoAccrue: boolean;
   readonly normalHoursPerDay: number;
   readonly monthlyCapHours: number;
   readonly yearlyCapHours: number | null;
@@ -29,6 +31,7 @@ export interface OvertimeCompPolicy {
 export const DEFAULT_OVERTIME_COMP_POLICY: OvertimeCompPolicy = {
   enabled: false,
   fundEnabled: false,
+  autoAccrue: false,
   normalHoursPerDay: 8,
   monthlyCapHours: 40,
   yearlyCapHours: 200,
@@ -71,6 +74,7 @@ export function parseOvertimeCompPolicy(config: Record<string, unknown> | null |
   return {
     enabled,
     fundEnabled,
+    autoAccrue: typeof raw.autoAccrue === 'boolean' ? raw.autoAccrue : d.autoAccrue,
     normalHoursPerDay: num(raw.normalHoursPerDay, d.normalHoursPerDay),
     monthlyCapHours: num(raw.monthlyCapHours, d.monthlyCapHours),
     yearlyCapHours: numOrNull(raw.yearlyCapHours, d.yearlyCapHours),
@@ -110,6 +114,7 @@ export function validateOvertimeCompPolicy(input: unknown): string | null {
   };
   if (has('enabled') && typeof input.enabled !== 'boolean') return 'Ô áp dụng quy tắc phải là đúng hoặc sai';
   if (has('fundEnabled') && typeof input.fundEnabled !== 'boolean') return 'Ô bật quản lý quỹ nghỉ bù phải là đúng hoặc sai';
+  if (has('autoAccrue') && typeof input.autoAccrue !== 'boolean') return 'Ô tự cộng quỹ nghỉ bù phải là đúng hoặc sai';
   if (has('rounding') && !ROUNDINGS.includes(input.rounding as RoundingMethod))
     return 'Phương pháp làm tròn phải là HALF_UP, DOWN hoặc UP';
   const errors = [

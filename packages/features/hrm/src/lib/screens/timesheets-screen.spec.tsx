@@ -268,7 +268,8 @@ describe('TimesheetsScreen', () => {
     const view = render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
     expect(screen.getByTestId('month-state').textContent).toContain('Đã chốt đơn từ');
-    expect((screen.getByRole('button', { name: /Chốt đơn từ/ }) as HTMLButtonElement).disabled).toBe(true);
+    // Chốt đơn từ và Mở lại dùng chung một vị trí: đã chốt đơn từ thì chỉ còn nút Mở lại.
+    expect(screen.queryByRole('button', { name: /Chốt đơn từ/ })).toBeNull();
     expect((screen.getByRole('button', { name: /Chốt công/ }) as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByRole('button', { name: /Mở lại/ }) as HTMLButtonElement).disabled).toBe(false);
     view.unmount();
@@ -336,6 +337,62 @@ describe('TimesheetsScreen', () => {
     await screen.findByText('Đủ điều kiện thực hiện.');
     fireEvent.click(screen.getByRole('button', { name: 'Xác nhận chốt công' }));
     expect((await screen.findByRole('alert')).textContent).toBe('Tháng chưa kết thúc');
+  });
+
+  describe('chốt công với quỹ nghỉ bù theo công thức', () => {
+    const compOffRow = {
+      employeeId: 'e1',
+      employeeCode: 'NV1',
+      employeeName: 'An',
+      actualOtHours: 60,
+      countedOtHours: 40,
+      excessOtHours: 20,
+      compDays: 3,
+      status: 'READY',
+      convertedDays: null,
+      accrualOn: '2026-11-01',
+      expiresOn: null,
+      note: null,
+    };
+    const mockLock = (autoAccrue: boolean) =>
+      fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
+        if (path.startsWith('/timesheet-board')) return { data: makeBoard('REQUESTS_CLOSED', true) };
+        if (path.endsWith('/close-state')) return closeState();
+        if (path.startsWith('/comp-off/status')) return { data: { fundEnabled: true, formulaEnabled: true, autoAccrue } };
+        if (path.startsWith('/comp-off/conversion-preview'))
+          return { data: { month, locked: true, enabled: true, rows: [compOffRow] } };
+        if (init?.method === 'POST') return { data: {} };
+        return { data: {} };
+      }) as never);
+
+    it('mặc định HR xem trước và chỉnh quỹ ngay trong hộp thoại chốt, xác nhận một lần: chốt rồi cộng quỹ theo số đã chỉnh', async () => {
+      mockLock(false);
+      render(<TimesheetsScreen />);
+      await screen.findAllByTestId('board-day-header');
+      fireEvent.click(screen.getByRole('button', { name: /Chốt công/ }));
+      await screen.findByText('Đủ điều kiện thực hiện.');
+      await screen.findByText('An');
+      fireEvent.change(screen.getByLabelText('Số ngày nghỉ bù của An'), { target: { value: '2' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận chốt công' }));
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/comp-off/conversions',
+          expect.objectContaining({ method: 'POST', body: JSON.stringify({ month, rows: [{ employeeId: 'e1', days: 2 }] }) }),
+        ),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(`/timesheet-months/${month}/close`, expect.objectContaining({ method: 'POST' }));
+    });
+
+    it('bật cộng tự động thì chốt xong đóng hộp thoại, không hiện bước xác nhận', async () => {
+      mockLock(true);
+      render(<TimesheetsScreen />);
+      await screen.findAllByTestId('board-day-header');
+      fireEvent.click(screen.getByRole('button', { name: /Chốt công/ }));
+      await screen.findByText('Đủ điều kiện thực hiện.');
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận chốt công' }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Xác nhận chốt công' })).toBeNull());
+      expect(screen.queryByText(`Xác nhận cộng quỹ nghỉ bù tháng ${month.slice(5, 7)}/${month.slice(0, 4)}`)).toBeNull();
+    });
   });
 
   it('Mở lại bắt buộc nhập lý do', async () => {
@@ -438,16 +495,16 @@ describe('TimesheetsScreen', () => {
     expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain('page=1');
   });
 
-  it('cột tổng hợp gọn: công, ngày trễ sớm, nghỉ, vắng, bất thường, tăng ca', async () => {
+  it('cột tổng hợp gọn: công, công thiếu, nghỉ, vắng, bất thường, số giờ tăng ca', async () => {
     mockApi(makeBoard('OPEN', true));
     render(<TimesheetsScreen />);
     await screen.findAllByTestId('board-day-header');
     const headers = within(screen.getByRole('table', { name: 'Bảng công theo tháng' }))
       .getAllByRole('columnheader')
       .map((h) => h.textContent);
-    for (const label of ['Công', 'T/S', 'P', 'KP', '!', 'TC']) expect(headers).toContain(label);
+    for (const label of ['Công', 'Thiếu', 'P', 'KP', '!', 'TC']) expect(headers).toContain(label);
     const row = screen.getByTestId('board-row');
-    expect(within(row).getAllByRole('cell').slice(-6).map((c) => c.textContent)).toEqual(['20', '1', '1', '0', '1', '1:30']);
+    expect(within(row).getAllByRole('cell').slice(-6).map((c) => c.textContent)).toEqual(['20', '0', '1', '0', '1', '1.5']);
   });
 
   it('bấm tên nhân viên mở bảng công cả tháng của người đó; bấm một ngày trong đó hiện chi tiết ngày ngay bên dưới, không mở thêm ngăn kéo', async () => {

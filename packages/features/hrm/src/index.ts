@@ -65,7 +65,7 @@ export {
   PeopleHub,
   LeaveHub,
   TimekeepingHub,
-  PayrollHub,
+  ReportsHub,
   FleetHub,
   SettingsHub,
 } from './lib/screens/hrm-hubs';

@@ -60,8 +60,9 @@ export async function lockTimesheetPeriod(
     `UPDATE hrm_schema.timesheet_periods SET status='LOCKED',locked_by=$3,locked_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
     [tenantId, id, actorId],
   );
-  // Bật công thức tự động: cuối tháng (chốt công) cộng luôn quỹ nghỉ bù từ ảnh chụp vừa ghi.
-  if (snapshot?.policy.enabled) await autoAccrueCompOff(db as PoolClient, tenantId, actorId, snapshot.month);
+  // Chỉ cộng luôn quỹ nghỉ bù khi tenant bật "cộng tự động"; mặc định HR xem trước và xác nhận sau khi chốt.
+  if (snapshot?.policy.enabled && snapshot.policy.autoAccrue)
+    await autoAccrueCompOff(db as PoolClient, tenantId, actorId, snapshot.month, undefined, { requireAutoSetting: true });
   return locked.rows[0];
 }
 

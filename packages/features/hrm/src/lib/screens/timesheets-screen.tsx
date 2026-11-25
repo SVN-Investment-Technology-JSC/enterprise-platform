@@ -1,13 +1,14 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Calculator, Download, Loader2, Lock, LockKeyhole, Maximize2, Minimize2, Search, Unlock } from 'lucide-react';
+import { Calculator, Download, Loader2, Lock, LockKeyhole, Maximize2, Minimize2, PiggyBank, Search, Unlock } from 'lucide-react';
 import type {
+  HrmCompOffReversalPreview,
   HrmMonthCloseState,
   HrmTimesheetBoard,
 } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { downloadStyledXlsx } from '../hrm-xlsx';
-import { currentMonthVn, isMonthKey } from '../hrm-timesheet-format';
+import { currentMonthVn, formatMonthVn, isMonthKey } from '../hrm-timesheet-format';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import {
@@ -31,6 +32,8 @@ import {
   monthStateTimestamp,
 } from '../ui/timesheet-board-format';
 import { formatDateVn } from '../hrm-timesheet-format';
+import { compOffApi } from '../hrm-comp-off-api';
+import { CompOffConversionPanel, type CompOffDraft } from '../ui/comp-off/comp-off-conversion-panel';
 
 const PAGE_SIZE = 50;
 
@@ -68,12 +71,15 @@ function MonthCloseDialog({
   kind,
   onClose,
   onDone,
+  onRefresh,
   onJump,
 }: {
   month: string;
   kind: CloseKind;
   onClose: () => void;
   onDone: () => void;
+  /** Tải lại bảng công mà không đóng hộp thoại (dùng khi còn bước xác nhận quỹ nghỉ bù). */
+  onRefresh?: () => void;
   /** Mở thẳng ô công đang vướng trên bảng công. */
   onJump?: (item: { employeeId: string; employeeCode: string; date: string }) => void;
 }) {
@@ -83,6 +89,27 @@ function MonthCloseDialog({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Tenant dùng quỹ nghỉ bù theo công thức mà không bật tự cộng: sau khi chốt, HR xem trước và xác nhận số ngày được cộng.
+  const [needsCompOffConfirm, setNeedsCompOffConfirm] = useState(false);
+  const [step, setStep] = useState<'close' | 'comp-off'>('close');
+  // Bản nháp xem trước quỹ nghỉ bù (đã chỉnh) sẽ được xác nhận cùng lúc với chốt công.
+  const [fundDraft, setFundDraft] = useState<CompOffDraft>({ rows: [], hasProblem: false });
+  const showFundPreview = kind === 'lock' && needsCompOffConfirm;
+  // Mở lại tháng đã chốt công: quỹ nghỉ bù đã cộng của tháng được đảo phần còn lại (không trừ âm nếu đã dùng).
+  const [reversal, setReversal] = useState<HrmCompOffReversalPreview | null>(null);
+  useEffect(() => {
+    if (kind !== 'reopen') return;
+    let live = true;
+    compOffApi
+      .accrualReversalPreview(month)
+      .then((r) => {
+        if (live && Array.isArray(r?.rows)) setReversal(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [kind, month]);
   // Chỉ ô lý do mở lại là dữ liệu nhập; hai kiểu còn lại không có ô nhập.
   const guard = useCloseGuard({ dirty: kind === 'reopen' && reason.trim() !== '', busy, onClose });
 
@@ -107,6 +134,21 @@ function MonthCloseDialog({
     };
   }, [kind, month]);
 
+  useEffect(() => {
+    if (kind !== 'lock') return;
+    let live = true;
+    setNeedsCompOffConfirm(false);
+    compOffApi
+      .status(month)
+      .then((s) => {
+        if (live) setNeedsCompOffConfirm(s.fundEnabled && s.formulaEnabled && !s.autoAccrue);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [kind, month]);
+
   const blockers =
     kind === 'requests'
       ? (state?.blockersForRequests ?? [])
@@ -116,7 +158,7 @@ function MonthCloseDialog({
   const stateUnknown = kind !== 'reopen' && !state;
   const missingReason = kind === 'reopen' && !reason.trim();
   const disabled =
-    busy || loading || stateUnknown || blockers.length > 0 || missingReason;
+    busy || loading || stateUnknown || blockers.length > 0 || missingReason || (showFundPreview && fundDraft.hasProblem) || Boolean(reversal?.blocked);
 
   async function submit() {
     setBusy(true);
@@ -126,7 +168,22 @@ function MonthCloseDialog({
         method: 'POST',
         body: JSON.stringify(kind === 'reopen' ? { reason: reason.trim() } : {}),
       });
-      onDone();
+      if (showFundPreview) {
+        // Đã chốt xong: ghi cộng quỹ theo số đã xem trước và chỉnh. Lỗi thì chuyển sang bước xác nhận thủ công.
+        if (fundDraft.rows.length > 0) {
+          try {
+            await compOffApi.convert({ month, rows: fundDraft.rows });
+            onDone();
+            return;
+          } catch (e) {
+            setError(e instanceof Error ? `Đã chốt công nhưng chưa cộng được quỹ: ${e.message}` : 'Đã chốt công nhưng chưa cộng được quỹ.');
+            setStep('comp-off');
+            onRefresh?.();
+            return;
+          }
+        }
+        onDone();
+      } else onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không thực hiện được.');
     } finally {
@@ -136,89 +193,160 @@ function MonthCloseDialog({
 
   return (
     <Dialog {...guard.dialogProps}>
-      <DialogContent className="max-w-lg gap-0">
+      <DialogContent className={step === 'comp-off' || showFundPreview ? 'max-w-5xl gap-0' : 'max-w-lg gap-0'}>
         <DialogHeader className="border-b border-slate-200 p-5">
           <DialogTitle>
-            {text.title} tháng {month}
+            {step === 'comp-off' ? `Xác nhận cộng quỹ nghỉ bù tháng ${formatMonthVn(month)}` : `${text.title} tháng ${formatMonthVn(month)}`}
           </DialogTitle>
-          <DialogDescription>{text.description}</DialogDescription>
+          <DialogDescription>
+            {step === 'comp-off'
+              ? 'Đã chốt công. Kiểm tra số ngày nghỉ bù dự kiến của từng nhân viên rồi bấm chuyển đổi để cộng vào quỹ. Chưa xác nhận thì quỹ chưa được cộng; có thể làm sau ở tab Quỹ nghỉ bù.'
+              : text.description}
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 p-5 text-xs">
-          {loading && (
-            <div role="status" className="flex items-center gap-2 text-slate-500">
-              <Loader2 className="size-4 animate-spin" />
-              <span>Đang kiểm tra điều kiện...</span>
+        {step === 'comp-off' ? (
+          <>
+            <div className="max-h-[60vh] overflow-y-auto p-5 text-xs">
+              <CompOffConversionPanel month={month} />
             </div>
-          )}
-          {blockers.length > 0 && (
-            <div
-              data-testid="close-blockers"
-              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900"
-            >
-              <p className="mb-1 font-semibold">Còn vướng, chưa thể thực hiện:</p>
-              <ul className="list-disc space-y-1 pl-4">
-                {blockers.map((b) => (
-                  <li key={b.code}>
-                    {b.message}
-                    {b.count > 0 ? ` (${b.count})` : ''}
-                    {b.items && b.items.length > 0 && (
-                      <ul data-testid={`blocker-items-${b.code}`} className="mt-1 max-h-40 space-y-0.5 overflow-y-auto pl-2">
-                        {b.items.map((item) => (
-                          <li key={`${item.employeeId}-${item.date}`} className="flex items-center justify-between gap-2">
-                            <span>
-                              {item.employeeCode} - {item.employeeName} - {formatDateVn(item.date)}:{' '}
-                              {item.codes.map(anomalyLabel).join('; ') || 'Cần xử lý'}
-                            </span>
-                            {onJump && (
-                              <button
-                                type="button"
-                                className="shrink-0 font-semibold text-blue-700 hover:underline"
-                                aria-label={`Mở ô công ${item.employeeCode} ngày ${formatDateVn(item.date)}`}
-                                onClick={() => onJump(item)}
-                              >
-                                Mở ô công
-                              </button>
+            <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+              <Button variant="outline" onClick={onDone}>
+                Để sau
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-3 p-5 text-xs">
+              {loading && (
+                <div role="status" className="flex items-center gap-2 text-slate-500">
+                  <Loader2 className="size-4 animate-spin" />
+                  <span>Đang kiểm tra điều kiện...</span>
+                </div>
+              )}
+              {blockers.length > 0 && (
+                <div
+                  data-testid="close-blockers"
+                  className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900"
+                >
+                  <p className="mb-1 font-semibold">Còn vướng, chưa thể thực hiện:</p>
+                  <ul className="list-disc space-y-1 pl-4">
+                    {blockers.map((b) => (
+                      <li key={b.code}>
+                        {b.message}
+                        {b.count > 0 ? ` (${b.count})` : ''}
+                        {b.items && b.items.length > 0 && (
+                          <ul data-testid={`blocker-items-${b.code}`} className="mt-1 max-h-40 space-y-0.5 overflow-y-auto pl-2">
+                            {b.items.map((item) => (
+                              <li key={`${item.employeeId}-${item.date}`} className="flex items-center justify-between gap-2">
+                                <span>
+                                  {item.employeeCode} - {item.employeeName} - {formatDateVn(item.date)}:{' '}
+                                  {item.codes.map(anomalyLabel).join('; ') || 'Cần xử lý'}
+                                </span>
+                                {onJump && (
+                                  <button
+                                    type="button"
+                                    className="shrink-0 font-semibold text-blue-700 hover:underline"
+                                    aria-label={`Mở ô công ${item.employeeCode} ngày ${formatDateVn(item.date)}`}
+                                    onClick={() => onJump(item)}
+                                  >
+                                    Mở ô công
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                            {b.count > b.items.length && (
+                              <li className="text-amber-800">Và {b.count - b.items.length} ngày khác...</li>
                             )}
-                          </li>
-                        ))}
-                        {b.count > b.items.length && (
-                          <li className="text-amber-800">Và {b.count - b.items.length} ngày khác...</li>
+                          </ul>
                         )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!loading && !stateUnknown && kind !== 'reopen' && blockers.length === 0 && (
+                <p className="text-emerald-700">Đủ điều kiện thực hiện.</p>
+              )}
+              {showFundPreview && (
+                <div className="space-y-2">
+                  <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-900">
+                    Quỹ nghỉ bù tính theo công thức và chưa bật tự cộng. Xem trước số ngày nghỉ bù của từng nhân viên, chỉnh nếu cần;
+                    bấm &quot;{text.confirm}&quot; để chốt công và cộng quỹ theo số này. Bỏ tick nhân viên nào thì chưa cộng cho người đó
+                    (cộng sau ở tab Quỹ nghỉ bù).
+                  </p>
+                  <div className="max-h-[40vh] overflow-y-auto">
+                    <CompOffConversionPanel month={month} beforeLock onDraftChange={setFundDraft} />
+                  </div>
+                </div>
+              )}
+              {kind === 'reopen' && reversal && reversal.rows.length > 0 && (
+                <div
+                  data-testid="reopen-fund-reversal"
+                  className={`space-y-1 rounded-lg border p-3 ${reversal.blocked ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}
+                >
+                  <p className="font-semibold">Quỹ nghỉ bù đã cộng khi chốt công tháng {formatMonthVn(month)}</p>
+                  {reversal.blocked ? (
+                    <>
+                      <p>Chưa mở lại được: còn đơn nghỉ bù chờ duyệt đang giữ chỗ trong quỹ tháng này. Duyệt hoặc rút các đơn đó trước.</p>
+                      <ul className="list-disc pl-4">
+                        {reversal.rows
+                          .filter((r) => r.held > 0)
+                          .map((r) => (
+                            <li key={r.employeeId}>
+                              {r.employeeCode} - {r.employeeName}: giữ chỗ {r.held} ngày
+                            </li>
+                          ))}
                       </ul>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        Mở lại sẽ đảo {reversal.totalReversible} ngày nghỉ bù của {reversal.rows.filter((r) => r.reversible > 0).length} nhân viên
+                        (thêm dòng đảo vào sổ quỹ, không xóa lịch sử). Chốt công lại sẽ cộng theo số mới.
+                      </p>
+                      {reversal.totalKept > 0 && (
+                        <p>
+                          Nhân viên đã dùng quỹ thì chỉ đảo phần còn lại, không trừ âm; {reversal.totalKept} ngày đã dùng được giữ nguyên:
+                          {' '}
+                          {reversal.rows
+                            .filter((r) => r.kept > 0)
+                            .map((r) => `${r.employeeName ?? r.employeeId} (${r.kept})`)
+                            .join(', ')}
+                          .
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              {kind === 'reopen' && (
+                <label className="block space-y-1">
+                  <span className="font-semibold text-slate-700">Lý do mở lại (bắt buộc)</span>
+                  <Input
+                    aria-label="Lý do mở lại"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Nhập lý do mở lại tháng công"
+                  />
+                </label>
+              )}
+              {error && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 font-semibold text-red-700">
+                  {error}
+                </p>
+              )}
             </div>
-          )}
-          {!loading && !stateUnknown && kind !== 'reopen' && blockers.length === 0 && (
-            <p className="text-emerald-700">Đủ điều kiện thực hiện.</p>
-          )}
-          {kind === 'reopen' && (
-            <label className="block space-y-1">
-              <span className="font-semibold text-slate-700">Lý do mở lại (bắt buộc)</span>
-              <Input
-                aria-label="Lý do mở lại"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Nhập lý do mở lại tháng công"
-              />
-            </label>
-          )}
-          {error && (
-            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 font-semibold text-red-700">
-              {error}
-            </p>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
-          <Button variant="outline" onClick={guard.requestClose} disabled={busy}>
-            Bỏ qua
-          </Button>
-          <Button disabled={disabled} onClick={() => void submit()}>
-            {busy ? 'Đang xử lý...' : text.confirm}
-          </Button>
-        </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+              <Button variant="outline" onClick={guard.requestClose} disabled={busy}>
+                Bỏ qua
+              </Button>
+              <Button disabled={disabled} onClick={() => void submit()}>
+                {busy ? 'Đang xử lý...' : text.confirm}
+              </Button>
+            </div>
+          </>
+        )}
       </DialogContent>
       {guard.confirm}
     </Dialog>
@@ -240,6 +368,7 @@ export default function TimesheetsScreen() {
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [closing, setClosing] = useState<CloseKind | null>(null);
+  const [fundPreview, setFundPreview] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [notice, setNotice] = useState('');
@@ -431,9 +560,8 @@ export default function TimesheetsScreen() {
               >
                 <span
                   aria-hidden="true"
-                  className={`mr-1.5 inline-block size-1.5 rounded-full ${
-                    state === 'LOCKED' ? 'bg-emerald-500' : state === 'REQUESTS_CLOSED' ? 'bg-sky-500' : 'bg-amber-500'
-                  }`}
+                  className={`mr-1.5 inline-block size-1.5 rounded-full ${state === 'LOCKED' ? 'bg-emerald-500' : state === 'REQUESTS_CLOSED' ? 'bg-sky-500' : 'bg-amber-500'
+                    }`}
                 />
                 {monthStateLabel(state)}
                 {stamp ? ` - ${stamp}` : ''}
@@ -464,15 +592,23 @@ export default function TimesheetsScreen() {
         )}
         {canViewAll && (
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              permission="hrm.timesheet.calculate"
-              variant="outline"
-              disabled={state !== 'OPEN'}
-              onClick={() => setClosing('requests')}
-            >
-              <Lock className="size-3.5" />
-              <span>Chốt đơn từ</span>
-            </Button>
+            {/* Cùng một vị trí: tháng đang mở thì chốt đơn từ, đã chốt đơn từ hoặc chốt công thì mở lại. */}
+            {state === 'OPEN' ? (
+              <Button permission="hrm.timesheet.calculate" variant="outline" onClick={() => setClosing('requests')}>
+                <Lock className="size-3.5" />
+                <span>Chốt đơn từ</span>
+              </Button>
+            ) : (
+              <Button
+                permission="hrm.timesheet.reopen"
+                variant="outline"
+                onClick={() => setClosing('reopen')}
+                className="text-amber-700"
+              >
+                <Unlock className="size-3.5" />
+                <span>Mở lại</span>
+              </Button>
+            )}
             <Button
               permission="hrm.timesheet.calculate"
               variant="outline"
@@ -491,14 +627,13 @@ export default function TimesheetsScreen() {
               <span>Chốt công</span>
             </Button>
             <Button
-              permission="hrm.timesheet.reopen"
+              permission="hrm.comp_off.view"
               variant="outline"
-              disabled={state === 'OPEN'}
-              onClick={() => setClosing('reopen')}
-              className="text-amber-700"
+              title="Xem trước số ngày nghỉ bù sẽ cộng vào quỹ của tháng này"
+              onClick={() => setFundPreview(true)}
             >
-              <Unlock className="size-3.5" />
-              <span>Mở lại</span>
+              <PiggyBank className="size-3.5" />
+              <span>Xem trước quỹ</span>
             </Button>
             <Button
               permission="hrm.timesheet.export"
@@ -578,11 +713,33 @@ export default function TimesheetsScreen() {
         />
       ) : null}
 
+      {fundPreview && (
+        <Dialog open onOpenChange={(open) => !open && setFundPreview(false)}>
+          <DialogContent className="max-w-5xl gap-0">
+            <DialogHeader className="border-b border-slate-200 p-5">
+              <DialogTitle>Xem trước quỹ nghỉ bù tháng {formatMonthVn(month)}</DialogTitle>
+              <DialogDescription>
+                Số ngày nghỉ bù dự kiến cộng vào quỹ của từng nhân viên. Tháng chưa chốt công chỉ để xem; xác nhận cộng quỹ sau khi chốt công.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-y-auto p-5 text-xs">
+              <CompOffConversionPanel month={month} />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+              <Button variant="outline" onClick={() => setFundPreview(false)}>
+                Đóng
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {closing && (
         <MonthCloseDialog
           month={month}
           kind={closing}
           onClose={() => setClosing(null)}
+          onRefresh={() => setReloadKey((k) => k + 1)}
           onDone={() => {
             setClosing(null);
             setReloadKey((k) => k + 1);

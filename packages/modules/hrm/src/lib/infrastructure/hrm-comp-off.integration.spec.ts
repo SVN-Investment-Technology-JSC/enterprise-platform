@@ -270,17 +270,13 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     await expect(tx((db) => overrideOvertimeBlock(db, tenantId, actor, octBlock, { otHours: 1, reason: 'sau chốt' }))).rejects.toThrow('đã chốt công');
   });
 
-  it('chuyển đổi: chỉ khi tháng đã chốt, một lần cho mỗi tháng, chỉnh số ngày phải có lý do', async () => {
+  it('chuyển đổi: chỉ khi tháng đã chốt, một lần cho mỗi tháng, lý do tự ghi', async () => {
     const preview = await previewCompOffConversion(pool, tenantId, '2026-10');
     expect(preview).toMatchObject({ locked: true, enabled: true });
     const row = preview.rows.find((r) => r.employeeId === e1)!;
     expect(row).toMatchObject({ status: 'READY', compDays: 1.3, accrualOn: '2026-11-01', expiresOn: null });
 
     await expect(tx((db) => confirmCompOffConversion(db, tenantId, actor, { month: '2026-11', rows: [{ employeeId: e1 }] }))).rejects.toThrow('chưa chốt công');
-    const noReason = await tx((db) => confirmCompOffConversion(db, tenantId, actor, { month: '2026-10', rows: [{ employeeId: e1, days: 1 }] }));
-    expect(noReason).toMatchObject({ created: 0 });
-    expect(noReason.skipped[0]?.reason).toContain('lý do');
-
     const done = await tx((db) => confirmCompOffConversion(db, tenantId, actor, { month: '2026-10', rows: [{ employeeId: e1 }, { employeeId: e2 }] }));
     // e2 làm thêm đúng bằng trần (10 giờ) nên không có giờ dư để chuyển đổi.
     expect(done.created).toBe(1);
@@ -289,6 +285,8 @@ integration('HRM quỹ nghỉ bù: PostgreSQL integration', () => {
     expect(again).toMatchObject({ created: 0 });
     expect(again.skipped[0]?.reason).toContain('Đã chuyển đổi');
     expect((await ledger(e1)).filter((r) => r.kind === 'ACCRUAL')).toHaveLength(1);
+    // Không phải nhập lý do: hệ thống tự ghi theo tháng.
+    expect(((await pool.query(`SELECT reason FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND employee_id=$2 AND kind='ACCRUAL'`, [tenantId, e1])).rows[0] as { reason: string }).reason).toBe('Cộng quỹ bù tháng 10/2026');
     expect((await previewCompOffConversion(pool, tenantId, '2026-10')).rows.find((r) => r.employeeId === e1)).toMatchObject({ status: 'CONVERTED', convertedDays: 1.3 });
     // Sổ chỉ thêm dòng: không sửa, không xóa.
     await expect(pool.query(`UPDATE hrm_schema.comp_off_ledger SET days=9 WHERE tenant_id=$1`, [tenantId])).rejects.toThrow('chỉ được thêm dòng');

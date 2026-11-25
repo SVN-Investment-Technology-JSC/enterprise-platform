@@ -70,32 +70,24 @@ describe('HrmDashboardPage', () => {
     mockActions = ['hrm.read', 'hrm.self.read', 'hrm.self.attendance'];
     respond({ '/my-attendance-context': { data: noShiftContext } });
     render(<HrmDashboardPage />);
-    await screen.findByText(/Chưa phân ca/);
-    expect(accessPaths()).toEqual(['/my-attendance-context']);
+    await waitFor(() => expect(accessPaths()).toEqual(['/my-attendance-context']));
     expect(paths().some((p) => p.includes('/dashboard/overview'))).toBe(false);
     expect(paths().some((p) => p.includes('timesheet-periods'))).toBe(false);
     expect(paths().some((p) => p.includes('payroll-periods'))).toBe(false);
     expect(screen.queryByText('Cần xử lý')).toBeNull();
     expect(screen.queryByText(/Ca hành chính chuẩn/)).toBeNull();
-    const checkIn = screen.getByRole('button', { name: /Ghi nhận vào ca/ });
-    expect(checkIn.hasAttribute('disabled') || checkIn.getAttribute('aria-disabled') === 'true').toBe(true);
-  });
-
-  it('khong co hrm.self.attendance thi an nut cham cong', async () => {
-    mockActions = ['hrm.self.read'];
-    respond({ '/my-attendance-context': { data: shiftContext } });
-    render(<HrmDashboardPage />);
-    await screen.findByText(/08:00 - 17:30/);
+    // Thẻ Chấm công hôm nay đang ẩn nên không còn nút vào ca, ra ca trên Bàn làm việc.
     expect(screen.queryByRole('button', { name: /Ghi nhận vào ca/ })).toBeNull();
   });
 
-  it('co ca thi cho bam vao ca', async () => {
+  it('the cham cong hom nay bi an: du co ca va quyen cham cong cung khong hien nut vao ca', async () => {
     mockActions = ['hrm.self.read', 'hrm.self.attendance'];
     respond({ '/my-attendance-context': { data: shiftContext } });
     render(<HrmDashboardPage />);
-    await screen.findByText(/08:00 - 17:30/);
-    const checkIn = screen.getByRole('button', { name: /Ghi nhận vào ca/ });
-    expect(checkIn.hasAttribute('disabled')).toBe(false);
+    await waitFor(() => expect(accessPaths()).toContain('/my-attendance-context'));
+    expect(screen.queryByLabelText('Chấm công hôm nay')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Ghi nhận vào ca/ })).toBeNull();
+    expect(screen.queryByText(/08:00 - 17:30/)).toBeNull();
   });
 
   it('nguoi duyet dem don cho duyet, chi goi loai duoc duyet, kem forApproval=1', async () => {

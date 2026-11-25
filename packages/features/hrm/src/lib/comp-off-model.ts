@@ -47,16 +47,22 @@ export function nextFreeEffectiveFrom(
   return `${year}-${String(month).padStart(2, '0')}-01`;
 }
 
-export type CompVersionPhase = 'UPCOMING' | 'CURRENT' | 'EXPIRED';
+export type CompVersionPhase = 'UPCOMING' | 'CURRENT' | 'EXPIRED' | 'REPLACED';
 
 export const COMP_VERSION_PHASE_LABELS: Record<CompVersionPhase, string> = {
   UPCOMING: 'Sắp có hiệu lực',
   CURRENT: 'Đang áp dụng',
   EXPIRED: 'Đã hết hiệu lực',
+  REPLACED: 'Đã bị thay thế',
 };
+
+export const isReplacedComp = (v: Pick<HrmOvertimeCompVersionSummary, 'effectiveFrom' | 'effectiveTo'>): boolean =>
+  Boolean(v.effectiveTo) && (v.effectiveTo as string) < v.effectiveFrom;
 
 /** Giai đoạn của phiên bản theo ngày hôm nay (cùng cách tính với máy chủ). */
 export function compVersionPhase(v: Pick<HrmOvertimeCompVersionSummary, 'effectiveFrom' | 'effectiveTo'>, today: string): CompVersionPhase {
+  // Bị ghi đè nhưng còn dữ liệu tham chiếu nên được giữ làm lịch sử: ngày kết thúc nằm trước ngày bắt đầu.
+  if (isReplacedComp(v)) return 'REPLACED';
   if (v.effectiveFrom > today) return 'UPCOMING';
   if (v.effectiveTo && v.effectiveTo < today) return 'EXPIRED';
   return 'CURRENT';
@@ -67,7 +73,7 @@ export function removableCompVersionId(
   versions: readonly Pick<HrmOvertimeCompVersionSummary, 'id' | 'effectiveFrom' | 'effectiveTo'>[],
   today: string,
 ): string | null {
-  const newest = [...versions].sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+  const newest = [...versions].filter((v) => !isReplacedComp(v)).sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
   return newest && compVersionPhase(newest, today) === 'UPCOMING' ? newest.id : null;
 }
 
@@ -98,6 +104,7 @@ export function overlapEffects(
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) return [];
   const out: VersionOverlapEffect[] = [];
   for (const v of versions) {
+    if (isReplacedComp(v)) continue;
     if (v.effectiveTo && v.effectiveTo < effectiveFrom) continue;
     if (v.effectiveFrom >= effectiveFrom)
       out.push({ ...v, effect: 'REPLACE', newEffectiveTo: null });
@@ -131,26 +138,29 @@ export interface ConversionEdit {
   readonly reason: string;
 }
 
-/** Số ngày đang hiển thị của một dòng chuyển đổi: số HR chỉnh, nếu không thì số đề xuất. */
+/** Số ngày đề xuất làm tròn về 1 chữ số thập phân (đúng độ chính xác của sổ quỹ): 4.313 thành 4.3. */
+export const proposedDays = (row: Pick<HrmCompOffConversionRow, 'compDays'>): number => Math.round(row.compDays * 10) / 10;
+
+/** Số ngày đang hiển thị của một dòng chuyển đổi: số HR chỉnh, nếu không thì số đề xuất đã làm tròn. */
 export function conversionDays(row: Pick<HrmCompOffConversionRow, 'compDays'>, edit?: ConversionEdit): number {
-  if (!edit || edit.days.trim() === '') return row.compDays;
+  if (!edit || edit.days.trim() === '') return proposedDays(row);
   const n = Number(edit.days.replace(',', '.'));
   return Number.isFinite(n) ? n : Number.NaN;
 }
 
-/** Dòng chưa chuyển đổi và có giờ dư thì chọn được. */
-export const isConvertible = (row: Pick<HrmCompOffConversionRow, 'status'>): boolean => row.status === 'READY';
+/** Dòng chưa chuyển đổi thì chọn được; người không có giờ dư vẫn chọn được để HR tự nhập số ngày. */
+export const isConvertible = (row: Pick<HrmCompOffConversionRow, 'status'>): boolean => row.status === 'READY' || row.status === 'NOTHING';
 
-/** Lỗi của một dòng đã chọn: số ngày không hợp lệ, hoặc khác đề xuất mà thiếu lý do. */
+/** Lỗi của một dòng đã chọn: số ngày không hợp lệ. Lý do do hệ thống tự ghi nên không phải nhập. */
 export function conversionRowProblem(row: HrmCompOffConversionRow, edit?: ConversionEdit): string {
   const days = conversionDays(row, edit);
+  if (row.compDays <= 0 && (!edit || edit.days.trim() === '')) return 'Nhập số ngày cần cộng';
   if (!Number.isFinite(days) || days <= 0) return 'Số ngày phải lớn hơn 0';
   if (Math.abs(days * 10 - Math.round(days * 10)) > 1e-9) return 'Số ngày chỉ có tối đa 1 chữ số thập phân';
-  if (Math.abs(days - row.compDays) > 1e-9 && !(edit?.reason ?? '').trim()) return 'Cần nhập lý do khi khác số đề xuất';
   return '';
 }
 
-/** Nội dung gửi API chuyển đổi từ các dòng đã chọn; chỉ gửi `days` và `reason` khi HR có chỉnh. */
+/** Nội dung gửi API chuyển đổi từ các dòng đã chọn; chỉ gửi `days` khi khác số đề xuất. */
 export function conversionPayload(
   rows: readonly HrmCompOffConversionRow[],
   selected: ReadonlySet<string>,
@@ -161,7 +171,7 @@ export function conversionPayload(
     .map((r) => {
       const edit = edits[r.employeeId];
       const days = conversionDays(r, edit);
-      if (edit && Math.abs(days - r.compDays) > 1e-9) return { employeeId: r.employeeId, days, reason: edit.reason.trim() };
+      if (Math.abs(days - proposedDays(r)) > 1e-9 || r.compDays <= 0) return { employeeId: r.employeeId, days };
       return { employeeId: r.employeeId };
     });
 }
@@ -172,6 +182,7 @@ export function conversionPayload(
 export interface OvertimeCompForm {
   enabled: boolean;
   fundEnabled: boolean;
+  autoAccrue: boolean;
   normalHoursPerDay: string;
   monthlyCapHours: string;
   yearlyCapHours: string;
@@ -191,6 +202,7 @@ export function configToForm(c: HrmOvertimeCompConfig): OvertimeCompForm {
   return {
     enabled: c.enabled,
     fundEnabled: c.fundEnabled ?? c.enabled,
+    autoAccrue: c.autoAccrue ?? false,
     normalHoursPerDay: str(c.normalHoursPerDay),
     monthlyCapHours: str(c.monthlyCapHours),
     yearlyCapHours: str(c.yearlyCapHours),
@@ -215,6 +227,7 @@ export function formToConfig(f: OvertimeCompForm): Partial<HrmOvertimeCompConfig
   const config: Record<string, unknown> = {
     enabled: f.enabled,
     fundEnabled: f.enabled ? true : f.fundEnabled,
+    autoAccrue: f.enabled ? f.autoAccrue : false,
     normalHoursPerDay: num(f.normalHoursPerDay),
     monthlyCapHours: num(f.monthlyCapHours),
     yearlyCapHours: numOrNull(f.yearlyCapHours),

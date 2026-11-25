@@ -38,6 +38,7 @@ import {
   myMonthStats,
   type MyKpiKey,
 } from './my-timesheet-format';
+import { employeeGrossUnits, employeeShortfall } from './board-shortfall';
 import { formatUnits } from './timesheet-board-format';
 import { KpiButton, KpiDropdownList } from './kpi-list-sheet';
 
@@ -165,6 +166,8 @@ export function MyKpiStrip({
   );
   const totals = employee.totals;
   const stats = useMemo(() => myMonthStats(employee), [employee]);
+  const shortfall = useMemo(() => employeeShortfall(employee), [employee]);
+  const gross = useMemo(() => employeeGrossUnits(employee), [employee]);
   const standard = stats.find((s) => s.key === 'standard');
   const standardDays = employee.standard?.workdays ?? 0;
   const leaveDays =
@@ -173,16 +176,17 @@ export function MyKpiStrip({
     {
       key: 'units',
       label: 'Tổng công thực tế',
-      value: Number(totals.workdayUnits).toFixed(1),
-      unit: standard ? `/ ${Number(standard.value).toFixed(1)}` : '',
-      hint: standard?.hint,
+      // Công chưa trừ phần thiếu (đi trễ, về sớm); phần thiếu ghi ở dòng chú thích.
+      value: formatUnits(gross),
+      unit: standard ? `/ ${formatUnits(Number(standard.value))}` : '',
+      hint: shortfall > 0 ? `Công thiếu ${formatUnits(shortfall)} (đi trễ, về sớm)` : standard?.hint,
       icon: CalendarCheck,
       box: 'bg-emerald-50 text-emerald-600',
       progress:
         standardDays > 0
           ? Math.max(
               0,
-              Math.min(100, (totals.workdayUnits / standardDays) * 100),
+              Math.min(100, (gross / standardDays) * 100),
             )
           : null,
     },
