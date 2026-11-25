@@ -146,7 +146,7 @@ export async function runHrmAutomation(
         d.setUTCMonth(d.getUTCMonth() - 1);
         return d.toISOString().slice(0, 7);
       })();
-      const compOff = await autoAccrueCompOff(db, tenantId, null, prevMonth, date);
+      const compOff = await autoAccrueCompOff(db, tenantId, null, prevMonth, date, { requireAutoSetting: true });
       const result = {
         compOff,
         months,

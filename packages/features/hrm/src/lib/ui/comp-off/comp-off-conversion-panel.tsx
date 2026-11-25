@@ -25,10 +25,11 @@ import { EmptyRow, errorText, Notice, TableShell, td, tdRight, th, thRight } fro
  * Chuyển đổi giờ làm thêm vượt trần của một tháng thành ngày nghỉ bù. Chỉ xác nhận được khi tháng đã chốt công và quy tắc
  * đang bật; HR chỉnh số ngày của từng dòng thì bắt buộc nhập lý do.
  */
-export function CompOffConversionPanel() {
+export function CompOffConversionPanel({ month: fixedMonth }: { month?: string } = {}) {
   const { can } = useHrmPermissions();
   const canConvert = can('hrm.comp_off.convert');
-  const [month, setMonth] = useState(() => shiftMonth(currentMonthKey(), -1));
+  const [pickedMonth, setMonth] = useState(() => shiftMonth(currentMonthKey(), -1));
+  const month = fixedMonth ?? pickedMonth;
   const [preview, setPreview] = useState<HrmCompOffConversionPreview | null>(null);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -87,7 +88,7 @@ export function CompOffConversionPanel() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <MonthStepper month={month} onChange={setMonth} />
+        {fixedMonth ? <span className="text-sm font-semibold text-slate-700">Tháng {fixedMonth}</span> : <MonthStepper month={month} onChange={setMonth} />}
         {canConfirm ? (
           <Button className="ml-auto" onClick={() => void confirm()} disabled={busy || selected.size === 0 || hasProblem}>
             {busy ? 'Đang chuyển đổi…' : `Chuyển đổi ${selected.size} nhân viên`}

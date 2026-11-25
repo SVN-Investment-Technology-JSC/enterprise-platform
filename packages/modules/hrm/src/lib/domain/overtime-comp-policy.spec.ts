@@ -86,4 +86,12 @@ describe('overtimeCompLegalWarnings', () => {
     const legacy = parseOvertimeCompPolicy({ overtimeComp: { enabled: true } });
     expect(legacy.fundEnabled).toBe(true);
   });
+
+  it('cộng quỹ tự động mặc định tắt (HR xác nhận), chỉ bật khi cấu hình đặt rõ', () => {
+    expect(parseOvertimeCompPolicy({ overtimeComp: { enabled: true } }).autoAccrue).toBe(false);
+    expect(parseOvertimeCompPolicy(null).autoAccrue).toBe(false);
+    expect(parseOvertimeCompPolicy({ overtimeComp: { enabled: true, autoAccrue: true } }).autoAccrue).toBe(true);
+    expect(validateOvertimeCompPolicy({ autoAccrue: 'yes' })).toMatch(/tự cộng/);
+    expect(validateOvertimeCompPolicy({ autoAccrue: true })).toBeNull();
+  });
 });

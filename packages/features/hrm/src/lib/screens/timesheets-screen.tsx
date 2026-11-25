@@ -31,6 +31,8 @@ import {
   monthStateTimestamp,
 } from '../ui/timesheet-board-format';
 import { formatDateVn } from '../hrm-timesheet-format';
+import { compOffApi } from '../hrm-comp-off-api';
+import { CompOffConversionPanel } from '../ui/comp-off/comp-off-conversion-panel';
 
 const PAGE_SIZE = 50;
 
@@ -68,12 +70,15 @@ function MonthCloseDialog({
   kind,
   onClose,
   onDone,
+  onRefresh,
   onJump,
 }: {
   month: string;
   kind: CloseKind;
   onClose: () => void;
   onDone: () => void;
+  /** Tải lại bảng công mà không đóng hộp thoại (dùng khi còn bước xác nhận quỹ nghỉ bù). */
+  onRefresh?: () => void;
   /** Mở thẳng ô công đang vướng trên bảng công. */
   onJump?: (item: { employeeId: string; employeeCode: string; date: string }) => void;
 }) {
@@ -83,6 +88,9 @@ function MonthCloseDialog({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Tenant dùng quỹ nghỉ bù theo công thức mà không bật tự cộng: sau khi chốt, HR xem trước và xác nhận số ngày được cộng.
+  const [needsCompOffConfirm, setNeedsCompOffConfirm] = useState(false);
+  const [step, setStep] = useState<'close' | 'comp-off'>('close');
   // Chỉ ô lý do mở lại là dữ liệu nhập; hai kiểu còn lại không có ô nhập.
   const guard = useCloseGuard({ dirty: kind === 'reopen' && reason.trim() !== '', busy, onClose });
 
@@ -107,6 +115,20 @@ function MonthCloseDialog({
     };
   }, [kind, month]);
 
+  useEffect(() => {
+    if (kind !== 'lock') return;
+    let live = true;
+    compOffApi
+      .status()
+      .then((s) => {
+        if (live) setNeedsCompOffConfirm(s.fundEnabled && s.formulaEnabled && !s.autoAccrue);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [kind]);
+
   const blockers =
     kind === 'requests'
       ? (state?.blockersForRequests ?? [])
@@ -126,7 +148,10 @@ function MonthCloseDialog({
         method: 'POST',
         body: JSON.stringify(kind === 'reopen' ? { reason: reason.trim() } : {}),
       });
-      onDone();
+      if (kind === 'lock' && needsCompOffConfirm) {
+        setStep('comp-off');
+        onRefresh?.();
+      } else onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không thực hiện được.');
     } finally {
@@ -136,13 +161,30 @@ function MonthCloseDialog({
 
   return (
     <Dialog {...guard.dialogProps}>
-      <DialogContent className="max-w-lg gap-0">
+      <DialogContent className={step === 'comp-off' ? 'max-w-5xl gap-0' : 'max-w-lg gap-0'}>
         <DialogHeader className="border-b border-slate-200 p-5">
           <DialogTitle>
-            {text.title} tháng {month}
+            {step === 'comp-off' ? `Xác nhận cộng quỹ nghỉ bù tháng ${month}` : `${text.title} tháng ${month}`}
           </DialogTitle>
-          <DialogDescription>{text.description}</DialogDescription>
+          <DialogDescription>
+            {step === 'comp-off'
+              ? 'Đã chốt công. Kiểm tra số ngày nghỉ bù dự kiến của từng nhân viên rồi bấm chuyển đổi để cộng vào quỹ. Chưa xác nhận thì quỹ chưa được cộng; có thể làm sau ở tab Quỹ nghỉ bù.'
+              : text.description}
+          </DialogDescription>
         </DialogHeader>
+        {step === 'comp-off' ? (
+          <>
+            <div className="max-h-[60vh] overflow-y-auto p-5 text-xs">
+              <CompOffConversionPanel month={month} />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+              <Button variant="outline" onClick={onDone}>
+                Để sau
+              </Button>
+            </div>
+          </>
+        ) : (
+        <>
         <div className="space-y-3 p-5 text-xs">
           {loading && (
             <div role="status" className="flex items-center gap-2 text-slate-500">
@@ -194,6 +236,11 @@ function MonthCloseDialog({
           {!loading && !stateUnknown && kind !== 'reopen' && blockers.length === 0 && (
             <p className="text-emerald-700">Đủ điều kiện thực hiện.</p>
           )}
+          {kind === 'lock' && needsCompOffConfirm && (
+            <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-900">
+              Tenant đang dùng quỹ nghỉ bù theo công thức. Sau khi chốt, anh/chị sẽ xem trước số ngày nghỉ bù được cộng của từng nhân viên và bấm xác nhận; quỹ chưa tự cộng.
+            </p>
+          )}
           {kind === 'reopen' && (
             <label className="block space-y-1">
               <span className="font-semibold text-slate-700">Lý do mở lại (bắt buộc)</span>
@@ -219,6 +266,8 @@ function MonthCloseDialog({
             {busy ? 'Đang xử lý...' : text.confirm}
           </Button>
         </div>
+        </>
+        )}
       </DialogContent>
       {guard.confirm}
     </Dialog>
@@ -583,6 +632,7 @@ export default function TimesheetsScreen() {
           month={month}
           kind={closing}
           onClose={() => setClosing(null)}
+          onRefresh={() => setReloadKey((k) => k + 1)}
           onDone={() => {
             setClosing(null);
             setReloadKey((k) => k + 1);

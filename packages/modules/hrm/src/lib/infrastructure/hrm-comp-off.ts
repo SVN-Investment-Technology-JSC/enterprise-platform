@@ -310,7 +310,7 @@ export async function compOffDetail(
 /** Quỹ nghỉ bù và công thức tính đang bật hay tắt theo cấu hình có hiệu lực tại ngày `asOf`. */
 export async function compOffStatus(db: Db, tenant: string, asOf: string = today()): Promise<HrmCompOffStatus> {
   const { policy } = await loadOvertimeCompPolicy(db, tenant, monthOf(asOf));
-  return { fundEnabled: policy.fundEnabled, formulaEnabled: policy.enabled };
+  return { fundEnabled: policy.fundEnabled, formulaEnabled: policy.enabled, autoAccrue: policy.autoAccrue };
 }
 
 /**
@@ -504,7 +504,8 @@ export async function writeCompOffAccruals(
 /**
  * Cộng quỹ nghỉ bù tự động cho một tháng đã kết thúc: dùng ảnh chụp lúc chốt công nếu có, chưa chốt thì tính trực tiếp
  * theo chính sách của tháng. Chỉ chạy khi bật công thức tự động; chạy lại không cộng trùng (mỗi nhân viên một lô mỗi tháng).
- * Gọi khi chốt công, từ tác vụ nền cuối tháng hoặc từ HR.
+ * Gọi khi chốt công, từ tác vụ nền cuối tháng hoặc từ HR. Với lời gọi tự động (`opts.requireAutoSetting`), chỉ chạy khi
+ * chính sách bật `autoAccrue`; mặc định tắt để HR xem trước và xác nhận (`confirmCompOffConversion`).
  */
 export async function autoAccrueCompOff(
   db: PoolClient,
@@ -512,6 +513,7 @@ export async function autoAccrueCompOff(
   actor: string | null,
   month: string,
   asOf: string = today(),
+  opts: { requireAutoSetting?: boolean } = {},
 ): Promise<HrmCompOffConversionResult & { skippedReason?: string }> {
   const empty = { month, created: 0, skipped: [] as { employeeId: string; reason: string }[] };
   if (!(await overtimeSchemaReady(db))) return { ...empty, skippedReason: 'SCHEMA_NOT_READY' };
@@ -530,6 +532,7 @@ export async function autoAccrueCompOff(
     employees = Object.fromEntries((await overtimeMonthFigures(db, tenant, month, policy)).map((f) => [f.employeeId, f]));
   }
   if (!policy.enabled) return { ...empty, skippedReason: 'DISABLED' };
+  if (opts.requireAutoSetting && !policy.autoAccrue) return { ...empty, skippedReason: 'MANUAL_CONFIRM' };
   const rows = Object.values(employees)
     .filter((f) => f.compDays > 0)
     .map((f) => ({ employeeId: f.employeeId }));

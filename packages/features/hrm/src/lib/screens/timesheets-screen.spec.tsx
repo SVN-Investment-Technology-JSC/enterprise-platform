@@ -338,6 +338,58 @@ describe('TimesheetsScreen', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('Tháng chưa kết thúc');
   });
 
+  describe('chốt công với quỹ nghỉ bù theo công thức', () => {
+    const compOffRow = {
+      employeeId: 'e1',
+      employeeCode: 'NV1',
+      employeeName: 'An',
+      actualOtHours: 60,
+      countedOtHours: 40,
+      excessOtHours: 20,
+      compDays: 3,
+      status: 'READY',
+      convertedDays: null,
+      accrualOn: '2026-11-01',
+      expiresOn: null,
+      note: null,
+    };
+    const mockLock = (autoAccrue: boolean) =>
+      fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
+        if (path.startsWith('/timesheet-board')) return { data: makeBoard('REQUESTS_CLOSED', true) };
+        if (path.endsWith('/close-state')) return closeState();
+        if (path === '/comp-off/status') return { data: { fundEnabled: true, formulaEnabled: true, autoAccrue } };
+        if (path.startsWith('/comp-off/conversion-preview'))
+          return { data: { month, locked: true, enabled: true, rows: [compOffRow] } };
+        if (init?.method === 'POST') return { data: {} };
+        return { data: {} };
+      }) as never);
+
+    it('mặc định HR phải xem trước và xác nhận: chốt xong hiện bảng chuyển đổi, chưa cộng quỹ', async () => {
+      mockLock(false);
+      render(<TimesheetsScreen />);
+      await screen.findAllByTestId('board-day-header');
+      fireEvent.click(screen.getByRole('button', { name: /Chốt công/ }));
+      await screen.findByText('Đủ điều kiện thực hiện.');
+      await screen.findByText(/quỹ chưa tự cộng/);
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận chốt công' }));
+      await screen.findByText(`Xác nhận cộng quỹ nghỉ bù tháng ${month}`);
+      await screen.findByText('An');
+      expect(fetchMock).toHaveBeenCalledWith(`/timesheet-months/${month}/close`, expect.objectContaining({ method: 'POST' }));
+      expect(fetchMock.mock.calls.some((c) => String(c[0]) === '/comp-off/conversions')).toBe(false);
+    });
+
+    it('bật cộng tự động thì chốt xong đóng hộp thoại, không hiện bước xác nhận', async () => {
+      mockLock(true);
+      render(<TimesheetsScreen />);
+      await screen.findAllByTestId('board-day-header');
+      fireEvent.click(screen.getByRole('button', { name: /Chốt công/ }));
+      await screen.findByText('Đủ điều kiện thực hiện.');
+      fireEvent.click(screen.getByRole('button', { name: 'Xác nhận chốt công' }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Xác nhận chốt công' })).toBeNull());
+      expect(screen.queryByText(`Xác nhận cộng quỹ nghỉ bù tháng ${month}`)).toBeNull();
+    });
+  });
+
   it('Mở lại bắt buộc nhập lý do', async () => {
     mockApi(makeBoard('LOCKED', true));
     render(<TimesheetsScreen />);

@@ -172,6 +172,7 @@ export function conversionPayload(
 export interface OvertimeCompForm {
   enabled: boolean;
   fundEnabled: boolean;
+  autoAccrue: boolean;
   normalHoursPerDay: string;
   monthlyCapHours: string;
   yearlyCapHours: string;
@@ -191,6 +192,7 @@ export function configToForm(c: HrmOvertimeCompConfig): OvertimeCompForm {
   return {
     enabled: c.enabled,
     fundEnabled: c.fundEnabled ?? c.enabled,
+    autoAccrue: c.autoAccrue ?? false,
     normalHoursPerDay: str(c.normalHoursPerDay),
     monthlyCapHours: str(c.monthlyCapHours),
     yearlyCapHours: str(c.yearlyCapHours),
@@ -215,6 +217,7 @@ export function formToConfig(f: OvertimeCompForm): Partial<HrmOvertimeCompConfig
   const config: Record<string, unknown> = {
     enabled: f.enabled,
     fundEnabled: f.enabled ? true : f.fundEnabled,
+    autoAccrue: f.enabled ? f.autoAccrue : false,
     normalHoursPerDay: num(f.normalHoursPerDay),
     monthlyCapHours: num(f.monthlyCapHours),
     yearlyCapHours: numOrNull(f.yearlyCapHours),

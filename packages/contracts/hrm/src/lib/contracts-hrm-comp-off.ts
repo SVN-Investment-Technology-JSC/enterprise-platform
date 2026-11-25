@@ -14,6 +14,8 @@ export interface HrmOvertimeCompConfig {
   readonly enabled: boolean;
   /** Bật quản lý quỹ nghỉ bù (giữ chỗ & trừ quỹ khi tạo/duyệt đơn Nghỉ bù) độc lập với tính toán tự động từ OT. */
   readonly fundEnabled?: boolean;
+  /** Tự cộng quỹ khi chốt công. Mặc định tắt: HR xem trước và xác nhận rồi mới cộng. */
+  readonly autoAccrue?: boolean;
   readonly normalHoursPerDay: number;
   readonly monthlyCapHours: number;
   readonly yearlyCapHours: number | null;
@@ -204,6 +206,8 @@ export interface HrmCompOffStatus {
   readonly fundEnabled: boolean;
   /** Bật công thức tự tính từ làm thêm và ca đêm. */
   readonly formulaEnabled: boolean;
+  /** Quỹ được cộng tự động khi chốt công (true) hay chờ HR xác nhận (false). */
+  readonly autoAccrue: boolean;
 }
 
 /** Dòng điều chỉnh quỹ nghỉ bù kèm thông tin nhân viên, dùng cho màn lịch sử điều chỉnh toàn công ty. */

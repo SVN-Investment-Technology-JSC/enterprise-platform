@@ -36,7 +36,7 @@ beforeEach(() => {
 
 describe('màn Quỹ nghỉ bù khi quỹ bị tắt trong cấu hình', () => {
   it('báo quỹ đang tắt kèm đường dẫn tới cấu hình', async () => {
-    api.status.mockResolvedValue({ fundEnabled: false, formulaEnabled: false });
+    api.status.mockResolvedValue({ fundEnabled: false, formulaEnabled: false, autoAccrue: false });
     render(<CompOffScreen />);
     const notice = await screen.findByTestId('comp-off-disabled');
     expect(notice.textContent).toContain('đang tắt');
@@ -44,7 +44,7 @@ describe('màn Quỹ nghỉ bù khi quỹ bị tắt trong cấu hình', () => {
   });
 
   it('không báo gì khi quỹ đang bật', async () => {
-    api.status.mockResolvedValue({ fundEnabled: true, formulaEnabled: false });
+    api.status.mockResolvedValue({ fundEnabled: true, formulaEnabled: false, autoAccrue: false });
     render(<CompOffScreen />);
     await waitFor(() => expect(api.status).toHaveBeenCalled());
     expect(screen.queryByTestId('comp-off-disabled')).toBeNull();
