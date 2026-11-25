@@ -211,13 +211,11 @@ describe('Bàn làm việc cá nhân', () => {
     expect(within(screen.getByTestId('kpi-requests')).getByText('1 đang xử lý')).toBeTruthy();
   });
 
-  it('chấm công hôm nay: ca, trạng thái và hai nút; nút vào ca dùng được khi có ca', async () => {
+  it('thẻ Chấm công hôm nay đang ẩn khỏi Bàn làm việc; thẻ phép năm vẫn hiện', async () => {
     render(<HrmDashboardPage />);
-    const card = await screen.findByLabelText('Chấm công hôm nay');
-    await waitFor(() => expect(within(card).getByText(/08:00 - 17:00/)).toBeTruthy());
-    expect(within(card).getByText('Hành chính', { exact: false })).toBeTruthy();
-    expect(within(card).getByTestId('punch-state').textContent).toBe('Chưa vào ca');
-    expect((within(card).getByRole('button', { name: /Ghi nhận vào ca/ }) as HTMLButtonElement).disabled).toBe(false);
+    await screen.findByLabelText('Phép năm của tôi');
+    expect(screen.queryByLabelText('Chấm công hôm nay')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Ghi nhận vào ca/ })).toBeNull();
   });
 
   it('phép năm của tôi: còn lại, đã dùng, đã đăng ký và nút đăng ký mở form nghỉ phép', async () => {
