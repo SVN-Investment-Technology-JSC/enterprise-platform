@@ -41,8 +41,6 @@ const AttendanceDataScreen = lazyScreen(() => import('./attendance-data-screen')
 const ShiftsScreen = lazyScreen(() => import('./shifts-screen'));
 const TimesheetStandardScreen = lazyScreen(() => import('./timesheet-standard-screen'));
 const AutoAttendanceScreen = lazyScreen(() => import('./auto-attendance-screen'));
-const PayrollScreen = lazyScreen(() => import('./payroll-screen'));
-const AdvancesScreen = lazyScreen(() => import('./advances-screen'));
 const TimeSettingsScreen = lazyScreen(() => import('./time-settings-screen'));
 const PayrollSettingsScreen = lazyScreen(() => import('./payroll-settings-screen'));
 const LeaveSettingsScreen = lazyScreen(() => import('./leave-settings-screen'));
@@ -79,7 +77,6 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
     'business-trips': BusinessTripReportScreen,
     timesheet: TimesheetReportScreen,
   },
-  '/payroll': { runs: PayrollScreen, advances: AdvancesScreen },
   '/fleet': { schedule: FleetScheduleScreen, vehicles: FleetVehiclesScreen, drivers: FleetDriversScreen },
   '/settings': {
     leave: LeaveSettingsScreen,
@@ -137,8 +134,6 @@ export function LeaveHub() {
 export const TimekeepingHub = () => <HrmTabHub tabs={tabsOf('/timekeeping')} tabsInHeader />;
 /** Báo cáo: đơn từ, nghỉ phép đã dùng, làm thêm giờ, công tác, bảng chấm công; xuất Excel theo phạm vi và cột tự chọn. */
 export const ReportsHub = () => <HrmTabHub tabs={tabsOf('/reports')} tabsInHeader />;
-/** Lương và chi trả: bảng lương, ứng và thu hồi. */
-export const PayrollHub = () => <HrmTabHub tabs={tabsOf('/payroll')} tabsInHeader />;
 /** Lịch xe công ty: lịch đặt xe, danh mục xe và tài xế. */
 export const FleetHub = () => <HrmTabHub tabs={tabsOf('/fleet')} tabsInHeader />;
 /** Trung tâm cấu hình: thanh bên theo nhóm chức năng và trang tổng quan. */

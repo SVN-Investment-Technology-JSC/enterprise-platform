@@ -16,7 +16,7 @@ describe('HRM navigation', () => {
   it('keeps unique leaf routes and selects only the most specific page', () => {
     expect(new Set(hrmNavigation.map((x) => x.id)).size).toBe(hrmNavigation.length);
     expect(new Set(hrmNavigation.map((x) => x.href)).size).toBe(hrmNavigation.length);
-    expect(getActiveHrmNavId('/modules/hrm/payroll?view=advances')).toBe('payroll');
+    expect(getActiveHrmNavId('/modules/hrm/reports?view=overtime')).toBe('reports');
     expect(getActiveHrmNavId('/modules/hrm/settings/')).toBe('settings');
     expect(getActiveHrmNavId('/modules/hrm/my-work')).toBe('my_work');
     expect(getActiveHrmNavId('/modules/hrm/timekeeping')).toBe('timekeeping');
@@ -37,7 +37,6 @@ describe('HRM navigation', () => {
           'Nhân sự /employees',
           'Bảng công /timekeeping',
           'Phép năm /leave',
-          'Lương và chi trả /payroll',
           'Báo cáo /reports',
           'Lịch xe /fleet',
         ],

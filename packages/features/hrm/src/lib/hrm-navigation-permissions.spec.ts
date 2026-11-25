@@ -37,12 +37,12 @@ describe('HRM sidebar visibility per sample role', () => {
     expect(labels).toContain('Đơn từ cần xử lý');
     // Trưởng bộ phận theo dõi chấm công của cấp dưới (phạm vi do server giới hạn theo sơ đồ tổ chức).
     expect(labels).toContain('Giám sát chấm công');
-    for (const hidden of ['Nhân sự', 'Bảng công', 'Phép năm', 'Lương và chi trả', 'Cấu hình']) expect(labels).not.toContain(hidden);
+    for (const hidden of ['Nhân sự', 'Bảng công', 'Phép năm', 'Báo cáo', 'Cấu hình']) expect(labels).not.toContain(hidden);
     // Quyền duyệt không kéo theo quyền đọc nào: trưởng bộ phận chỉ có không gian cá nhân và hộp đơn cần xử lý.
     expect(groupTitles(actions)).toEqual(['TỔNG QUAN', 'CÁ NHÂN']);
   });
 
-  it('a timekeeper sees timesheets and attendance data, with schedules and shifts under settings, but no payroll', () => {
+  it('a timekeeper sees timesheets and attendance data, with schedules and shifts under settings', () => {
     const actions = actionsOf('timekeeper');
     expect(visibleTabs(actions, '/timekeeping')).toEqual(['timesheets', 'data']);
     expect(visibleLabels(actions)).toContain('Giám sát chấm công');
@@ -51,13 +51,11 @@ describe('HRM sidebar visibility per sample role', () => {
     expect(visibleTabs(actions, '/settings')).toContain('time');
     expect(visibleTabs(actions, '/settings')).not.toContain('payroll');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
-    expect(visibleLabels(actions)).not.toContain('Lương và chi trả');
     expect(visibleTabs(actions, '/employees')).not.toContain('employees');
   });
 
-  it('C&B sees payroll and salary configuration but not scheduling', () => {
+  it('C&B sees salary configuration but not scheduling', () => {
     const actions = actionsOf('comp-ben');
-    expect(visibleLabels(actions)).toContain('Lương và chi trả');
     expect(visibleTabs(actions, '/employees')).toContain('employees');
     expect(visibleTabs(actions, '/settings')).toContain('payroll');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
@@ -69,20 +67,17 @@ describe('HRM sidebar visibility per sample role', () => {
     const actions = actionsOf('hr-profile');
     expect(visibleTabs(actions, '/employees')).toEqual(expect.arrayContaining(['employees', 'decisions']));
     expect(visibleLabels(actions)).not.toContain('Đơn từ cần xử lý');
-    expect(visibleLabels(actions)).not.toContain('Lương và chi trả');
     expect(visibleTabs(actions, '/settings')).not.toContain('schedules');
     expect(visibleTabs(actions, '/settings')).not.toContain('permissions');
   });
 
-  it('payroll roles see payroll tabs according to their permissions', () => {
-    expect(visibleTabs(actionsOf('payroll-accountant'), '/payroll')).toEqual(['runs', 'advances']);
+  it('payroll roles no longer get payroll pages; timesheet tabs follow their permissions', () => {
     const approver = actionsOf('payroll-approver');
-    expect(visibleTabs(approver, '/payroll')).toContain('runs');
     expect(visibleTabs(approver, '/timekeeping')).toContain('timesheets');
     expect(visibleTabs(approver, '/settings')).not.toContain('payroll');
     const salaryOnly = expandTenantActions(['hrm.salary.read']);
     expect(visibleTabs(salaryOnly, '/settings')).toEqual(['payroll']);
-    expect(visibleHrefs(salaryOnly)).not.toContain('/payroll');
+    expect(visibleHrefs(salaryOnly)).not.toContain('/timekeeping');
   });
 
   it('the HRM administrator sees every menu item and every tab', () => {

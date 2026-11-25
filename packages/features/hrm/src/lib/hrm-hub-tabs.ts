@@ -41,10 +41,7 @@ export const HRM_HUBS = {
     { id: 'business-trips', label: 'Công tác', permissions: ['hrm.report.view'] },
     { id: 'timesheet', label: 'Bảng chấm công', permissions: ['hrm.report.view'] },
   ],
-  '/payroll': [
-    { id: 'runs', label: 'Bảng lương', permissions: ['hrm.payroll.read'] },
-    { id: 'advances', label: 'Ứng và thu hồi', permissions: ['hrm.advance.read'] },
-  ],
+
   '/fleet': [
     { id: 'schedule', label: 'Lịch xe', permissions: ['hrm.fleet.read'] },
     { id: 'vehicles', label: 'Danh mục xe', permissions: ['hrm.fleet.manage'] },

@@ -32,7 +32,6 @@ const HRM_NAV_SLOT: Partial<Record<string, AppIconProps['slot']>> = {
   profile: 'sidebar.hrm.profile',
   timekeeping: 'sidebar.hrm.timekeeping',
   leave: 'sidebar.hrm.leave',
-  payroll: 'sidebar.hrm.payroll',
   fleet: 'sidebar.hrm.fleet',
 };
 

@@ -11,7 +11,6 @@ import {
   reportQuery,
   reportRangeProblem,
   selectedColumns,
-  toggleColumn,
 } from '../../report-model';
 import { Button } from '../button';
 import { toast } from '../toast';
