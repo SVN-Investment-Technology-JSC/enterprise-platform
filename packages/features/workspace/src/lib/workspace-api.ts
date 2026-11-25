@@ -111,6 +111,7 @@ import type {
   WorkItemStatusHistoryEntry,
   WorkItemTree,
   WorkItemProcedureRequest,
+  WorkItemProcedureSteps,
   WorkspaceDocument,
   ProjectRequestList,
   UpdateWorkdayRulesRequest,
@@ -963,6 +964,14 @@ export const listProjectExternalReferences = (projectId: string) =>
 
 export const listWorkItemLinks = (workItemId: string) =>
   request<ExternalReferenceList>(`/work-items/${workItemId}/links`, { cache: 'no-store' });
+
+/** Các bước hồ sơ quy trình gắn với công việc trong dự án (Workspace đọc phía server). */
+export const getWorkItemProcedureSteps = (id: string) =>
+  request<WorkItemProcedureSteps>(`/work-items/${id}/procedure-steps`, { cache: 'no-store' });
+
+/** Các bước hồ sơ quy trình gắn với công việc độc lập. */
+export const getStandaloneTaskProcedureSteps = (id: string) =>
+  request<WorkItemProcedureSteps>(`/standalone-tasks/${id}/procedure-steps`, { cache: 'no-store' });
 
 /** Bước 5: lưu con trỏ vừa nhận từ module khác. Lặp lại được. */
 export const linkWorkItem = (workItemId: string, body: CreateExternalReferenceRequest) =>

@@ -72,6 +72,8 @@ export interface TabOverviewProps {
    * Khung vẫn được dựng khi tab khác đang mở để số đếm có ngay.
    */
   readonly renderDocuments?: (onCount: (count: number) => void) => ReactNode;
+  /** Các bước của hồ sơ quy trình, đặt dưới danh sách hồ sơ liên kết. */
+  readonly procedureSteps?: ReactNode;
 }
 
 const TAB_STORAGE_KEY = 'ep.workspace.itemTab';
@@ -120,6 +122,7 @@ export function TabOverview({
   canEditProgress = false,
   onReportQuantity,
   renderDocuments,
+  procedureSteps,
 }: TabOverviewProps) {
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
@@ -230,6 +233,7 @@ export function TabOverview({
           </li>
         ))}
       </ul>
+      {procedureSteps}
     </>
   ) : null;
 

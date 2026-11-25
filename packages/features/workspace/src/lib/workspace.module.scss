@@ -12210,3 +12210,561 @@ th[data-column-id='select'] .columnResizeHandle {
     margin: 6px 0;
   }
 }
+
+/* Chi tiết các bước hồ sơ quy trình (procedure-steps-panel.tsx). */
+.procedureStepsFlat {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ep-border);
+
+  h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 10px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  a {
+    color: var(--ep-link);
+  }
+}
+
+.procedureStepsNote {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+}
+
+.procedureStepsTrack {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ep-border);
+
+  span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--ep-success);
+    transition: width 0.2s ease;
+  }
+}
+
+.procedureStepsList {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.procedureStepsItem {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 6px 8px 10px 6px;
+  border-radius: var(--ep-radius);
+
+  /* Đường nối xuống bước kế tiếp, căn giữa chấm tròn 22px. */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 30px;
+    bottom: -4px;
+    left: 16px;
+    width: 2px;
+    background: var(--ep-border-strong);
+  }
+
+  &:last-child::before {
+    display: none;
+  }
+}
+
+.procedureStepsDot {
+  z-index: 1;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--ep-border-strong);
+  border-radius: 50%;
+  background: var(--ep-surface);
+  color: var(--ep-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.procedureStepsBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.procedureStepsHead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.procedureStepsName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.procedureStepsMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.procedureStepsOverdue {
+  color: var(--ep-danger);
+  font-weight: 600;
+}
+
+.procedureStepsDone {
+  .procedureStepsDot {
+    border-color: var(--ep-success);
+    background: var(--ep-success);
+    color: #fff;
+  }
+
+  &::before {
+    background: var(--ep-success);
+  }
+}
+
+.procedureStepsCurrent {
+  background: var(--ep-accent-soft);
+  box-shadow: 0 0 0 1px var(--ep-accent-strong);
+
+  .procedureStepsDot {
+    border-color: var(--ep-accent-strong);
+    color: var(--ep-accent-text);
+    box-shadow: 0 0 0 3px var(--ep-accent-glow);
+  }
+}
+
+.procedureStepsReturned {
+  .procedureStepsDot {
+    border-color: #d97706;
+    background: rgb(245 158 11 / 18%);
+    color: #92400e;
+  }
+}
+
+.procedureStepsRejected {
+  .procedureStepsDot {
+    border-color: var(--ep-danger);
+    background: rgb(239 68 68 / 15%);
+    color: var(--ep-danger);
+  }
+}
+
+.procedureStepsUpcoming {
+  opacity: 0.6;
+}
+
+.procedureStepsSummary {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid var(--ep-border-strong);
+  border-radius: 4px;
+  background: var(--ep-surface-soft);
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.procedureStepsSummaryRun {
+  border-left-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+}
+
+.procedureStepsSummaryOk {
+  border-left-color: var(--ep-success);
+  background: rgb(16 185 129 / 10%);
+}
+
+.procedureStepsSummaryWarn {
+  border-left-color: #d97706;
+  background: rgb(245 158 11 / 12%);
+}
+
+.procedureStepsSummaryBad {
+  border-left-color: var(--ep-danger);
+  background: rgb(239 68 68 / 10%);
+}
+
+.procedureFlowClamp {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.procedureStepsViewSwitch {
+  display: inline-flex;
+  gap: 2px;
+  margin: 10px 0 8px;
+  padding: 2px;
+  border: 1px solid var(--ep-border);
+  border-radius: 8px;
+  background: var(--ep-surface-soft);
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ep-text-sub);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  button:hover {
+    color: var(--ep-text);
+  }
+}
+
+.procedureStepsViewOn {
+  background: var(--ep-accent) !important;
+  color: var(--ep-accent-text) !important;
+}
+
+.procedureFlow {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 6px 2px 10px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.procedureFlowItem {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.procedureFlowNode {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 168px;
+  padding: 8px 10px;
+  border: 1px solid var(--ep-border);
+  border-radius: 10px;
+  background: var(--ep-surface);
+}
+
+.procedureFlowTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.procedureFlowDot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--ep-border-strong);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.procedureFlowName {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.procedureFlowMeta {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.procedureFlowArrow {
+  position: relative;
+  align-self: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 2px;
+  background: var(--ep-border-strong);
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    right: -1px;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 7px solid var(--ep-border-strong);
+  }
+}
+
+.procedureFlowDone {
+  .procedureFlowNode {
+    border-color: var(--ep-success);
+  }
+
+  .procedureFlowDot {
+    border-color: var(--ep-success);
+    background: var(--ep-success);
+    color: #fff;
+  }
+
+  .procedureFlowArrow {
+    background: var(--ep-success);
+
+    &::after {
+      border-left-color: var(--ep-success);
+    }
+  }
+}
+
+.procedureFlowCurrent {
+  .procedureFlowNode {
+    border-color: var(--ep-accent-strong);
+    background: var(--ep-accent-soft);
+    box-shadow: 0 0 0 2px var(--ep-accent-glow);
+  }
+
+  .procedureFlowDot {
+    border-color: var(--ep-accent-strong);
+    color: var(--ep-accent-text);
+  }
+}
+
+.procedureFlowReturned {
+  .procedureFlowNode {
+    border-color: #d97706;
+  }
+
+  .procedureFlowDot {
+    border-color: #d97706;
+    background: rgb(245 158 11 / 18%);
+    color: #92400e;
+  }
+}
+
+.procedureFlowRejected {
+  .procedureFlowNode {
+    border-color: var(--ep-danger);
+  }
+
+  .procedureFlowDot {
+    border-color: var(--ep-danger);
+    background: rgb(239 68 68 / 15%);
+    color: var(--ep-danger);
+  }
+}
+
+.procedureFlowUpcoming {
+  .procedureFlowNode {
+    opacity: 0.7;
+  }
+}
+
+.procedureFlowSkipped {
+  .procedureFlowNode {
+    border-style: dashed;
+    opacity: 0.6;
+  }
+}
+
+.procedureStepsGroup {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ep-border);
+}
+
+.procedureStepsToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: none;
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--ep-text);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.procedureStepsEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.procedureStepsEvent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.procedureStepsEventTime {
+  color: var(--ep-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.procedureFlowGatewayItem {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.procedureFlowGateway {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-left: 2px solid var(--ep-border-strong);
+  border-radius: 6px;
+}
+
+.procedureFlowGatewayNode {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 110px;
+}
+
+.procedureFlowGatewayDiamond {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+  transform: rotate(45deg) scale(0.8);
+}
+
+.procedureFlowGatewayName {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.procedureFlowBranches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.procedureFlowBranch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.procedureFlowBranchChip {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--ep-border);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.procedureFlowBranchTag {
+  color: var(--ep-text-sub);
+  font-weight: 600;
+}
+
+.procedureFlowBranchSteps {
+  display: flex;
+  align-items: stretch;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.procedureFlowBranchChosen {
+  border-color: var(--ep-accent-strong);
+  background: var(--ep-accent-soft);
+
+  .procedureFlowBranchChip {
+    border-color: var(--ep-accent-strong);
+    color: var(--ep-accent-text);
+  }
+}
+
+.procedureFlowBranchNotChosen {
+  border-style: dashed;
+  border-color: var(--ep-border-strong);
+  opacity: 0.55;
+
+  .procedureFlowNode {
+    border-style: dashed;
+  }
+}
+
+.procedureFlowBranchPending {
+  border-color: var(--ep-border);
+  opacity: 0.85;
+}
+
+.procedureFlowGatewayList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.procedureFlowGatewayListName {
+  color: var(--ep-text-sub);
+  font-size: 12px;
+  font-weight: 700;
+}

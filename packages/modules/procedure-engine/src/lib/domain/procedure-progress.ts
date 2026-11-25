@@ -1,6 +1,8 @@
 import type {
   ProcedureInstance,
   ProcedureInstanceProgress,
+  ProcedureInstanceStepOverview,
+  ProcedureInstanceStepOverviewGateway,
   ProcedureInstanceStep,
   ProcedureInstanceStatusEntry,
   ProcedureInstanceStepChangedPayload,
@@ -176,6 +178,96 @@ export function buildInstanceProgress(instance: ProcedureInstance): ProcedureIns
       roleTitle: stepRoleTitle(instance, step),
     })),
     activity: instance.activity,
+  };
+}
+
+/** Số dòng nhật ký tối đa trong `buildInstanceStepOverview`. */
+export const STEP_OVERVIEW_MAX_EVENTS = 50;
+
+/** Loại nhật ký chỉ mang văn bản tự do; không đưa ra ngoài module. */
+const FREE_TEXT_ACTIONS: readonly string[] = ['comment'];
+
+/**
+ * Điểm rẽ nhánh của hồ sơ, đổi id bước định nghĩa sang id bước của hồ sơ. Chỉ lấy id, nhãn, cờ mặc định
+ * và nhánh đã chọn; không bao giờ lấy điều kiện, giá trị đầu vào hay kết quả đánh giá.
+ */
+function buildOverviewGateways(instance: ProcedureInstance): ProcedureInstanceStepOverviewGateway[] {
+  const byDefinitionId = new Map<string, string>();
+  for (const step of instance.steps) {
+    if (step.definitionStepId && !byDefinitionId.has(step.definitionStepId)) {
+      byDefinitionId.set(step.definitionStepId, step.id);
+    }
+  }
+  const result: ProcedureInstanceStepOverviewGateway[] = [];
+  for (const gateway of instance.flow?.gateways ?? []) {
+    const afterStepId = byDefinitionId.get(gateway.afterStepId);
+    if (!afterStepId) continue;
+    let latest: { chosenBranchId: string; evaluatedAt: string } | undefined;
+    for (const decision of instance.decisions ?? []) {
+      if (decision.gatewayId !== gateway.id || decision.supersededAt) continue;
+      if (!latest || decision.evaluatedAt >= latest.evaluatedAt) {
+        latest = { chosenBranchId: decision.chosenBranchId, evaluatedAt: decision.evaluatedAt };
+      }
+    }
+    const chosenBranchId = latest?.chosenBranchId;
+    result.push({
+      id: gateway.id,
+      name: gateway.name,
+      afterStepId,
+      ...(chosenBranchId ? { chosenBranchId } : {}),
+      branches: gateway.branches.map((branch) => ({
+        id: branch.id,
+        label: branch.label,
+        isDefault: branch.isDefault,
+        stepIds: branch.stepIds
+          .map((definitionStepId) => byDefinitionId.get(definitionStepId))
+          .filter((id): id is string => !!id),
+      })),
+    });
+  }
+  return result;
+}
+
+/**
+ * Các bước và nhật ký đã lọc của hồ sơ, cho Workspace vẽ đường đi. Chỉ chép từng trường cần,
+ * không spread đối tượng nguồn để trường mới của hồ sơ không vô tình lộ ra.
+ */
+export function buildInstanceStepOverview(instance: ProcedureInstance): ProcedureInstanceStepOverview {
+  const completedCount = instance.steps.filter((step) => step.status === 'completed').length;
+  const progress = instance.progress
+    ? { completed: instance.progress.completed, total: instance.progress.total }
+    : { completed: completedCount, total: instance.steps.length };
+  const gateways = buildOverviewGateways(instance);
+  return {
+    instanceId: instance.id,
+    instanceCode: instance.code,
+    status: instance.status,
+    currentStepId: instance.currentStepId,
+    completedAt: instance.completedAt,
+    progress,
+    steps: instance.steps.map((step) => ({
+      id: step.id,
+      name: step.name,
+      order: step.order,
+      status: step.status,
+      roleStage: step.currentRoleStage,
+      assigneeLabel: stepRoleTitle(instance, step),
+      slaHours: step.slaHours,
+      slaDueAt: step.slaDueAt,
+      startedAt: step.startedAt,
+      completedAt: step.completedAt,
+    })),
+    ...(gateways.length > 0 ? { gateways } : {}),
+    events: instance.activity
+      .filter((entry) => !FREE_TEXT_ACTIONS.includes(entry.action))
+      .slice(0, STEP_OVERVIEW_MAX_EVENTS)
+      .map((entry) => ({
+        id: entry.id,
+        action: entry.action,
+        actorName: entry.actorName,
+        createdAt: entry.createdAt,
+        stepId: entry.stepInstanceId,
+      })),
   };
 }
 

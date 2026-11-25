@@ -6048,6 +6048,8 @@ async function writeProcedureRequest(
       projectCode: input.projectCode,
       title: input.title,
       definitionId: input.definitionId,
+      // Mỗi lần yêu cầu một khoá riêng bên Quy trình: gỡ liên kết rồi gắn lại không bị trả hồ sơ cũ.
+      requestId: randomUUID(),
       requestedBy: actorUserId,
       requestedByName: input.requestedByName,
       requestedByIsTenantAdmin: input.requestedByIsTenantAdmin,

@@ -88,6 +88,7 @@ import { useProgressReport } from './use-progress-report';
 import { useDirectory } from './use-directory';
 import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { ChecklistPanel } from './checklist-panel';
+import { ProcedureStepsPanel } from './procedure-steps-panel';
 import { canEditChecklist, canShowChecklist } from '../checklist-access';
 import { WorkItemForm } from './work-item-form';
 import { procedureChangeBlockReason } from '../procedure-change';
@@ -1571,6 +1572,17 @@ export function ProjectsView({
             canUnlinkRefs={canWrite}
             onUnlinkRef={(workItemId, referenceId) =>
               run(() => api.unlinkWorkItem(workItemId, referenceId), 'Không gỡ được liên kết.')
+            }
+            // Các bước hồ sơ quy trình nằm trong tab "Hồ sơ liên kết".
+            procedureSteps={
+              procedureRef ? (
+                <ProcedureStepsPanel
+                  flat
+                  kind="work-item"
+                  id={selectedItem.id}
+                  version={`${selectedItem.updatedAt}|${procedureView?.status ?? ''}|${procedureRef.externalId}`}
+                />
+              ) : null
             }
             // Tài liệu đã gắn vào công việc này, đặt thành một tab.
             renderDocuments={(onCount) => (

@@ -1023,6 +1023,67 @@ export interface ProcedureInstanceProgress {
   readonly activity: ProcedureInstance['activity'];
 }
 
+/** Một bước trong `ProcedureInstanceStepOverview`: chỉ trường để vẽ đường đi, không có thuộc tính hay bình luận. */
+export interface ProcedureInstanceStepOverviewStep {
+  readonly id: string;
+  readonly name: string;
+  readonly order: number;
+  readonly status: ProcedureInstanceStepStatus;
+  readonly roleStage: ProcedureRaciRole | null;
+  /** Người/chức danh/đơn vị phụ trách (xem `stepRoleTitle`). */
+  readonly assigneeLabel: string;
+  readonly slaHours?: number;
+  readonly slaDueAt?: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+}
+
+/** Một dòng nhật ký đã lọc: không bình luận, lý do, mã người dùng hay khoá idempotency. */
+export interface ProcedureInstanceStepOverviewEvent {
+  readonly id: string;
+  readonly action: string;
+  readonly actorName: string;
+  readonly createdAt: string;
+  readonly stepId?: string;
+}
+
+/** Một nhánh của điểm rẽ trong overview; `stepIds` là id bước của hồ sơ (không phải id bước định nghĩa). Không có điều kiện. */
+export interface ProcedureInstanceStepOverviewBranch {
+  readonly id: string;
+  readonly label: string;
+  readonly isDefault: boolean;
+  readonly stepIds: readonly string[];
+}
+
+/** Điểm rẽ nhánh trong overview; không có điều kiện, giá trị thuộc tính hay kết quả đánh giá. */
+export interface ProcedureInstanceStepOverviewGateway {
+  readonly id: string;
+  readonly name: string;
+  /** Id bước của hồ sơ mà điểm rẽ đứng ngay sau. */
+  readonly afterStepId: string;
+  /** Nhánh đã chọn (quyết định mới nhất chưa bị thay thế); vắng khi chưa tới điểm rẽ. */
+  readonly chosenBranchId?: string;
+  readonly branches: readonly ProcedureInstanceStepOverviewBranch[];
+}
+
+/**
+ * Các bước của một hồ sơ, đã lược bỏ phần nhạy cảm, trả cho Workspace qua API nội bộ để vẽ
+ * đường đi trong công việc. Workspace tự quyết ai được xem; DTO này không chứa dữ liệu hồ sơ.
+ */
+export interface ProcedureInstanceStepOverview {
+  readonly instanceId: string;
+  readonly instanceCode: string;
+  readonly status: ProcedureInstance['status'];
+  readonly currentStepId?: string;
+  readonly completedAt?: string;
+  readonly progress: { readonly completed: number; readonly total: number };
+  readonly steps: readonly ProcedureInstanceStepOverviewStep[];
+  /** Các điểm rẽ nhánh của hồ sơ; vắng khi hồ sơ đi một đường. */
+  readonly gateways?: readonly ProcedureInstanceStepOverviewGateway[];
+  /** Mới nhất trước, tối đa 50 dòng. */
+  readonly events: readonly ProcedureInstanceStepOverviewEvent[];
+}
+
 /** Một dòng đối soát: trạng thái và bước hiện tại của hồ sơ. */
 export interface ProcedureInstanceStatusEntry {
   readonly instanceId: string;

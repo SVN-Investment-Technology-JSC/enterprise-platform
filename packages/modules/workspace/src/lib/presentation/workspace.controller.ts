@@ -403,6 +403,12 @@ export class WorkspaceController {
     return this.execute(() => this.workItems.detail(this.actor(request), id));
   }
 
+  /** Các bước hồ sơ Quy trình gắn với công việc; quyền xem như `GET work-items/:id`. */
+  @Get('work-items/:id/procedure-steps')
+  workItemProcedureSteps(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.workItems.procedureSteps(this.actor(request), id));
+  }
+
   @Patch('work-items/:id')
   updateWorkItem(
     @Req() request: WorkspaceRequest,
@@ -1144,6 +1150,12 @@ export class WorkspaceController {
   @Get('standalone-tasks/:id')
   getStandaloneTask(@Req() request: WorkspaceRequest, @Param('id') id: string) {
     return this.execute(() => this.standaloneTasks.detail(this.actor(request), id));
+  }
+
+  /** Các bước hồ sơ Quy trình gắn với việc; quyền xem như `GET standalone-tasks/:id`. */
+  @Get('standalone-tasks/:id/procedure-steps')
+  standaloneTaskProcedureSteps(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.standaloneTasks.procedureSteps(this.actor(request), id));
   }
 
   @Post('standalone-tasks')

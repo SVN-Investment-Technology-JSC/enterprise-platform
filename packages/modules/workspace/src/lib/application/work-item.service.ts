@@ -24,6 +24,7 @@ import {
   type WorkItemChecklistItem,
   type WorkItemProgressReport,
   type WorkItemDependency,
+  type WorkItemProcedureSteps,
   type WorkItemStatus,
   type WorkItemStatusHistoryEntry,
   type WorkItemTree,
@@ -100,6 +101,8 @@ import { parentProcedureWaitRules } from './procedure-link-settings.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { parseTransport, type FleetTransportService } from './fleet-transport.service.js';
 import type { ProcedureInstanceReplacer } from './procedure-instance-replacer.port.js';
+import { loadProcedureSteps } from './procedure-steps.js';
+import type { ProcedureStepsReader } from './procedure-steps.port.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import { WorkspaceLabelService } from './workspace-label.service.js';
@@ -129,6 +132,8 @@ export class WorkItemService {
     private readonly fleet?: FleetTransportService,
     /** Nhờ Quy trình đổi hồ sơ; vắng (test) thì không đổi quy trình được. */
     private readonly instanceReplacer?: ProcedureInstanceReplacer,
+    /** Đọc các bước hồ sơ gắn công việc từ Quy trình; vắng (test) thì báo không đọc được. */
+    private readonly procedureStepsReader?: ProcedureStepsReader,
   ) {}
 
   /** Danh mục mức ưu tiên ở Cài đặt; đọc lại mỗi lần nên không cần chia sẻ thực thể. */
@@ -175,6 +180,16 @@ export class WorkItemService {
       }
     }
     return item;
+  }
+
+  /**
+   * Các bước hồ sơ Quy trình gắn với công việc. Ai xem được công việc (cùng luật với `detail`) thì xem được;
+   * mã hồ sơ lấy từ liên kết Workspace giữ, không nhận từ client.
+   */
+  async procedureSteps(actor: WorkspaceActor, workItemId: string): Promise<WorkItemProcedureSteps> {
+    const item = await this.detail(actor, workItemId);
+    const instanceId = await this.linkedInstanceId(actor.tenantId, item.id);
+    return loadProcedureSteps(this.procedureStepsReader, actor.tenantId, instanceId);
   }
 
   /**
