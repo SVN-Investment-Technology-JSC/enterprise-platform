@@ -348,7 +348,9 @@ export default function OvertimeCompSettingsScreen() {
               <li key={v.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                 <span className="font-semibold">Phiên bản {v.versionNo}</span>
                 <span className="text-slate-600">
-                  {formatCompDate(v.effectiveFrom)} - {v.effectiveTo ? formatCompDate(v.effectiveTo) : 'chưa kết thúc'}
+                  {phaseOf(v) === 'REPLACED'
+                    ? `Từ ${formatCompDate(v.effectiveFrom)}`
+                    : `${formatCompDate(v.effectiveFrom)} - ${v.effectiveTo ? formatCompDate(v.effectiveTo) : 'chưa kết thúc'}`}
                 </span>
                 <Badge variant={phaseOf(v) === 'CURRENT' ? 'default' : 'outline'}>{COMP_VERSION_PHASE_LABELS[phaseOf(v)]}</Badge>
                 <Badge variant={v.config.enabled ? 'default' : 'outline'}>{v.config.enabled ? 'Bật' : 'Tắt'}</Badge>
