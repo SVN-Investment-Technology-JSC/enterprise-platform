@@ -3557,6 +3557,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
           await writeOutbox(client, tenantId, mentionEvent(message));
         }
         await writeChatSignal(client, tenantId, message, actorUserId, 'created');
+        await writeChatMessageNotice(client, tenantId, message, actorUserId);
         return message;
       });
     },
@@ -6237,6 +6238,105 @@ export function mentionEvent(
       sourceType: 'workspace_chat_message',
     },
   };
+}
+
+/** Nơi chứa luồng chat mà tin vừa gửi thuộc về, đủ để dựng thông báo "có tin mới". */
+export interface ChatMessageNoticeContext {
+  readonly entityType: ChatEntityType;
+  readonly entityId: string;
+  readonly projectId: string;
+  /** Mã và tên của việc (hoặc dự án) để người nhận biết tin nằm ở đâu: `CV003 · Thanh toán đợt 1`. */
+  readonly entityLabel: string;
+  /** Những người thuộc việc/dự án đó (chưa loại người gửi và người được nhắc tên). */
+  readonly memberUserIds: readonly string[];
+}
+
+/**
+ * Sự kiện "có tin mới" cho những người thuộc việc hoặc dự án có luồng chat.
+ *
+ * Tin trong chat một việc báo người phụ trách và người cùng thực hiện việc đó; tin trong trao đổi chung của dự án
+ * báo mọi thành viên dự án. Người gửi không tự nhận, và người được nhắc tên (@) đã có thông báo nhắc tên nên không
+ * nhận thêm cái này. Không còn ai để báo thì không ghi gì (`undefined`).
+ */
+export function chatMessageNoticeEvent(
+  message: Pick<
+    ChatMessage,
+    'id' | 'channelId' | 'body' | 'mentions' | 'createdBy' | 'attachmentDocumentId' | 'attachmentDocumentIds'
+  >,
+  context: ChatMessageNoticeContext,
+): OutboxInput | undefined {
+  const mentioned = new Set(message.mentions);
+  const recipientUserIds = [...new Set(context.memberUserIds)].filter(
+    (userId) => userId !== message.createdBy && !mentioned.has(userId),
+  );
+  if (recipientUserIds.length === 0) return undefined;
+  const hasAttachment = Boolean(message.attachmentDocumentId) || (message.attachmentDocumentIds?.length ?? 0) > 0;
+  return {
+    type: 'workspace.chat.message.created',
+    aggregateType: 'workspace-chat-message',
+    aggregateId: message.id,
+    payload: {
+      messageId: message.id,
+      threadId: message.channelId,
+      entityType: context.entityType,
+      entityId: context.entityId,
+      projectId: context.projectId,
+      entityLabel: context.entityLabel,
+      recipientUserIds,
+      actorUserId: message.createdBy,
+      excerpt: message.body.trim().slice(0, 160) || (hasAttachment ? 'Đã gửi tệp đính kèm.' : ''),
+      deepLink: `/workspace/chat/${message.channelId}?message=${message.id}`,
+      sourceType: 'workspace_chat_message',
+    },
+  };
+}
+
+/**
+ * Báo người thuộc việc/dự án khi có tin mới, trong cùng transaction với tin nhắn.
+ *
+ * Hai truy vấn: một lấy nơi chứa luồng cùng nhãn (kèm người phụ trách), một lấy người cùng thực hiện hoặc thành viên
+ * dự án. Danh sách người nhận do server tính, không nhận từ client.
+ */
+async function writeChatMessageNotice(
+  client: PoolClient,
+  tenantId: string,
+  message: Parameters<typeof chatMessageNoticeEvent>[0],
+  actorUserId: string,
+): Promise<void> {
+  const channel = await client.query<Row>(
+    `SELECT c.entity_type, c.entity_id, c.project_id,
+            CASE c.entity_type WHEN 'work_item' THEN w.code ELSE p.code END AS code,
+            CASE c.entity_type WHEN 'work_item' THEN w.title ELSE p.name END AS title,
+            w.assignee_user_id
+       FROM workspace_schema.chat_channels c
+       JOIN workspace_schema.projects p ON p.id = c.project_id
+       LEFT JOIN workspace_schema.work_items w ON c.entity_type = 'work_item' AND w.id = c.entity_id
+      WHERE c.id = $1`,
+    [message.channelId],
+  );
+  const row = channel.rows[0];
+  if (!row) return;
+  const entityType = str(row.entity_type) as ChatEntityType;
+  const members =
+    entityType === 'work_item'
+      ? await client.query<Row>(
+          `SELECT user_id FROM workspace_schema.work_item_participants WHERE work_item_id = $1 AND user_id <> $2`,
+          [row.entity_id, actorUserId],
+        )
+      : await client.query<Row>(
+          `SELECT user_id FROM workspace_schema.project_members WHERE project_id = $1 AND user_id <> $2`,
+          [row.project_id, actorUserId],
+        );
+  const memberUserIds = members.rows.map((member) => str(member.user_id));
+  if (entityType === 'work_item' && row.assignee_user_id) memberUserIds.push(str(row.assignee_user_id));
+  const event = chatMessageNoticeEvent(message, {
+    entityType,
+    entityId: str(row.entity_id),
+    projectId: str(row.project_id),
+    entityLabel: [row.code, row.title].filter(Boolean).map(str).join(' · '),
+    memberUserIds,
+  });
+  if (event) await writeOutbox(client, tenantId, event);
 }
 
 /**

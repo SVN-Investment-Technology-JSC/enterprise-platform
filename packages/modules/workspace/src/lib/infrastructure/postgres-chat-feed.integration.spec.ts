@@ -285,6 +285,71 @@ integration('Workspace: trao đổi công việc theo trang (PostgreSQL)', () =>
     expect(thread.hasMore).toBe(false);
   });
 
+  it('tin mới ghi sự kiện báo đúng người: việc → người phụ trách + người cùng thực hiện, dự án → mọi thành viên; trừ người gửi và người được nhắc', async () => {
+    const [assignee, coWorker, bystander] = [randomUUID(), randomUUID(), randomUUID()];
+    const project = (await store.project.create(tenantId, owner, { code: 'QA-NT', name: 'Thông báo tin' } as never)).id;
+    await store.member.replaceAll(tenantId, project, owner, [
+      { userId: owner, role: 'owner' },
+      { userId: assignee, role: 'member' },
+      { userId: coWorker, role: 'member' },
+      { userId: bystander, role: 'member' },
+    ]);
+    const node = await items.create(actor, {
+      projectId: project,
+      title: 'Việc có người thực hiện cùng',
+      assigneeUserId: assignee,
+      participantUserIds: [coWorker],
+    } as never);
+    const send = async (
+      entityType: 'project' | 'work_item',
+      entityId: string,
+      sender: string,
+      body: string,
+      mentions: string[] = [],
+    ) => {
+      const channel = await store.chat.ensureChannel(tenantId, sender, { entityType, entityId, projectId: project });
+      return store.chat.sendMessage(tenantId, sender, { channelId: channel.id, body, mentions });
+    };
+    const notice = async (messageId: string) => {
+      const rows = (
+        await pool.query(
+          `SELECT payload FROM integration_schema.outbox_events
+            WHERE event_type = 'workspace.chat.message.created' AND aggregate_id = $1`,
+          [messageId],
+        )
+      ).rows;
+      // Cột `payload` giữ cả phong bì sự kiện; nội dung nghiệp vụ nằm ở `payload.payload`.
+      return rows.length === 0
+        ? undefined
+        : (rows[0].payload.payload as { recipientUserIds: string[]; entityLabel: string });
+    };
+    const sorted = (ids: string[] | undefined) => [...(ids ?? [])].sort();
+
+    // Người ngoài việc (chủ dự án) nhắn trong việc: báo người phụ trách và người cùng thực hiện, không báo người chỉ là thành viên dự án.
+    const first = await send('work_item', node.id, owner, 'Nhờ hai bạn xem việc này');
+    const firstNotice = await notice(first.id);
+    expect(sorted(firstNotice?.recipientUserIds)).toEqual(sorted([assignee, coWorker]));
+    expect(firstNotice?.entityLabel).toContain('Việc có người thực hiện cùng');
+
+    // Người phụ trách nhắn: không tự báo cho mình, người cùng thực hiện vẫn nhận.
+    const second = await send('work_item', node.id, assignee, 'Mình đã nhận');
+    expect((await notice(second.id))?.recipientUserIds).toEqual([coWorker]);
+
+    // Nhắc tên người cùng thực hiện: họ đã có thông báo nhắc tên nên không nhận thêm thông báo tin mới.
+    const third = await send('work_item', node.id, owner, 'Nhờ @coWorker', [coWorker]);
+    expect((await notice(third.id))?.recipientUserIds).toEqual([assignee]);
+
+    // Chỉ còn người được nhắc để báo: không ghi sự kiện tin mới.
+    const fourth = await send('work_item', node.id, owner, 'Riêng @assignee', [assignee, coWorker]);
+    expect(await notice(fourth.id)).toBeUndefined();
+
+    // Trao đổi chung của dự án: mọi thành viên trừ người gửi.
+    const general = await send('project', project, owner, 'Thông báo chung cho cả nhóm');
+    expect(sorted((await notice(general.id))?.recipientUserIds)).toEqual(sorted([assignee, coWorker, bystander]));
+    const reply = await send('project', project, bystander, 'Đã rõ');
+    expect(sorted((await notice(reply.id))?.recipientUserIds)).toEqual(sorted([owner, assignee, coWorker]));
+  });
+
   describe('dòng thời gian và trả lời', () => {
     it('xếp tin của mọi công việc (và chat chung) theo giờ, bỏ tin thu hồi và tin dự án khác, kèm tin gốc của trả lời', async () => {
       const timelineProject = (await store.project.create(tenantId, owner, { code: 'QA-TL', name: 'Dòng thời gian' } as never)).id;
