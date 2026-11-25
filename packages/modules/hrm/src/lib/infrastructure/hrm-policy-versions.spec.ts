@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import {
+  closeConflictingVersions,
   inheritConfig,
   planPolicyPublish,
   planVersionRemoval,
@@ -202,5 +203,41 @@ describe('resolver and removal rules', () => {
     expect(versionStatusByDate(v('x', '2025-01-01', '2025-12-31'), today)).toBe(
       'EXPIRED',
     );
+  });
+});
+
+describe('ghi đè phiên bản đã có dữ liệu tham chiếu', () => {
+  it('phiên bản đã bị thay thế (khoảng rỗng) không tham gia xét giao nhau', () => {
+    const replaced = v('a4', '2026-11-01', '2026-10-31', { status: 'SUPERSEDED' });
+    expect(planPolicyPublish([replaced], { ...company, from: '2026-11-01' }).conflicts).toHaveLength(0);
+    expect(planPolicyPublish([replaced], { ...company, from: '2026-10-01' }, undefined, 'OVERWRITE').toRemove).toHaveLength(0);
+  });
+
+  it('khóa ngoại chặn xóa thì giữ phiên bản làm lịch sử: đặt ngày kết thúc trước ngày bắt đầu, không báo lỗi', async () => {
+    const calls: { sql: string; params?: unknown[] }[] = [];
+    const db = {
+      query: jest.fn(async (sql: string, params?: unknown[]) => {
+        calls.push({ sql, params });
+        if (sql.includes('SELECT v.*')) return { rows: [v('a4', '2026-11-01', '2026-11-30')] };
+        if (sql.startsWith('DELETE')) throw Object.assign(new Error('fk'), { code: '23503' });
+        return { rows: [] };
+      }),
+    };
+    const result = await closeConflictingVersions(db as never, 't', 'OT', { ...company, from: '2026-11-01' }, { onConflict: 'OVERWRITE' });
+    expect(result.removed.map((x) => x.id)).toEqual(['a4']);
+    const update = calls.find((c) => c.sql.includes("status='SUPERSEDED',effective_to=$2::date"));
+    expect(update?.params).toEqual(['a4', '2026-10-31']);
+    expect(calls.some((c) => c.sql.startsWith('ROLLBACK TO SAVEPOINT'))).toBe(true);
+  });
+
+  it('lỗi khác khóa ngoại vẫn được ném ra', async () => {
+    const db = {
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('SELECT v.*')) return { rows: [v('a4', '2026-11-01', null)] };
+        if (sql.startsWith('DELETE')) throw Object.assign(new Error('boom'), { code: '40001' });
+        return { rows: [] };
+      }),
+    };
+    await expect(closeConflictingVersions(db as never, 't', 'OT', { ...company, from: '2026-11-01' }, { onConflict: 'OVERWRITE' })).rejects.toThrow('boom');
   });
 });

@@ -135,15 +135,16 @@ describe('timesheet-board-format', () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain('"01/09/2026","02/09/2026"');
     expect(lines[1].startsWith('"NV001","An","Sản xuất","OFF","1",')).toBe(true);
-    expect(lines[1]).toContain('"1:30"');
+    // OT 90 phút hiện 1.5 giờ thập phân thay vì giờ:phút.
+    expect(lines[1]).toContain('"1.5"');
   });
 
   it('buildBoardSheet: tiêu đề tháng, tiêu đề hai tầng (thứ trên, ngày dưới), nhóm cột tổng gộp ô, giá trị số để dạng số', () => {
-    const day = (date: string, status: HrmBoardDay['status'], units: number) =>
-      ({ date, status, workdayUnits: units, lateMinutes: 0, earlyLeaveMinutes: 0, otMinutes: 0, anomalies: [] }) as unknown as HrmBoardDay;
+    const day = (date: string, status: HrmBoardDay['status'], units: number, lateMinutes = 0) =>
+      ({ date, status, workdayUnits: units, lateMinutes, earlyLeaveMinutes: 0, otMinutes: 0, anomalies: [] }) as unknown as HrmBoardDay;
     const emp = {
       employeeId: 'e1', employeeCode: 'NV001', employeeName: 'An', departmentName: 'Sản xuất', positionName: 'Kỹ sư',
-      days: { '2026-09-02': day('2026-09-02', 'PRESENT', 1) },
+      days: { '2026-09-02': day('2026-09-02', 'LATE', 0.9, 12) },
       totals: {
         workdayUnits: 1, workedMinutes: 480, paidMinutes: 480, lateMinutes: 12, earlyLeaveMinutes: 0, otMinutes: 90,
         lateDays: 1, earlyLeaveDays: 0, abnormalDays: 0, absentDays: 0, annualLeaveDays: 0, paidLeaveDays: 0,
@@ -164,12 +165,16 @@ describe('timesheet-board-format', () => {
     expect(sheet.rows[1].slice(0, 6)).toEqual(['Mã NV', 'Họ và tên', 'Phòng ban', 'Chức danh', 'T2', 'T3']);
     expect(sheet.rows[2].slice(4, 6)).toEqual(['01/09', '02/09']);
     expect(sheet.rows[3].slice(0, 5)).toEqual(['NV001', 'An', 'Sản xuất', 'Kỹ sư', expect.anything()]);
-    expect(sheet.rows[3][5]).toBe(1);
+    expect(sheet.rows[3][5]).toBe(0.9);
     expect(sheet.offColumns).toEqual([4]);
-    // Nhóm "Đi trễ" có hai cột con (Số ngày, Số phút) nên gộp ngang ở tầng trên.
-    const lateCol = sheet.rows[1].indexOf('Đi trễ');
-    expect(sheet.merges).toContainEqual({ s: { r: 1, c: lateCol }, e: { r: 1, c: lateCol + 1 } });
-    expect(sheet.rows[3].slice(lateCol, lateCol + 2)).toEqual([1, 12]);
+    // Đi trễ, về sớm gom thành một cột "Công thiếu": ngày trễ 0.9 công trên ca 1 công thiếu 0.1.
+    const shortCol = sheet.rows[1].indexOf('Công thiếu (đi trễ, về sớm)');
+    expect(sheet.merges).toContainEqual({ s: { r: 1, c: shortCol }, e: { r: 2, c: shortCol } });
+    expect(sheet.rows[3][shortCol]).toBe(0.1);
+    // Tăng ca là giờ thập phân: 90 phút = 1.5.
+    const otCol = sheet.rows[1].indexOf('Tăng ca');
+    expect(sheet.rows[2][otCol]).toBe('');
+    expect(sheet.rows[3][otCol]).toBe(1.5);
     expect(sheet.rows.every((row) => row.length === sheet.rows[0].length)).toBe(true);
   });
 });

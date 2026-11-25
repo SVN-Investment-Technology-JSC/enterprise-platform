@@ -1,13 +1,16 @@
 import type { HrmCompOffConversionRow, HrmOvertimeCompConfig } from '@enterprise-platform/contracts-hrm';
 import {
   compOffUsageProblem,
+  compVersionPhase,
   configToForm,
   conversionPayload,
   conversionRowProblem,
   formatCompNumber,
   formToConfig,
   nextFreeEffectiveFrom,
+  overlapEffects,
   overtimeCompFormProblem,
+  removableCompVersionId,
 } from './comp-off-model';
 
 const config: HrmOvertimeCompConfig = {
@@ -80,19 +83,18 @@ describe('compOffUsageProblem', () => {
 });
 
 describe('chuyển đổi tháng', () => {
-  it('chỉnh số ngày khác đề xuất bắt buộc có lý do; số ngày phải dương và tối đa 1 chữ số thập phân', () => {
+  it('chỉnh số ngày không cần lý do; số ngày phải dương và tối đa 1 chữ số thập phân', () => {
     expect(conversionRowProblem(row())).toBe('');
     expect(conversionRowProblem(row(), { days: '4,3', reason: '' })).toBe('');
-    expect(conversionRowProblem(row(), { days: '4', reason: '' })).toContain('lý do');
-    expect(conversionRowProblem(row(), { days: '4', reason: 'HR xác nhận' })).toBe('');
+    expect(conversionRowProblem(row(), { days: '4', reason: '' })).toBe('');
     expect(conversionRowProblem(row(), { days: '0', reason: 'x' })).toContain('lớn hơn 0');
     expect(conversionRowProblem(row(), { days: '4,25', reason: 'x' })).toContain('1 chữ số');
   });
 
-  it('chỉ gửi các dòng đã chọn và còn chuyển đổi được; chỉ kèm số ngày và lý do khi HR có chỉnh', () => {
+  it('chỉ gửi các dòng đã chọn và còn chuyển đổi được; chỉ kèm số ngày khi HR có chỉnh', () => {
     const rows = [row(), row({ employeeId: 'e2', status: 'CONVERTED' }), row({ employeeId: 'e3', compDays: 1 })];
-    const payload = conversionPayload(rows, new Set(['e1', 'e2', 'e3']), { e3: { days: '0,5', reason: ' Nghỉ ít hơn ' } });
-    expect(payload).toEqual([{ employeeId: 'e1' }, { employeeId: 'e3', days: 0.5, reason: 'Nghỉ ít hơn' }]);
+    const payload = conversionPayload(rows, new Set(['e1', 'e2', 'e3']), { e3: { days: '0,5', reason: '' } });
+    expect(payload).toEqual([{ employeeId: 'e1' }, { employeeId: 'e3', days: 0.5 }]);
   });
 });
 
@@ -120,5 +122,18 @@ describe('biểu mẫu cấu hình', () => {
     expect(overtimeCompFormProblem(form, '2026-12-15', 'x')).toContain('mùng 1');
     expect(overtimeCompFormProblem(form, '2026-12-01', ' ')).toContain('lý do');
     expect(overtimeCompFormProblem({ ...form, monthlyCapHours: 'abc' }, '2026-12-01', 'x')).toContain('không phải số');
+  });
+});
+
+describe('phiên bản bị thay thế', () => {
+  const replaced = { id: 'v4', effectiveFrom: '2026-11-01', effectiveTo: '2026-10-31' };
+  it('ngày kết thúc trước ngày bắt đầu là đã bị thay thế, không tính là hết hiệu lực', () => {
+    expect(compVersionPhase(replaced, '2026-11-25')).toBe('REPLACED');
+    expect(compVersionPhase({ effectiveFrom: '2026-10-01', effectiveTo: '2026-10-31' }, '2026-11-25')).toBe('EXPIRED');
+  });
+  it('không xét khi tìm phiên bản xóa được hay phiên bản bị chồng', () => {
+    const upcoming = { id: 'v7', versionNo: 7, effectiveFrom: '2026-12-01', effectiveTo: null };
+    expect(removableCompVersionId([replaced, upcoming], '2026-11-25')).toBe('v7');
+    expect(overlapEffects([{ versionNo: 4, effectiveFrom: '2026-11-01', effectiveTo: '2026-10-31' }], '2026-10-01')).toEqual([]);
   });
 });

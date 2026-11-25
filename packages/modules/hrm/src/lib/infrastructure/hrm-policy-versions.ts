@@ -44,6 +44,11 @@ export function versionEmployeeIds(
   return Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : [];
 }
 
+/** Phiên bản đã bị ghi đè nhưng còn dữ liệu tham chiếu nên được giữ lại: ngày kết thúc nằm trước ngày bắt đầu (không còn áp dụng ngày nào). */
+export function isReplacedVersion(v: Pick<PolicyVersionLike, 'effective_from' | 'effective_to'>): boolean {
+  return Boolean(v.effective_to) && (v.effective_to as string) < v.effective_from;
+}
+
 function rangesOverlap(
   aFrom: string,
   aTo: string | null,
@@ -83,6 +88,8 @@ export function planPolicyPublish(
   const warnings: string[] = [];
   for (const v of existing) {
     if (v.id === excludeVersionId || v.status === 'DRAFT') continue;
+    // Phiên bản đã bị thay thế (khoảng hiệu lực rỗng) chỉ còn để lưu lịch sử, không tham gia xét giao nhau.
+    if (isReplacedVersion(v)) continue;
     if (!scopesCollide(versionEmployeeIds(v.config_json), range.employeeIds))
       continue;
     if (!rangesOverlap(v.effective_from, v.effective_to, range.from, range.to))
@@ -233,7 +240,11 @@ export async function closeConflictingVersions(
   return { closed: plan.toClose, removed: plan.toRemove, warnings: plan.warnings, existing };
 }
 
-/** Xóa phiên bản bị thay thế; nếu dữ liệu công, nghỉ bù hay lương đã tham chiếu thì giữ lại và báo lỗi rõ ràng. */
+/**
+ * Thay thế phiên bản bị ghi đè. Chưa ai dùng thì xóa. Đã có dữ liệu công, nghỉ bù hay lương tham chiếu thì giữ lại làm lịch sử
+ * (giống phân ca: dòng cũ được đánh dấu thay thế chứ không mất): đặt ngày kết thúc trước ngày bắt đầu để không còn áp dụng ngày nào;
+ * dữ liệu cũ vẫn trỏ đúng phiên bản đã dùng, còn phiên bản mới (version_no lớn hơn) được chọn cho các ngày từ ngày hiệu lực mới.
+ */
 async function removeReplacedVersion(db: PoolClient, v: PolicyVersionLike) {
   await db.query('SAVEPOINT replaced_policy_version');
   try {
@@ -241,11 +252,11 @@ async function removeReplacedVersion(db: PoolClient, v: PolicyVersionLike) {
     await db.query('RELEASE SAVEPOINT replaced_policy_version');
   } catch (e) {
     await db.query('ROLLBACK TO SAVEPOINT replaced_policy_version');
-    if ((e as { code?: string }).code === '23503')
-      throw new ConflictException(
-        `Không ghi đè được v${v.version_no ?? '?'} (${displayDate(v.effective_from)}): phiên bản này đã được dữ liệu công hoặc nghỉ bù tham chiếu. Chọn ngày hiệu lực sau phiên bản này.`,
-      );
-    throw e;
+    if ((e as { code?: string }).code !== '23503') throw e;
+    await db.query(
+      `UPDATE hrm_schema.policy_versions SET status='SUPERSEDED',effective_to=$2::date,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE id=$1`,
+      [v.id, dayBefore(v.effective_from)],
+    );
   }
 }
 

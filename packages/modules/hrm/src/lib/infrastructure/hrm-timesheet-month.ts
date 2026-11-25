@@ -14,6 +14,7 @@ import { loadBoard } from './hrm-timesheet-board.js';
 import { adjustTimesheetLine, type AdjustTimesheetInput } from './hrm-timesheet-adjust.js';
 import { calculateTimesheet } from './hrm-timesheet-calculation.js';
 import { lockTimesheetPeriod, reopenTimesheetPeriod } from './hrm-timesheet-period.js';
+import { reverseMonthAccruals } from './hrm-comp-off.js';
 import { requireText } from './hrm-validation.js';
 
 /**
@@ -372,7 +373,11 @@ export async function reopenMonth(
   const wasLocked = exact.status === 'LOCKED';
   if (!wasLocked && !exact.requests_closed_at)
     throw new ConflictException(`Tháng ${label(range.month)} chưa chốt`);
-  if (wasLocked) await reopenTimesheetPeriod(db, tenant, exact.id, actorId, text);
+  if (wasLocked) {
+    // Quỹ nghỉ bù đã cộng khi chốt công thì đảo phần còn lại của lô (không trừ âm nếu đã dùng); chốt lại sẽ cộng theo số mới.
+    await reverseMonthAccruals(db as PoolClient, tenant, actorId, range.month, `Đảo cộng quỹ bù tháng ${range.month.slice(5)}/${range.month.slice(0, 4)} do mở lại kỳ công: ${text}`);
+    await reopenTimesheetPeriod(db, tenant, exact.id, actorId, text);
+  }
   await db.query(
     `UPDATE hrm_schema.timesheet_periods SET requests_closed_at=NULL, requests_closed_by=NULL, updated_at=now() WHERE tenant_id=$1 AND id=$2`,
     [tenant, exact.id],

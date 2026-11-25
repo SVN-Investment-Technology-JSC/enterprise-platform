@@ -15,6 +15,11 @@ export function currentMonthVn(now: Date = new Date()): string {
   return todayVn(now).slice(0, 7);
 }
 
+/** "2026-10" thành "10/2026" để hiển thị. */
+export function formatMonthVn(month: string): string {
+  return isMonthKey(month) ? `${month.slice(5, 7)}/${month.slice(0, 4)}` : month;
+}
+
 export function isMonthKey(value: string): boolean {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
 }

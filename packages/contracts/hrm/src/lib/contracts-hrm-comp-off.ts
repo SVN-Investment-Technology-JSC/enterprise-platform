@@ -14,6 +14,8 @@ export interface HrmOvertimeCompConfig {
   readonly enabled: boolean;
   /** Bật quản lý quỹ nghỉ bù (giữ chỗ & trừ quỹ khi tạo/duyệt đơn Nghỉ bù) độc lập với tính toán tự động từ OT. */
   readonly fundEnabled?: boolean;
+  /** Tự cộng quỹ khi chốt công. Mặc định tắt: HR xem trước và xác nhận rồi mới cộng. */
+  readonly autoAccrue?: boolean;
   readonly normalHoursPerDay: number;
   readonly monthlyCapHours: number;
   readonly yearlyCapHours: number | null;
@@ -204,6 +206,8 @@ export interface HrmCompOffStatus {
   readonly fundEnabled: boolean;
   /** Bật công thức tự tính từ làm thêm và ca đêm. */
   readonly formulaEnabled: boolean;
+  /** Quỹ được cộng tự động khi chốt công (true) hay chờ HR xác nhận (false). */
+  readonly autoAccrue: boolean;
 }
 
 /** Dòng điều chỉnh quỹ nghỉ bù kèm thông tin nhân viên, dùng cho màn lịch sử điều chỉnh toàn công ty. */
@@ -246,6 +250,30 @@ export interface HrmCompOffConversionPreview {
   readonly locked: boolean;
   readonly enabled: boolean;
   readonly rows: readonly HrmCompOffConversionRow[];
+}
+
+/** Một nhân viên trong kế hoạch đảo quỹ đã cộng của tháng khi mở lại kỳ công. */
+export interface HrmCompOffReversalRow {
+  readonly employeeId: string;
+  readonly employeeName: string | null;
+  readonly employeeCode: string | null;
+  /** Số ngày đã cộng của tháng (còn hiệu lực, đã trừ phần đã đảo). */
+  readonly granted: number;
+  /** Số ngày sẽ đảo: chỉ phần còn lại của lô, không bao giờ làm quỹ âm. */
+  readonly reversible: number;
+  /** Phần đã dùng (hoặc hết hạn): giữ nguyên, không đảo. */
+  readonly kept: number;
+  /** Số ngày đang giữ chỗ cho đơn nghỉ bù chờ duyệt: phải xử lý đơn trước khi mở lại. */
+  readonly held: number;
+}
+
+export interface HrmCompOffReversalPreview {
+  readonly month: string;
+  readonly rows: readonly HrmCompOffReversalRow[];
+  readonly totalReversible: number;
+  readonly totalKept: number;
+  /** Còn đơn nghỉ bù chờ duyệt đang giữ chỗ trong quỹ của tháng này: chặn mở lại. */
+  readonly blocked: boolean;
 }
 
 export interface ConfirmHrmCompOffConversionRequest {

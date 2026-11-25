@@ -15,6 +15,7 @@ import { HrmEmployeeController } from './presentation/hrm-employee.controller.js
 import { HrmLeaveController } from './presentation/hrm-leave.controller.js';
 import { HrmAnnualLeavePolicyController } from './presentation/hrm-annual-leave-policy.controller.js';
 import { HrmCompOffController } from './presentation/hrm-comp-off.controller.js';
+import { HrmReportController } from './presentation/hrm-report.controller.js';
 import { HrmRequestReasonController } from './presentation/hrm-request-reason.controller.js';
 import { HrmRequestTypeController } from './presentation/hrm-request-type.controller.js';
 import { HrmRequestTimeController } from './presentation/hrm-request-time.controller.js';
@@ -92,6 +93,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmLeaveController,
     HrmAnnualLeavePolicyController,
     HrmCompOffController,
+    HrmReportController,
     HrmRequestReasonController,
     HrmRequestTypeController,
     HrmRequestTimeController,

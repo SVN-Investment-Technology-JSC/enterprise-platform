@@ -36,6 +36,9 @@ import {
 } from '../ui/dashboard/my-dashboard';
 import { useMyDashboard } from '../ui/dashboard/use-my-dashboard';
 
+/** Thẻ "Chấm công hôm nay" trên Bàn làm việc đang ẩn; đặt true để hiện lại (nút vào ca, ra ca và logic chấm công vẫn giữ nguyên). */
+const SHOW_PUNCH_CARD = false;
+
 type TimeContext = {
   employeeId: string;
   workDate: string;
@@ -241,10 +244,12 @@ export default function HrmDashboardPage() {
           ) : null}
           <div className="grid items-start gap-4 xl:grid-cols-12">
             <div className="grid gap-4 md:grid-cols-9 xl:col-span-9">
-              <div className="md:col-span-6">
-                <PunchCard punch={punch} data={my} />
-              </div>
-              <div className="md:col-span-3">
+              {SHOW_PUNCH_CARD ? (
+                <div className="md:col-span-6">
+                  <PunchCard punch={punch} data={my} />
+                </div>
+              ) : null}
+              <div className={SHOW_PUNCH_CARD ? 'md:col-span-3' : 'md:col-span-9'}>
                 <LeaveCard data={my} />
               </div>
               <div className="md:col-span-6">

@@ -161,8 +161,8 @@ describe('MyTimesheetScreen (Công của tôi)', () => {
     expect(within(stats).getByTestId('my-stat-ot').textContent).toContain('4.0');
     expect(within(stats).getByTestId('my-stat-pending').textContent).toContain('1');
     // công thực tế đi kèm công chuẩn và thanh tiến độ
-    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('13.0');
-    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('/ 26.0');
+    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('13');
+    expect(within(stats).getByTestId('my-stat-units').textContent).toContain('/ 26');
     expect(within(stats).getByTestId('my-stat-units').textContent).toContain('Cố định');
     expect(within(stats).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
 

@@ -134,7 +134,7 @@ export function MonthNumberLegend() {
     { text: '1CT', tone: 'text-emerald-700', label: 'Công tác' },
     { text: '0', tone: 'text-emerald-700', label: 'Nghỉ không lương' },
     { text: '0', tone: 'text-red-600', label: 'Thiếu dữ liệu chấm công' },
-    { text: '0.xx', tone: 'text-red-600', label: 'Đi trễ, về sớm hoặc thiếu công' },
+    { text: '1', tone: 'text-red-600', label: 'Đi trễ, về sớm hoặc thiếu công (xem cột Công thiếu)' },
   ];
   return (
     <ul aria-label="Chú thích số công" className="flex flex-wrap items-center gap-1.5 text-[12px] text-slate-600">

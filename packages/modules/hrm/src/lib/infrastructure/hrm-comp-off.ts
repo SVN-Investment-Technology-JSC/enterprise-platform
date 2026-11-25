@@ -12,6 +12,8 @@ import type {
   HrmCompOffConversionRow,
   HrmCompOffLedgerEntry,
   HrmCompOffLedgerSource,
+  HrmCompOffReversalPreview,
+  HrmCompOffReversalRow,
   ImportHrmCompOffRequest,
   ImportHrmCompOffResult,
 } from '@enterprise-platform/contracts-hrm';
@@ -24,6 +26,7 @@ import {
   approveReleaseKey,
   expireKey,
   expiryDate,
+  lotBalances,
   refundKey,
   requestLotNets,
   reserveKey,
@@ -310,7 +313,7 @@ export async function compOffDetail(
 /** Quỹ nghỉ bù và công thức tính đang bật hay tắt theo cấu hình có hiệu lực tại ngày `asOf`. */
 export async function compOffStatus(db: Db, tenant: string, asOf: string = today()): Promise<HrmCompOffStatus> {
   const { policy } = await loadOvertimeCompPolicy(db, tenant, monthOf(asOf));
-  return { fundEnabled: policy.fundEnabled, formulaEnabled: policy.enabled };
+  return { fundEnabled: policy.fundEnabled, formulaEnabled: policy.enabled, autoAccrue: policy.autoAccrue };
 }
 
 /**
@@ -372,11 +375,13 @@ export async function previewCompOffConversion(db: Db, tenant: string, month: st
       : [];
   const named = await withEmployeeNames(db, tenant, month, figures);
   const ledger = await loadLedgerByEmployee(db, tenant);
+  // Số ngày còn hiệu lực của tháng = ACCRUAL trừ các dòng đảo (mở lại kỳ công); đã đảo hết thì được chuyển đổi lại.
   const keys = await db.query(
-    `SELECT employee_id,days FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND kind='ACCRUAL' AND period_month=$2`,
+    `SELECT a.employee_id, sum(a.days + COALESCE((SELECT sum(r.days) FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id=a.tenant_id AND r.reverses_id=a.id),0)) AS days
+       FROM hrm_schema.comp_off_ledger a WHERE a.tenant_id=$1 AND a.kind='ACCRUAL' AND a.period_month=$2 GROUP BY a.employee_id`,
     [tenant, month],
   );
-  const converted = new Map(keys.rows.map((r) => [r.employee_id as string, Number(r.days)]));
+  const converted = new Map(keys.rows.filter((r) => Number(r.days) > 0).map((r) => [r.employee_id as string, Number(r.days)]));
   const accrualOn = accrualDate(month, policy.accrualMonthOffset);
   const expiresOn = expiryDate(accrualOn, policy.expiryMonths);
   const rows: HrmCompOffConversionRow[] = named.map((f) => {
@@ -437,18 +442,15 @@ export async function writeCompOffAccruals(
   for (const row of body.rows) {
     const figures = snapshot.employees[row.employeeId];
     const skip = (reason: string) => result.skipped.push({ employeeId: row.employeeId, reason });
-    if (!figures || !(figures.compDays > 0)) {
+    // HR được nhập số ngày cho cả người không có giờ dư (khi đó phải có `days` > 0).
+    if (!figures || (!(figures.compDays > 0) && !(Number(row.days) > 0))) {
       skip('Không có giờ làm thêm vượt trần trong tháng');
       continue;
     }
     await lockEmployee(db, tenant, row.employeeId);
-    let days = row.days === undefined ? figures.compDays : roundLedgerDays(Number(row.days));
+    let days = row.days === undefined ? roundLedgerDays(figures.compDays) : roundLedgerDays(Number(row.days));
     if (!Number.isFinite(days) || days <= 0) {
       skip('Số ngày phải lớn hơn 0');
-      continue;
-    }
-    if (days !== figures.compDays && !String(row.reason ?? '').trim()) {
-      skip(`Số ngày khác đề xuất (${fmt(figures.compDays)}) nên cần nhập lý do`);
       continue;
     }
     if (policy.accumulationCapDays !== null) {
@@ -460,6 +462,18 @@ export async function writeCompOffAccruals(
         continue;
       }
     }
+    // Tháng đã cộng rồi mà chưa đảo thì bỏ qua; đã đảo (mở lại kỳ công) thì cộng lại bằng khóa có số lần.
+    const prior = await db.query(
+      `SELECT a.id, a.days + COALESCE((SELECT sum(r.days) FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id=a.tenant_id AND r.reverses_id=a.id),0) AS net
+         FROM hrm_schema.comp_off_ledger a WHERE a.tenant_id=$1 AND a.employee_id=$2 AND a.kind='ACCRUAL' AND a.period_month=$3`,
+      [tenant, row.employeeId, body.month],
+    );
+    if (prior.rows.some((p) => Number(p.net) > 0)) {
+      skip('Đã chuyển đổi cho tháng này');
+      continue;
+    }
+    const baseKey = accrualKey(row.employeeId, body.month);
+    const idempotencyKey = prior.rowCount ? `${baseKey}:r${prior.rowCount}` : baseKey;
     const id = randomUUID();
     const inserted = await db.query(
       `INSERT INTO hrm_schema.comp_off_ledger
@@ -480,8 +494,8 @@ export async function writeCompOffAccruals(
         policy.compFactor,
         policy.dayBasisHours ?? policy.normalHoursPerDay,
         JSON.stringify(policy),
-        String(row.reason ?? '').trim() || null,
-        accrualKey(row.employeeId, body.month),
+        String(row.reason ?? '').trim() || `Cộng quỹ bù tháng ${body.month.slice(5)}/${body.month.slice(0, 4)}`,
+        idempotencyKey,
         actor,
       ],
     );
@@ -504,7 +518,8 @@ export async function writeCompOffAccruals(
 /**
  * Cộng quỹ nghỉ bù tự động cho một tháng đã kết thúc: dùng ảnh chụp lúc chốt công nếu có, chưa chốt thì tính trực tiếp
  * theo chính sách của tháng. Chỉ chạy khi bật công thức tự động; chạy lại không cộng trùng (mỗi nhân viên một lô mỗi tháng).
- * Gọi khi chốt công, từ tác vụ nền cuối tháng hoặc từ HR.
+ * Gọi khi chốt công, từ tác vụ nền cuối tháng hoặc từ HR. Với lời gọi tự động (`opts.requireAutoSetting`), chỉ chạy khi
+ * chính sách bật `autoAccrue`; mặc định tắt để HR xem trước và xác nhận (`confirmCompOffConversion`).
  */
 export async function autoAccrueCompOff(
   db: PoolClient,
@@ -512,6 +527,7 @@ export async function autoAccrueCompOff(
   actor: string | null,
   month: string,
   asOf: string = today(),
+  opts: { requireAutoSetting?: boolean } = {},
 ): Promise<HrmCompOffConversionResult & { skippedReason?: string }> {
   const empty = { month, created: 0, skipped: [] as { employeeId: string; reason: string }[] };
   if (!(await overtimeSchemaReady(db))) return { ...empty, skippedReason: 'SCHEMA_NOT_READY' };
@@ -530,6 +546,7 @@ export async function autoAccrueCompOff(
     employees = Object.fromEntries((await overtimeMonthFigures(db, tenant, month, policy)).map((f) => [f.employeeId, f]));
   }
   if (!policy.enabled) return { ...empty, skippedReason: 'DISABLED' };
+  if (opts.requireAutoSetting && !policy.autoAccrue) return { ...empty, skippedReason: 'MANUAL_CONFIRM' };
   const rows = Object.values(employees)
     .filter((f) => f.compDays > 0)
     .map((f) => ({ employeeId: f.employeeId }));
@@ -757,4 +774,100 @@ export async function expireCompOffLots(db: PoolClient, tenant: string, actor: s
     if (inserted.rows[0]) expired++;
   }
   return expired;
+}
+
+/**
+ * Kế hoạch đảo quỹ đã cộng của một tháng (khi mở lại kỳ công đã chốt). Mỗi lô cộng của tháng chỉ đảo phần còn lại của lô, nên
+ * nhân viên đã dùng hết quỹ thì không bao giờ bị trừ âm: phần đã dùng hoặc hết hạn được giữ nguyên (`kept`). Đơn nghỉ bù chờ
+ * duyệt đang giữ chỗ trong lô (`held`) thì chặn: phải duyệt hoặc rút đơn trước để số giữ chỗ không quay lại một lô đã đảo.
+ */
+export async function planMonthAccrualReversal(db: Db, tenant: string, month: string): Promise<HrmCompOffReversalPreview> {
+  const accruals = await db.query(
+    `SELECT a.id, a.employee_id, a.days + COALESCE((SELECT sum(r.days) FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id=a.tenant_id AND r.reverses_id=a.id),0) AS net,
+            e.full_name, e.employee_code
+       FROM hrm_schema.comp_off_ledger a
+       LEFT JOIN hrm_schema.employee_directory e ON e.employee_id = a.employee_id AND e.tenant_id = a.tenant_id
+      WHERE a.tenant_id=$1 AND a.kind='ACCRUAL' AND a.period_month=$2
+      ORDER BY e.full_name`,
+    [tenant, month],
+  );
+  const rows: HrmCompOffReversalRow[] = [];
+  for (const a of accruals.rows) {
+    const net = roundLedgerDays(Number(a.net));
+    if (!(net > 0)) continue; // đã đảo hết
+    const ledger = await loadLedgerRows(db, tenant, a.employee_id as string);
+    const lot = lotBalances(ledger).find((l) => l.lotId === a.id);
+    const remaining = Math.max(0, lot?.remaining ?? 0);
+    const reversible = roundLedgerDays(Math.min(net, remaining));
+    const requestIds = new Set(ledger.filter((r) => r.lotId === a.id && r.requestId && r.kind === 'RESERVE').map((r) => r.requestId as string));
+    let held = 0;
+    for (const requestId of requestIds) {
+      const lotNet = requestLotNets(ledger, requestId).find((n) => n.lotId === a.id);
+      if (lotNet && !lotNet.used && lotNet.held > 0) held = roundLedgerDays(held + lotNet.held);
+    }
+    rows.push({
+      employeeId: a.employee_id as string,
+      employeeName: (a.full_name as string | null) ?? null,
+      employeeCode: (a.employee_code as string | null) ?? null,
+      granted: net,
+      reversible,
+      kept: roundLedgerDays(net - reversible),
+      held,
+    });
+  }
+  return {
+    month,
+    rows,
+    totalReversible: roundLedgerDays(rows.reduce((n, r) => n + r.reversible, 0)),
+    totalKept: roundLedgerDays(rows.reduce((n, r) => n + r.kept, 0)),
+    blocked: rows.some((r) => r.held > 0),
+  };
+}
+
+/**
+ * Đảo quỹ đã cộng của tháng khi mở lại kỳ công: mỗi lô thêm một dòng ADJUST âm (liên kết `reverses_id`) bằng phần còn lại của lô.
+ * Sổ chỉ thêm dòng nên lịch sử còn nguyên. Còn đơn nghỉ bù đang giữ chỗ thì từ chối (409). Chốt công lại sẽ cộng theo số mới.
+ */
+export async function reverseMonthAccruals(
+  db: PoolClient,
+  tenant: string,
+  actor: string,
+  month: string,
+  reason: string,
+): Promise<HrmCompOffReversalPreview> {
+  const plan = await planMonthAccrualReversal(db, tenant, month);
+  if (plan.blocked) {
+    const names = plan.rows.filter((r) => r.held > 0).map((r) => `${r.employeeName ?? r.employeeId} (${fmt(r.held)} ngày)`);
+    throw new ConflictException(
+      `Chưa mở lại được: còn đơn nghỉ bù chờ duyệt đang giữ chỗ trong quỹ tháng này của ${names.join(', ')}. Duyệt hoặc rút các đơn đó trước.`,
+    );
+  }
+  const date = today();
+  for (const row of plan.rows) {
+    if (!(row.reversible > 0)) continue;
+    await lockEmployee(db, tenant, row.employeeId);
+    const accrual = (
+      await db.query(
+        `SELECT id FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND employee_id=$2 AND kind='ACCRUAL' AND period_month=$3
+           AND days + COALESCE((SELECT sum(r.days) FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id=comp_off_ledger.tenant_id AND r.reverses_id=comp_off_ledger.id),0) > 0
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenant, row.employeeId, month],
+      )
+    ).rows[0];
+    if (!accrual) continue;
+    const prior = await db.query(`SELECT count(*)::int AS n FROM hrm_schema.comp_off_ledger WHERE tenant_id=$1 AND reverses_id=$2`, [tenant, accrual.id]);
+    await db.query(
+      `INSERT INTO hrm_schema.comp_off_ledger (id,tenant_id,employee_id,kind,days,occurred_on,lot_id,reason,idempotency_key,created_by,source,reverses_id)
+       VALUES ($1,$2,$3,'ADJUST',$4,$5::date,$6,$7,$8,$9,'MANUAL',$6)`,
+      [randomUUID(), tenant, row.employeeId, -row.reversible, date, accrual.id, reason, `reverse-accrual:${accrual.id}:${prior.rows[0].n}`, actor],
+    );
+    await lifecycleAudit(db, tenant, actor, 'COMP_OFF_ACCRUAL_REVERSED', accrual.id as string, {
+      month,
+      employeeId: row.employeeId,
+      reversed: row.reversible,
+      kept: row.kept,
+      reason,
+    });
+  }
+  return plan;
 }
