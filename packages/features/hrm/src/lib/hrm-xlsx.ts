@@ -29,7 +29,12 @@ export function downloadXlsx(
         border: BORDER,
         font: { bold: header },
         fill: header ? { patternType: 'solid', fgColor: { rgb: 'DCE6F4' } } : undefined,
-        alignment: { horizontal: header ? 'center' : 'left', vertical: 'center', wrapText: header },
+        alignment: {
+          horizontal: header ? 'center' : 'left',
+          vertical: 'center',
+          // Ô có nhiều dòng (vd khung giờ làm thêm từng ngày) phải ngắt dòng mới đọc được trong Excel.
+          wrapText: header || String(aoa[r]?.[c] ?? '').includes('\n'),
+        },
       };
     }
   }

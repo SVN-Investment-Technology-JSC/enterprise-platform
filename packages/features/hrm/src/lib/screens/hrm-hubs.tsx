@@ -28,6 +28,14 @@ const LeaveBalancesScreen = lazyScreen(() => import('./leave-balances-screen'));
 const LeaveAdjustmentHistoryScreen = lazyScreen(() => import('./leave-adjustment-history-screen'));
 const CompOffScreen = lazyScreen(() => import('./comp-off-screen'));
 const WorkScheduleScreen = lazyScreen(() => import('./work-schedule-screen'));
+const reportScreen = (pick: (m: typeof import('./reports-screens')) => ComponentType) =>
+  lazyScreen(() => import('./reports-screens').then((m) => ({ default: pick(m) })));
+const RequestsReportScreen = reportScreen((m) => m.RequestsReportScreen);
+const LeaveUsageReportScreen = reportScreen((m) => m.LeaveUsageReportScreen);
+const LeaveReportScreen = reportScreen((m) => m.LeaveReportScreen);
+const OvertimeReportScreen = reportScreen((m) => m.OvertimeReportScreen);
+const BusinessTripReportScreen = reportScreen((m) => m.BusinessTripReportScreen);
+const TimesheetReportScreen = reportScreen((m) => m.TimesheetReportScreen);
 const TimesheetsScreen = lazyScreen(() => import('./timesheets-screen'));
 const AttendanceDataScreen = lazyScreen(() => import('./attendance-data-screen'));
 const ShiftsScreen = lazyScreen(() => import('./shifts-screen'));
@@ -62,6 +70,14 @@ const SCREENS: Record<HrmHubPath, Record<string, ComponentType>> = {
   '/timekeeping': {
     timesheets: TimesheetsScreen,
     data: AttendanceDataScreen,
+  },
+  '/reports': {
+    requests: RequestsReportScreen,
+    'leave-usage': LeaveUsageReportScreen,
+    leave: LeaveReportScreen,
+    overtime: OvertimeReportScreen,
+    'business-trips': BusinessTripReportScreen,
+    timesheet: TimesheetReportScreen,
   },
   '/payroll': { runs: PayrollScreen, advances: AdvancesScreen },
   '/fleet': { schedule: FleetScheduleScreen, vehicles: FleetVehiclesScreen, drivers: FleetDriversScreen },
@@ -119,6 +135,8 @@ export function LeaveHub() {
 }
 /** Bảng công: bảng công tháng của nhân viên và dữ liệu chấm công. Phân ca và danh mục ca nằm trong Cấu hình. */
 export const TimekeepingHub = () => <HrmTabHub tabs={tabsOf('/timekeeping')} tabsInHeader />;
+/** Báo cáo: đơn từ, nghỉ phép đã dùng, làm thêm giờ, công tác, bảng chấm công; xuất Excel theo phạm vi và cột tự chọn. */
+export const ReportsHub = () => <HrmTabHub tabs={tabsOf('/reports')} tabsInHeader />;
 /** Lương và chi trả: bảng lương, ứng và thu hồi. */
 export const PayrollHub = () => <HrmTabHub tabs={tabsOf('/payroll')} tabsInHeader />;
 /** Lịch xe công ty: lịch đặt xe, danh mục xe và tài xế. */

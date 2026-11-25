@@ -3,3 +3,4 @@ export * from './lib/assistant-actions.js';
 export * from './lib/contracts-hrm-people-facts.js';
 export * from './lib/contracts-hrm-custody.js';
 export * from './lib/contracts-hrm-comp-off.js';
+export * from './lib/contracts-hrm-reports.js';

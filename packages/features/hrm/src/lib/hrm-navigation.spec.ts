@@ -38,6 +38,7 @@ describe('HRM navigation', () => {
           'Bảng công /timekeeping',
           'Phép năm /leave',
           'Lương và chi trả /payroll',
+          'Báo cáo /reports',
           'Lịch xe /fleet',
         ],
       ],

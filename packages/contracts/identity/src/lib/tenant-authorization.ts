@@ -151,6 +151,11 @@ export const HRM_PERMISSION_ACTIONS = [
     label: 'Điều chỉnh tay quỹ nghỉ bù (có lý do) và chạy hết hạn lô',
   },
   {
+    key: 'hrm.report.view',
+    group: 'HRM · Phép và đơn',
+    label: 'Xem và xuất báo cáo đơn từ, nghỉ phép, làm thêm, công tác toàn tenant',
+  },
+  {
     key: 'hrm.overtime.classify',
     group: 'HRM · Phép và đơn',
     label: 'Xem và sửa phân loại làm thêm / ca đêm của từng ca',

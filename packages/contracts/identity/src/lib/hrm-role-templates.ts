@@ -89,6 +89,7 @@ export const HRM_ROLE_TEMPLATES: readonly HrmRoleTemplate[] = [
       'hrm.comp_off.view',
       'hrm.comp_off.convert',
       'hrm.overtime.classify',
+      'hrm.report.view',
       'hrm.timesheet.read',
       'hrm.timesheet.calculate',
       'hrm.timesheet.adjust',

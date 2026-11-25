@@ -65,6 +65,7 @@ export {
   PeopleHub,
   LeaveHub,
   TimekeepingHub,
+  ReportsHub,
   PayrollHub,
   FleetHub,
   SettingsHub,
