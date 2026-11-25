@@ -6,8 +6,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import type { WorkItemProcedureSteps } from '@enterprise-platform/contracts-workspace';
-import { ProcedureStepsPanel } from '../../../packages/features/workspace/src/lib/components/procedure-steps-panel';
-import { getWorkItemProcedureSteps } from '../../../packages/features/workspace/src/lib/workspace-api';
+import { ProcedureStepsPanel, getWorkItemProcedureSteps } from '@enterprise-platform/feature-workspace';
 
 jest.mock('../../../packages/features/workspace/src/lib/workspace-api', () => ({
   getWorkItemProcedureSteps: jest.fn(),

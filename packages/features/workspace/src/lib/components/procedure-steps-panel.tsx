@@ -401,16 +401,20 @@ export function ProcedureStepsPanel({
 
   return (
     <section className={rootClass} aria-label="Các bước quy trình">
-      <h3>
-        Các bước quy trình
-        <span
-          className={styles.countPill}
-          aria-label={`Đã xong ${done} trên ${total} bước`}
-        >
-          {done}/{total}
-        </span>
-      </h3>
-      <p className={`${styles.procedureStepsSummary} ${summary.tone}`}>{summary.text}</p>
+      <div className={styles.procedureStepsTitleRow}>
+        <h3>
+          Các bước quy trình
+          <span
+            className={styles.countPill}
+            aria-label={`Đã xong ${done} trên ${total} bước`}
+          >
+            {done}/{total}
+          </span>
+        </h3>
+        <p className={`${styles.procedureStepsSummary} ${summary.tone}`} title={summary.text}>
+          {summary.text}
+        </p>
+      </div>
       <div
         className={styles.procedureStepsTrack}
         role="progressbar"

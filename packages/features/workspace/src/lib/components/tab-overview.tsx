@@ -201,7 +201,7 @@ export function TabOverview({
           Không đọc được module gốc lúc này; trạng thái bên dưới là bản lưu gần nhất và có thể đã cũ.
         </p>
       ) : null}
-      <ul className={styles.memberList}>
+      <ul className={`${styles.memberList} ${styles.linkRecords}`}>
         {links.map((ref) => (
           <li key={ref.id}>
             <span className={styles.memberName}>
@@ -223,7 +223,12 @@ export function TabOverview({
                     okType="danger"
                     onConfirm={() => onUnlinkRef(selected.id, ref.id)}
                   >
-                    <Button type="button" variant="ghost" size="xs">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
                       Gỡ liên kết
                     </Button>
                   </Confirm>

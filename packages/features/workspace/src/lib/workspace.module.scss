@@ -6439,7 +6439,13 @@
 }
 
 .itemTabBody {
-  padding-top: 14px;
+  padding-top: 8px;
+}
+
+// Tab "Hồ sơ liên kết": mỗi dòng chỉ một hồ sơ nên không cần cao 40px.
+.memberList.linkRecords > li {
+  min-height: 28px;
+  padding: 2px 0;
 }
 
 .quantityNote {
@@ -12213,8 +12219,8 @@ th[data-column-id='select'] .columnResizeHandle {
 
 /* Chi tiết các bước hồ sơ quy trình (procedure-steps-panel.tsx). */
 .procedureStepsFlat {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: 6px;
+  padding-top: 8px;
   border-top: 1px solid var(--ep-border);
 
   h3 {
@@ -12409,6 +12415,28 @@ th[data-column-id='select'] .columnResizeHandle {
   border-left-color: var(--ep-danger);
   background: rgb(239 68 68 / 10%);
 }
+// Tiêu đề và dòng tóm tắt trên cùng một hàng; hàng hẹp thì dòng tóm tắt xuống dòng dưới.
+.procedureStepsTitleRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+
+  h3 {
+    margin: 0;
+  }
+
+  .procedureStepsSummary {
+    flex: 1 1 220px;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 
 .procedureFlowClamp {
   overflow: hidden;
