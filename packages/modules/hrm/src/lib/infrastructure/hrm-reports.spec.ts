@@ -40,7 +40,17 @@ describe('cột báo cáo', () => {
     }
   });
 
-  it('đổi trạng thái sang nhãn tiếng Việt, giữ nguyên trạng thái lạ', () => {
+  it('báo cáo làm thêm có cột Sáng hôm sau và tính giờ đơn chưa duyệt theo số phút đăng ký', async () => {
+    expect(REPORT_COLUMNS.overtime.find((c) => c.key === 'nextDay')).toMatchObject({ label: 'Sáng hôm sau', defaultOn: true });
+    const calls: string[] = [];
+    const db = { query: jest.fn(async (sql: string) => (calls.push(sql), { rows: [] })) };
+    await loadReport(db as never, 'tenant-1', 'overtime', parseReportFilters({ from: '2026-11-01', to: '2026-11-30' }));
+    expect(calls[0]).toContain('next_day_rest');
+    // Đơn chưa duyệt có approved_minutes = 0 mặc định nên chỉ đơn đã duyệt mới được lấy số phút duyệt.
+    expect(calls[0]).toContain("CASE WHEN x.status = 'APPROVED' THEN COALESCE(x.approved_minutes, x.planned_minutes) ELSE x.planned_minutes END");
+  });
+
+    it('đổi trạng thái sang nhãn tiếng Việt, giữ nguyên trạng thái lạ', () => {
     expect(statusLabel('APPROVED')).toBe('Đã duyệt');
     expect(statusLabel('PENDING')).toBe('Chờ duyệt');
     expect(statusLabel('KHAC')).toBe('KHAC');

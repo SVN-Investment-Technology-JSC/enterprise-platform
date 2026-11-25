@@ -108,6 +108,7 @@ export const REPORT_COLUMNS: Record<HrmReportKind, readonly HrmReportColumn[]> =
     col('endDate', 'Đến ngày', true, 'date'),
     col('description', 'Mô tả'),
     col('windows', 'Thời gian làm thêm'),
+    col('nextDay', 'Sáng hôm sau'),
     col('hours', 'Số giờ làm thêm'),
     col('totalHours', 'Tổng số giờ', true, 'number'),
     col('otType', 'Loại làm thêm', false),
@@ -206,19 +207,26 @@ const projectSql = (idsExpr: string, kind: string, fallbackName = 'NULL') =>
 const day = (sql: string) => `to_char(${sql}, 'DD/MM/YYYY')`;
 const dayVn = (sql: string) => `to_char(${sql} AT TIME ZONE ${TZ}, 'DD/MM/YYYY')`;
 
-/** Đơn làm thêm giờ theo nhóm: đơn nhiều khoảng là một dòng, gom ngày, khung giờ và số giờ của các khoảng. */
+/**
+ * Số giờ: đơn đã duyệt lấy số phút được duyệt; đơn chưa duyệt lấy số phút đăng ký (cột `approved_minutes` của đơn chưa duyệt mặc định 0).
+ * Đơn làm thêm giờ theo nhóm: đơn nhiều khoảng là một dòng, gom ngày, khung giờ và số giờ của các khoảng. */
 const OT_GROUPS_SQL = `
   SELECT r.id, r.tenant_id, r.employee_id, r.status, r.reason, r.reason_name, r.created_at, r.approved_by, r.approved_at,
-         r.current_assignee_name, r.on_behalf_by_name, r.ot_type, g.start_date, g.end_date, g.windows, g.hours, g.total_hours, g.ids
+         r.current_assignee_name, r.on_behalf_by_name, r.ot_type, g.start_date, g.end_date, g.windows, g.next_day, g.hours, g.total_hours, g.ids
     FROM hrm_schema.ot_requests r
    CROSS JOIN LATERAL (
      SELECT min(x.work_date) AS start_date, max(x.work_date) AS end_date,
             string_agg('Từ ' || to_char(COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time), 'HH24:MI')
                        || ' đến ' || to_char(COALESCE(x.to_at AT TIME ZONE ${TZ}, x.work_date + x.end_time), 'HH24:MI'),
                        E'\\n' ORDER BY COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time), x.id) AS windows,
-            string_agg(trim_scale(round(COALESCE(x.approved_minutes, x.planned_minutes) / 60.0, 2))::text, ', '
+            string_agg(CASE WHEN COALESCE(x.to_at AT TIME ZONE ${TZ}, x.work_date + x.end_time)::date
+                                 > COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time)::date
+                            THEN CASE x.next_day_rest WHEN 'FULL' THEN 'Nghỉ cả ngày' WHEN 'HALF' THEN 'Nghỉ nửa ngày' ELSE 'Làm việc bình thường' END
+                            ELSE '-' END,
+                       E'\\n' ORDER BY COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time), x.id) AS next_day,
+            string_agg(trim_scale(round((CASE WHEN x.status = 'APPROVED' THEN COALESCE(x.approved_minutes, x.planned_minutes) ELSE x.planned_minutes END) / 60.0, 2))::text, ', '
                        ORDER BY COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time), x.id) AS hours,
-            round(sum(COALESCE(x.approved_minutes, x.planned_minutes)) / 60.0, 2) AS total_hours,
+            round(sum((CASE WHEN x.status = 'APPROVED' THEN COALESCE(x.approved_minutes, x.planned_minutes) ELSE x.planned_minutes END)) / 60.0, 2) AS total_hours,
             array_agg(x.id) AS ids
        FROM hrm_schema.ot_requests x
       WHERE x.tenant_id = r.tenant_id AND COALESCE(x.group_id, x.id) = r.id
@@ -430,7 +438,7 @@ export async function loadOvertimeReport(db: Db, tenant: string, f: HrmReportFil
   const statusSql = f.statuses?.length ? ` AND r.status = ANY(${p.add(f.statuses)}::text[])` : '';
   const { rows, total } = await withTotal(
     db,
-    `SELECT r.status, r.reason, r.ot_type, r.windows, r.hours, r.total_hours, r.current_assignee_name, r.on_behalf_by_name,
+    `SELECT r.status, r.reason, r.ot_type, r.windows, r.next_day, r.hours, r.total_hours, r.current_assignee_name, r.on_behalf_by_name,
             ${day('r.start_date')} AS start_on, ${day('r.end_date')} AS end_on, ${approvalSelect('r')}, ${projectSql('r.ids', 'ot')}, ${EMP_COLS}
        FROM (${OT_GROUPS_SQL}) r
        JOIN hrm_schema.employee_directory ed ON ed.tenant_id = r.tenant_id AND ed.employee_id = r.employee_id
@@ -446,6 +454,7 @@ export async function loadOvertimeReport(db: Db, tenant: string, f: HrmReportFil
       endDate: str(r.end_on),
       description: str(r.reason),
       windows: str(r.windows),
+      nextDay: str(r.next_day),
       hours: str(r.hours),
       totalHours: num(r.total_hours),
       otType: str(r.ot_type),
