@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { AssetDocumentService } from './application/asset-document.service.js';
 import { InventoryApplication } from './application/inventory.application.js';
 import { INVENTORY_STORE, type InventoryStore } from './application/inventory-store.port.js';
+import { INVENTORY_ORGANIZATION, type InventoryOrganizationPort } from './application/organization.port.js';
+import { HttpInventoryOrganizationReader } from './infrastructure/http-organization.reader.js';
 import { StockDocumentService } from './application/stock-document.service.js';
 import {
   STOCK_DOCUMENT_STORE,
@@ -88,15 +90,20 @@ import { RequisitionController } from './presentation/requisition.controller.js'
     },
     {
       provide: InventoryApplication,
-      useFactory: (store: InventoryStore, documents: StockDocumentStore, traceability: TraceabilityStore) =>
-        new InventoryApplication(store, documents, traceability),
-      inject: [INVENTORY_STORE, STOCK_DOCUMENT_STORE, TRACEABILITY_STORE],
+      useFactory: (
+        store: InventoryStore,
+        documents: StockDocumentStore,
+        traceability: TraceabilityStore,
+        organization: InventoryOrganizationPort,
+      ) => new InventoryApplication(store, documents, traceability, organization),
+      inject: [INVENTORY_STORE, STOCK_DOCUMENT_STORE, TRACEABILITY_STORE, INVENTORY_ORGANIZATION],
     },
+    { provide: INVENTORY_ORGANIZATION, useFactory: () => new HttpInventoryOrganizationReader() },
     {
       provide: StockDocumentService,
-      useFactory: (documents: StockDocumentStore, store: InventoryStore) =>
-        new StockDocumentService(documents, store),
-      inject: [STOCK_DOCUMENT_STORE, INVENTORY_STORE],
+      useFactory: (documents: StockDocumentStore, store: InventoryStore, organization: InventoryOrganizationPort) =>
+        new StockDocumentService(documents, store, organization),
+      inject: [STOCK_DOCUMENT_STORE, INVENTORY_STORE, INVENTORY_ORGANIZATION],
     },
     {
       provide: STOCKTAKE_STORE,

@@ -26,6 +26,7 @@ import {
   Warehouse,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApprovalPolicySection } from './components/approval-policy-section';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
 import { StocktakeHub } from './components/stocktake-hub';
@@ -1394,6 +1395,23 @@ export function InventoryScreen() {
                   ),
                 },
                 {
+                  id: 'approval',
+                  label: 'Duyệt chứng từ',
+                  description:
+                    'Chọn bắt buộc duyệt hoặc không áp dụng duyệt cho chứng từ kho, và có cho người lập tự duyệt hay không. Mọi thay đổi ghi nhật ký kèm lý do.',
+                  render: () => (
+                    <ApprovalPolicySection
+                      key={settings?.['documents.approval']?.version ?? 0}
+                      settings={settings}
+                      canManage={canManage}
+                      onSaved={(message) => {
+                        notify(message);
+                        void loadInventorySettings().then(setSettings).catch(() => undefined);
+                      }}
+                    />
+                  ),
+                },
+                {
                   id: 'suppliers',
                   label: 'Nhà cung cấp',
                   description:
@@ -1477,7 +1495,7 @@ export function InventoryScreen() {
               dirty={
                 settingsSection === 'tracking'
                   ? trackingDirty
-                  : settingsSection === 'warehouses' || settingsSection === 'suppliers'
+                  : settingsSection === 'warehouses' || settingsSection === 'suppliers' || settingsSection === 'approval'
                     ? false
                     : settingsSection === 'asset-fields'
                     ? catalogDirty
@@ -1493,7 +1511,7 @@ export function InventoryScreen() {
               onSave={
                 settingsSection === 'tracking'
                   ? saveTracking
-                  : settingsSection === 'warehouses' || settingsSection === 'suppliers'
+                  : settingsSection === 'warehouses' || settingsSection === 'suppliers' || settingsSection === 'approval'
                     ? () => undefined
                     : settingsSection === 'asset-fields'
                     ? saveAssetCatalog

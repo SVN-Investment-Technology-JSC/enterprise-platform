@@ -644,3 +644,109 @@ describe('StockDocumentService: nhà cung cấp của lô theo danh mục', () =
     await expect(service.update(clerk, draft.id, receipt('abb viet nam'))).resolves.toBeDefined();
   });
 });
+
+describe('người duyệt cố định theo chức danh', () => {
+  const KHO_TRUONG = '11111111-1111-4111-8111-111111111111';
+  const KE_TOAN = '22222222-2222-4222-8222-222222222222';
+  const THU_KHO = '33333333-3333-4333-8333-333333333333';
+
+  const policyStore = (approvers: Record<string, unknown>, extra: Record<string, unknown> = {}): InventoryStore =>
+    ({
+      settings: {
+        get: async () => ({
+          key: 'documents.approval',
+          value: { allowSelfApproval: false, mode: 'FIXED_APPROVER', overrides: {}, approvers, ...extra },
+          version: 1,
+          updatedAt: new Date(0).toISOString(),
+        }),
+      },
+    }) as unknown as InventoryStore;
+
+  const org = (held: Record<string, string[]>, fail = false) => ({
+    positions: async () => [],
+    heldPositionIds: async (_tenant: string, userId: string) => {
+      if (fail) throw Object.assign(new Error('x'), { statusCode: 503, code: 'ORGANIZATION_UNAVAILABLE' });
+      return held[userId] ?? [];
+    },
+  });
+
+  const submitted = async (service: StockDocumentService, store: FakeStockDocumentStore) => {
+    const draft = await service.create(clerk, {
+      docType: 'RECEIPT_OTHER',
+      warehouseCode: 'KHO-HN',
+      lines: [{ materialCode: 'VT-01', quantity: 1 }],
+    });
+    await service.submit(clerk, draft.id);
+    return draft.id;
+  };
+
+  it('chỉ người giữ chức danh được chỉ định duyệt được; người có quyền duyệt kho nhưng khác chức danh bị 403', async () => {
+    const store = new FakeStockDocumentStore();
+    const service = new StockDocumentService(
+      store,
+      policyStore({ DEFAULT: { positionId: KHO_TRUONG } }),
+      org({ truong: [KHO_TRUONG], khac: [THU_KHO] }),
+    );
+    const id = await submitted(service, store);
+    const denied = await rejection(service.approve(actor('khac', { canApproveDocuments: true }), id));
+    expect([denied.statusCode, denied.code]).toEqual([403, 'APPROVER_NOT_ASSIGNED']);
+    const approved = await service.approve(actor('truong', { canApproveDocuments: true }), id);
+    expect(approved.status).toBe('APPROVED');
+  });
+
+  it('chức danh dự phòng cũng duyệt được', async () => {
+    const store = new FakeStockDocumentStore();
+    const service = new StockDocumentService(
+      store,
+      policyStore({ DEFAULT: { positionId: KHO_TRUONG, fallbackPositionId: KE_TOAN } }),
+      org({ ketoan: [KE_TOAN] }),
+    );
+    const id = await submitted(service, store);
+    expect((await service.approve(actor('ketoan', { canApproveDocuments: true }), id)).status).toBe('APPROVED');
+  });
+
+  it('người có quyền quản lý Kho duyệt được mọi chứng từ, như hrm.manage bên HRM', async () => {
+    const store = new FakeStockDocumentStore();
+    const service = new StockDocumentService(
+      store,
+      policyStore({ DEFAULT: { positionId: KHO_TRUONG } }),
+      org({}),
+    );
+    const id = await submitted(service, store);
+    expect((await service.approve(actor('admin', { canManage: true, canApproveDocuments: true }), id)).status).toBe('APPROVED');
+  });
+
+  it('không đọc được sơ đồ tổ chức thì từ chối, không cho qua', async () => {
+    const store = new FakeStockDocumentStore();
+    const service = new StockDocumentService(
+      store,
+      policyStore({ DEFAULT: { positionId: KHO_TRUONG } }),
+      org({}, true),
+    );
+    const id = await submitted(service, store);
+    const error = await rejection(service.approve(actor('truong', { canApproveDocuments: true }), id));
+    expect(error.statusCode).toBe(503);
+  });
+
+  it('chưa khai báo người duyệt thì giữ như cũ: ai có quyền duyệt kho cũng duyệt được', async () => {
+    const store = new FakeStockDocumentStore();
+    const service = new StockDocumentService(store, policyStore({}), org({}, true));
+    const id = await submitted(service, store);
+    expect((await service.approve(manager, id)).status).toBe('APPROVED');
+  });
+
+  it('nhóm có cách duyệt riêng dùng người duyệt của nhóm, không dùng của dòng mặc định', async () => {
+    const store = new FakeStockDocumentStore();
+    const service = new StockDocumentService(
+      store,
+      policyStore(
+        { DEFAULT: { positionId: KHO_TRUONG }, RECEIPT: { positionId: THU_KHO } },
+        { overrides: { RECEIPT: 'FIXED_APPROVER' } },
+      ),
+      org({ truong: [KHO_TRUONG], thukho: [THU_KHO] }),
+    );
+    const id = await submitted(service, store);
+    expect((await rejection(service.approve(actor('truong', { canApproveDocuments: true }), id))).statusCode).toBe(403);
+    expect((await service.approve(actor('thukho', { canApproveDocuments: true }), id)).status).toBe('APPROVED');
+  });
+});

@@ -216,7 +216,8 @@ describe('nhà cung cấp trên đường nhập kho cũ (receiveStock)', () => 
     const { app, settings } = setup({ suppliers: catalog });
     await app.receiveStock(clerk, receipt);
     await app.receiveStock(clerk, { ...receipt, counterparty: { type: 'CUSTOMER', name: 'Khách' } });
-    expect(settings.get).not.toHaveBeenCalled();
+    // Đường nhập có đọc cài đặt duyệt chứng từ; chỉ cấu hình nhà cung cấp là không được đọc.
+    expect(settings.get).not.toHaveBeenCalledWith(expect.anything(), 'catalog.supplier');
   });
 });
 
@@ -249,6 +250,7 @@ describe('danh mục nhà cung cấp trong Cài đặt', () => {
       { suppliers: ['Công ty A', 'ABB'] },
       'u1',
       0,
+      undefined, // không phải khoá chính sách duyệt nên không ghi nhật ký
     );
   });
 

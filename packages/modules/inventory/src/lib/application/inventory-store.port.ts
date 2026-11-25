@@ -18,6 +18,7 @@ import type {
   SerialTracking,
   AssetBomLine,
   SettingsEntry,
+  ApprovalPolicyChange,
   TransactionType,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -401,7 +402,11 @@ export interface InventoryStore {
       value: unknown,
       updatedBy: string,
       expectedVersion?: number,
+      /** Ghi nhật ký đổi chính sách cùng giao dịch với việc lưu (chỉ `documents.approval`). */
+      audit?: { readonly previous: unknown; readonly reason: string },
     ): Promise<SettingsEntry<unknown> | null>;
+    /** Các lần đổi chính sách duyệt gần nhất, mới nhất trước. */
+    listApprovalPolicyLog(tenantId: string, limit: number): Promise<RawApprovalPolicyChange[]>;
   };
 
   suppliers: {
@@ -417,3 +422,9 @@ export interface InventoryStore {
 }
 
 export const INVENTORY_STORE = 'INVENTORY_STORE';
+
+/** Dòng nhật ký đổi chính sách duyệt như lưu trong DB; tầng application chuẩn hoá `previous`, `current`. */
+export type RawApprovalPolicyChange = Omit<ApprovalPolicyChange, 'previous' | 'current'> & {
+  readonly previous: unknown;
+  readonly current: unknown;
+};

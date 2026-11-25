@@ -1542,6 +1542,76 @@ export interface LegacySupplierCandidatesResponse {
  */
 export interface InventoryDocumentApprovalSettings {
   readonly allowSelfApproval: boolean;
+  /**
+   * `FIXED_APPROVER` (mặc định): loại chứng từ phải duyệt thì chỉ ghi sổ khi Đã duyệt (ISS-BE-006).
+   * `NOT_APPLICABLE`: tenant không áp dụng bước duyệt, tạo chứng từ là ghi sổ ngay.
+   */
+  readonly mode: InventoryApprovalMode;
+  /** Chế độ riêng theo nhóm chứng từ; nhóm không có ở đây thì theo `mode` mặc định. */
+  readonly overrides: Partial<Record<InventoryApprovalGroup, InventoryApprovalMode>>;
+  /**
+   * Người duyệt cố định theo chức danh, áp cho cách duyệt `FIXED_APPROVER`. Khoá `DEFAULT` là của dòng mặc định;
+   * nhóm có chọn riêng cách duyệt dùng khoá của chính nó. Không có khai báo thì ai có quyền duyệt kho đều duyệt được.
+   */
+  readonly approvers: Partial<Record<InventoryApproverKey, InventoryApproverRoute>>;
+}
+
+export type InventoryApproverKey = 'DEFAULT' | InventoryApprovalGroup;
+
+/** Chức danh duyệt và chức danh dự phòng (tuỳ chọn), như cấu hình duyệt trực tiếp của HRM. */
+export interface InventoryApproverRoute {
+  readonly positionId: string;
+  readonly fallbackPositionId?: string;
+}
+
+/** Chức danh trong sơ đồ tổ chức, để chọn làm người duyệt. */
+export interface ApprovalPositionOption {
+  readonly id: string;
+  readonly name: string;
+}
+
+/**
+ * Cách duyệt: `FIXED_APPROVER` người có quyền duyệt kho duyệt trong Kho (mặc định, giữ ISS-BE-006);
+ * `PROCEDURE` duyệt qua Procedure Engine (chưa dùng được); `NOT_APPLICABLE` không áp dụng, tạo phiếu là ghi sổ ngay.
+ */
+export const INVENTORY_APPROVAL_MODES = ['FIXED_APPROVER', 'PROCEDURE', 'NOT_APPLICABLE'] as const;
+export type InventoryApprovalMode = (typeof INVENTORY_APPROVAL_MODES)[number];
+
+/** Nhóm chứng từ cấu hình duyệt riêng, giống từng loại đơn ở cấu hình duyệt của HRM. */
+export const INVENTORY_APPROVAL_GROUPS = ['RECEIPT', 'ISSUE', 'TRANSFER', 'ADJUSTMENT'] as const;
+export type InventoryApprovalGroup = (typeof INVENTORY_APPROVAL_GROUPS)[number];
+
+export const INVENTORY_APPROVAL_GROUP_LABEL: Readonly<Record<InventoryApprovalGroup, string>> = {
+  RECEIPT: 'Phiếu nhập kho',
+  ISSUE: 'Phiếu xuất kho',
+  TRANSFER: 'Phiếu chuyển kho',
+  ADJUSTMENT: 'Phiếu điều chỉnh tồn',
+};
+
+/** Nhóm duyệt của một loại chứng từ. Chuyển kho (cả hai vế) là nhóm riêng, không tính vào nhập hay xuất. */
+export function approvalGroupOf(docType: string): InventoryApprovalGroup {
+  if (docType === 'TRANSFER' || docType === 'ISSUE_TRANSFER' || docType === 'RECEIPT_TRANSFER') return 'TRANSFER';
+  if (docType === 'ADJUSTMENT') return 'ADJUSTMENT';
+  return docType.startsWith('RECEIPT_') ? 'RECEIPT' : 'ISSUE';
+}
+
+/** Khai báo người duyệt áp cho một loại chứng từ, nếu cách duyệt là người duyệt cố định và có khai báo chức danh. */
+export function approverRouteFor(
+  settings: Pick<InventoryDocumentApprovalSettings, 'mode' | 'overrides' | 'approvers'>,
+  docType: string,
+): InventoryApproverRoute | undefined {
+  const group = approvalGroupOf(docType);
+  const own = settings.overrides[group];
+  if ((own ?? settings.mode) !== 'FIXED_APPROVER') return undefined;
+  return settings.approvers[own ? group : 'DEFAULT'];
+}
+
+/** Chế độ áp dụng cho một loại chứng từ: riêng theo nhóm nếu có, không thì mặc định. */
+export function approvalModeFor(
+  settings: Pick<InventoryDocumentApprovalSettings, 'mode' | 'overrides'>,
+  docType: string,
+): InventoryApprovalMode {
+  return settings.overrides[approvalGroupOf(docType)] ?? settings.mode;
 }
 
 /**
@@ -1586,6 +1656,18 @@ export interface UpdateSettingsRequest<TValue> {
   readonly value: TValue;
   /** Version đã đọc; lệch thì trả 409. Bỏ trống là ghi đè bất chấp. */
   readonly expectedVersion?: number;
+  /** Lý do đổi, bắt buộc (10 đến 500 ký tự) khi đổi chính sách duyệt chứng từ `documents.approval`. */
+  readonly reason?: string;
+}
+
+/** Một lần đổi chính sách duyệt chứng từ, để hiển thị lịch sử ở Cài đặt. */
+export interface ApprovalPolicyChange {
+  readonly id: string;
+  readonly previous: InventoryDocumentApprovalSettings;
+  readonly current: InventoryDocumentApprovalSettings;
+  readonly reason: string;
+  readonly changedBy?: string;
+  readonly changedAt: string;
 }
 
 // ------------------------------------------------- Tài liệu đính kèm thiết bị

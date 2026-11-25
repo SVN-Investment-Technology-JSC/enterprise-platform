@@ -548,6 +548,16 @@ export class InventoryController {
     return this.execute(() => this.app.listLegacySupplierCandidates(this.actor(request)));
   }
 
+  @Get('settings-approval-positions')
+  approvalPositions(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listApprovalPositions(this.actor(request)));
+  }
+
+  @Get('settings-approval-policy-log')
+  approvalPolicyLog(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listApprovalPolicyLog(this.actor(request)));
+  }
+
   @Put('settings/:key')
   putSetting(
     @Req() request: InventoryRequest,

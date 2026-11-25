@@ -82,6 +82,11 @@ export interface PostOptions {
    * Chờ duyệt và trả `transactions: []` (ISS-BE-006).
    */
   readonly origin?: PostingOrigin;
+  /**
+   * Tenant không áp dụng bước duyệt cho loại chứng từ này (`documents.approval`, mặc định hoặc riêng theo nhóm):
+   * chứng từ ghi sổ ngay như loại có nguồn đã duyệt. Chỉ service đặt từ cài đặt của tenant; mặc định không đặt (ISS-BE-006).
+   */
+  readonly approvalWaivedFor?: (docType: StockDocumentType) => boolean;
 }
 
 export interface StockDocumentPatch {
@@ -139,6 +144,7 @@ export interface StockDocumentStore {
     tenantId: string,
     key: string,
     decide: (current: StockDocument) => StockDocumentChange,
+    options?: PostOptions,
   ): Promise<PostedStockDocument>;
   /**
    * Tạo và ghi sổ ngay trong cùng một transaction (đường API cũ, chứng từ một dòng).

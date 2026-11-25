@@ -1,13 +1,19 @@
 import {
   COSTING_METHODS,
   DEFAULT_TRACKING_BY_CATEGORY,
+  INVENTORY_APPROVAL_GROUPS,
   INVENTORY_SETTINGS_KEYS,
   isMaterialTrackingMode,
   SUPPLIER_CATALOG_MAX_ITEMS,
   SUPPLIER_INPUT_MODES,
   SUPPLIER_NAME_MAX_LENGTH,
   type CostingMethod,
+  type InventoryApprovalGroup,
+  type InventoryApproverKey,
+  type InventoryApproverRoute,
+  type InventoryApprovalMode,
   type InventoryCatalogSettings,
+  type InventoryDocumentApprovalSettings,
   type InventorySettings,
   type InventorySettingsKey,
   type MaterialCategory,
@@ -82,7 +88,7 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
   // Chỉ chọn từ danh mục, nhưng chỉ có hiệu lực khi danh mục không rỗng (xem buildSupplierPolicy).
   'supplier.input': { mode: 'CATALOG_ONLY' },
   // Q5: mặc định không tự duyệt, giống Tài chính.
-  'documents.approval': { allowSelfApproval: false },
+  'documents.approval': { allowSelfApproval: false, mode: 'FIXED_APPROVER', overrides: {}, approvers: {} },
   // D4: bình quân gia quyền tức thời. FIFO làm ở P2.
   'costing.method': { method: 'MOVING_AVERAGE' },
   // Không có cấp dựng sẵn: vị trí nhập thành một chuỗi cho tới khi tenant khai tên cấp (giao diện gợi ý mẫu Khu vực,
@@ -207,8 +213,12 @@ const NORMALIZERS: {
     };
   },
   // Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về chặn tự duyệt.
+  // Chỉ `NOT_APPLICABLE` thật mới bỏ bước duyệt (mặc định hoặc riêng từng nhóm); payload thiếu hay lạ rơi về REQUIRED (giữ ISS-BE-006).
   'documents.approval': (value) => ({
     allowSelfApproval: (value as { allowSelfApproval?: unknown } | null)?.allowSelfApproval === true,
+    mode: normalizeApprovalMode((value as { mode?: unknown } | null)?.mode) ?? 'FIXED_APPROVER',
+    overrides: normalizeApprovalOverrides((value as { overrides?: unknown } | null)?.overrides),
+    approvers: normalizeApprovers((value as { approvers?: unknown } | null)?.approvers),
   }),
   // Giá trị lạ rơi về bình quân: chỉ phương pháp có trong union đóng mới được lưu.
   'costing.method': (value) => {
@@ -238,4 +248,41 @@ export function normalizeInventorySetting<K extends InventorySettingsKey>(
   value: unknown,
 ): InventorySettings[K] {
   return NORMALIZERS[key](value);
+}
+
+/** Chỉ giữ nhóm và chế độ hợp lệ; giá trị lạ bị bỏ để nhóm đó theo mặc định. */
+function normalizeApprovalOverrides(value: unknown): InventoryDocumentApprovalSettings['overrides'] {
+  const result: Partial<Record<InventoryApprovalGroup, InventoryApprovalMode>> = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const group of INVENTORY_APPROVAL_GROUPS) {
+    const mode = (value as Record<string, unknown>)[group];
+    const normalized = normalizeApprovalMode(mode);
+    if (normalized) result[group] = normalized;
+  }
+  return result;
+}
+
+/** `REQUIRED` là tên cũ của `FIXED_APPROVER` (đã lưu trước khi đổi tên). Giá trị lạ là không có. */
+function normalizeApprovalMode(value: unknown): InventoryApprovalMode | undefined {
+  if (value === 'REQUIRED') return 'FIXED_APPROVER';
+  return value === 'FIXED_APPROVER' || value === 'PROCEDURE' || value === 'NOT_APPLICABLE' ? value : undefined;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Chỉ giữ khoá hợp lệ và chức danh có dạng id; chức danh dự phòng trùng chức danh chính thì bỏ. */
+function normalizeApprovers(value: unknown): InventoryDocumentApprovalSettings['approvers'] {
+  const result: Partial<Record<InventoryApproverKey, InventoryApproverRoute>> = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const key of ['DEFAULT', ...INVENTORY_APPROVAL_GROUPS] as const) {
+    const entry = (value as Record<string, unknown>)[key];
+    const positionId = (entry as { positionId?: unknown } | null)?.positionId;
+    if (typeof positionId !== 'string' || !UUID_PATTERN.test(positionId)) continue;
+    const fallback = (entry as { fallbackPositionId?: unknown }).fallbackPositionId;
+    result[key] =
+      typeof fallback === 'string' && UUID_PATTERN.test(fallback) && fallback !== positionId
+        ? { positionId, fallbackPositionId: fallback }
+        : { positionId };
+  }
+  return result;
 }

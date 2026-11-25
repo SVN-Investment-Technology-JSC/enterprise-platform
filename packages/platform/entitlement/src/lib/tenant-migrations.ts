@@ -632,6 +632,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0027-material-storage-locations', path: 'tenant/inventory/0027-material-storage-locations.sql' },
     { version: '0028-material-tracking-mode', path: 'tenant/inventory/0028-material-tracking-mode.sql' },
     { version: '0029-stocktake-location-sync', path: 'tenant/inventory/0029-stocktake-location-sync.sql' },
+    { version: '0030-approval-policy-log', path: 'tenant/inventory/0030-approval-policy-log.sql' },
     // 0007-drop-legacy-assets CỐ Ý chưa có mặt: bảng cũ là đường lui duy nhất
     // của lượt gộp 0006, chỉ đăng ký sau khi bản gộp chạy ổn một chu kỳ vận hành.
   ],

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   MATERIAL_KINDS,
+  approvalModeFor,
   resolveTrackingMode,
   type MaterialKind,
 } from '@enterprise-platform/contracts-inventory';
@@ -35,6 +36,10 @@ import type {
   InventoryItem,
   InventorySettingsKey,
   InventorySettingsSnapshot,
+  InventoryDocumentApprovalSettings,
+  StockDocumentType,
+  ApprovalPolicyChange,
+  ApprovalPositionOption,
   InventoryTransaction,
   LotAllocationInput,
   CustodyAsset,
@@ -106,6 +111,7 @@ import {
   todayInVietnam,
 } from '../domain/traceability-policy.js';
 import type { TraceabilityStore } from './traceability-store.port.js';
+import type { InventoryOrganizationPort } from './organization.port.js';
 import { filterWarehouseCatalog } from '../domain/inventory-report.js';
 import {
   resolveCreateTracking,
@@ -164,6 +170,8 @@ export class InventoryApplication {
     @Inject(STOCK_DOCUMENT_STORE) private readonly documents: StockDocumentStore,
     /** Gợi ý lô FEFO khi lắp vật tư mà không chỉ định lô; thiếu thì không tự chọn lô. */
     private readonly traceability?: TraceabilityStore,
+    /** Sơ đồ tổ chức để chọn và kiểm chức danh người duyệt; thiếu thì không khai báo được người duyệt. */
+    private readonly organization?: InventoryOrganizationPort,
   ) {}
 
   /**
@@ -1440,8 +1448,14 @@ export class InventoryApplication {
     options?: PostOptions,
   ): Promise<PostedStockDocument> {
     try {
-      return options
-        ? await this.documents.createAndPost(actor.tenantId, input, actor.userId, options)
+      const stored = await this.store.settings.get(actor.tenantId, 'documents.approval');
+      const policy = stored ? normalizeInventorySetting('documents.approval', stored.value) : undefined;
+      const approvalWaivedFor = policy
+        ? (docType: StockDocumentType) => approvalModeFor(policy, docType) === 'NOT_APPLICABLE'
+        : undefined;
+      const merged = approvalWaivedFor ? { ...options, approvalWaivedFor } : options;
+      return merged
+        ? await this.documents.createAndPost(actor.tenantId, input, actor.userId, merged)
         : await this.documents.createAndPost(actor.tenantId, input, actor.userId);
     } catch (error) {
       if (error instanceof InsufficientAvailableStockError) {
@@ -1936,6 +1950,41 @@ export class InventoryApplication {
    * Đọc cả cấu hình module. Khoá chưa có dòng trong bảng trả về mặc định với
    * `version: 0`, nên client vẫn gửi lại được `expectedVersion` ở lần ghi đầu.
    */
+  /** Chức danh để chọn làm người duyệt cố định (quản trị Kho). */
+  async listApprovalPositions(actor: InventoryActor): Promise<ApprovalPositionOption[]> {
+    this.requireManager(actor);
+    if (!this.organization) return [];
+    return this.organization.positions(actor.tenantId);
+  }
+
+  /** Chức danh người duyệt phải có thật trong sơ đồ tổ chức; chức danh dự phòng không trùng chức danh chính. */
+  private async requireKnownApprovers(tenantId: string, policy: InventoryDocumentApprovalSettings): Promise<void> {
+    const routes = Object.values(policy.approvers);
+    if (routes.length === 0) return;
+    if (!this.organization) {
+      throw new InventoryError('ORGANIZATION_UNAVAILABLE', 'Chưa kết nối sơ đồ tổ chức nên chưa khai báo được người duyệt.', 503);
+    }
+    const known = new Set((await this.organization.positions(tenantId)).map((position) => position.id));
+    for (const route of routes) {
+      for (const id of [route.positionId, route.fallbackPositionId]) {
+        if (id && !known.has(id)) {
+          throw new InventoryError('VALIDATION', 'Chức danh người duyệt không còn trong sơ đồ tổ chức. Hãy chọn lại.');
+        }
+      }
+    }
+  }
+
+  /** Lịch sử đổi chính sách duyệt chứng từ, mới nhất trước (quản trị Kho). */
+  async listApprovalPolicyLog(actor: InventoryActor): Promise<ApprovalPolicyChange[]> {
+    this.requireManager(actor);
+    const rows = await this.store.settings.listApprovalPolicyLog(actor.tenantId, 20);
+    return rows.map((row) => ({
+      ...row,
+      previous: normalizeInventorySetting('documents.approval', row.previous),
+      current: normalizeInventorySetting('documents.approval', row.current),
+    }));
+  }
+
   async getSettings(actor: InventoryActor): Promise<InventorySettingsSnapshot> {
     const stored = new Map(
       (await this.store.settings.list(actor.tenantId)).map((entry) => [entry.key, entry]),
@@ -1973,12 +2022,39 @@ export class InventoryApplication {
     // client không gửi gì mới là cố ý ghi đè bất chấp.
     const raw = input?.expectedVersion;
     const expected = Number.isInteger(raw) && Number(raw) >= 0 ? Number(raw) : undefined;
+    // Chính sách duyệt chứng từ nới kiểm soát nội bộ (ISS-BE-006): đổi chế độ hoặc cho tự duyệt phải có lý do và vào nhật ký.
+    let audit: { previous: unknown; reason: string } | undefined;
+    if (key === 'documents.approval') {
+      const stored = await this.store.settings.get(actor.tenantId, key);
+      const previous = stored
+        ? normalizeInventorySetting('documents.approval', stored.value)
+        : INVENTORY_SETTINGS_DEFAULTS['documents.approval'];
+      const next = value as InventoryDocumentApprovalSettings;
+      await this.requireKnownApprovers(actor.tenantId, next);
+      if (next.mode === 'PROCEDURE' || Object.values(next.overrides).includes('PROCEDURE')) {
+        throw new InventoryError(
+          'VALIDATION',
+          'Cách duyệt "Theo quy trình" chưa dùng được. Hãy chọn Người duyệt cố định hoặc Không áp dụng.',
+        );
+      }
+      if (JSON.stringify(previous) !== JSON.stringify(next)) {
+        const reason = typeof input?.reason === 'string' ? input.reason.trim() : '';
+        if (reason.length < 10 || reason.length > 500) {
+          throw new InventoryError(
+            'VALIDATION',
+            'Đổi chính sách duyệt chứng từ phải ghi lý do từ 10 đến 500 ký tự.',
+          );
+        }
+        audit = { previous, reason };
+      }
+    }
     const saved = await this.store.settings.put(
       actor.tenantId,
       key,
       value,
       actor.userId,
       expected,
+      audit,
     );
     if (!saved) throw new SettingsVersionConflictError(key);
     return { ...saved, value: normalizeInventorySetting(key, saved.value) };

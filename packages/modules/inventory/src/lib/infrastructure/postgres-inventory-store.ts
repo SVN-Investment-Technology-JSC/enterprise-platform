@@ -41,6 +41,7 @@ import type {
   CreateReservationInput,
   InstalledTracking,
   InventoryStore,
+  RawApprovalPolicyChange,
 } from '../application/inventory-store.port.js';
 import {
   IdempotencyKeyConflictError,
@@ -2226,12 +2227,13 @@ export class PostgresInventoryStore implements InventoryStore {
       value: unknown,
       updatedBy: string,
       expectedVersion?: number,
+      audit?: { readonly previous: unknown; readonly reason: string },
     ): Promise<SettingsEntry<unknown> | null> => {
       const pool = await this.poolFor(tenantId);
       // Mệnh đề WHERE nằm trên nhánh DO UPDATE: dòng chưa tồn tại thì INSERT đi
       // thẳng, dòng đã tồn tại mà version lệch thì không update và không trả
       // dòng nào — bên gọi đọc "không có dòng" thành xung đột version.
-      const result = await pool.query<Row>(
+      const upsert = (db: Pick<Pool, 'query'>) => db.query<Row>(
         `INSERT INTO inventory_schema.module_settings (key, value, version, updated_at, updated_by)
          VALUES ($1, $2::jsonb, 1, now(), $3)
          ON CONFLICT (key) DO UPDATE
@@ -2243,7 +2245,40 @@ export class PostgresInventoryStore implements InventoryStore {
          RETURNING key, value, version, updated_at, updated_by`,
         [key, JSON.stringify(value), updatedBy, expectedVersion ?? null],
       );
-      return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
+      if (!audit) {
+        const result = await upsert(pool);
+        return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
+      }
+      // Có nhật ký: lưu và ghi nhật ký cùng một giao dịch, xung đột version thì không ghi gì.
+      return inTransaction(pool, async (client) => {
+        const result = await upsert(client);
+        if (!result.rows[0]) return null;
+        await client.query(
+          `INSERT INTO inventory_schema.approval_policy_log (setting_key, previous, current, reason, changed_by)
+           VALUES ($1, $2::jsonb, $3::jsonb, $4, $5)`,
+          [key, JSON.stringify(audit.previous), JSON.stringify(value), audit.reason, updatedBy],
+        );
+        return mapSettingsEntry(result.rows[0]);
+      });
+    },
+
+    listApprovalPolicyLog: async (tenantId: string, limit: number): Promise<RawApprovalPolicyChange[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, previous, current, reason, changed_by, changed_at
+           FROM inventory_schema.approval_policy_log
+          ORDER BY changed_at DESC
+          LIMIT $1`,
+        [limit],
+      );
+      return result.rows.map((row) => ({
+        id: String(row['id']),
+        previous: row['previous'],
+        current: row['current'],
+        reason: String(row['reason']),
+        changedBy: row['changed_by'] ? String(row['changed_by']) : undefined,
+        changedAt: new Date(row['changed_at'] as string).toISOString(),
+      }));
     },
   };
 

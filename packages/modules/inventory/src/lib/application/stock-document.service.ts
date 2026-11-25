@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   STOCK_DOCUMENT_STATUSES,
   STOCK_DOCUMENT_TYPES,
@@ -15,6 +15,8 @@ import {
   type StockDocumentListQuery,
   type StockDocumentPage,
   type StockDocumentType,
+  approvalModeFor,
+  approverRouteFor,
   type UpdateStockDocumentRequest,
 } from '@enterprise-platform/contracts-inventory';
 import { InventoryError, StockDocumentNotFoundError } from '../domain/inventory.error.js';
@@ -35,6 +37,7 @@ import {
 } from '../domain/stock-document-policy.js';
 import type { InventoryActor } from './inventory.application.js';
 import { INVENTORY_STORE, type InventoryStore } from './inventory-store.port.js';
+import { INVENTORY_ORGANIZATION, type InventoryOrganizationPort } from './organization.port.js';
 import { INVENTORY_SETTINGS_DEFAULTS, normalizeInventorySetting } from './inventory-settings.js';
 import type { SupplierPolicy } from '../domain/supplier-catalog.js';
 import { hasSupplier, loadSupplierPolicy } from './supplier-policy.js';
@@ -59,6 +62,8 @@ export class StockDocumentService {
   constructor(
     @Inject(STOCK_DOCUMENT_STORE) private readonly documents: StockDocumentStore,
     @Inject(INVENTORY_STORE) private readonly inventory: InventoryStore,
+    /** Sơ đồ tổ chức để kiểm người duyệt cố định theo chức danh; thiếu thì không kiểm được nên khai báo chức danh bị từ chối. */
+    @Optional() @Inject(INVENTORY_ORGANIZATION) private readonly organization?: InventoryOrganizationPort,
   ) {}
 
   async list(actor: InventoryActor, query: StockDocumentListQuery): Promise<StockDocumentPage> {
@@ -159,15 +164,27 @@ export class StockDocumentService {
 
   async submit(actor: InventoryActor, key: string): Promise<StockDocument> {
     requireStockWriter(actor);
-    const result = await this.documents.change(actor.tenantId, key, (current) => {
-      assertTransition(current, 'PENDING');
-      return { kind: 'transition', to: 'PENDING', actorId: actor.userId };
-    });
+    const approvalWaivedFor = await this.approvalWaivedFor(actor.tenantId);
+    const result = await this.documents.change(
+      actor.tenantId,
+      key,
+      (current) => {
+        // Tenant không áp dụng duyệt cho nhóm này: gửi duyệt cũng là ghi sổ luôn, không có bước Chờ duyệt.
+        if (approvalWaivedFor(current.docType)) {
+          assertTransition(current, 'POSTED', true);
+          return { kind: 'post', actorId: actor.userId };
+        }
+        assertTransition(current, 'PENDING');
+        return { kind: 'transition', to: 'PENDING', actorId: actor.userId };
+      },
+      { approvalWaivedFor },
+    );
     return result.document;
   }
 
   async approve(actor: InventoryActor, key: string): Promise<StockDocument> {
     requireApprover(actor);
+    await this.assertAssignedApprover(actor, key);
     const allowSelfApproval = await this.allowSelfApproval(actor.tenantId);
     const result = await this.documents.change(actor.tenantId, key, (current) => {
       assertTransition(current, 'APPROVED');
@@ -194,10 +211,16 @@ export class StockDocumentService {
 
   async post(actor: InventoryActor, key: string): Promise<PostedStockDocument> {
     requireStockWriter(actor);
-    return this.documents.change(actor.tenantId, key, (current) => {
-      assertTransition(current, 'POSTED');
-      return { kind: 'post', actorId: actor.userId };
-    });
+    const approvalWaivedFor = await this.approvalWaivedFor(actor.tenantId);
+    return this.documents.change(
+      actor.tenantId,
+      key,
+      (current) => {
+        assertTransition(current, 'POSTED', approvalWaivedFor(current.docType));
+        return { kind: 'post', actorId: actor.userId };
+      },
+      { approvalWaivedFor },
+    );
   }
 
   async cancel(actor: InventoryActor, key: string): Promise<StockDocument> {
@@ -378,6 +401,44 @@ export class StockDocumentService {
   ): Promise<StockDocumentLineDraft[]> {
     if (!lines.some((line) => hasSupplier(line.lot?.supplier))) return lines;
     return applySupplierPolicy(lines, await loadSupplierPolicy(this.inventory.settings, tenantId));
+  }
+
+  /**
+   * Người duyệt cố định (cài đặt `documents.approval.approvers`): chỉ người đang giữ chức danh được chỉ định hoặc chức danh
+   * dự phòng được duyệt, như cấu hình duyệt trực tiếp của HRM. Người có quyền quản lý Kho duyệt được mọi chứng từ
+   * (như `hrm.manage` bên HRM). Không đọc được sơ đồ tổ chức thì từ chối (503), không cho qua.
+   */
+  private async assertAssignedApprover(actor: InventoryActor, key: string): Promise<void> {
+    if (actor.canManage) return;
+    const stored = await this.inventory.settings.get(actor.tenantId, 'documents.approval');
+    if (!stored) return;
+    const policy = normalizeInventorySetting('documents.approval', stored.value);
+    if (Object.keys(policy.approvers).length === 0) return;
+    const document = await this.documents.get(actor.tenantId, key);
+    if (!document) return; // không có chứng từ thì lỗi 404 do bước đổi trạng thái báo.
+    const route = approverRouteFor(policy, document.docType);
+    if (!route) return;
+    if (!this.organization) {
+      throw new InventoryError('ORGANIZATION_UNAVAILABLE', 'Chưa kết nối sơ đồ tổ chức để xác định người duyệt.', 503);
+    }
+    const held = await this.organization.heldPositionIds(actor.tenantId, actor.userId);
+    const allowed = [route.positionId, route.fallbackPositionId].filter((id): id is string => Boolean(id));
+    if (!allowed.some((id) => held.includes(id))) {
+      throw new InventoryError(
+        'APPROVER_NOT_ASSIGNED',
+        'Chứng từ này chỉ người giữ chức danh được chỉ định mới duyệt được.',
+        403,
+      );
+    }
+  }
+
+  /** Loại chứng từ nào tenant không áp dụng bước duyệt (cài đặt `documents.approval`). Mặc định không loại nào (ISS-BE-006). */
+  private async approvalWaivedFor(tenantId: string): Promise<(docType: StockDocumentType) => boolean> {
+    const stored = await this.inventory.settings.get(tenantId, 'documents.approval');
+    const value = stored
+      ? normalizeInventorySetting('documents.approval', stored.value)
+      : INVENTORY_SETTINGS_DEFAULTS['documents.approval'];
+    return (docType) => approvalModeFor(value, docType) === 'NOT_APPLICABLE';
   }
 
   private async allowSelfApproval(tenantId: string): Promise<boolean> {

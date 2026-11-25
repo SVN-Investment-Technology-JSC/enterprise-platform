@@ -40,6 +40,8 @@ import type {
   SerialHistory,
   SerialTracking,
   SettingsEntry,
+  ApprovalPolicyChange,
+  ApprovalPositionOption,
   IssueStockRequest,
   MovementBatchRequest,
   PendingStockMovement,
@@ -895,11 +897,20 @@ export const saveInventorySetting = (
   key: InventorySettingsKey,
   value: unknown,
   expectedVersion: number,
+  reason?: string,
 ) =>
   request<SettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    body: JSON.stringify({ value, expectedVersion }),
+    body: JSON.stringify({ value, expectedVersion, ...(reason ? { reason } : {}) }),
   });
+
+/** Chức danh trong sơ đồ tổ chức, để chọn làm người duyệt cố định (cần quyền quản trị Kho). */
+export const loadApprovalPositions = () =>
+  request<ApprovalPositionOption[]>('/settings-approval-positions', { cache: 'no-store' });
+
+/** Lịch sử đổi chính sách duyệt chứng từ kho (cần quyền quản trị Kho). */
+export const loadApprovalPolicyLog = () =>
+  request<ApprovalPolicyChange[]>('/settings-approval-policy-log', { cache: 'no-store' });
 
 /** Nhà cung cấp chữ tự do trong dữ liệu cũ, đã gộp biến thể, để quản trị viên duyệt vào danh mục. */
 export const loadLegacySupplierCandidates = () =>

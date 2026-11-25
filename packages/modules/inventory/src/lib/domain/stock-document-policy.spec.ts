@@ -191,6 +191,21 @@ describe('mọi đường ghi sổ đều kiểm duyệt (ISS-BE-006)', () => {
     },
   );
 
+  it.each(STOCK_DOCUMENT_TYPES)(
+    '%s: tenant không áp dụng duyệt (approvalWaived) thì không loại nào bị chặn, kể cả loại luôn phải duyệt',
+    (docType) => {
+      expect(documentRequiresApproval({ docType }, true)).toBe(false);
+      expect(() => assertPostable(doc({ docType }), { approvalWaived: true })).not.toThrow();
+      expect(canTransition(docType, 'DRAFT', 'POSTED', undefined, true)).toBe(true);
+    },
+  );
+
+  it('không đặt approvalWaived thì giữ nguyên luật ISS-BE-006', () => {
+    expect(blocked(doc({ docType: 'ADJUSTMENT' }))).toBe(true);
+    expect(canTransition('RECEIPT_OTHER', 'DRAFT', 'POSTED')).toBe(false);
+    expect(documentRequiresApproval({ docType: 'ISSUE_OTHER' }, false)).toBe(true);
+  });
+
   it('nguồn miễn chỉ áp cho đúng dạng chứng từ của nó', () => {
     expect(blocked(doc({ docType: 'ADJUSTMENT', sourceType: 'stocktake', sourceId: 's' }), 'stocktake')).toBe(false);
     expect(blocked(doc({ docType: 'ADJUSTMENT' }), 'stocktake')).toBe(true);
