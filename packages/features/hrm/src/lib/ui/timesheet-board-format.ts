@@ -12,6 +12,7 @@ import type {
 } from '@enterprise-platform/contracts-hrm';
 import { buildCsv } from '../hrm-csv';
 import { formatMinutes } from '../hrm-timesheet-format';
+import { employeeGrossUnits, employeeShortfall, otCoefficient } from './board-shortfall';
 
 export interface BoardStatusMeta {
   readonly label: string;
@@ -248,34 +249,32 @@ export function leaveDescription(day: HrmBoardDay): string {
 export interface BoardTotalColumn {
   readonly key: string;
   readonly label: string;
-  readonly value: (t: HrmBoardTotals) => string;
+  readonly value: (t: HrmBoardTotals, emp: HrmBoardEmployee) => string;
 }
 
 export const BOARD_TOTAL_COLUMNS: readonly BoardTotalColumn[] = [
-  { key: 'units', label: 'Công', value: (t) => formatUnits(t.workdayUnits) },
-  { key: 'late', label: 'Đi trễ', value: (t) => `${t.lateDays} ngày / ${t.lateMinutes} phút` },
-  { key: 'early', label: 'Về sớm', value: (t) => `${t.earlyLeaveDays} ngày / ${t.earlyLeaveMinutes} phút` },
+  { key: 'units', label: 'Công', value: (_t, emp) => formatUnits(employeeGrossUnits(emp)) },
+  { key: 'shortfall', label: 'Công thiếu (đi trễ, về sớm)', value: (_t, emp) => formatUnits(employeeShortfall(emp)) },
   { key: 'abnormal', label: 'Bất thường', value: (t) => formatUnits(t.abnormalDays) },
   { key: 'absent', label: 'Nghỉ không phép', value: (t) => formatUnits(t.absentDays) },
   { key: 'annual', label: 'Phép năm', value: (t) => formatUnits(t.annualLeaveDays) },
   { key: 'paid', label: 'Nghỉ có phép', value: (t) => formatUnits(t.paidLeaveDays) },
   { key: 'unpaid', label: 'Không lương', value: (t) => formatUnits(t.unpaidLeaveDays) },
   { key: 'trip', label: 'Công tác', value: (t) => formatUnits(t.tripDays) },
-  { key: 'ot', label: 'OT', value: (t) => formatMinutes(t.otMinutes) },
+  { key: 'ot', label: 'OT', value: (t) => formatUnits(otCoefficient(t.otMinutes)) },
 ];
 
 /** Cột đồ thị gọn trong lưới (giá trị ngắn). */
 export const BOARD_GRID_TOTALS: readonly BoardTotalColumn[] = [
-  { key: 'units', label: 'Công', value: (t) => formatUnits(t.workdayUnits) },
-  { key: 'late', label: 'Đi trễ', value: (t) => (t.lateDays ? `${t.lateDays}/${t.lateMinutes}p` : '0') },
-  { key: 'early', label: 'Về sớm', value: (t) => (t.earlyLeaveDays ? `${t.earlyLeaveDays}/${t.earlyLeaveMinutes}p` : '0') },
+  { key: 'units', label: 'Công', value: (_t, emp) => formatUnits(employeeGrossUnits(emp)) },
+  { key: 'shortfall', label: 'Công thiếu', value: (_t, emp) => formatUnits(employeeShortfall(emp)) },
   { key: 'abnormal', label: 'Bất thường', value: (t) => formatUnits(t.abnormalDays) },
   { key: 'absent', label: 'Không phép', value: (t) => formatUnits(t.absentDays) },
   { key: 'annual', label: 'Phép năm', value: (t) => formatUnits(t.annualLeaveDays) },
   { key: 'paid', label: 'Có phép', value: (t) => formatUnits(t.paidLeaveDays) },
   { key: 'unpaid', label: 'Không lương', value: (t) => formatUnits(t.unpaidLeaveDays) },
   { key: 'trip', label: 'Công tác', value: (t) => formatUnits(t.tripDays) },
-  { key: 'ot', label: 'OT', value: (t) => formatMinutes(t.otMinutes) },
+  { key: 'ot', label: 'OT', value: (t) => formatUnits(otCoefficient(t.otMinutes)) },
 ];
 
 /** Các dòng của bảng công: mỗi nhân viên một dòng, mỗi ngày một cột (số công hoặc ký hiệu), rồi các cột tổng. */
@@ -296,7 +295,7 @@ export function buildBoardRows(
     emp.employeeName,
     emp.departmentName ?? '',
     ...dates.map((date) => boardCellText(emp.days[date])),
-    ...BOARD_TOTAL_COLUMNS.map((c) => c.value(emp.totals)),
+    ...BOARD_TOTAL_COLUMNS.map((c) => c.value(emp.totals, emp)),
   ]);
   return [header, ...rows];
 }
@@ -306,28 +305,13 @@ const INFO_HEADERS = ['Mã NV', 'Họ và tên', 'Phòng ban', 'Chức danh'] as
 
 interface SheetTotalGroup {
   readonly label: string;
-  readonly subs: readonly { readonly label: string; readonly value: (t: HrmBoardTotals) => number }[];
+  readonly subs: readonly { readonly label: string; readonly value: (t: HrmBoardTotals, emp: HrmBoardEmployee) => number }[];
 }
-
-const hours = (minutes: number): number => Math.round((minutes / 60) * 100) / 100;
 
 /** Các nhóm cột tổng của tệp Excel: nhóm có nhiều cột con thì tiêu đề nhóm gộp ngang ở tầng trên. */
 const SHEET_TOTAL_GROUPS: readonly SheetTotalGroup[] = [
-  { label: 'Tổng công', subs: [{ label: 'Tổng công', value: (t) => t.workdayUnits }] },
-  {
-    label: 'Đi trễ',
-    subs: [
-      { label: 'Số ngày', value: (t) => t.lateDays },
-      { label: 'Số phút', value: (t) => t.lateMinutes },
-    ],
-  },
-  {
-    label: 'Về sớm',
-    subs: [
-      { label: 'Số ngày', value: (t) => t.earlyLeaveDays },
-      { label: 'Số phút', value: (t) => t.earlyLeaveMinutes },
-    ],
-  },
+  { label: 'Tổng công', subs: [{ label: 'Tổng công', value: (_t, emp) => employeeGrossUnits(emp) }] },
+  { label: 'Công thiếu (đi trễ, về sớm)', subs: [{ label: 'Công thiếu', value: (_t, emp) => employeeShortfall(emp) }] },
   { label: 'Bất thường', subs: [{ label: 'Bất thường', value: (t) => t.abnormalDays }] },
   { label: 'Nghỉ không phép', subs: [{ label: 'Nghỉ không phép', value: (t) => t.absentDays }] },
   {
@@ -339,7 +323,7 @@ const SHEET_TOTAL_GROUPS: readonly SheetTotalGroup[] = [
     ],
   },
   { label: 'Công tác', subs: [{ label: 'Công tác', value: (t) => t.tripDays }] },
-  { label: 'Tăng ca', subs: [{ label: 'Số giờ', value: (t) => hours(t.otMinutes) }] },
+  { label: 'Tăng ca', subs: [{ label: 'Số giờ', value: (t) => otCoefficient(t.otMinutes) }] },
 ];
 
 export interface BoardSheet {
@@ -409,7 +393,7 @@ export function buildBoardSheet(
     emp.departmentName ?? '',
     emp.positionName ?? '',
     ...days.map((d) => toCell(boardCellText(emp.days[d.date]))),
-    ...SHEET_TOTAL_GROUPS.flatMap((g) => g.subs.map((s) => s.value(emp.totals))),
+    ...SHEET_TOTAL_GROUPS.flatMap((g) => g.subs.map((s) => s.value(emp.totals, emp))),
   ]);
   return {
     rows: [title, top, sub, ...body],

@@ -59,7 +59,9 @@ describe('myCellText', () => {
   it('ngày chưa tới hiện mã ca, ngày đã qua hiện số công và không hiện mã ca', () => {
     expect(myCellText(day({ date: '2026-09-20', status: 'FUTURE', workdayUnits: 0 }), today)).toBe('HC');
     expect(myCellText(day({ date: '2026-09-10', workdayUnits: 1 }), today)).toBe('1');
-    expect(myCellText(day({ date: '2026-09-10', workdayUnits: 0.5 }), today)).toBe('0.5');
+    expect(myCellText(day({ date: '2026-09-10', scheduledMinutes: 240, workdayUnits: 0.5 }), today)).toBe('0.5');
+    // Làm thiếu công trong ca đủ ngày vẫn hiện 1 (đỏ), phần thiếu nằm ở cột Công thiếu.
+    expect(myCellText(day({ date: '2026-09-10', workdayUnits: 0.5 }), today)).toBe('1');
     expect(myCellText(day({ date: '2026-09-10', status: 'ABSENT', workdayUnits: 0 }), today)).toBe('0');
   });
   it('hôm nay chưa có chấm công vẫn là ngày chưa tới: hiện mã ca', () => {
@@ -287,7 +289,7 @@ describe('Lịch công của tôi: chấm màu, giờ làm trong ô, nhãn trạ
 
   it('nội dung ô: ngày đã qua hiện số công (hệ số), không hiện mã ca; ngày chưa tới hiện mã ca; vắng và thiếu dữ liệu chấm công hiện 0; nghỉ hiện gạch dài', () => {
     expect(myCellContent(day({ workedMinutes: 450, workdayUnits: 1 }), TODAY)).toEqual({ text: '', units: '1' });
-    expect(myCellContent(day({ workedMinutes: 240, workdayUnits: 0.5 }), TODAY)).toEqual({ text: '', units: '0.5' });
+    expect(myCellContent(day({ scheduledMinutes: 240, workedMinutes: 240, workdayUnits: 0.5 }), TODAY)).toEqual({ text: '', units: '0.5' });
     expect(myCellContent(day({ date: '2026-09-20', status: 'FUTURE', workedMinutes: 0 }), TODAY)).toEqual({
       text: 'HC',
       units: '',
@@ -313,13 +315,13 @@ import { gridCellView } from './my-timesheet-format';
 
 describe('gridCellView: ô ngày của bảng công nhiều nhân viên', () => {
   const TODAY = '2026-09-15';
-  it('ngày đã qua có công: hệ số công, 1 xanh; trễ hoặc sớm 0.xx đỏ; nửa ngày có đơn 0.5 xanh; quên chấm công 0 đỏ', () => {
+  it('ngày đã qua có công: hệ số công, 1 xanh; trễ hoặc sớm vẫn 1 đỏ (phần thiếu ở cột Công thiếu); nửa ngày có đơn 0.5 xanh; quên chấm công 0 đỏ', () => {
     expect(gridCellView(day(), TODAY)).toEqual({ type: 'units', text: '1', tone: 'ok' });
     // Ca sáng T7 (240 phút) làm đủ là 0.5 công và vẫn xanh; trễ trong ca đó thì đỏ.
     expect(gridCellView(day({ scheduledMinutes: 240, paidMinutes: 240, workdayUnits: 0.5 }), TODAY)).toEqual({ type: 'units', text: '0.5', tone: 'ok' });
-    expect(gridCellView(day({ status: 'LATE', lateMinutes: 20, scheduledMinutes: 240, paidMinutes: 220, workdayUnits: 0.46 }), TODAY)).toEqual({ type: 'units', text: '0.46', tone: 'bad' });
-    expect(gridCellView(day({ status: 'LATE', lateMinutes: 10, workdayUnits: 0.9333 }), TODAY)).toEqual({ type: 'units', text: '0.93', tone: 'bad' });
-    expect(gridCellView(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 5, workdayUnits: 0.9 }), TODAY)).toEqual({ type: 'units', text: '0.9', tone: 'bad' });
+    expect(gridCellView(day({ status: 'LATE', lateMinutes: 20, scheduledMinutes: 240, paidMinutes: 220, workdayUnits: 0.46 }), TODAY)).toEqual({ type: 'units', text: '0.5', tone: 'bad' });
+    expect(gridCellView(day({ status: 'LATE', lateMinutes: 10, workdayUnits: 0.9333 }), TODAY)).toEqual({ type: 'units', text: '1', tone: 'bad' });
+    expect(gridCellView(day({ status: 'EARLY_LEAVE', earlyLeaveMinutes: 5, workdayUnits: 0.9 }), TODAY)).toEqual({ type: 'units', text: '1', tone: 'bad' });
     expect(gridCellView(day({ status: 'ANNUAL_LEAVE', leave: { requestId: 'l1', reasonName: null, paid: true, annual: true, days: 0.5 }, workdayUnits: 1 }), TODAY)).toEqual({ type: 'units', text: '1P', tone: 'ok' });
     expect(gridCellView(day({ status: 'ABNORMAL', anomalies: ['MISSING_CHECK_OUT'], workedMinutes: 0, workdayUnits: 0 }), TODAY)).toEqual({ type: 'units', text: '0', tone: 'bad' });
   });

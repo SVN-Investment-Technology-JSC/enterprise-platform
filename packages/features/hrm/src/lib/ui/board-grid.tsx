@@ -6,7 +6,8 @@ import type {
   HrmBoardCalendarDay,
   HrmBoardEmployee,
 } from '@enterprise-platform/contracts-hrm';
-import { formatDateVn, formatMinutes, weekdayVn } from '../hrm-timesheet-format';
+import { formatDateVn, weekdayVn } from '../hrm-timesheet-format';
+import { otCoefficient } from './board-shortfall';
 import {
   compactTotals,
   gridCellView,
@@ -29,12 +30,12 @@ const DAY_MIN = 28;
 
 /** Cột tổng hợp bên phải: chỉ những chỉ số cần nhìn ngay. Chi tiết đầy đủ nằm ở bảng công của từng nhân viên. */
 const TOTAL_COLUMNS = [
-  { key: 'units', label: 'Công', title: 'Số công thực tế trong tháng' },
-  { key: 'lateEarly', label: 'T/S', title: 'Số ngày đi trễ hoặc về sớm' },
+  { key: 'units', label: 'Công', title: 'Số công trong tháng, chưa trừ công thiếu' },
+  { key: 'lateEarly', label: 'Thiếu', title: 'Công thiếu do đi trễ, về sớm' },
   { key: 'leave', label: 'P', title: 'Số ngày nghỉ có đơn (phép năm, nghỉ có lương, không lương)' },
   { key: 'absent', label: 'KP', title: 'Số ngày nghỉ không phép' },
   { key: 'abnormal', label: '!', title: 'Số ngày bất thường (quên chấm vào hoặc ra) cần xử lý' },
-  { key: 'ot', label: 'TC', title: 'Giờ tăng ca đã duyệt' },
+  { key: 'ot', label: 'TC', title: 'Số giờ tăng ca đã duyệt (thập phân, 30 phút = 0.5)' },
 ] as const;
 
 function totalCell(key: (typeof TOTAL_COLUMNS)[number]['key'], employee: HrmBoardEmployee) {
@@ -43,7 +44,7 @@ function totalCell(key: (typeof TOTAL_COLUMNS)[number]['key'], employee: HrmBoar
     case 'units':
       return { text: formatUnits(t.units), bad: false };
     case 'lateEarly':
-      return { text: String(t.lateEarlyDays), bad: t.lateEarlyDays > 0 };
+      return { text: formatUnits(t.shortfallUnits), bad: t.shortfallUnits > 0 };
     case 'leave':
       return { text: formatUnits(t.leaveDays), bad: false };
     case 'absent':
@@ -51,7 +52,7 @@ function totalCell(key: (typeof TOTAL_COLUMNS)[number]['key'], employee: HrmBoar
     case 'abnormal':
       return { text: t.abnormalDays ? String(t.abnormalDays) : '', bad: t.abnormalDays > 0 };
     case 'ot':
-      return { text: t.otMinutes ? formatMinutes(t.otMinutes) : '0', bad: false };
+      return { text: formatUnits(otCoefficient(t.otMinutes)), bad: false };
   }
 }
 

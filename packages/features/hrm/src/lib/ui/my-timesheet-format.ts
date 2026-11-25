@@ -6,6 +6,7 @@ import type {
   HrmDayRequest,
 } from '@enterprise-platform/contracts-hrm';
 import { formatMinutes } from '../hrm-timesheet-format';
+import { dayCapacity, employeeGrossUnits, employeeShortfall } from './board-shortfall';
 import {
   dayRequestKindLabel,
   formatDateTimeVn,
@@ -70,22 +71,18 @@ export interface DayCoefficient {
 
 const MISSING_PUNCH = ['MISSING_CHECK_IN', 'MISSING_CHECK_OUT'];
 
-/** Sức chứa công của ngày theo ca: ca đủ ngày (từ 7 giờ) là 1, ca ngắn tính theo ngày công 480 phút (ca sáng T7 là 0.5). Khớp với máy chủ. */
-export function dayCapacity(day: Pick<HrmBoardDay, 'scheduledMinutes'>): number {
-  const m = Number(day.scheduledMinutes ?? 0);
-  if (!(m > 0)) return 1;
-  return m >= 420 ? 1 : Math.round((m / 480) * 100) / 100;
-}
+export { dayCapacity };
 
 /**
- * Hệ số công hiển thị của một ngày đã qua: đủ công là 1 (xanh); đi trễ, về sớm hoặc thiếu công là 0.xx (đỏ, làm tròn
- * 2 số lẻ); nửa ngày có đơn nghỉ là 0.5 (xanh); ca nửa ngày (sáng T7) làm đủ cũng là 0.5 (xanh); quên chấm công là 0 (đỏ).
+ * Hệ số công hiển thị của một ngày đã qua: đủ công là 1 (xanh); đi trễ, về sớm hoặc thiếu công vẫn hiện công chuẩn của
+ * ngày (1) nhưng màu đỏ, phần thiếu gom vào cột "Công thiếu"; nửa ngày có đơn nghỉ là 0.5 (xanh); ca nửa ngày (sáng T7)
+ * làm đủ cũng là 0.5 (xanh); quên chấm công là 0 (đỏ).
  */
 export function dayCoefficient(day: HrmBoardDay): DayCoefficient {
   if (day.leave && day.leave.days > 0 && day.leave.days < 1) return { text: formatUnits(day.leave.days), tone: 'ok' };
   if (day.anomalies.some((a) => MISSING_PUNCH.includes(a))) return { text: '0', tone: 'bad' };
   const units = Math.round(Number(day.workdayUnits ?? 0) * 100) / 100;
-  if (isLateOrEarly(day) || units < dayCapacity(day) - 0.005) return { text: formatUnits(units), tone: 'bad' };
+  if (isLateOrEarly(day) || units < dayCapacity(day) - 0.005) return { text: formatUnits(dayCapacity(day)), tone: 'bad' };
   return { text: formatUnits(units), tone: 'ok' };
 }
 
@@ -135,7 +132,7 @@ export interface MonthCellNumber {
 
 /**
  * Ô lịch tháng thuần số (ngăn kéo bảng công): 1 xanh là công chuẩn; 1p là ngày có đơn phép tính lương; 0 xanh là phép
- * không lương; 0 đỏ là thiếu dữ liệu chấm công (kể cả vắng không phép); đi trễ, về sớm hoặc thiếu công là 0.xx đỏ.
+ * không lương; 0 đỏ là thiếu dữ liệu chấm công (kể cả vắng không phép); đi trễ, về sớm hoặc thiếu công là 1 đỏ.
  * Ngày chưa tới hiện mã ca, ngày nghỉ hằng tuần và ngày lễ hiện OFF / L.
  */
 export function monthCellNumber(day: HrmBoardDay, today: string): MonthCellNumber {
@@ -371,10 +368,12 @@ export const REQUEST_DOT_CLASS: Record<RequestKind, string> = {
 };
 
 export interface CompactTotals {
-  /** Số công thực tế trong tháng. */
+  /** Số công trong tháng, chưa trừ công thiếu (đi trễ, về sớm). */
   readonly units: number;
   /** Số ngày đi trễ hoặc về sớm (một ngày vừa trễ vừa sớm chỉ tính một lần). */
   readonly lateEarlyDays: number;
+  /** Công thiếu do đi trễ, về sớm hoặc làm chưa đủ ca (ngày công). */
+  readonly shortfallUnits: number;
   readonly lateMinutes: number;
   readonly earlyMinutes: number;
   /** Số ngày nghỉ có đơn: phép năm, nghỉ có lương và không lương. */
@@ -389,8 +388,10 @@ export function compactTotals(employee: HrmBoardEmployee): CompactTotals {
   const t = employee.totals;
   const lateEarlyDays = Object.values(employee.days).filter((d) => d.lateMinutes > 0 || d.earlyLeaveMinutes > 0).length;
   return {
-    units: t.workdayUnits,
+    // Công chưa trừ phần thiếu; công thiếu hiện ở cột riêng.
+    units: employeeGrossUnits(employee),
     lateEarlyDays,
+    shortfallUnits: employeeShortfall(employee),
     lateMinutes: t.lateMinutes,
     earlyMinutes: t.earlyLeaveMinutes,
     leaveDays: t.annualLeaveDays + t.paidLeaveDays + t.unpaidLeaveDays,
