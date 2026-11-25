@@ -114,6 +114,9 @@ beforeEach(() => {
 
 const openGroup = async () => fireEvent.click(await screen.findByRole('button', { name: /Dự án lớn/ }));
 
+/** Tay nắm đổi độ rộng cột nhắc tên; các tiêu đề bảng cũng có tay nắm role separator nên phải gọi theo tên. */
+const SIDE_HANDLE = 'Kéo để đổi độ rộng cột nhắc tên';
+
 describe('Công việc của tôi: phân trang theo nhóm', () => {
   it('chỉ vẽ một trang dòng của nhóm; đổi trang gọi API trang 2, về trang 1 lấy từ bộ nhớ', async () => {
     render(<MyWorkView />);
@@ -124,12 +127,12 @@ describe('Công việc của tôi: phân trang theo nhóm', () => {
     await openGroup();
     await waitFor(() => expect(codes()).toHaveLength(20));
     expect(mockApi.loadMyWorkGroupItems).toHaveBeenCalledTimes(1);
-    expect(mockApi.loadMyWorkGroupItems).toHaveBeenLastCalledWith('p1', {}, 'due', 1, 20);
+    expect(mockApi.loadMyWorkGroupItems).toHaveBeenLastCalledWith('p1', {}, 'due', 1, 20, undefined);
 
     fireEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
     await waitFor(() => expect(screen.queryByText('CV-21')).not.toBeNull());
     expect(mockApi.loadMyWorkGroupItems).toHaveBeenCalledTimes(2);
-    expect(mockApi.loadMyWorkGroupItems).toHaveBeenLastCalledWith('p1', {}, 'due', 2, 20);
+    expect(mockApi.loadMyWorkGroupItems).toHaveBeenLastCalledWith('p1', {}, 'due', 2, 20, undefined);
     await waitFor(() => expect(codes()).toHaveLength(20));
 
     fireEvent.click(screen.getByRole('button', { name: 'Trang trước' }));
@@ -221,11 +224,11 @@ describe('Công việc của tôi: khối nhắc tên', () => {
     const { unmount } = render(<MyWorkView />);
     const toggle = await screen.findByRole('button', { name: 'Nhắc tên và việc từ module khác' });
     expect(screen.queryByRole('complementary')).toBeNull();
-    expect(screen.queryByRole('separator')).toBeNull();
+    expect(screen.queryByRole('separator', { name: SIDE_HANDLE })).toBeNull();
 
     fireEvent.click(toggle);
     expect(screen.getByRole('complementary')).toBeTruthy();
-    const handle = screen.getByRole('separator');
+    const handle = screen.getByRole('separator', { name: SIDE_HANDLE });
     expect(handle.getAttribute('aria-valuenow')).toBe('340');
 
     // Mũi tên trái mở rộng cột phụ, mũi tên phải thu hẹp; bấm đúp về mặc định.
@@ -245,7 +248,7 @@ describe('Công việc của tôi: khối nhắc tên', () => {
     render(<MyWorkView />);
     await screen.findByRole('button', { name: 'Nhắc tên và việc từ module khác' });
     await waitFor(() => expect(screen.getByRole('complementary')).toBeTruthy());
-    expect(screen.getByRole('separator').getAttribute('aria-valuenow')).toBe('360');
+    expect(screen.getByRole('separator', { name: SIDE_HANDLE }).getAttribute('aria-valuenow')).toBe('360');
 
     // Nút "Ẩn cột nhắc tên" đóng cột phụ.
     fireEvent.click(screen.getByRole('button', { name: 'Ẩn cột nhắc tên' }));

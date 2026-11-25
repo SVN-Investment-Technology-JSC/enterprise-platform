@@ -245,13 +245,41 @@ export function hasProcedureApproval(instance: ProcedureInstance): boolean {
 }
 
 /**
+ * Hồ sơ gắn Workspace (mở cho công việc, việc ngoài dự án hoặc đã có liên kết dự án). Các cài đặt `engine*` của
+ * nhóm "Công việc gắn quy trình" chỉ áp cho loại hồ sơ này; hồ sơ nguồn khác giữ luật cũ.
+ */
+export function isWorkspaceLinkedInstance(
+  instance: Pick<ProcedureInstance, 'sourceType' | 'workspaceLink'>,
+): boolean {
+  return (
+    !!instance.workspaceLink ||
+    instance.sourceType === 'workspace_work_item' ||
+    instance.sourceType === 'workspace_standalone_task'
+  );
+}
+
+/** Ai được xoá hồ sơ gắn công việc (cài đặt `engineDeleteLinkedWho`). */
+export type ProcedureDeleteLinkedMode = 'initiator_approver_admin' | 'approver_admin' | 'admin_only';
+
+/**
  * Xoá đơn, khi đơn chưa hoàn thành và chưa bị xoá:
  *  - người giữ vai A của đơn, hoặc quản trị — lúc nào cũng được;
  *  - người submit (người khởi tạo) — chỉ trước khi nút C hay nút A đầu tiên pass.
+ *
+ * `mode` chỉ có hiệu lực với hồ sơ gắn Workspace: `approver_admin` bỏ quyền của người submit,
+ * `admin_only` bỏ cả quyền của người giữ vai A.
  */
-export function canDeleteProcedureInstance(instance: ProcedureInstance, actor: ProcedureActor): boolean {
+export function canDeleteProcedureInstance(
+  instance: ProcedureInstance,
+  actor: ProcedureActor,
+  mode: ProcedureDeleteLinkedMode = 'initiator_approver_admin',
+): boolean {
   if (instance.deletion || !DELETABLE_STATUSES.includes(instance.status)) return false;
-  if (actor.isOverride || holdsProcedureRole(instance, actor, 'A')) return true;
+  const effective = isWorkspaceLinkedInstance(instance) ? mode : 'initiator_approver_admin';
+  if (actor.isOverride) return true;
+  if (effective === 'admin_only') return false;
+  if (holdsProcedureRole(instance, actor, 'A')) return true;
+  if (effective === 'approver_admin') return false;
   return instance.initiatedBy === actor.userId && !hasProcedureApproval(instance);
 }
 
@@ -298,6 +326,7 @@ export function canSupplementProcedureInstance(
 export function deriveProcedureAuthorization(
   instance: ProcedureInstance,
   actor: ProcedureActor,
+  deleteLinkedMode: ProcedureDeleteLinkedMode = 'initiator_approver_admin',
 ): ProcedureRuntimeAuthorization {
   const currentIndex = instance.steps.findIndex(
     (step) => step.id === instance.currentStepId,
@@ -415,7 +444,7 @@ export function deriveProcedureAuthorization(
     editableAttributeKeys:
       actions.has('complete') || actions.has('approve') ? editableAttributeKeys(instance) : [],
     returnTargetStepIds: actions.has('return') ? returnTargets : [],
-    canDelete: canDeleteProcedureInstance(instance, actor),
+    canDelete: canDeleteProcedureInstance(instance, actor, deleteLinkedMode),
     canRelinkWorkspace: canRelinkProcedureWorkspace(instance, actor),
     canSupplement: canSupplementProcedureInstance(instance, actor),
   };

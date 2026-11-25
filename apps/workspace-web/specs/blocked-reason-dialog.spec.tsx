@@ -1,8 +1,18 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BLOCKED_REASON_MAX_LENGTH } from '@enterprise-platform/contracts-workspace';
+import { toast } from '@enterprise-platform/shared-ui';
 import { BlockedReasonDialog, BlockedReasonNotice } from '@enterprise-platform/feature-workspace';
 
-afterEach(cleanup);
+// Lỗi của hộp thoại hiện bằng toast, không còn khung đỏ trong hộp.
+jest.mock('@enterprise-platform/shared-ui', () => ({
+  ...jest.requireActual('@enterprise-platform/shared-ui'),
+  toast: { error: jest.fn(), success: jest.fn(), info: jest.fn(), warning: jest.fn() },
+}));
+
+afterEach(() => {
+  cleanup();
+  jest.clearAllMocks();
+});
 
 const item = { code: 'CV-7', title: 'Lắp đặt tủ điện' };
 
@@ -49,14 +59,15 @@ describe('BlockedReasonDialog', () => {
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith('Thiếu bản vẽ'));
   });
 
-  it('lỗi từ server hiện ngay trong hộp và hộp vẫn mở để gửi lại', async () => {
+  it('lỗi từ server hiện bằng toast và hộp vẫn mở để gửi lại', async () => {
     const onConfirm = jest.fn(async (_reason: string) => {
       throw new Error('Công việc đã bị huỷ.');
     });
     const { onClose } = renderDialog({ onConfirm });
     fireEvent.change(box(), { target: { value: 'Kẹt giấy phép' } });
     fireEvent.click(confirm());
-    expect((await screen.findByRole('alert')).textContent).toBe('Công việc đã bị huỷ.');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Công việc đã bị huỷ.'));
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(onClose).not.toHaveBeenCalled();
     expect(box().value).toBe('Kẹt giấy phép');
     await waitFor(() => expect(confirm().disabled).toBe(false));

@@ -49,10 +49,12 @@ import {
   type ProcedureOption,
 } from '../procedure-api';
 import { sameUnread } from '../chat.model';
+import { procedureProgressToWrite } from '../procedure-progress-pull';
 import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { CancelProjectDialog } from './cancel-project-dialog';
 import { BlockedReasonNotice, useBlockedReasonPrompt } from './blocked-reason-dialog';
 import { CancelWorkItemDialog } from './cancel-work-item-dialog';
@@ -88,6 +90,9 @@ import { ChildItems, WorkItemDialog } from './work-item-dialog';
 import { ChecklistPanel } from './checklist-panel';
 import { canEditChecklist, canShowChecklist } from '../checklist-access';
 import { WorkItemForm } from './work-item-form';
+import { procedureChangeBlockReason } from '../procedure-change';
+import { changeProcedureGateReason, startProcedureGateReason } from '../procedure-link-gate';
+import { loadProcedureLinkSettings, useProcedureLinkSettings } from '../use-procedure-link-settings';
 import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending';
 
 /**
@@ -271,6 +276,8 @@ export function ProjectsView({
   /** Thư mục tài liệu của dự án, để khung trao đổi tải tệp mới lên được. */
   const [projectFolders, setProjectFolders] = useState<readonly DocumentFolder[]>([]);
   const [startableProcedures, setStartableProcedures] = useState<readonly ProcedureOption[]>([]);
+  /** Cài đặt "Công việc gắn quy trình": quyết định nút Tạo / Đổi quy trình mờ hay sáng theo trạng thái công việc. */
+  const procedureLinkSettings = useProcedureLinkSettings();
   /** Hồ sơ quy trình của công việc đang chọn, đã đọc tiến độ từ module Quy trình. */
   const [procedureView, setProcedureView] = useState<ProcedureInstanceView>();
   const [retryFor, setRetryFor] = useState<WorkItem>();
@@ -680,9 +687,34 @@ export function ProjectsView({
   );
   useEffect(() => {
     if (!waitingForProcedure || !openId) return;
-    const timer = setTimeout(() => void refreshDetail(openId), 3000);
+    const timer = setTimeout(() => void refreshDetail(openId), 2000);
     return () => clearTimeout(timer);
   }, [waitingForProcedure, openId, detail, refreshDetail]);
+
+  // Hồ sơ vừa mở xong (yêu cầu đang chờ chuyển thành có liên kết): báo bằng thông báo nhỏ, vì hộp tạo quy trình đã đóng
+  // từ lúc gửi yêu cầu và người dùng không còn nhìn vào nút nữa.
+  const previouslyWaiting = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const waiting = new Set(
+      [...pendingProcedure].filter(([, entry]) => entry.status === 'pending').map(([id]) => id),
+    );
+    for (const id of previouslyWaiting.current) {
+      if (waiting.has(id)) continue;
+      const ref = detail?.externalRefs.find((entry) => entry.moduleKey === 'procedure-engine' && entry.entityId === id);
+      if (!ref) continue;
+      const item = detail?.items.find((entry) => entry.id === id);
+      toast.success(`Đã mở hồ sơ quy trình ${ref.externalCode ?? ''} cho ${item?.code ?? 'công việc'}.`.replace('  ', ' '));
+    }
+    previouslyWaiting.current = waiting;
+  }, [pendingProcedure, detail]);
+
+  /** Đổi hồ sơ mở nhầm sang quy trình khác; lỗi ném lại để hộp thoại hiện ngay tại chỗ. */
+  const changeProcedure = async (item: WorkItem, definitionId: string) => {
+    const result = await api.changeWorkItemProcedure(item.id, definitionId);
+    if (openId) await refreshDetail(openId);
+    const code = result.instanceId ? (await loadInstance(result.instanceId))?.code : undefined;
+    toast.success(code ? `Đã đổi sang hồ sơ ${code}.` : 'Đã đổi quy trình.');
+  };
 
   /**
    * Gửi (lại) yêu cầu mở hồ sơ cho công việc "Theo quy trình".
@@ -797,10 +829,14 @@ export function ProjectsView({
       setProcedureView(instance);
       const hasChildren = (detail?.items ?? []).some((item) => item.parentId === selectedItem.id);
       if (hasChildren || !canWrite) return;
-      if (instance.progressPercent === selectedItem.progressPercent) return;
+      // Cài đặt "Công việc gắn quy trình" của tenant quyết định có ghi không (bản nhớ dùng chung với các nút Quy trình).
+      const pullSettings = await loadProcedureLinkSettings();
+      if (!alive) return;
+      const nextProgress = procedureProgressToWrite(selectedItem, instance.progressPercent, pullSettings);
+      if (nextProgress === undefined) return;
       try {
         await api.updateWorkItem(selectedItem.id, {
-          progressPercent: instance.progressPercent,
+          progressPercent: nextProgress,
         });
         if (openId) await refreshDetail(openId);
       } catch {
@@ -1220,11 +1256,7 @@ export function ProjectsView({
         />
       ) : null}
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       {listLoaded && !openId ? (
         <div className={styles.emptyState}>
@@ -1452,6 +1484,7 @@ export function ProjectsView({
             canEdit={canWrite && !selectedItem.reversal}
             // Cây tối đa 10 cấp; cấp 9 là sâu nhất nên không còn chỗ cho con.
             canWrite={canWrite && selectedItem.depth < 9 && !selectedItem.reversal}
+            procedureState={pendingProcedure.get(selectedItem.id)}
             onEdit={() => onAction('edit-item', selected)}
             onSetProgress={(next) => setItemProgress(selectedItem, next)}
             onReportQuantity={() => reportQuantity(selectedItem)}
@@ -1476,6 +1509,17 @@ export function ProjectsView({
             onStartProcedure={async (definitionId) => {
               await startProcedure(selectedItem, definitionId);
             }}
+            procedureDefinitionId={
+              detail.procedureRequests.find((request) => request.workItemId === selectedItem.id)?.definitionId
+            }
+            procedureStartBlockReason={startProcedureGateReason(procedureLinkSettings, selectedItem.status)}
+            procedureChangeBlockReason={
+              changeProcedureGateReason(procedureLinkSettings, selectedItem.status) ??
+              procedureChangeBlockReason(
+                procedureView && procedureView.id === procedureRef?.externalId ? procedureView : undefined,
+              )
+            }
+            onChangeProcedure={(definitionId) => changeProcedure(selectedItem, definitionId)}
           />
           {selectedItem.status === 'blocked' && !selectedItem.reversal ? (
             <BlockedReasonNotice

@@ -1,5 +1,6 @@
 import type { CalendarEvent, StandaloneTask, WorkItem } from '@enterprise-platform/contracts-workspace';
 import { MyWorkService, bucketise } from './my-work.service.js';
+import { normalizeSearchText, parseSearch } from './my-work-search.js';
 import { WorkspaceValidationError } from '../domain/workspace.error.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { EventException, MyWorkAssignedRow, WorkspaceStore } from './workspace-store.port.js';
@@ -656,5 +657,108 @@ describe('MyWorkService.standalonePage', () => {
 
   it('từ chối cách xếp sai', async () => {
     await expect(run('foo')).rejects.toBeInstanceOf(WorkspaceValidationError);
+  });
+});
+
+describe('MyWorkService — tìm kiếm đa trường', () => {
+  const U1 = '11111111-1111-4111-8111-111111111111';
+  const U2 = '22222222-2222-4222-8222-222222222222';
+  const U3 = '33333333-3333-4333-8333-333333333333';
+  const rows = [
+    owned('u1', 'p1', { id: 'a1', code: 'CV-01', title: 'Đổi mới quy trình', description: 'Hướng dẫn kho', assigneeUserId: U2 }),
+    owned('u1', 'p1', { id: 'a2', code: 'CV-02', title: 'Báo cáo tuần', description: 'quy trình cũ', participantUserIds: [U3] }),
+    owned('u1', 'p2', { id: 'b1', code: 'CV-03', title: 'Mua sắm', createdBy: U1 }),
+  ];
+  const tasks = [
+    { owner: 'u1', task: task({ id: 'g1', code: 'GV-1', title: 'Quy trình duyệt', description: 'Dự án 1' }) },
+    { owner: 'u1', task: task({ id: 'g2', code: 'GV-2', title: 'Họp', followerUserIds: [U3] }) },
+  ];
+  const svc = () => new MyWorkService(pagedStore(rows, tasks).store);
+  const itemIds = async (search: Record<string, unknown>, projectId = 'p1') =>
+    (await svc().groupItems(ME, projectId, search, undefined, 1, 20, NOW)).items.map((e) => e.item.id);
+  const taskIds = async (search: Record<string, unknown>) =>
+    (await svc().standalonePage(ME, undefined, 1, 20, NOW, search)).items.map((e) => e.task.id);
+
+  describe('parseSearch', () => {
+    it('chuẩn hoá dấu, đ, khoảng trắng và cắt độ dài', () => {
+      expect(normalizeSearchText('  Đổi   MỚI\tQuy Trình ')).toBe('doi moi quy trinh');
+      const parsed = parseSearch({ q: `  ${'a'.repeat(150)}` });
+      expect(parsed?.words[0]).toHaveLength(100);
+    });
+
+    it('q rỗng, trắng hoặc sai kiểu thì không tìm', () => {
+      expect(parseSearch({})).toBeUndefined();
+      expect(parseSearch({ q: '   ' })).toBeUndefined();
+      expect(parseSearch({ q: 5 })).toBeUndefined();
+    });
+
+    it('bỏ trường lạ, rỗng thì lấy mọi trường; personIds chỉ nhận uuid, tối đa 200', () => {
+      expect([...parseSearch({ q: 'x', fields: 'bogus' })!.fields].sort()).toEqual(
+        ['code', 'description', 'people', 'project', 'title'],
+      );
+      expect([...parseSearch({ q: 'x', fields: 'code,zzz,title' })!.fields]).toEqual(['code', 'title']);
+      const many = Array.from({ length: 300 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+      const ids = parseSearch({ q: 'x', personIds: `${many.join(',')},not-a-uuid` })!.personIds;
+      expect(ids.size).toBe(200);
+      expect(ids.has('not-a-uuid')).toBe(false);
+    });
+  });
+
+  it('không dấu vẫn khớp có dấu, mọi từ phải có mặt (AND)', async () => {
+    expect(await itemIds({ q: 'doi moi' })).toEqual(['a1']);
+    expect(await itemIds({ q: 'quy trinh' })).toEqual(['a1', 'a2']);
+    expect(await itemIds({ q: 'quy bao' })).toEqual(['a2']);
+    // từ có thể nằm ở các trường khác nhau
+    expect(await itemIds({ q: 'cv-01 huong dan' })).toEqual(['a1']);
+  });
+
+  it('chọn trường: chỉ tìm trong trường được chọn', async () => {
+    expect(await itemIds({ q: 'quy trinh', fields: 'title' })).toEqual(['a1']);
+    expect(await itemIds({ q: 'quy trinh', fields: 'description' })).toEqual(['a2']);
+    expect(await itemIds({ q: 'cv-02', fields: 'title' })).toEqual([]);
+    expect(await itemIds({ q: 'cv-02', fields: 'code' })).toEqual(['a2']);
+  });
+
+  it('tìm theo mã và tên dự án', async () => {
+    expect(await itemIds({ q: 'zeta da-1', fields: 'project' })).toEqual(['a1', 'a2']);
+    expect(await itemIds({ q: 'da-1', fields: 'project' })).toEqual(['a1', 'a2']);
+  });
+
+  it('tìm theo người: giao việc, người cùng làm, người tạo', async () => {
+    expect(await itemIds({ q: 'nguyen', fields: 'people', personIds: U2 })).toEqual(['a1']);
+    expect(await itemIds({ q: 'nguyen', fields: 'people', personIds: U3 })).toEqual(['a2']);
+    expect(await itemIds({ q: 'nguyen', fields: 'people', personIds: U1 }, 'p2')).toEqual(['b1']);
+    // không chọn people thì personIds bị bỏ qua
+    expect(await itemIds({ q: 'nguyen', fields: 'title', personIds: U2 })).toEqual([]);
+  });
+
+  it('khớp chữ HOẶC khớp người', async () => {
+    expect(await itemIds({ q: 'bao cao', personIds: U2 })).toEqual(['a1', 'a2']);
+  });
+
+  it('việc ngoài dự án: bỏ qua trường project, người theo dõi được tính', async () => {
+    expect(await taskIds({ q: 'du an 1', fields: 'project' })).toEqual([]);
+    expect(await taskIds({ q: 'du an 1' })).toEqual(['g1']);
+    expect(await taskIds({ q: 'x', fields: 'people', personIds: U3 })).toEqual(['g2']);
+    expect(await taskIds({ q: 'quy trinh' })).toEqual(['g1']);
+  });
+
+  it('q rỗng thì không đổi kết quả', async () => {
+    expect(await itemIds({ q: '  ' })).toEqual(['a1', 'a2']);
+    expect(await taskIds({ q: '' })).toEqual(['g1', 'g2']);
+  });
+
+  it('overview: nhóm và tóm tắt ngoài dự án theo tìm kiếm, số đầu trang không đổi', async () => {
+    const full = await svc().overview(ME, {}, undefined, NOW);
+    const found = await svc().overview(ME, { q: 'mua sam' }, undefined, NOW);
+    expect(found.groups.map((g) => g.projectId)).toEqual(['p2']);
+    expect(found.standalone.total).toBe(0);
+    expect(found.counters).toEqual(full.counters);
+    expect(found.filterOptions).toEqual(full.filterOptions);
+
+    const quy = await svc().overview(ME, { q: 'quy trinh' }, undefined, NOW);
+    expect(quy.groups.map((g) => ({ id: g.projectId, total: g.total }))).toEqual([{ id: 'p1', total: 2 }]);
+    expect(quy.standalone.total).toBe(1);
+    expect(quy.standalone.counts.notStarted).toBe(1);
   });
 });

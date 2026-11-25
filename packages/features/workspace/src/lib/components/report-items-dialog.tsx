@@ -13,6 +13,30 @@ import styles from '../workspace.module.scss';
 import { Tooltip } from './tooltip';
 import { Dialog } from './dialog';
 import { Pager, usePaged } from './pager';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
+
+const ITEM_COLUMN_DEFAULTS: readonly string[] = [
+  'code',
+  'title',
+  'project',
+  'assignee',
+  'status',
+  'priority',
+  'plannedEnd',
+  'actualEnd',
+];
+const ITEM_COLUMN_PINNED: readonly string[] = ['code'];
+const ITEM_COLUMN_LABELS: Record<string, string> = {
+  code: 'Mã',
+  title: 'Công việc',
+  project: 'Dự án',
+  assignee: 'Người phụ trách',
+  status: 'Trạng thái',
+  priority: 'Ưu tiên',
+  plannedEnd: 'Hạn',
+  actualEnd: 'Ngày xong',
+};
 
 /** Một con số vừa được bấm: tiêu đề của danh sách và cách tải nó. */
 export interface ReportDrill {
@@ -38,6 +62,8 @@ export function ReportItemsDialog({
   const [list, setList] = useState<ReportItemList>();
   const [error, setError] = useState<string>();
   const page = usePaged(list?.items);
+  const columns = useColumnOrder('report-items', undefined, ITEM_COLUMN_DEFAULTS, ITEM_COLUMN_PINNED);
+  const sizing = useColumnWidths('report-items', undefined, ITEM_COLUMN_DEFAULTS);
 
   useEffect(() => {
     if (!drill) return;
@@ -78,65 +104,111 @@ export function ReportItemsDialog({
           {list.truncated ? (
             <p className={styles.muted}>Chỉ hiện {list.items.length} việc đầu; thu hẹp bộ lọc để xem đủ.</p>
           ) : null}
+          <ResetColumnLayoutButton order={columns} sizing={sizing} />
           <div className={styles.tableScroll}>
-            <table className={styles.table}>
+            <table
+              className={sizing.customized ? `${styles.table} ${styles.columnsResized}` : styles.table}
+              style={explicitTableStyle(columns.order, sizing.widths)}
+            >
               <thead>
                 <tr>
-                  <th>Mã</th>
-                  <th>Công việc</th>
-                  <th>Dự án</th>
-                  <th>Người phụ trách</th>
-                  <th>Trạng thái</th>
-                  <th>Ưu tiên</th>
-                  <th>Hạn</th>
-                  <th>Ngày xong</th>
+                  {columns.order.map((id) => (
+                    <ReorderableTh
+                      key={id}
+                      tableKey="report-items"
+                      id={id}
+                      order={columns.order}
+                      pinned={ITEM_COLUMN_PINNED}
+                      onMove={columns.move}
+                      label={ITEM_COLUMN_LABELS[id]}
+                      sizing={sizing}
+                    >
+                      {ITEM_COLUMN_LABELS[id]}
+                    </ReorderableTh>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {page.rows.map((row) => (
                   <tr key={row.workItemId}>
-                    <td className={`${styles.treeCode} ${styles.cellNowrap}`}>{row.code}</td>
-                    <td>
-                      {onOpenItem ? (
-                        <Tooltip content="Mở chi tiết công việc">
-                          <button
-                            type="button"
-                            className={styles.linkButton}
-                            onClick={() => onOpenItem(row.projectId, row.workItemId)}
-                          >
-                            {row.title}
-                          </button>
-                        </Tooltip>
-                      ) : (
-                        row.title
-                      )}
-                    </td>
-                    <td className={styles.muted}>{row.projectCode}</td>
-                    <td>{row.assigneeUserId ? nameOf(row.assigneeUserId) : 'Chưa giao'}</td>
-                    <td>
-                      <span
-                        className={styles.pill}
-                        style={{
-                          background: WORK_ITEM_STATUS_TONE[row.status].bg,
-                          color: WORK_ITEM_STATUS_TONE[row.status].fg,
-                        }}
-                      >
-                        {WORK_ITEM_STATUS_LABELS[row.status]}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={styles.pill}
-                        style={{
-                          background: PRIORITY_TONE[row.priority].bg,
-                          color: PRIORITY_TONE[row.priority].fg,
-                        }}
-                      >
-                        {PRIORITY_LABELS[row.priority]}
-                      </span>
-                    </td>
-                    <td className={styles.cellNowrap}>{formatDate(row.plannedEnd)}</td>
-                    <td className={styles.cellNowrap}>{formatDate(row.actualEnd)}</td>
+                    {columns.order.map((id) => {
+                      switch (id) {
+                        case 'code':
+                          return (
+                            <td key={id} className={`${styles.treeCode} ${styles.cellNowrap}`}>
+                              {row.code}
+                            </td>
+                          );
+                        case 'title':
+                          return (
+                            <td key={id}>
+                              {onOpenItem ? (
+                                <Tooltip content="Mở chi tiết công việc">
+                                  <button
+                                    type="button"
+                                    className={styles.linkButton}
+                                    onClick={() => onOpenItem(row.projectId, row.workItemId)}
+                                  >
+                                    {row.title}
+                                  </button>
+                                </Tooltip>
+                              ) : (
+                                row.title
+                              )}
+                            </td>
+                          );
+                        case 'project':
+                          return (
+                            <td key={id} className={styles.muted}>
+                              {row.projectCode}
+                            </td>
+                          );
+                        case 'assignee':
+                          return <td key={id}>{row.assigneeUserId ? nameOf(row.assigneeUserId) : 'Chưa giao'}</td>;
+                        case 'status':
+                          return (
+                            <td key={id}>
+                              <span
+                                className={styles.pill}
+                                style={{
+                                  background: WORK_ITEM_STATUS_TONE[row.status].bg,
+                                  color: WORK_ITEM_STATUS_TONE[row.status].fg,
+                                }}
+                              >
+                                {WORK_ITEM_STATUS_LABELS[row.status]}
+                              </span>
+                            </td>
+                          );
+                        case 'priority':
+                          return (
+                            <td key={id}>
+                              <span
+                                className={styles.pill}
+                                style={{
+                                  background: PRIORITY_TONE[row.priority].bg,
+                                  color: PRIORITY_TONE[row.priority].fg,
+                                }}
+                              >
+                                {PRIORITY_LABELS[row.priority]}
+                              </span>
+                            </td>
+                          );
+                        case 'plannedEnd':
+                          return (
+                            <td key={id} className={styles.cellNowrap}>
+                              {formatDate(row.plannedEnd)}
+                            </td>
+                          );
+                        case 'actualEnd':
+                          return (
+                            <td key={id} className={styles.cellNowrap}>
+                              {formatDate(row.actualEnd)}
+                            </td>
+                          );
+                        default:
+                          return null;
+                      }
+                    })}
                   </tr>
                 ))}
               </tbody>

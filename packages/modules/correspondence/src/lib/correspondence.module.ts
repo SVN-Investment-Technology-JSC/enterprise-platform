@@ -12,14 +12,24 @@ import {
 import { HttpFileStore } from './infrastructure/http-file-store.js';
 import { HttpOrganizationReader } from './infrastructure/http-organization-reader.js';
 import { PostgresCorrespondenceStore } from './infrastructure/postgres-correspondence-store.js';
-import { CorrespondenceController } from './presentation/correspondence.controller.js';
+import { CorrespondenceConfigController } from './presentation/correspondence-config.controller.js';
+import { LetterAttachmentsController } from './presentation/letter-attachments.controller.js';
+import { LetterFlowController } from './presentation/letter-flow.controller.js';
+import { LetterQueriesController } from './presentation/letter-queries.controller.js';
+import { LetterRevocationController } from './presentation/letter-revocation.controller.js';
 
 /**
  * Composition root của Văn thư, dựng tường minh bằng `useFactory` như Hệ dùng chung.
  * Export hai registry để guard của app đăng ký database của tenant sau mỗi access-decision.
  */
 @Module({
-  controllers: [CorrespondenceController],
+  controllers: [
+    LetterQueriesController,
+    CorrespondenceConfigController,
+    LetterFlowController,
+    LetterRevocationController,
+    LetterAttachmentsController,
+  ],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

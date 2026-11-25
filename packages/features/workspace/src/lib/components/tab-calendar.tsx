@@ -15,6 +15,7 @@ import {
 } from '../calendar-grid.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 
@@ -191,11 +192,7 @@ export function TabCalendar({
           ) : null}
         </div>
 
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
+        <ErrorToast message={error} />
 
         <div ref={scroller} className={styles.calBody}>
           {timeline ? (

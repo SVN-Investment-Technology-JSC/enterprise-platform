@@ -26,6 +26,7 @@ import {
   priorityKeys,
   priorityLabel,
   workItemStatusKeys,
+  externalStatusLabel,
 } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { BlockedReasonMark } from './blocked-reason-dialog';
@@ -46,14 +47,21 @@ import {
   WORK_TABLE_PAGE_SIZE,
   WORK_TABLE_PAGE_SIZES,
   WORK_TITLE_MIN_WIDTH,
+  type WorkColumnId,
   useWorkColumns,
   useWorkTableField,
   workTableStore,
 } from '../work-table-store';
 import { ColumnPicker } from './column-picker';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 
 const PAGE_SIZE_OPTIONS = WORK_TABLE_PAGE_SIZES.map((size) => ({ value: String(size), label: `${size} / trang` }));
 const NO_COLLAPSED: readonly string[] = [];
+
+/** Mọi cột của bảng WBS theo thứ tự mặc định; cột Công việc ghim ở đầu, không kéo được. */
+const WBS_COLUMN_IDS: readonly string[] = ['title', ...WORK_COLUMNS.map((column) => column.id)];
+const WBS_PINNED: readonly string[] = ['title'];
 
 /** Ba cách xem cùng một danh sách công việc. */
 type WorkView = 'table' | 'kanban' | 'gantt';
@@ -124,6 +132,18 @@ function workComparator(sort: WorkSort, direction: SortDirection) {
   const primary = comparators[sort];
   return (a: WorkItem, b: WorkItem) => primary(a, b) || wbs(a, b);
 }
+
+/** Lớp CSS của tiêu đề từng cột; đi theo id cột khi đổi thứ tự. */
+const WBS_HEAD_CLASS: Record<string, string | undefined> = {
+  people: styles.wbsColPeople,
+  priority: styles.wbsColPriority,
+  status: styles.wbsColStatus,
+  start: styles.wbsColStart,
+  due: styles.wbsColDate,
+  last: styles.wbsColLast,
+  progress: styles.wbsColProgress,
+  process: styles.wbsColProcess,
+};
 
 /** Thụt mỗi cấp trong cột Công việc của bảng WBS. */
 const INDENT_REM = 1.25;
@@ -231,6 +251,10 @@ function TabWorkImpl({
   const customMinWidth =
     WORK_TITLE_MIN_WIDTH +
     WORK_COLUMNS.filter((column) => !columns.hidden.has(column.id)).reduce((sum, column) => sum + column.width, 0);
+  const columnOrder = useColumnOrder('wbs', currentUserId, WBS_COLUMN_IDS, WBS_PINNED);
+  const sizing = useColumnWidths('wbs', currentUserId, WBS_COLUMN_IDS);
+  const visibleIds = columnOrder.order.filter((id) => id === 'title' || showCol(id as WorkColumnId));
+  const explicitStyle = explicitTableStyle(visibleIds, sizing.widths);
   const visibleColumnCount = 1 + WORK_COLUMNS.filter((column) => !columns.hidden.has(column.id)).length;
   const [page, setPage] = useWorkTableField(projectId, 'page', 1);
   const [pageSize, setPageSize] = useWorkTableField<number>(projectId, 'pageSize', WORK_TABLE_PAGE_SIZE);
@@ -631,6 +655,9 @@ function TabWorkImpl({
                 onReset={columns.reset}
               />
             ) : null}
+            {view === 'table' ? (
+              <ResetColumnLayoutButton order={columnOrder} sizing={sizing} />
+            ) : null}
             <span className={styles.reqCount}>
               {filtering ? `${matched.length} / ${items.length} việc` : `${items.length} việc`}
             </span>
@@ -654,54 +681,38 @@ function TabWorkImpl({
 
           {view === 'table' ? (
             <table
-              className={[styles.table, styles.wbsTable, styles.ledgerTable, columns.customized ? styles.wbsTableCustom : ''].filter(Boolean).join(' ')}
-              style={columns.customized ? { minWidth: customMinWidth } : undefined}
+              className={[styles.table, styles.wbsTable, styles.ledgerTable, columns.customized ? styles.wbsTableCustom : '', sizing.customized ? styles.columnsResized : ''].filter(Boolean).join(' ')}
+              style={explicitStyle ?? (columns.customized ? { minWidth: customMinWidth } : undefined)}
             >
               <thead>
                 <tr>
-                  <th>Công việc</th>
-                  {showCol('people') ? (
-                    <th className={styles.wbsColPeople} style={colWidth('people')}>
-                      Người thực hiện
-                    </th>
-                  ) : null}
-                  {showCol('priority') ? (
-                    <th className={styles.wbsColPriority} style={colWidth('priority')}>
-                      Ưu tiên
-                    </th>
-                  ) : null}
-                  {showCol('status') ? (
-                    <th className={styles.wbsColStatus} style={colWidth('status')}>
-                      Trạng thái
-                    </th>
-                  ) : null}
-                  {showCol('start') ? (
-                    <th className={styles.wbsColStart} style={colWidth('start')}>
-                      Bắt đầu
-                    </th>
-                  ) : null}
-                  {showCol('due') ? (
-                    <th className={styles.wbsColDate} style={colWidth('due')}>
-                      Thời hạn
-                    </th>
-                  ) : null}
-                  {showCol('last') ? (
-                    <Tooltip content="Ngày cập nhật trạng thái gần nhất">
-                      <th className={styles.wbsColLast} style={colWidth('last')}>
-                        Trạng thái cuối
-                      </th>
-                    </Tooltip>
-                  ) : null}
-                  {showCol('progress') ? (
-                    <th className={styles.wbsColProgress} style={colWidth('progress')}>
-                      Tiến độ
-                    </th>
-                  ) : null}
-                  {showCol('process') ? (
-                    <th className={styles.wbsColProcess} style={colWidth('process')}>
-                      Quy trình
-                    </th>
-                  ) : null}
+                  {columnOrder.order.map((id) => {
+                    if (id !== 'title' && !showCol(id as WorkColumnId)) return null;
+                    const column = WORK_COLUMNS.find((entry) => entry.id === id);
+                    const label = column?.label ?? 'Công việc';
+                    return (
+                      <ReorderableTh
+                        key={id}
+                        tableKey="wbs"
+                        id={id}
+                        order={columnOrder.order}
+                        pinned={WBS_PINNED}
+                        onMove={columnOrder.move}
+                        sizing={sizing}
+                        label={label}
+                        className={WBS_HEAD_CLASS[id]}
+                        style={column ? colWidth(column.id) : undefined}
+                      >
+                        {id === 'last' ? (
+                          <Tooltip content="Ngày cập nhật trạng thái gần nhất">
+                            <span>{label}</span>
+                          </Tooltip>
+                        ) : (
+                          label
+                        )}
+                      </ReorderableTh>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -732,7 +743,12 @@ function TabWorkImpl({
                       onClick={() => onOpen(item)}
                       onContextMenu={(event) => openMenu(event, item)}
                     >
-                      <td>
+                      {columnOrder.order.map((id) => {
+                        if (id !== 'title' && !showCol(id as WorkColumnId)) return null;
+                        switch (id) {
+                          case 'title':
+                            return (
+                      <td key="title">
                         <span
                           className={styles.wbsName}
                           style={{ paddingLeft: `${row.depth * INDENT_REM}rem` }}
@@ -807,13 +823,16 @@ function TabWorkImpl({
                           ) : null}
                         </span>
                       </td>
-                      {showCol('people') ? (
-<td className={styles.wbsColPeople}>
+                            );
+                          case 'people':
+                            return (
+<td key="people" className={styles.wbsColPeople}>
                         <People userIds={peopleOf(item)} nameOf={directory.nameOf} />
                       </td>
-) : null}
-                      {showCol('priority') ? (
-<td className={styles.wbsColPriority}>
+                            );
+                          case 'priority':
+                            return (
+<td key="priority" className={styles.wbsColPriority}>
                         {row.hasChildren ? null : (
                           <span
                             className={styles.pill}
@@ -826,9 +845,10 @@ function TabWorkImpl({
                           </span>
                         )}
                       </td>
-) : null}
-                      {showCol('status') ? (
-<td className={styles.wbsColStatus}>
+                            );
+                          case 'status':
+                            return (
+<td key="status" className={styles.wbsColStatus}>
                         <span
                           className={styles.pill}
                           style={{ background: tone.bg, color: tone.fg }}
@@ -839,17 +859,21 @@ function TabWorkImpl({
                           <BlockedReasonMark reason={item.blockedReason} />
                         ) : null}
                       </td>
-) : null}
-                      {showCol('start') ? (
-<td className={styles.wbsColStart}>{formatShortDate(item.plannedStart)}</td>
-) : null}
-                      {showCol('due') ? (
-<td className={[styles.wbsColDate, overdue ? styles.cellDanger : ''].filter(Boolean).join(' ')}>
+                            );
+                          case 'start':
+                            return (
+<td key="start" className={styles.wbsColStart}>{formatShortDate(item.plannedStart)}</td>
+                            );
+                          case 'due':
+                            return (
+<td key="due" className={[styles.wbsColDate, overdue ? styles.cellDanger : ''].filter(Boolean).join(' ')}>
                         {formatShortDate(item.plannedEnd)}
                       </td>
-) : null}
-                      {showCol('last') ? (
+                            );
+                          case 'last':
+                            return (
 <Tooltip
+                        key="last"
                         content={
                           item.statusChangedAt ? `Cập nhật trạng thái lúc ${formatDateTime(item.statusChangedAt)}` : undefined
                         }
@@ -858,9 +882,10 @@ function TabWorkImpl({
                           {formatShortTimestamp(item.statusChangedAt)}
                         </td>
                       </Tooltip>
-) : null}
-                      {showCol('progress') ? (
-<td className={styles.wbsColProgress}>
+                            );
+                          case 'progress':
+                            return (
+<td key="progress" className={styles.wbsColProgress}>
                         {item.reversal ? (
                           // Việc huỷ hiệu lực không tính tiến độ; 100% cũ sẽ gây hiểu nhầm.
                           <Tooltip content="Đã huỷ hiệu lực, không tính tiến độ">
@@ -887,11 +912,12 @@ function TabWorkImpl({
                           })()
                         )}
                       </td>
-) : null}
-                      {showCol('process') ? (
-<td className={styles.wbsColProcess}>
+                            );
+                          case 'process':
+                            return (
+<td key="process" className={styles.wbsColProcess}>
                         {procedure ? (
-                          <Tooltip content={procedure.cachedStatus ?? undefined}>
+                          <Tooltip content={externalStatusLabel(procedure.cachedStatus)}>
                             <a
                               className={styles.wbsProcedure}
                               href={procedure.launchUrl}
@@ -909,7 +935,11 @@ function TabWorkImpl({
                           </Tooltip>
                         ) : null}
                       </td>
-) : null}
+                            );
+                          default:
+                            return null;
+                        }
+                      })}
                     </tr>
                   );
                 })}

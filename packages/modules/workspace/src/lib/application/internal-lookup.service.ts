@@ -5,7 +5,9 @@ import {
   type InternalProjectSummary,
   type InternalWorkItemOption,
   type InternalWorkItemSummary,
+  type ProcedureEngineSettings,
 } from '@enterprise-platform/contracts-workspace';
+import { loadProcedureLinkSettings, pickProcedureEngineSettings } from './procedure-link-settings.js';
 import { timezoneOf, todayKey } from '../domain/tenant-time.js';
 import { ProjectNotFoundError, WorkItemNotFoundError } from '../domain/workspace.error.js';
 import type { WorkspaceActor } from './workspace.application.js';
@@ -21,6 +23,11 @@ import type { WorkspaceStore } from './workspace-store.port.js';
  */
 export class InternalLookupService {
   constructor(private readonly store: WorkspaceStore) {}
+
+  /** Cài đặt hiệu lực của tenant mà module Quy trình thực thi; chỉ các khoá `engine*`, chưa cấu hình thì mặc định. */
+  async procedureEngineSettings(actor: WorkspaceActor): Promise<ProcedureEngineSettings> {
+    return pickProcedureEngineSettings(await loadProcedureLinkSettings(this.store, actor.tenantId));
+  }
 
   async workItem(actor: WorkspaceActor, workItemId: string): Promise<InternalWorkItemSummary> {
     const item = await this.store.workItem.findById(actor.tenantId, workItemId);

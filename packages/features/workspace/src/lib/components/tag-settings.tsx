@@ -5,6 +5,9 @@ import { Eye, EyeOff, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { Tooltip } from './tooltip';
 import { Dialog, Field } from './dialog';
 import { tagColor, useTags } from './use-tags';
@@ -51,17 +54,13 @@ export function TagSettings() {
             : 'Chỉ quản trị viên được sửa, ẩn hoặc xoá nhãn.'}
         </p>
         {canEdit ? (
-          <button type="button" className={styles.buttonPrimary} onClick={() => setEditing(null)}>
-            <Plus size={15} /> Thêm nhãn
-          </button>
+          <Button type="button" onClick={() => setEditing(null)}>
+            <Plus aria-hidden /> Thêm nhãn
+          </Button>
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       {!tags.loaded ? (
         <p className={styles.muted}>Đang tải nhãn…</p>
@@ -88,19 +87,21 @@ export function TagSettings() {
                     {canEdit ? (
                       <span className={styles.roleActions}>
                         <Tooltip content="Sửa nhãn">
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
                             aria-label={`Sửa nhãn ${tag.name}`}
                             onClick={() => setEditing(tag)}
                           >
-                            <Pencil size={13} />
-                          </button>
+                            <Pencil aria-hidden />
+                          </Button>
                         </Tooltip>
                         <Tooltip content={tag.isActive ? 'Ẩn nhãn' : 'Dùng lại nhãn'}>
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
                             aria-label={tag.isActive ? `Ẩn nhãn ${tag.name}` : `Dùng lại nhãn ${tag.name}`}
                             onClick={() =>
                               void run(
@@ -109,8 +110,8 @@ export function TagSettings() {
                               )
                             }
                           >
-                            {tag.isActive ? <EyeOff size={13} /> : <Eye size={13} />}
-                          </button>
+                            {tag.isActive ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+                          </Button>
                         </Tooltip>
                         <Tooltip content="Xoá nhãn">
                           <span className={styles.tooltipAnchor}>
@@ -121,13 +122,15 @@ export function TagSettings() {
                               okType="danger"
                               onConfirm={() => run(() => tags.remove(tag.id), 'Không xoá được nhãn.')}
                             >
-                              <button
+                              <Button
                                 type="button"
-                                className={styles.iconButton}
+                                variant="outline"
+                                size="icon-sm"
+                                className="hover:bg-destructive/10 hover:text-destructive"
                                 aria-label={`Xoá nhãn ${tag.name}`}
                               >
-                                <Trash2 size={13} />
-                              </button>
+                                <Trash2 aria-hidden />
+                              </Button>
                             </Confirm>
                           </span>
                         </Tooltip>
@@ -213,7 +216,7 @@ function TagFormDialog({
       onSubmit={() => void submit()}
     >
       <Field label="Tên nhãn" required>
-        <input
+        <Input
           value={name}
           maxLength={40}
           placeholder="Ví dụ: khẩn"

@@ -244,6 +244,11 @@ export interface ProcedureInstanceDeletion {
   deletedBy: string;
   deletedByName?: string;
   reason: string;
+  /**
+   * Có khi hồ sơ bị xoá vì "Đổi quy trình" của công việc Workspace: id hồ sơ thay thế. Công việc được
+   * giữ nguyên nên không phát `procedure.instance.deleted`.
+   */
+  replacedByInstanceId?: string;
 }
 
 export interface DeleteProcedureInstanceRequest {
@@ -479,6 +484,11 @@ export interface ProcedureInstance {
    * và lịch sử xử lý vẫn giữ để tra cứu.
    */
   deletion?: ProcedureInstanceDeletion;
+  /**
+   * Có khi hồ sơ bị thay bằng hồ sơ khác do "Đổi quy trình" nhưng được giữ lại để tra cứu (cài đặt
+   * `engineChangeOldInstanceFate = cancel_keep`): hồ sơ ở trạng thái Đã huỷ, không bị xoá mềm.
+   */
+  replacedByInstanceId?: string;
   /** Hồ sơ này là hồ sơ điều chỉnh của một hồ sơ đã bị huỷ hiệu lực. */
   adjustmentOf?: { instanceId: string; instanceCode: string };
   steps: ProcedureInstanceStep[];

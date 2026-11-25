@@ -12,7 +12,9 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { Building2, ChevronDown, ChevronRight, FolderInput, ListFilter, Plus, RefreshCw, Tag as TagIcon, MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import {
@@ -28,6 +30,7 @@ import { toast } from '@enterprise-platform/shared-ui';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { ChipButton, ChipSelect, GroupCounts } from './inline-cells';
 import { ProjectProgressBar } from './project-progress-bar';
@@ -76,6 +79,45 @@ const PROJECT_SORTS: Record<ProjectSort, (a: ProjectSummary, b: ProjectSummary) 
   name: (a, b) => a.name.localeCompare(b.name, 'vi'),
   code: (a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }),
   updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+};
+
+/** Các cột của bảng, theo thứ tự mặc định. */
+type ProjectColumn = 'select' | 'project' | 'customer' | 'tags' | 'status' | 'time' | 'progress' | 'actions';
+
+const PROJECT_COLUMNS: readonly ProjectColumn[] = [
+  'select',
+  'project',
+  'customer',
+  'tags',
+  'status',
+  'time',
+  'progress',
+  'actions',
+];
+
+/** Ô chọn và cột tên dự án luôn đứng đầu, không kéo được. */
+const PROJECT_PINNED: readonly ProjectColumn[] = ['select', 'project'];
+
+const PROJECT_COLUMN_LABELS: Record<ProjectColumn, string> = {
+  select: 'Chọn',
+  project: 'Dự án',
+  customer: 'Khách hàng',
+  tags: 'Nhãn',
+  status: 'Trạng thái',
+  time: 'Thời gian',
+  progress: '% hoàn thành',
+  actions: 'Thao tác',
+};
+
+const PROJECT_COL_CLASS: Record<ProjectColumn, string | undefined> = {
+  select: styles.projectsColCheck,
+  project: undefined,
+  customer: styles.projectsColCustomer,
+  tags: styles.projectsColTags,
+  status: styles.projectsColStatus,
+  time: styles.projectsColTime,
+  progress: styles.projectsColProgress,
+  actions: styles.projectsColActions,
 };
 
 /** Sửa trên bảng một dự án: `fallback` là thông báo khi server không trả lý do. */
@@ -144,6 +186,12 @@ export function ProjectsListView({
   const hasFilter = Boolean(statusFilter || typeFilter || tagFilter || customerFilter);
   const facets = [statusFilter, typeFilter, tagFilter, customerFilter].filter(Boolean).length;
   const tags = useTags();
+  // Chưa có id người dùng sẵn trong trang này nên thứ tự cột lưu chung cho trình duyệt.
+  const columnOrder = useColumnOrder('projects-list', undefined, PROJECT_COLUMNS, PROJECT_PINNED);
+  const { move } = columnOrder;
+  const order = columnOrder.order as readonly ProjectColumn[];
+  const sizing = useColumnWidths('projects-list', undefined, PROJECT_COLUMNS);
+  const tableSizeStyle = explicitTableStyle(order, sizing.widths);
 
   /** Nhóm dự án đang mở; mới vào trang thì mọi nhóm thu gọn. */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(memory.expanded));
@@ -642,6 +690,7 @@ export function ProjectsListView({
               ) : null}
             </div>
             <ProjectFilterButton filter={projectFilter} onChange={setProjectFilter} />
+            <ResetColumnLayoutButton order={columnOrder} sizing={sizing} />
             <span className={styles.reqCount}>
               {!loaded ? 'Đang tải…' : `${visible.length} dự án`}
               {selected.size > 0 ? ` · đã chọn ${selected.size}` : ''}
@@ -657,45 +706,52 @@ export function ProjectsListView({
           </div>
         </header>
 
-        {error ? (
-          <p role="alert" className={styles.alert}>
-            {error}
-          </p>
-        ) : null}
+        <ErrorToast message={error} />
 
         <div className={styles.ledgerScroll}>
-          <table className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.projectsTable}`}>
+          <table
+            className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.projectsTable}${sizing.customized ? ` ${styles.columnsResized}` : ''}`}
+            style={tableSizeStyle}
+          >
             {/* Chiều rộng cột cố định: mở hay thu một nhóm không làm các cột dịch chỗ. */}
             <colgroup>
-              <col className={styles.projectsColCheck} />
-              <col />
-              <col className={styles.projectsColCustomer} />
-              <col className={styles.projectsColTags} />
-              <col className={styles.projectsColStatus} />
-              <col className={styles.projectsColTime} />
-              <col className={styles.projectsColProgress} />
-              <col className={styles.projectsColActions} />
+              {order.map((id) => (
+                <col
+                  key={id}
+                  className={PROJECT_COL_CLASS[id]}
+                  style={tableSizeStyle && sizing.widths ? { width: sizing.widths[id] } : undefined}
+                />
+              ))}
             </colgroup>
             <thead>
               <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    aria-label="Chọn tất cả"
-                    ref={(element) => {
-                      if (element) element.indeterminate = someVisibleSelected;
-                    }}
-                    checked={allVisibleSelected}
-                    onChange={toggleAll}
-                  />
-                </th>
-                <th>Dự án</th>
-                <th>Khách hàng</th>
-                <th>Nhãn</th>
-                <th>Trạng thái</th>
-                <th>Thời gian</th>
-                <th className={styles.numeric}>% hoàn thành</th>
-                <th aria-label="Thao tác" />
+                {order.map((id) => (
+                  <ReorderableTh
+                    key={id}
+                    tableKey="projects-list"
+                    id={id}
+                    order={order}
+                    pinned={PROJECT_PINNED}
+                    onMove={move}
+                    sizing={sizing}
+                    label={PROJECT_COLUMN_LABELS[id]}
+                    className={id === 'progress' ? styles.numeric : undefined}
+                  >
+                    {id === 'select' ? (
+                      <input
+                        type="checkbox"
+                        aria-label="Chọn tất cả"
+                        ref={(element) => {
+                          if (element) element.indeterminate = someVisibleSelected;
+                        }}
+                        checked={allVisibleSelected}
+                        onChange={toggleAll}
+                      />
+                    ) : id === 'actions' ? null : (
+                      PROJECT_COLUMN_LABELS[id]
+                    )}
+                  </ReorderableTh>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -718,6 +774,7 @@ export function ProjectsListView({
                   onToggle={toggleOne}
                   onMenu={openMenu}
                   onOpen={onOpenProject}
+                  order={order}
                 />
               ))}
             </tbody>
@@ -834,6 +891,72 @@ export function ProjectsListView({
 /* ========================================================================= */
 
 /** Một nhóm dự án: dòng tiêu đề nhóm rồi các dòng dự án của nhóm. */
+/**
+ * Hàng chip tự vừa bề rộng ô: hiện được bao nhiêu chip thì hiện, phần còn lại gộp thành "+N" (luôn hiện ít nhất một
+ * chip). Đo bằng một bản ẩn của toàn bộ chip nên đổi độ rộng cột là tính lại ngay.
+ */
+function FitChips({
+  chips,
+  more,
+  measureKey,
+}: {
+  chips: readonly ReactNode[];
+  more: (hidden: number) => ReactNode;
+  /** Đổi khi nội dung chip đổi (vd ghép tên các nhãn), để đo lại. */
+  measureKey: string;
+}) {
+  const wrap = useRef<HTMLSpanElement>(null);
+  const meter = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(chips.length);
+  useLayoutEffect(() => {
+    const wrapEl = wrap.current;
+    const meterEl = meter.current;
+    if (!wrapEl || !meterEl) return;
+    const GAP = 4;
+    const compute = () => {
+      const widths = [...meterEl.querySelectorAll<HTMLElement>('[data-fit-chip]')].map(
+        (el) => el.getBoundingClientRect().width,
+      );
+      const moreWidth = meterEl.querySelector<HTMLElement>('[data-fit-more]')?.getBoundingClientRect().width ?? 0;
+      const available = wrapEl.clientWidth;
+      let used = 0;
+      let count = 0;
+      for (let index = 0; index < widths.length; index += 1) {
+        const next = used + (index > 0 ? GAP : 0) + widths[index];
+        const reserve = index < widths.length - 1 ? GAP + moreWidth : 0;
+        if (next + reserve > available) break;
+        used = next;
+        count = index + 1;
+      }
+      setVisible(Math.max(1, count));
+    };
+    compute();
+    const observer = new ResizeObserver(compute);
+    observer.observe(wrapEl);
+    return () => observer.disconnect();
+  }, [chips.length, measureKey]);
+
+  const shown = Math.min(visible, chips.length);
+  const hidden = chips.length - shown;
+  return (
+    <span ref={wrap} className={styles.fitChips}>
+      <span className={styles.chipGroup}>
+        {chips.slice(0, shown)}
+        {hidden > 0 ? more(hidden) : null}
+      </span>
+      {/* Bản ẩn để đo độ rộng tự nhiên của từng chip và của nhãn "+N" rộng nhất. */}
+      <span ref={meter} className={styles.fitChipsMeter} aria-hidden {...({ inert: '' } as object)}>
+        {chips.map((chip, index) => (
+          <span key={index} data-fit-chip>
+            {chip}
+          </span>
+        ))}
+        <span data-fit-more>{more(chips.length - 1)}</span>
+      </span>
+    </span>
+  );
+}
+
 function GroupRows({
   type,
   rows,
@@ -851,7 +974,10 @@ function GroupRows({
   onToggle,
   onMenu,
   onOpen,
+  order,
 }: {
+  /** Thứ tự cột hiện tại; mọi ô của dòng nhóm và dòng dự án theo đúng thứ tự này. */
+  order: readonly ProjectColumn[];
   type: string;
   rows: readonly ProjectSummary[];
   collapsed: boolean;
@@ -897,9 +1023,8 @@ function GroupRows({
   const allSelected = rows.length > 0 && rows.every((project) => selected.has(project.id));
   // Chọn một phần dự án trong nhóm: ô nhóm ở trạng thái nửa vời; chọn đủ mới đánh dấu đầy.
   const someSelected = !allSelected && rows.some((project) => selected.has(project.id));
-  return (
-    <>
-      <tr className={styles.groupRow}>
+  const groupCells: Record<ProjectColumn, ReactNode> = {
+    select: (
         <td>
           <input
             type="checkbox"
@@ -911,6 +1036,8 @@ function GroupRows({
             onChange={() => onSelectMany(rows.map((project) => project.id), !allSelected)}
           />
         </td>
+    ),
+    project: (
         <th scope="row">
           <div className={styles.workCell}>
             <button type="button" className={styles.groupToggle} aria-expanded={!collapsed} onClick={onToggleGroup}>
@@ -924,6 +1051,8 @@ function GroupRows({
             </button>
           </div>
         </th>
+    ),
+    customer: (
         <td>
           {customerCount > 0 ? (
             <span className={styles.groupSummaryText}>{customerCount} khách hàng</span>
@@ -931,6 +1060,8 @@ function GroupRows({
             <span className={styles.groupSummaryMuted}>—</span>
           )}
         </td>
+    ),
+    tags: (
         <td>
           {tagCount > 0 ? (
             <span className={styles.groupSummaryText}>{tagCount} nhãn</span>
@@ -938,9 +1069,13 @@ function GroupRows({
             <span className={styles.groupSummaryMuted}>—</span>
           )}
         </td>
+    ),
+    status: (
         <td>
           <GroupCounts counts={counts} unit="dự án" />
         </td>
+    ),
+    time: (
         <td>
           {counts.overdue > 0 ? (
             <span className={styles.groupOverdue}>Trễ hạn {counts.overdue}</span>
@@ -952,6 +1087,8 @@ function GroupRows({
             <span className={styles.groupSummaryMuted}>—</span>
           )}
         </td>
+    ),
+    progress: (
         <td>
           <Tooltip content={`Tiến độ trung bình của ${rows.length} dự án`}>
             <span className={styles.progressCell}>
@@ -962,7 +1099,15 @@ function GroupRows({
             </span>
           </Tooltip>
         </td>
-        <td />
+    ),
+    actions: <td />,
+  };
+  return (
+    <>
+      <tr className={styles.groupRow}>
+        {order.map((id) => (
+          <Fragment key={id}>{groupCells[id]}</Fragment>
+        ))}
       </tr>
       {collapsed ? null : rows.map((project) => {
         const closable = !CLOSED_PROJECT_STATUSES.includes(project.status);
@@ -983,20 +1128,8 @@ function GroupRows({
             label: PROJECT_STATUS_LABELS[status],
             tone: PROJECT_STATUS_TONE[status],
           }));
-        return (
-          <tr
-            key={project.id}
-            data-project-row={project.id}
-            className={
-              [checked ? styles.rowSelected : '', returnedId === project.id ? styles.rowReturned : '']
-                .filter(Boolean)
-                .join(' ') || undefined
-            }
-            onContextMenu={(event) => {
-              event.preventDefault();
-              onMenu(project.id, { x: event.clientX, y: event.clientY });
-            }}
-          >
+        const cells: Record<ProjectColumn, ReactNode> = {
+          select: (
             <td>
               <input
                 type="checkbox"
@@ -1005,6 +1138,8 @@ function GroupRows({
                 onChange={() => onToggle(project.id)}
               />
             </td>
+          ),
+          project: (
             <td>
               <div className={`${styles.workCell} ${styles.workChild}`}>
                 <span className={styles.workIndent} aria-hidden />
@@ -1019,6 +1154,8 @@ function GroupRows({
                 </button>
               </div>
             </td>
+          ),
+          customer: (
             <td className={customer || !canEdit ? styles.inlineCell : `${styles.inlineCell} ${styles.emptyEdit}`}>
               {!customer && !canEdit ? (
                 <span className={styles.muted}>—</span>
@@ -1041,18 +1178,21 @@ function GroupRows({
                 </>
               )}
             </td>
+          ),
+          tags: (
             <td
               className={
                 project.tagIds?.length || !canEdit ? styles.inlineCell : `${styles.inlineCell} ${styles.emptyEdit}`
               }
             >
               {project.tagIds?.length ? (
-                <span className={styles.chipGroup}>
-                  {project.tagIds.slice(0, 2).map((tagId) => {
+                <FitChips
+                  measureKey={project.tagIds.map((tagId) => tagOf(tagId)?.name ?? '').join('|')}
+                  chips={project.tagIds.flatMap((tagId) => {
                     const tag = tagOf(tagId);
-                    if (!tag) return null;
+                    if (!tag) return [];
                     const color = tagColor(tag);
-                    return (
+                    return [
                       <ChipButton
                         key={tagId}
                         tone={{ bg: `${color}14`, fg: color }}
@@ -1061,21 +1201,21 @@ function GroupRows({
                       >
                         <span className={styles.chipDot} />
                         {tag.name}
-                      </ChipButton>
-                    );
+                      </ChipButton>,
+                    ];
                   })}
-                  {project.tagIds.length > 2 ? (
+                  more={(hidden) => (
                     <Tooltip
-                      content={project.tagIds
-                        .slice(2)
+                      content={(project.tagIds ?? [])
+                        .slice((project.tagIds ?? []).length - hidden)
                         .map((tagId) => tagOf(tagId)?.name)
                         .filter(Boolean)
                         .join(', ')}
                     >
-                      <span className={styles.muted}>+{project.tagIds.length - 2}</span>
+                      <span className={styles.muted}>+{hidden}</span>
                     </Tooltip>
-                  ) : null}
-                </span>
+                  )}
+                />
               ) : canEdit ? (
                 <>
                   <span className={styles.emptyDash}>—</span>
@@ -1087,6 +1227,8 @@ function GroupRows({
                 <span className={styles.muted}>—</span>
               )}
             </td>
+          ),
+          status: (
             <td className={styles.inlineCell}>
               <ChipSelect
                 label={`Trạng thái của ${project.code}`}
@@ -1099,6 +1241,8 @@ function GroupRows({
                 }
               />
             </td>
+          ),
+          time: (
             <td className={styles.nowrap}>
               {project.startDate || project.endDate ? (
                 <Tooltip
@@ -1116,9 +1260,13 @@ function GroupRows({
                 <span className={styles.muted}>—</span>
               )}
             </td>
+          ),
+          progress: (
             <td>
               <ProjectProgressBar project={project} />
             </td>
+          ),
+          actions: (
             <td>
               <button
                 type="button"
@@ -1133,6 +1281,25 @@ function GroupRows({
                 <MoreHorizontal size={16} aria-hidden />
               </button>
             </td>
+          ),
+        };
+        return (
+          <tr
+            key={project.id}
+            data-project-row={project.id}
+            className={
+              [checked ? styles.rowSelected : '', returnedId === project.id ? styles.rowReturned : '']
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onMenu(project.id, { x: event.clientX, y: event.clientY });
+            }}
+          >
+            {order.map((id) => (
+              <Fragment key={id}>{cells[id]}</Fragment>
+            ))}
           </tr>
         );
       })}

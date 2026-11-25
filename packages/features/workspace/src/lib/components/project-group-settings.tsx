@@ -5,6 +5,9 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { Tooltip } from './tooltip';
 import { Dialog, Field } from './dialog';
 import { Confirm } from './confirm-box';
@@ -61,17 +64,13 @@ export function ProjectGroupSettings() {
             : 'Chỉ quản trị viên được thêm hoặc sửa nhóm dự án.'}
         </p>
         {canEdit ? (
-          <button type="button" className={styles.buttonPrimary} onClick={() => setEditing(null)}>
-            <Plus size={15} /> Thêm nhóm
-          </button>
+          <Button type="button" onClick={() => setEditing(null)}>
+            <Plus aria-hidden /> Thêm nhóm
+          </Button>
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
 
       {!list ? (
         error ? null : <p className={styles.muted}>Đang tải nhóm dự án…</p>
@@ -100,14 +99,15 @@ export function ProjectGroupSettings() {
                     {canEdit ? (
                       <span className={styles.roleActions}>
                         <Tooltip content="Sửa nhóm">
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
                             aria-label={`Sửa nhóm ${group.name}`}
                             onClick={() => setEditing(group)}
                           >
-                            <Pencil size={13} />
-                          </button>
+                            <Pencil aria-hidden />
+                          </Button>
                         </Tooltip>
                         <Tooltip content="Xoá nhóm">
                           <span className={styles.tooltipAnchor}>
@@ -122,13 +122,15 @@ export function ProjectGroupSettings() {
                               okType="danger"
                               onConfirm={() => remove(group)}
                             >
-                              <button
+                              <Button
                                 type="button"
-                                className={styles.iconButton}
+                                variant="outline"
+                                size="icon-sm"
+                                className="hover:bg-destructive/10 hover:text-destructive"
                                 aria-label={`Xoá nhóm ${group.name}`}
                               >
-                                <Trash2 size={13} />
-                              </button>
+                                <Trash2 aria-hidden />
+                              </Button>
                             </Confirm>
                           </span>
                         </Tooltip>
@@ -212,7 +214,7 @@ function GroupFormDialog({
       onSubmit={() => void submit()}
     >
       <Field label="Tên nhóm" required>
-        <input
+        <Input
           value={name}
           maxLength={80}
           placeholder="Ví dụ: Dịch vụ thí nghiệm"
@@ -223,7 +225,7 @@ function GroupFormDialog({
         label="Mã viết tắt"
         hint="Dùng cho {NHOM} trong quy tắc mã dự án (Cài đặt > Mã dự án). Tự đặt, tối đa 16 ký tự, vd DVTN. Đổi mã không đổi mã các dự án đã tạo."
       >
-        <input
+        <Input
           value={code}
           maxLength={16}
           placeholder="Ví dụ: DVTN"

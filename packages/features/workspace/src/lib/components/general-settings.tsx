@@ -3,7 +3,9 @@
 import {
   DEFAULT_PROJECT_TASK_TITLES,
   DEFAULT_PROJECT_PROGRESS_METHOD,
+  DEFAULT_PROCEDURE_LINK_SETTINGS,
   type ChatOnArchivedPolicy,
+  type ProcedureLinkSettings,
   type ProgressReportCompleteStatus,
   type ProjectProgressMethod,
   type ProjectArchiveSettings as Settings,
@@ -15,6 +17,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { PROGRESS_METHOD_INFO, PROGRESS_METHOD_ORDER } from '../project-progress-methods';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
+import { Button } from '../ui/button';
+import { ProcedureLinkSettingsCard } from './procedure-link-settings-card';
 import { TaskTitleListEditor } from './task-title-list-editor';
 
 /*
@@ -173,6 +177,7 @@ interface Draft {
   readonly autoArchive: boolean;
   readonly reopenProject: ReopenProjectPolicy;
   readonly chatOnArchived: ChatOnArchivedPolicy;
+  readonly procedureLink: ProcedureLinkSettings;
 }
 
 const draftOf = (settings: Settings): Draft => ({
@@ -185,6 +190,7 @@ const draftOf = (settings: Settings): Draft => ({
   autoArchive: settings.autoArchive,
   reopenProject: settings.reopenProject,
   chatOnArchived: settings.chatOnArchived,
+  procedureLink: { ...DEFAULT_PROCEDURE_LINK_SETTINGS, ...settings.procedureLink },
 });
 
 /** Danh sách tên đã làm sạch như server sẽ lưu: bỏ dòng trống, bỏ khoảng trắng thừa. */
@@ -238,6 +244,13 @@ export function GeneralSettings() {
     if (draft.autoArchive !== settings.autoArchive) changes.autoArchive = draft.autoArchive;
     if (draft.reopenProject !== settings.reopenProject) changes.reopenProject = draft.reopenProject;
     if (draft.chatOnArchived !== settings.chatOnArchived) changes.chatOnArchived = draft.chatOnArchived;
+    const changedLink: { -readonly [K in keyof ProcedureLinkSettings]?: ProcedureLinkSettings[K] } = {};
+    for (const key of Object.keys(draft.procedureLink) as (keyof ProcedureLinkSettings)[]) {
+      if (draft.procedureLink[key] !== saved.procedureLink[key]) {
+        (changedLink as Record<string, string>)[key] = draft.procedureLink[key];
+      }
+    }
+    if (Object.keys(changedLink).length > 0) changes.procedureLink = changedLink;
     return changes;
   }, [settings, draft]);
   const dirty = Object.keys(patch).length > 0;
@@ -270,7 +283,7 @@ export function GeneralSettings() {
 
   const locked = !settings.canEdit || saving;
   const update = (changes: Partial<Draft>) => setDraft({ ...draft, ...changes });
-
+  const link = draft.procedureLink;
   return (
     <div className={styles.gsStack}>
       <SettingsCard
@@ -317,13 +330,14 @@ export function GeneralSettings() {
             emptyText="Danh sách đang trống: bật tự tạo sẵn cũng không tạo công việc nào."
             onChange={(defaultTaskTitles) => update({ defaultTaskTitles })}
             extraActions={
-              <button
+              <Button
                 type="button"
-                className={styles.buttonSmall}
+                variant="outline"
+                size="sm"
                 onClick={() => update({ defaultTaskTitles: [...DEFAULT_PROJECT_TASK_TITLES] })}
               >
                 Dùng mẫu gợi ý
-              </button>
+              </Button>
             }
           />
         </div>
@@ -416,6 +430,13 @@ export function GeneralSettings() {
         </div>
       </SettingsCard>
 
+      <ProcedureLinkSettingsCard
+        link={link}
+        saved={draftOf(settings).procedureLink}
+        locked={locked}
+        onChange={(next) => update({ procedureLink: next })}
+      />
+
       {/* Thanh lưu chung: luôn có mặt, chỉ đổi trạng thái bật tắt nên bố cục không xê dịch. */}
       <div className={styles.gsActionBar}>
         <span className={`${styles.gsActionHint} ${dirty ? styles.gsActionHintDirty : ''}`}>
@@ -425,17 +446,17 @@ export function GeneralSettings() {
               ? 'Có thay đổi chưa lưu.'
               : 'Chưa có thay đổi nào.'}
         </span>
-        <button
+        <Button
           type="button"
-          className={styles.buttonGhost}
+          variant="outline"
           disabled={!dirty || locked}
           onClick={() => setDraft(draftOf(settings))}
         >
           Hoàn tác
-        </button>
-        <button type="button" className={styles.buttonPrimary} disabled={!dirty || locked} onClick={() => void save()}>
+        </Button>
+        <Button type="button" disabled={!dirty || locked} onClick={() => void save()}>
           {saving ? 'Đang lưu…' : 'Lưu cấu hình'}
-        </button>
+        </Button>
       </div>
     </div>
   );

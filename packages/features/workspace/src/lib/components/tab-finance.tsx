@@ -3,7 +3,8 @@
 import type { ProjectFinance, UpdateProjectFinanceRequest } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
 import { ExternalLink, ListFilter, Pencil } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import { formatPercent, formatVnd, formatVndCompact, parseVndInput, toVndInput } from '../money';
 import {
   NO_VOUCHER_FILTER,
@@ -23,6 +24,7 @@ import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { useFillViewportHeight } from './use-fill-viewport';
 import { Tooltip } from './tooltip';
 
@@ -33,6 +35,47 @@ export interface TabFinanceProps {
   /** Gọi sau khi ghi, để phần còn lại của màn Dự án tải lại. */
   readonly onChanged: () => void;
 }
+
+type LedgerColumn =
+  | 'index'
+  | 'content'
+  | 'code'
+  | 'creator'
+  | 'createdAt'
+  | 'postingDate'
+  | 'received'
+  | 'paid'
+  | 'balance'
+  | 'status';
+
+/** Thứ tự cột mặc định của sổ chứng từ; người dùng kéo tiêu đề để đổi. */
+const LEDGER_COLUMNS: readonly LedgerColumn[] = [
+  'index',
+  'content',
+  'code',
+  'creator',
+  'createdAt',
+  'postingDate',
+  'received',
+  'paid',
+  'balance',
+  'status',
+];
+const LEDGER_ALL_IDS: readonly string[] = LEDGER_COLUMNS;
+const LEDGER_PINNED: readonly string[] = ['index'];
+
+const LEDGER_HEADS: Record<LedgerColumn, { readonly label: string; readonly numeric?: boolean }> = {
+  index: { label: 'STT' },
+  content: { label: 'Nội dung' },
+  code: { label: 'Mã chứng từ' },
+  creator: { label: 'Người tạo' },
+  createdAt: { label: 'Ngày tạo' },
+  postingDate: { label: 'Ngày hạch toán' },
+  received: { label: 'Phát sinh thu', numeric: true },
+  paid: { label: 'Phát sinh chi', numeric: true },
+  balance: { label: 'Dòng tiền', numeric: true },
+  status: { label: 'Trạng thái' },
+};
 
 /** Dòng tiền của nhóm phiếu đã ghi sổ: thu trừ chi. */
 function ledgerBalance(totals: { received: number; paid: number }): number {
@@ -64,6 +107,8 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
   const ledger = useRef<HTMLDivElement>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const panelBox = useRef<HTMLDivElement>(null);
+  const columns = useColumnOrder('project-finance', undefined, LEDGER_COLUMNS, LEDGER_PINNED);
+  const sizing = useColumnWidths('project-finance', undefined, LEDGER_ALL_IDS);
 
   // Bấm ra ngoài bảng lọc thì đóng; bấm vào danh sách xổ của ô chọn (nằm trong bảng) thì không.
   useEffect(() => {
@@ -293,43 +338,70 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                 ) : null}
               </div>
             )}
+            <ResetColumnLayoutButton order={columns} sizing={sizing} />
           </header>
 
           <div className={styles.ledgerScroll}>
-              <table className={`${styles.table} ${styles.ledgerTable}`}>
+              <table
+                className={`${styles.table} ${styles.ledgerTable} ${sizing.customized ? styles.columnsResized : ''}`}
+                style={explicitTableStyle(columns.order, sizing.widths)}
+              >
                 <thead>
                   <tr>
-                    <th>STT</th>
-                    <th>Nội dung</th>
-                    <th>Mã chứng từ</th>
-                    <th>Người tạo</th>
-                    <th>Ngày tạo</th>
-                    <th>Ngày hạch toán</th>
-                    <th className={styles.numeric}>Phát sinh thu</th>
-                    <th className={styles.numeric}>Phát sinh chi</th>
-                    <th className={styles.numeric}>Dòng tiền</th>
-                    <th>Trạng thái</th>
+                    {columns.order.map((id) => {
+                      const head = LEDGER_HEADS[id as LedgerColumn];
+                      return (
+                        <ReorderableTh
+                          key={id}
+                          tableKey="project-finance"
+                          id={id}
+                          order={columns.order}
+                          pinned={LEDGER_PINNED}
+                          onMove={columns.move}
+                          sizing={sizing}
+                          label={head.label}
+                          className={head.numeric ? styles.numeric : undefined}
+                        >
+                          {head.label}
+                        </ReorderableTh>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {data.items.length > 0 ? (
                     // Dòng tổng ở đầu như sổ chứng từ: chỉ phiếu đã ghi sổ hạch toán cho dự án; dòng tiền = thu trừ chi.
                     <tr className={styles.ledgerTotal}>
-                      <td />
-                      <td>
-                        <strong>Tổng</strong>
-                      </td>
-                      <td colSpan={4} />
-                      <td className={styles.numeric}>
-                        <strong>{formatVnd(data.totals.received)}</strong>
-                      </td>
-                      <td className={styles.numeric}>
-                        <strong>{formatVnd(data.totals.paid)}</strong>
-                      </td>
-                      <td className={`${styles.numeric} ${ledgerBalance(data.totals) < 0 ? styles.finNegative : ''}`}>
-                        <strong>{formatVnd(ledgerBalance(data.totals))}</strong>
-                      </td>
-                      <td />
+                      {columns.order.map((id) => {
+                        switch (id as LedgerColumn) {
+                          case 'content':
+                            return (
+                              <td key={id}>
+                                <strong>Tổng</strong>
+                              </td>
+                            );
+                          case 'received':
+                            return (
+                              <td key={id} className={styles.numeric}>
+                                <strong>{formatVnd(data.totals.received)}</strong>
+                              </td>
+                            );
+                          case 'paid':
+                            return (
+                              <td key={id} className={styles.numeric}>
+                                <strong>{formatVnd(data.totals.paid)}</strong>
+                              </td>
+                            );
+                          case 'balance':
+                            return (
+                              <td key={id} className={`${styles.numeric} ${ledgerBalance(data.totals) < 0 ? styles.finNegative : ''}`}>
+                                <strong>{formatVnd(ledgerBalance(data.totals))}</strong>
+                              </td>
+                            );
+                          default:
+                            return <td key={id} />;
+                        }
+                      })}
                     </tr>
                   ) : null}
                   {data.items.length === 0 ? (
@@ -350,10 +422,10 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                     // Phiếu chờ/chỉ liên quan chưa phải tiền của dự án: số mờ đi và không có dòng tiền.
                     const settled = item.link === 'ALLOCATION' && item.status === 'APPROVED';
                     const amount = settled ? formatVnd(item.totalAmount) : <span className={styles.muted}>{formatVnd(item.totalAmount)}</span>;
-                    return (
-                      <tr key={item.id}>
-                        <td>{index + 1}</td>
-                        <td>
+                    const cells: Record<LedgerColumn, ReactNode> = {
+                      index: <td key="index">{index + 1}</td>,
+                      content: (
+                        <td key="content">
                           <Tooltip content={item.content}>
                             <span className={styles.treeTitle}>{item.content}</span>
                           </Tooltip>
@@ -363,7 +435,9 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                             </span>
                           ) : null}
                         </td>
-                        <td>
+                      ),
+                      code: (
+                        <td key="code">
                           <Tooltip content="Mở phiếu ở module Tài chính">
                             <a className={styles.wbsProcedure} href={projectVoucherHref(item)}>
                               <ExternalLink size={12} aria-hidden />
@@ -374,19 +448,36 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                             {PROJECT_VOUCHER_KIND_LABELS[item.kind]}
                           </span>
                         </td>
-                        <td>{item.createdByName ?? '—'}</td>
-                        <td>{formatDay(item.createdAt.slice(0, 10))}</td>
-                        <td>{formatDay(item.postingDate)}</td>
-                        <td className={styles.numeric}>{item.kind === 'RECEIPT' ? amount : '--'}</td>
-                        <td className={styles.numeric}>{item.kind === 'PAYMENT' ? amount : '--'}</td>
-                        <td className={`${styles.numeric} ${item.balance !== null && item.balance < 0 ? styles.finNegative : ''}`}>
+                      ),
+                      creator: <td key="creator">{item.createdByName ?? '—'}</td>,
+                      createdAt: <td key="createdAt">{formatDay(item.createdAt.slice(0, 10))}</td>,
+                      postingDate: <td key="postingDate">{formatDay(item.postingDate)}</td>,
+                      received: (
+                        <td key="received" className={styles.numeric}>
+                          {item.kind === 'RECEIPT' ? amount : '--'}
+                        </td>
+                      ),
+                      paid: (
+                        <td key="paid" className={styles.numeric}>
+                          {item.kind === 'PAYMENT' ? amount : '--'}
+                        </td>
+                      ),
+                      balance: (
+                        <td key="balance" className={`${styles.numeric} ${item.balance !== null && item.balance < 0 ? styles.finNegative : ''}`}>
                           {item.balance === null ? '--' : formatVnd(item.balance)}
                         </td>
-                        <td>
+                      ),
+                      status: (
+                        <td key="status">
                           <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
                             {PROJECT_VOUCHER_STATUS_LABELS[item.status]}
                           </span>
                         </td>
+                      ),
+                    };
+                    return (
+                      <tr key={item.id}>
+                        {columns.order.map((id) => cells[id as LedgerColumn])}
                       </tr>
                     );
                   })}

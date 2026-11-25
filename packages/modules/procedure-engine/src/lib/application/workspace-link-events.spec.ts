@@ -1,5 +1,6 @@
 import type { ProcedureInstance } from '@enterprise-platform/contracts-procedure-engine';
 import {
+  INSTANCE_DELETED_EVENT,
   INSTANCE_REVERSAL_FAILED,
   STANDALONE_TASK_PROCEDURE_REQUESTED,
   STANDALONE_TASK_REVERSED,
@@ -71,6 +72,28 @@ describe('Quy trình ↔ việc ngoài dự án', () => {
     ]);
     // Cùng hồ sơ ở lần ghi sau thì không phát lại.
     expect(workspaceLinkEvents([instance], [instance])).toEqual([]);
+  });
+});
+
+describe('xoá hồ sơ gắn công việc', () => {
+  const live = {
+    id: 'i1',
+    code: 'PR-001',
+    title: 'EVN-CV001-Mua cáp',
+    status: 'running',
+    sourceType: 'workspace_work_item',
+    sourceId: 'wi-1',
+  } as unknown as ProcedureInstance;
+  const deletion = { deletedAt: 'x', deletedBy: 'u1', reason: 'Nhập nhầm' };
+
+  it('xoá thường báo Workspace xoá công việc', () => {
+    const deleted = { ...live, deletion } as ProcedureInstance;
+    expect(workspaceLinkEvents([live], [deleted]).map((event) => event.type)).toEqual([INSTANCE_DELETED_EVENT]);
+  });
+
+  it('xoá do đổi quy trình không phát sự kiện xoá', () => {
+    const replaced = { ...live, deletion: { ...deletion, replacedByInstanceId: 'i2' } } as ProcedureInstance;
+    expect(workspaceLinkEvents([live], [replaced])).toEqual([]);
   });
 });
 

@@ -6,6 +6,10 @@ import {
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import { ProjectService } from './project.service.js';
+import type {
+  ProcedureInstanceReplacer,
+  ReplaceProcedureInstanceResult,
+} from './procedure-instance-replacer.port.js';
 import { WorkItemService } from './work-item.service.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import type { WorkspaceStore } from './workspace-store.port.js';
@@ -29,6 +33,7 @@ function makeStore(options: {
   const byId = new Map(options.items.map((item) => [item.id, item]));
 
   const store = {
+    settings: { get: async () => undefined },
     project: {
       findById: async (_tenant: string, id: string) =>
         id === 'p1' ? ({ id: 'p1', code: 'DA-1', name: 'Dự án' } as never) : undefined,
@@ -542,6 +547,74 @@ describe('WorkItemService — giao việc', () => {
   });
 });
 
+describe('WorkItemService — giờ ước lượng', () => {
+  function storeFor(items: WorkItem[] = []) {
+    const created: unknown[] = [];
+    const updated: unknown[] = [];
+    const store = {
+      project: {
+        findById: async () => ({ id: 'p1', code: 'DA-1', name: 'Dự án' }),
+        updateProgress: async () => undefined,
+      },
+      member: { roleOf: async () => 'manager' as ProjectRole },
+      workItem: {
+        findById: async (_tenant: string, id: string) => items.find((entry) => entry.id === id),
+        listByProject: async () => items,
+        progressRows: async () => [],
+        applyProgress: async () => undefined,
+        create: async (_tenant: string, _actor: string, input: unknown) => {
+          created.push(input);
+          return { id: 'w-new' };
+        },
+        update: async (_tenant: string, _id: string, input: unknown) => {
+          updated.push(input);
+          return { id: 'w1' };
+        },
+      },
+    } as unknown as WorkspaceStore;
+    return { store, created, updated };
+  }
+  const base = { projectId: 'p1', title: 'Việc' };
+
+  it('tạo việc với giờ ước lượng lớn hơn 99.999,99 thì báo lỗi nhập liệu, không để Postgres tràn số', async () => {
+    const { store, created } = storeFor();
+    await expect(
+      serviceFor(store).create(actorOf('u-mgr'), { ...base, estimateHours: 100000 }),
+    ).rejects.toMatchObject({ code: 'VALIDATION', message: 'Giờ ước lượng tối đa là 99.999,99 giờ.' });
+    expect(created).toHaveLength(0);
+  });
+
+  it('giờ ước lượng đúng mức tối đa vẫn được lưu', async () => {
+    const { store, created } = storeFor();
+    await serviceFor(store).create(actorOf('u-mgr'), { ...base, estimateHours: 99999.99 });
+    expect(created).toHaveLength(1);
+  });
+
+  it('giờ ước lượng bằng 0, âm hoặc không phải số bị từ chối', async () => {
+    const { store } = storeFor();
+    for (const bad of [0, -1, Number.NaN]) {
+      await expect(
+        serviceFor(store).create(actorOf('u-mgr'), { ...base, estimateHours: bad }),
+      ).rejects.toMatchObject({ code: 'VALIDATION' });
+    }
+  });
+
+  it('sửa việc: giờ ước lượng quá lớn hoặc bằng 0 bị từ chối, bỏ giờ (null) thì được', async () => {
+    const { store, updated } = storeFor([item({ id: 'w1', assigneeUserId: 'u-mgr' })]);
+    const service = serviceFor(store);
+    await expect(service.update(actorOf('u-mgr'), 'w1', { estimateHours: 1e9 })).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+    await expect(service.update(actorOf('u-mgr'), 'w1', { estimateHours: 0 })).rejects.toMatchObject({
+      code: 'VALIDATION',
+    });
+    expect(updated).toHaveLength(0);
+    await service.update(actorOf('u-mgr'), 'w1', { estimateHours: null });
+    await service.update(actorOf('u-mgr'), 'w1', { estimateHours: 12.5 });
+    expect(updated).toHaveLength(2);
+  });
+});
+
 describe('WorkItemService — người thực hiện cùng và nhãn', () => {
   function storeFor(
     roles: Record<string, ProjectRole>,
@@ -736,5 +809,219 @@ describe('WorkItemService.requestProcedure', () => {
       serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION),
     ).rejects.toMatchObject({ statusCode: 400 });
     expect(requested).toEqual([]);
+  });
+});
+
+describe('WorkItemService.changeProcedure', () => {
+  const OLD_DEFINITION = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b';
+  const NEW_DEFINITION = '7a2e3d4c-5b6f-4071-9b8c-0d1e2f3a4b5c';
+  const OK_REPLY: ReplaceProcedureInstanceResult = {
+    ok: true,
+    instance: {
+      id: 'inst-new',
+      code: 'HS-002',
+      title: 'Hồ sơ mới',
+      status: 'running',
+      definitionId: NEW_DEFINITION,
+    },
+    previous: { id: 'inst-old', code: 'HS-001' },
+  };
+
+  function setup(
+    options: {
+      items?: WorkItem[];
+      roles?: Record<string, ProjectRole>;
+      refs?: { moduleKey: string; externalId: string }[];
+      replace?: ProcedureInstanceReplacer['replace'];
+    } = {},
+  ) {
+    const items =
+      options.items ?? [item({ id: 'w1', executionType: 'procedure', code: 'CV-009', title: 'Việc A' })];
+    const { store } = makeStore({ items, roles: options.roles ?? { u1: 'member' } });
+    const replaced: unknown[] = [];
+    const swaps: unknown[] = [];
+    const refs = options.refs ?? [{ moduleKey: 'procedure-engine', externalId: 'inst-old' }];
+    Object.assign(store, {
+      externalRef: { listByEntity: async () => refs },
+      procedureRequest: {
+        listByProject: async () => [
+          { workItemId: 'w1', definitionId: OLD_DEFINITION, status: 'started', instanceId: 'inst-old' },
+        ],
+        replaceStarted: async (_tenant: string, input: { instanceId: string; definitionId: string }) => {
+          swaps.push(input);
+          return {
+            workItemId: 'w1',
+            definitionId: input.definitionId,
+            status: 'started',
+            instanceId: input.instanceId,
+          } as never;
+        },
+      },
+    });
+    const replacer: ProcedureInstanceReplacer = {
+      replace:
+        options.replace ??
+        (async (_tenant, input) => {
+          replaced.push(input);
+          return OK_REPLY;
+        }),
+    };
+    const service = new WorkItemService(store, new ProjectService(store), undefined, undefined, replacer);
+    return { service, replaced, swaps };
+  }
+
+  it('đổi thành công: gửi Quy trình rồi trỏ lại hồ sơ mới, trả yêu cầu đã cập nhật', async () => {
+    const { service, replaced, swaps } = setup();
+    const result = await service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION);
+    expect(replaced).toEqual([
+      expect.objectContaining({
+        workItemId: 'w1',
+        expectedInstanceId: 'inst-old',
+        definitionId: NEW_DEFINITION,
+        requestedBy: 'u1',
+        workItemCode: 'CV-009',
+        workItemTitle: 'Việc A',
+        projectCode: 'DA-1',
+      }),
+    ]);
+    expect(swaps).toEqual([
+      expect.objectContaining({
+        workItemId: 'w1',
+        previousInstanceId: 'inst-old',
+        instanceId: 'inst-new',
+        instanceCode: 'HS-002',
+        definitionId: NEW_DEFINITION,
+      }),
+    ]);
+    expect(result).toMatchObject({ status: 'started', instanceId: 'inst-new', definitionId: NEW_DEFINITION });
+  });
+
+  it('công việc chưa có hồ sơ thì không đổi được', async () => {
+    const { service, replaced } = setup({ refs: [] });
+    await expect(service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'Công việc chưa có hồ sơ quy trình.',
+    });
+    expect(replaced).toEqual([]);
+  });
+
+  it('chọn lại đúng quy trình hiện tại thì từ chối, không gọi Quy trình', async () => {
+    const { service, replaced } = setup();
+    await expect(service.changeProcedure(actorOf('u1'), 'w1', OLD_DEFINITION)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(replaced).toEqual([]);
+  });
+
+  it('mã quy trình sai định dạng bị từ chối', async () => {
+    const { service, replaced } = setup();
+    await expect(service.changeProcedure(actorOf('u1'), 'w1', 'abc')).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(replaced).toEqual([]);
+  });
+
+  it('viewer không đổi được, member đổi được', async () => {
+    const viewer = setup({ roles: { u1: 'viewer' } });
+    await expect(
+      viewer.service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION),
+    ).rejects.toMatchObject({ code: 'PROJECT_ROLE_FORBIDDEN' });
+    expect(viewer.replaced).toEqual([]);
+    const member = setup({ roles: { u1: 'member' } });
+    await expect(
+      member.service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION),
+    ).resolves.toBeDefined();
+  });
+
+  it.each([
+    ['nhóm công việc', { itemType: 'phase' as const }],
+    ['việc đã huỷ', { status: 'cancelled' as const }],
+    [
+      'việc đã huỷ hiệu lực',
+      { reversal: { reason: 'x', reversedBy: 'u', reversedAt: '2026-09-01T00:00:00.000Z' } as never },
+    ],
+  ])('%s không đổi quy trình', async (_name, overrides) => {
+    const { service, replaced } = setup({ items: [item({ id: 'w1', ...overrides })] });
+    await expect(service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(replaced).toEqual([]);
+  });
+
+  it('Quy trình từ chối: báo đúng lý do và không đổi gì ở Workspace', async () => {
+    const { service, swaps } = setup({
+      replace: async () => ({ ok: false, reason: 'Hồ sơ đã được xử lý nên không đổi quy trình được.' }),
+    });
+    await expect(service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'Hồ sơ đã được xử lý nên không đổi quy trình được.',
+    });
+    expect(swaps).toEqual([]);
+  });
+
+  it('lỗi hạ tầng từ Quy trình thành thông báo dễ hiểu (không lộ lỗi 500) và không đổi gì ở Workspace', async () => {
+    const { service, swaps } = setup({
+      replace: async () => {
+        throw new Error('Quy trình không trả lời (503).');
+      },
+    });
+    await expect(service.changeProcedure(actorOf('u1'), 'w1', NEW_DEFINITION)).rejects.toMatchObject({
+      code: 'VALIDATION',
+      message: 'Chưa nhận được phản hồi từ module Quy trình. Hãy tải lại trang để xem hồ sơ hiện tại rồi thử lại.',
+    });
+    expect(swaps).toEqual([]);
+  });
+});
+
+describe('WorkItemService cổng liên kết quy trình', () => {
+  const DEFINITION = '6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b';
+
+  function setup(items: WorkItem[], procedureLink: Record<string, string>) {
+    const { store } = makeStore({ items, roles: { u1: 'manager' } });
+    Object.assign(store, {
+      settings: {
+        get: async (_tenant: string, key: string) => (key === 'procedure_link' ? procedureLink : undefined),
+      },
+      externalRef: { listByEntity: async () => [] },
+      procedureRequest: { listByProject: async () => [], request: async () => ({ status: 'pending' }) as never },
+    });
+    return serviceFor(store);
+  }
+
+  it('block: chặn sửa tiến độ nhập tay và báo cáo tiến độ của việc chạy theo quy trình', async () => {
+    const service = setup([item({ id: 'w1', executionType: 'procedure', status: 'in_progress' })], {
+      manualProgressWhenLinked: 'block',
+    });
+    await expect(service.update(actorOf('u1'), 'w1', { manualProgressPercent: 40 })).rejects.toThrow(
+      /hồ sơ quy trình/,
+    );
+    // `progressPercent` là đường kéo tiến độ từ hồ sơ về, không bị chặn bởi cài đặt này.
+    await expect(service.reportProgress(actorOf('u1'), 'w1', { percent: 40 })).rejects.toThrow(/hồ sơ quy trình/);
+  });
+
+  it('block: việc thủ công không bị chặn', async () => {
+    const service = setup([item({ id: 'w2', executionType: 'manual', status: 'in_progress' })], {
+      manualProgressWhenLinked: 'block',
+    });
+    const outcome = await service.reportProgress(actorOf('u1'), 'w2', { percent: 40 }).then(
+      () => '',
+      (error: Error) => error.message,
+    );
+    expect(outcome).not.toMatch(/hồ sơ quy trình/);
+  });
+
+  it('open_only: không tạo hồ sơ cho việc đã hoàn thành', async () => {
+    const service = setup([item({ id: 'w3', status: 'done' })], { startProcedureStatusGate: 'open_only' });
+    await expect(service.requestProcedure(actorOf('u1'), 'w3', DEFINITION)).rejects.toThrow(/đã đóng/);
+  });
+
+  it('any: vẫn tạo hồ sơ cho việc đã hoàn thành', async () => {
+    const service = setup([item({ id: 'w4', status: 'done' })], { startProcedureStatusGate: 'any' });
+    await expect(service.requestProcedure(actorOf('u1'), 'w4', DEFINITION)).resolves.toBeDefined();
+  });
+
+  it('open_only: không đổi quy trình của việc đã hoàn thành', async () => {
+    const service = setup([item({ id: 'w5', status: 'done' })], { changeProcedureStatusGate: 'open_only' });
+    await expect(service.changeProcedure(actorOf('u1'), 'w5', DEFINITION)).rejects.toThrow(/đã đóng/);
   });
 });

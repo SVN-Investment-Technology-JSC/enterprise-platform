@@ -26,6 +26,7 @@ import {
   monthDays,
   workdaysCsv,
 } from '../project-workday.model';
+import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import * as api from '../workspace-api';
 import {
   formatDateTime,
@@ -38,6 +39,7 @@ import { Dialog } from './dialog';
 import { RequestDetailList } from './request-detail-list';
 import { ReverseProjectRequestDialog } from './reverse-project-request-dialog';
 import { initials } from './project-header';
+import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { useDirectory } from './use-directory';
 import { MonthPickField } from './month-pick-field';
 import { useFillViewportHeight } from './use-fill-viewport';
@@ -57,6 +59,28 @@ function formatRange(from?: string, to?: string): string {
   if (!from && !to) return '—';
   return from === to || !to ? formatDay(from) : `${formatDay(from)} – ${formatDay(to)}`;
 }
+
+type RequestColumn = 'request' | 'requester' | 'period' | 'status' | 'submittedAt' | 'procedure';
+
+/** Thứ tự cột mặc định của bảng đơn từ; người dùng kéo tiêu đề để đổi. */
+const REQUEST_COLUMNS: readonly RequestColumn[] = [
+  'request',
+  'requester',
+  'period',
+  'status',
+  'submittedAt',
+  'procedure',
+];
+const REQUEST_ALL_IDS: readonly string[] = REQUEST_COLUMNS;
+const REQUEST_PINNED: readonly string[] = ['request'];
+const REQUEST_HEAD_LABELS: Record<RequestColumn, string> = {
+  request: 'Đơn từ',
+  requester: 'Người gửi',
+  period: 'Thời gian',
+  status: 'Trạng thái',
+  submittedAt: 'Ngày gửi',
+  procedure: 'Quy trình',
+};
 
 /* ------------------------------------------------------------ Lọc và sắp xếp */
 
@@ -150,6 +174,8 @@ export function TabRequests({
   readonly currentUserId: string;
 }) {
   const directory = useDirectory();
+  const columns = useColumnOrder('project-requests', currentUserId, REQUEST_COLUMNS, REQUEST_PINNED);
+  const sizing = useColumnWidths('project-requests', currentUserId, REQUEST_ALL_IDS);
   const [items, setItems] = useState<readonly ProjectRequest[]>();
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<ProjectRequest>();
@@ -550,6 +576,7 @@ export function TabRequests({
             ) : null}
           </div>
           <div className={styles.reqHeadRight}>
+            <ResetColumnLayoutButton order={columns} sizing={sizing} />
             <button type="button" className={styles.buttonGhost} onClick={() => setReportOpen(true)}>
               <FileBarChart size={14} aria-hidden /> Báo cáo công tác
             </button>
@@ -560,15 +587,26 @@ export function TabRequests({
         </header>
 
         <div className={styles.ledgerScroll}>
-          <table className={`${styles.table} ${styles.wbsTable} ${styles.ledgerTable}`}>
+          <table
+            className={`${styles.table} ${styles.wbsTable} ${styles.ledgerTable} ${sizing.customized ? styles.columnsResized : ''}`}
+            style={explicitTableStyle(columns.order, sizing.widths)}
+          >
             <thead>
               <tr>
-                <th>Đơn từ</th>
-                <th>Người gửi</th>
-                <th>Thời gian</th>
-                <th>Trạng thái</th>
-                <th>Ngày gửi</th>
-                <th>Quy trình</th>
+                {columns.order.map((id) => (
+                  <ReorderableTh
+                    key={id}
+                    tableKey="project-requests"
+                    id={id}
+                    order={columns.order}
+                    pinned={REQUEST_PINNED}
+                    onMove={columns.move}
+                    sizing={sizing}
+                    label={REQUEST_HEAD_LABELS[id as RequestColumn]}
+                  >
+                    {REQUEST_HEAD_LABELS[id as RequestColumn]}
+                  </ReorderableTh>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -599,9 +637,9 @@ export function TabRequests({
               ) : null}
               {visible.map((item) => {
                 const tone = PROJECT_REQUEST_STATUS_TONE[item.status];
-                return (
-                  <tr key={item.id} onClick={() => setSelected(item)}>
-                    <td>
+                const cells: Record<RequestColumn, ReactNode> = {
+                  request: (
+                    <td key="request">
                       <span className={styles.wbsName}>
                         <Tooltip content={`${item.code} · ${item.requestTypeLabel}`}>
                           <span className={styles.wbsTitle}>
@@ -620,20 +658,26 @@ export function TabRequests({
                         ) : null}
                       </span>
                     </td>
-                    <td>
+                  ),
+                  requester: (
+                    <td key="requester">
                       <span className={styles.wbsPerson}>
                         <span className={styles.avatarSmall}>{initials(nameOf(item))}</span>
                         {nameOf(item)}
                       </span>
                     </td>
-                    <td>{formatRange(item.fromDate, item.toDate)}</td>
-                    <td>
+                  ),
+                  period: <td key="period">{formatRange(item.fromDate, item.toDate)}</td>,
+                  status: (
+                    <td key="status">
                       <span className={styles.pill} style={{ background: tone.bg, color: tone.fg }}>
                         {PROJECT_REQUEST_STATUS_LABELS[item.status]}
                       </span>
                     </td>
-                    <td>{formatDateTime(item.submittedAt)}</td>
-                    <td>
+                  ),
+                  submittedAt: <td key="submittedAt">{formatDateTime(item.submittedAt)}</td>,
+                  procedure: (
+                    <td key="procedure">
                       {item.procedureInstanceCode || item.procedureInstanceId ? (
                         <a
                           className={styles.wbsProcedure}
@@ -645,6 +689,11 @@ export function TabRequests({
                         </a>
                       ) : null}
                     </td>
+                  ),
+                };
+                return (
+                  <tr key={item.id} onClick={() => setSelected(item)}>
+                    {columns.order.map((id) => cells[id as RequestColumn])}
                   </tr>
                 );
               })}

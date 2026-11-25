@@ -10,6 +10,8 @@ const config = {
   transform: {
     '^(?!.*\\.(js|jsx|ts|tsx|css|json)$)': '@nx/react/plugins/jest',
   },
+  // Logic thuần của feature đặt kiểm thử ngay cạnh mã nguồn của nó.
+  roots: ['<rootDir>/src', '<rootDir>/specs', '<rootDir>/../../packages/features/workspace/src'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   coverageDirectory: '../../coverage/apps/maintenance-web',
   testEnvironment: 'jsdom',

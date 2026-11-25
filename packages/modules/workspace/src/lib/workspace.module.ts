@@ -45,6 +45,7 @@ import { ReportService } from './application/report.service.js';
 import { StandaloneTaskService } from './application/standalone-task.service.js';
 import { WorkItemService } from './application/work-item.service.js';
 import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
+import { HttpProcedureInstanceReplacer } from './infrastructure/http-procedure-instance-replacer.js';
 import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
@@ -162,7 +163,13 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       // phụ thuộc này là một chiều: project không biết gì về work item.
       provide: WorkItemService,
       useFactory: (store: WorkspaceStore, projects: ProjectService, fleet: FleetTransportService) =>
-        new WorkItemService(store, projects, new HttpProcedureReversalChecker(), fleet),
+        new WorkItemService(
+          store,
+          projects,
+          new HttpProcedureReversalChecker(),
+          fleet,
+          new HttpProcedureInstanceReplacer(),
+        ),
       inject: [WORKSPACE_STORE, ProjectService, FleetTransportService],
     },
     {

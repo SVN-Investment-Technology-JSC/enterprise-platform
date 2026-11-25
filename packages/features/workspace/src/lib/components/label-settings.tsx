@@ -10,6 +10,9 @@ import { useEffect, useState } from 'react';
 import * as api from '../workspace-api';
 import { applyLabelSettings, toneOfColor } from '../workspace-labels';
 import styles from '../workspace.module.scss';
+import { ErrorToast } from './error-toast';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { Tooltip } from './tooltip';
 
 /** Màu chọn nhanh cho trạng thái và mức ưu tiên; gồm cả các màu mặc định. */
@@ -136,11 +139,7 @@ export function LabelSettings() {
         onChange={(next) => setGroup('priorities', next)}
       />
 
-      {error ? (
-        <p role="alert" className={styles.alert}>
-          {error}
-        </p>
-      ) : null}
+      <ErrorToast message={error} />
       {notice ? (
         <p role="status" className={styles.notice}>
           {notice}
@@ -149,14 +148,9 @@ export function LabelSettings() {
 
       {canEdit ? (
         <div>
-          <button
-            type="button"
-            className={styles.buttonPrimary}
-            disabled={saving || !changed}
-            onClick={() => void save()}
-          >
+          <Button type="button" disabled={saving || !changed} onClick={() => void save()}>
             {saving ? 'Đang lưu…' : 'Lưu cài đặt'}
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>
@@ -193,13 +187,14 @@ function OptionTable({
       <div className={`${styles.roleSettingsHead} ${styles.labelTableHead}`}>
         <strong>{title}</strong>
         {canEdit && removable ? (
-          <button
+          <Button
             type="button"
-            className={styles.buttonSmall}
+            variant="outline"
+            size="sm"
             onClick={() => onChange([...options, { label: '', color: LABEL_COLORS[0] as string }])}
           >
-            <Plus size={13} /> Thêm mức
-          </button>
+            <Plus aria-hidden /> Thêm mức
+          </Button>
         ) : null}
       </div>
       <table className={styles.table}>
@@ -222,7 +217,8 @@ function OptionTable({
                   </span>
                 </td>
                 <td>
-                  <input
+                  <Input
+                    className="w-40"
                     value={option.label}
                     maxLength={40}
                     disabled={!canEdit}
@@ -254,40 +250,44 @@ function OptionTable({
                     <span className={styles.roleActions}>
                       <Tooltip content="Lên trên">
                         <span className={styles.tooltipAnchor}>
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
                             aria-label="Lên trên"
                             disabled={index === 0}
                             onClick={() => move(index, -1)}
                           >
-                            <ArrowUp size={13} />
-                          </button>
+                            <ArrowUp aria-hidden />
+                          </Button>
                         </span>
                       </Tooltip>
                       <Tooltip content="Xuống dưới">
                         <span className={styles.tooltipAnchor}>
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
                             aria-label="Xuống dưới"
                             disabled={index === options.length - 1}
                             onClick={() => move(index, 1)}
                           >
-                            <ArrowDown size={13} />
-                          </button>
+                            <ArrowDown aria-hidden />
+                          </Button>
                         </span>
                       </Tooltip>
                       {removable && option.key !== DEFAULT_WORK_ITEM_PRIORITY ? (
                         <Tooltip content="Xoá mức này">
-                          <button
+                          <Button
                             type="button"
-                            className={styles.iconButton}
+                            variant="outline"
+                            size="icon-sm"
+                            className="hover:bg-destructive/10 hover:text-destructive"
                             aria-label={`Xoá ${option.label}`}
                             onClick={() => onChange(options.filter((_, at) => at !== index))}
                           >
-                            <Trash2 size={13} />
-                          </button>
+                            <Trash2 aria-hidden />
+                          </Button>
                         </Tooltip>
                       ) : null}
                     </span>
