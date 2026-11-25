@@ -1433,6 +1433,26 @@ export const CHAT_UNREAD_POLL_MS = 30_000;
  */
 export const CHAT_PAGE_SIZE = 10;
 
+/**
+ * Trần số tin của một lần mở luồng "từ tin cần xem tới tin mới nhất" (đi từ thông báo nhắc tên).
+ *
+ * Lớn hơn `CHAT_PAGE_SIZE` có chủ đích: tin được nhắc có thể đã nằm dưới vài chục tin mới hơn, và một truy vấn
+ * duy nhất rẻ hơn nhiều lần tải từng trang 10 tin. Vượt trần thì trả trang mới nhất như bình thường.
+ */
+export const CHAT_JUMP_MAX_MESSAGES = 300;
+
+/** Số tin cũ hơn tin đích kèm theo khi mở từ thông báo, để người đọc thấy ngữ cảnh phía trên. */
+export const CHAT_JUMP_CONTEXT_MESSAGES = 5;
+
+/** Chỗ của một tin nhắn: node chứa nó, để mở đúng việc hoặc dự án rồi cuộn tới tin. */
+export interface ChatMessageLocation {
+  readonly messageId: string;
+  readonly channelId: string;
+  readonly entityType: ChatEntityType;
+  readonly entityId: string;
+  readonly projectId: string;
+}
+
 export interface ChatMessage {
   readonly id: string;
   readonly channelId: string;
@@ -1470,6 +1490,11 @@ export interface ChatThread {
   readonly messages: readonly ChatMessage[];
   /** Còn tin cũ hơn tin đầu danh sách; xin trang kế bằng `before` = id tin đầu. */
   readonly hasMore?: boolean;
+  /**
+   * Chỉ có khi xin theo `until`: `true` nếu danh sách bắt đầu đúng từ tin đó (giao diện cuộn tới nó), `false` nếu
+   * không dùng được (tin không thuộc luồng này hoặc quá xa) và đây là trang mới nhất như bình thường.
+   */
+  readonly focusFound?: boolean;
   /**
    * Mỗi người đã đọc tới tin nào (chỉ có ở trang mới nhất). Dùng id tin chứ không
    * dùng thời điểm để so với tin mới nhất không bao giờ sai vì làm tròn mili giây.

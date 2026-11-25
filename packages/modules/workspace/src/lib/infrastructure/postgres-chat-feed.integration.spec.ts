@@ -229,6 +229,62 @@ integration('Workspace: trao đổi công việc theo trang (PostgreSQL)', () =>
     expect(await snapshot()).toEqual(before);
   });
 
+  it('listMessagesFrom: từ tin đích tới mới nhất trong một truy vấn, đúng biên hasMore và trần, không lấy tin kênh khác', async () => {
+    const node = await item(projectId, 'Mở từ tin được nhắc');
+    const sent = [];
+    for (let index = 0; index < 8; index += 1) sent.push(await say('work_item', node.id, projectId, `tin ${index}`));
+    const channelId = sent[0].channelId;
+
+    const bodies = (page: { messages: readonly { body: string }[] } | undefined) => page?.messages.map((m) => m.body);
+
+    // Tin giữa luồng: 2 tin ngữ cảnh phía trên, rồi chính nó tới tin mới nhất (cũ → mới); còn tin cũ hơn nữa.
+    const middle = await store.chat.listMessagesFrom(tenantId, channelId, sent[3].id, 100, 2);
+    expect(bodies(middle)).toEqual(['tin 1', 'tin 2', 'tin 3', 'tin 4', 'tin 5', 'tin 6', 'tin 7']);
+    expect(middle?.hasMore).toBe(true);
+
+    // Ngữ cảnh vừa chạm tin đầu tiên của kênh: không còn tin cũ hơn.
+    const exact = await store.chat.listMessagesFrom(tenantId, channelId, sent[3].id, 100, 3);
+    expect(exact?.messages).toHaveLength(8);
+    expect(exact?.hasMore).toBe(false);
+    // Ngữ cảnh rộng hơn số tin sẵn có cũng không lỗi.
+    expect((await store.chat.listMessagesFrom(tenantId, channelId, sent[3].id, 100, 50))?.hasMore).toBe(false);
+
+    // Tin cũ nhất: không có ngữ cảnh, không còn tin cũ hơn. Tin mới nhất: ngữ cảnh + chính nó.
+    const oldest = await store.chat.listMessagesFrom(tenantId, channelId, sent[0].id, 100, 2);
+    expect(oldest?.messages).toHaveLength(8);
+    expect(oldest?.hasMore).toBe(false);
+    const newest = await store.chat.listMessagesFrom(tenantId, channelId, sent[7].id, 100, 2);
+    expect(bodies(newest)).toEqual(['tin 5', 'tin 6', 'tin 7']);
+    expect(newest?.hasMore).toBe(true);
+
+    // Trần chỉ tính phần từ tin đích tới mới nhất (5 tin), không tính ngữ cảnh: 5 dùng được, 4 vượt trần nên bỏ.
+    expect((await store.chat.listMessagesFrom(tenantId, channelId, sent[3].id, 5, 2))?.messages).toHaveLength(7);
+    expect(await store.chat.listMessagesFrom(tenantId, channelId, sent[3].id, 4, 2)).toBeUndefined();
+
+    // Tin của kênh khác, hay id không tồn tại: không dùng được.
+    const other = await item(projectId, 'Kênh khác');
+    const stray = await say('work_item', other.id, projectId, 'tin lạc kênh');
+    expect(await store.chat.listMessagesFrom(tenantId, channelId, stray.id, 100, 2)).toBeUndefined();
+    expect(await store.chat.listMessagesFrom(tenantId, channelId, randomUUID(), 100, 2)).toBeUndefined();
+
+    // Cả đường service: định vị tin, rồi mở luồng từ tin đó.
+    const chat = new ChatService(store, new ProjectService(store));
+    expect(await chat.locate(actor, sent[3].id)).toEqual({
+      messageId: sent[3].id,
+      channelId,
+      entityType: 'work_item',
+      entityId: node.id,
+      projectId,
+    });
+    const thread = await chat.thread(actor, 'work_item', node.id, undefined, sent[3].id);
+    expect(thread.focusFound).toBe(true);
+    // Có ngữ cảnh phía trên (tối đa CHAT_JUMP_CONTEXT_MESSAGES tin; kênh này chỉ có 3 tin cũ hơn tin đích).
+    expect(thread.messages.map((m) => m.body)).toEqual([
+      'tin 0', 'tin 1', 'tin 2', 'tin 3', 'tin 4', 'tin 5', 'tin 6', 'tin 7',
+    ]);
+    expect(thread.hasMore).toBe(false);
+  });
+
   describe('dòng thời gian và trả lời', () => {
     it('xếp tin của mọi công việc (và chat chung) theo giờ, bỏ tin thu hồi và tin dự án khác, kèm tin gốc của trả lời', async () => {
       const timelineProject = (await store.project.create(tenantId, owner, { code: 'QA-TL', name: 'Dòng thời gian' } as never)).id;

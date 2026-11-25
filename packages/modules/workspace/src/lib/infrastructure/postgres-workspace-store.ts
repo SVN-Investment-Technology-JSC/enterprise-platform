@@ -3331,6 +3331,44 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return { messages, hasMore };
     },
 
+    listMessagesFrom: async (
+      tenantId: string,
+      channelId: string,
+      untilMessageId: string,
+      limit: number,
+      contextBefore: number,
+    ) => {
+      const pool = await this.poolFor(tenantId);
+      // Truy vấn thứ nhất lấy từ tin đích tới tin mới nhất, so cặp (created_at, id) như `listMessages`. Tin không
+      // thuộc kênh thì mốc là NULL, phép so cho 0 dòng. Lấy dư một dòng để biết có vượt trần hay không.
+      const result = await pool.query<Row>(
+        `SELECT ${MESSAGE_COLUMNS} FROM workspace_schema.chat_messages
+          WHERE channel_id = $1
+            AND (created_at, id) >= (
+                  SELECT created_at, id FROM workspace_schema.chat_messages
+                   WHERE id = $3 AND channel_id = $1)
+          ORDER BY created_at DESC, id DESC
+          LIMIT $2`,
+        [channelId, limit + 1, untilMessageId],
+      );
+      if (result.rows.length === 0 || result.rows.length > limit) return undefined;
+      // Truy vấn thứ hai: vài tin ngay trước tin đích làm ngữ cảnh. Lấy dư một dòng để biết còn tin cũ hơn nữa không.
+      const context = await pool.query<Row>(
+        `SELECT ${MESSAGE_COLUMNS} FROM workspace_schema.chat_messages
+          WHERE channel_id = $1
+            AND (created_at, id) < (
+                  SELECT created_at, id FROM workspace_schema.chat_messages
+                   WHERE id = $3 AND channel_id = $1)
+          ORDER BY created_at DESC, id DESC
+          LIMIT $2`,
+        [channelId, contextBefore + 1, untilMessageId],
+      );
+      return {
+        messages: [...context.rows.slice(0, contextBefore).reverse(), ...[...result.rows].reverse()].map(mapMessage),
+        hasMore: context.rows.length > contextBefore,
+      };
+    },
+
     listProjectFeedPage: async (
       tenantId: string,
       projectId: string,

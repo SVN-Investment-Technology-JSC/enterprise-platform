@@ -4,6 +4,8 @@ import {
   CHAT_FEED_PAGE_SIZES,
   CHAT_FEED_SEARCH_MAX_LENGTH,
   CHAT_FEED_THREAD_LIMIT,
+  CHAT_JUMP_CONTEXT_MESSAGES,
+  CHAT_JUMP_MAX_MESSAGES,
   CHAT_PAGE_SIZE,
   CHAT_TIMELINE_MAX_FILTER_VALUES,
   CHAT_TIMELINE_MAX_QUERY_LENGTH,
@@ -13,6 +15,7 @@ import {
   MAX_CHAT_BODY_LENGTH,
   type ChatEntityType,
   type ChatMessage,
+  type ChatMessageLocation,
   type ChatTimelineFilter,
   type ChatThread,
   type ChatTypingRecipients,
@@ -59,9 +62,13 @@ export class ChatService {
     entityType: string,
     entityId: string,
     before?: string,
+    until?: string,
   ): Promise<ChatThread> {
     if (before !== undefined && !UUID.test(before)) {
       throw new WorkspaceValidationError('Mốc phân trang "before" phải là id tin nhắn.');
+    }
+    if (until !== undefined && !UUID.test(until)) {
+      throw new WorkspaceValidationError('Mốc "until" phải là id tin nhắn.');
     }
     const target = await this.resolve(actor, entityType, entityId);
     const channel = await this.store.chat.findChannel(
@@ -71,12 +78,21 @@ export class ChatService {
     );
     if (!channel) return { messages: [], hasMore: false };
 
-    const page = await this.store.chat.listMessages(
-      actor.tenantId,
-      channel.id,
-      CHAT_PAGE_SIZE,
-      before,
-    );
+    // `until` (đi từ thông báo nhắc tên): lấy một lượt từ tin đó tới tin mới nhất để giao diện cuộn tới nó, thay vì
+    // tải từng trang cũ. Chỉ khi không kèm `before`; không dùng được thì rơi về trang mới nhất như thường.
+    const jump =
+      until && !before
+        ? await this.store.chat.listMessagesFrom(
+            actor.tenantId,
+            channel.id,
+            until,
+            CHAT_JUMP_MAX_MESSAGES,
+            CHAT_JUMP_CONTEXT_MESSAGES,
+          )
+        : undefined;
+    const page =
+      jump ?? (await this.store.chat.listMessages(actor.tenantId, channel.id, CHAT_PAGE_SIZE, before));
+    const focusFound = until && !before ? { focusFound: jump !== undefined } : {};
     // Xin trang cũ hơn chỉ là cuộn lại quá khứ, không phải xem thêm tin mới.
     if (before) return { channel, messages: page.messages, hasMore: page.hasMore };
 
@@ -89,7 +105,29 @@ export class ChatService {
       });
     }
     const readers = await this.store.chat.listReaders(actor.tenantId, channel.id);
-    return { channel, messages: page.messages, hasMore: page.hasMore, readers };
+    return { channel, messages: page.messages, hasMore: page.hasMore, readers, ...focusFound };
+  }
+
+  /**
+   * Tin nhắn nằm ở node nào, để link thông báo mở đúng việc hoặc dự án rồi cuộn tới tin.
+   *
+   * Hai truy vấn theo khoá chính, không phụ thuộc danh sách nhắc tên (vốn chỉ giữ ít tin mới nhất). Quyền
+   * suy từ dự án chứa kênh, như `loadMessage`: người ngoài dự án nhận 403 mà không biết tin có tồn tại.
+   */
+  async locate(actor: WorkspaceActor, messageId: string): Promise<ChatMessageLocation> {
+    if (!UUID.test(messageId)) throw new ChatMessageNotFoundError(messageId);
+    const message = await this.store.chat.findMessage(actor.tenantId, messageId);
+    if (!message) throw new ChatMessageNotFoundError(messageId);
+    const channel = await this.store.chat.findChannelById(actor.tenantId, message.channelId);
+    if (!channel) throw new ChatMessageNotFoundError(messageId);
+    await this.projects.access(actor, channel.projectId);
+    return {
+      messageId: message.id,
+      channelId: channel.id,
+      entityType: channel.entityType,
+      entityId: channel.entityId,
+      projectId: channel.projectId,
+    };
   }
 
   /**

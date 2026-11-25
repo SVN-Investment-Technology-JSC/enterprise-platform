@@ -926,6 +926,18 @@ export interface WorkspaceStore {
       beforeMessageId?: string,
     ): Promise<{ readonly messages: readonly ChatMessage[]; readonly hasMore: boolean }>;
     /**
+     * `contextBefore` tin liền trước `untilMessageId`, rồi mọi tin từ nó (gồm cả nó) tới tin mới nhất, cũ → mới.
+     * `hasMore` báo còn tin cũ hơn tin đầu danh sách. `undefined` khi tin không thuộc kênh này hoặc phần từ nó
+     * tới mới nhất vượt `limit` tin (không dùng được, nơi gọi lấy trang mới nhất như bình thường).
+     */
+    listMessagesFrom(
+      tenantId: string,
+      channelId: string,
+      untilMessageId: string,
+      limit: number,
+      contextBefore: number,
+    ): Promise<{ readonly messages: readonly ChatMessage[]; readonly hasMore: boolean } | undefined>;
+    /**
      * Một trang trao đổi của các công việc trong dự án: công việc có tin mới nhất trước, rồi công việc
      * chưa có tin. Chỉ đọc: không đánh dấu đã đọc, không gồm chat chung của dự án.
      */

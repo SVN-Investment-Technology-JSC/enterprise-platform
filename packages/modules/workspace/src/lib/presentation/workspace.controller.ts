@@ -870,10 +870,20 @@ export class WorkspaceController {
     @Param('entityType') entityType: string,
     @Param('entityId') entityId: string,
     @Query('before') before?: string,
+    @Query('until') until?: string,
   ) {
     return this.execute(() =>
-      this.chat.thread(this.actor(request), entityType, entityId, before || undefined),
+      this.chat.thread(this.actor(request), entityType, entityId, before || undefined, until || undefined),
     );
+  }
+
+  /**
+   * Tin nhắn nằm ở node nào (cho link thông báo nhắc tên). Ba đoạn đường dẫn nên không bị
+   * `chat/:entityType/:entityId` bắt nhầm.
+   */
+  @Get('chat/messages/:id/location')
+  chatMessageLocation(@Req() request: WorkspaceRequest, @Param('id') id: string) {
+    return this.execute(() => this.chat.locate(this.actor(request), id));
   }
 
   /**
