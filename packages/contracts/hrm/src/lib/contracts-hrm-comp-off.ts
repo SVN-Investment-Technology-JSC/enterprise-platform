@@ -252,6 +252,30 @@ export interface HrmCompOffConversionPreview {
   readonly rows: readonly HrmCompOffConversionRow[];
 }
 
+/** Một nhân viên trong kế hoạch đảo quỹ đã cộng của tháng khi mở lại kỳ công. */
+export interface HrmCompOffReversalRow {
+  readonly employeeId: string;
+  readonly employeeName: string | null;
+  readonly employeeCode: string | null;
+  /** Số ngày đã cộng của tháng (còn hiệu lực, đã trừ phần đã đảo). */
+  readonly granted: number;
+  /** Số ngày sẽ đảo: chỉ phần còn lại của lô, không bao giờ làm quỹ âm. */
+  readonly reversible: number;
+  /** Phần đã dùng (hoặc hết hạn): giữ nguyên, không đảo. */
+  readonly kept: number;
+  /** Số ngày đang giữ chỗ cho đơn nghỉ bù chờ duyệt: phải xử lý đơn trước khi mở lại. */
+  readonly held: number;
+}
+
+export interface HrmCompOffReversalPreview {
+  readonly month: string;
+  readonly rows: readonly HrmCompOffReversalRow[];
+  readonly totalReversible: number;
+  readonly totalKept: number;
+  /** Còn đơn nghỉ bù chờ duyệt đang giữ chỗ trong quỹ của tháng này: chặn mở lại. */
+  readonly blocked: boolean;
+}
+
 export interface ConfirmHrmCompOffConversionRequest {
   readonly month: string;
   readonly rows: readonly {

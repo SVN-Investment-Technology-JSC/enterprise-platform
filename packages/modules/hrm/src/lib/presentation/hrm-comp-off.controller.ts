@@ -23,6 +23,7 @@ import {
   expireCompOffLots,
   importCompOffAdjustments,
   listCompOffBalances,
+  planMonthAccrualReversal,
   previewCompOffConversion,
   reverseCompOffAdjustment,
 } from '../infrastructure/hrm-comp-off.js';
@@ -192,9 +193,11 @@ export class HrmCompOffController {
   /** Quỹ nghỉ bù đang bật hay tắt trong cấu hình, để màn hình báo cho người dùng. */
   @Get('comp-off/status')
   @RequirePermission('hrm.comp_off.view')
-  async status(@Req() req: Request) {
+  async status(@Req() req: Request, @Query('month') month?: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.comp_off.view');
-    return { data: await compOffStatus(pool, tenantId, todayInVietnam()), meta: meta(req) };
+    // Có `month`: cấu hình có hiệu lực tại mùng 1 của tháng đó (chốt công tháng sau có thể khác tháng này).
+    const asOf = month ? `${parseMonth(month).month}-01` : todayInVietnam();
+    return { data: await compOffStatus(pool, tenantId, asOf), meta: meta(req) };
   }
 
   @Get('comp-off/balances')
@@ -221,6 +224,14 @@ export class HrmCompOffController {
   async detail(@Req() req: Request, @Param('employeeId') employeeId: string) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.comp_off.view');
     return { data: await compOffDetail(pool, tenantId, requireUuid(employeeId, 'employeeId'), todayInVietnam()), meta: meta(req) };
+  }
+
+  /** Số ngày sẽ đảo khi mở lại kỳ công của tháng đã cộng quỹ (xem trước, không ghi). */
+  @Get('comp-off/accrual-reversal-preview')
+  @RequirePermission('hrm.comp_off.view')
+  async accrualReversalPreview(@Req() req: Request, @Query('month') month?: string) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.comp_off.view');
+    return { data: await planMonthAccrualReversal(pool, tenantId, parseMonth(month).month), meta: meta(req) };
   }
 
   @Get('comp-off/conversion-preview')

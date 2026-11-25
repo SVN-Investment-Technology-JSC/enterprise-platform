@@ -139,7 +139,7 @@ describe('Quỹ nghỉ bù: chuyển đổi tháng', () => {
     expect(screen.queryByText(/Chuyển đổi \d+ nhân viên/)).toBeNull();
   });
 
-  it('chọn dòng, chỉnh số ngày bắt buộc có lý do rồi mới gửi; gửi đúng nội dung', async () => {
+  it('chọn dòng, chỉnh số ngày không cần lý do; gửi đúng nội dung', async () => {
     mockActions.add('hrm.comp_off.convert');
     api.conversionPreview.mockResolvedValue(preview());
     api.convert.mockResolvedValue({ month: '2026-10', created: 1, skipped: [] });
@@ -149,14 +149,11 @@ describe('Quỹ nghỉ bù: chuyển đổi tháng', () => {
     expect(button.disabled).toBe(false);
 
     fireEvent.change(screen.getByLabelText('Số ngày nghỉ bù của Nhân viên 1'), { target: { value: '4' } });
-    expect(screen.getByText('Cần nhập lý do khi khác số đề xuất')).toBeTruthy();
-    expect(button.disabled).toBe(true);
-
-    fireEvent.change(screen.getByLabelText('Lý do chỉnh số ngày của Nhân viên 1'), { target: { value: 'HR xác nhận' } });
+    expect(screen.queryByLabelText('Lý do chỉnh số ngày của Nhân viên 1')).toBeNull();
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
     await waitFor(() =>
-      expect(api.convert).toHaveBeenCalledWith({ month: expect.stringMatching(/^\d{4}-\d{2}$/), rows: [{ employeeId: 'e1', days: 4, reason: 'HR xác nhận' }] }),
+      expect(api.convert).toHaveBeenCalledWith({ month: expect.stringMatching(/^\d{4}-\d{2}$/), rows: [{ employeeId: 'e1', days: 4 }] }),
     );
   });
 
