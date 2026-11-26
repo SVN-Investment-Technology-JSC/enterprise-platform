@@ -44,7 +44,8 @@ export interface NodeHeaderProps {
   readonly onAddChild: () => void;
   /** Số tin chưa đọc của node đang đứng, đã cộng dồn nhánh con. */
   readonly unread: number;
-  readonly onOpenChat: () => void;
+  /** Vắng thì không có nút Trao đổi (chi tiết công việc có tab Trao đổi riêng). */
+  readonly onOpenChat?: () => void;
   /**
    * Nút "⋯" cạnh Trao đổi: mở menu đủ lệnh của node, cùng menu với chuột phải
    * trên cây. Dòng dự án nằm ở thanh bên nên đây là chỗ mở menu của dự án.
@@ -177,7 +178,7 @@ export function NodeHeader({
         ) : null}
 
         {(() => {
-          const chatButton = (
+          const chatButton = onOpenChat ? (
             <Button
               type="button"
               variant="outline"
@@ -191,7 +192,7 @@ export function NodeHeader({
                 <span className={styles.countBadge}>{unread}</span>
               ) : null}
             </Button>
-          );
+          ) : null;
           const moreButton = onMore ? (
             <Tooltip content="Thêm thao tác">
               <Button

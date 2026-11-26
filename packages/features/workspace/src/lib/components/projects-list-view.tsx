@@ -18,7 +18,8 @@ import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { matchProjectFilter, type ProjectFilter } from '../project-filter.model';
 import { compareByColumn, nextColumnSort, type ProjectColumnSort, type ProjectSortColumn } from '../project-column-sort';
 import { earliestStartDate, isProjectOverdue, nextEndDate } from '../project-dates';
-import { mergeNewProjectMembers } from '../project-tree.model';
+import { finishProjectCreate } from '../related-objects-link';
+import type { PendingRelatedObject } from '../related-objects.model';
 import {
   clearReturnedProject,
   markProjectOpened,
@@ -494,20 +495,14 @@ export function ProjectsListView({
       input: CreateProjectRequest,
       contractValue?: number | null,
       members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>,
+      relatedObjects?: readonly PendingRelatedObject[],
     ) => {
       const created = await api.createProject(input);
       const warning = initialTasksWarning(created);
       if (warning) toast.warning(warning);
-      // Số tiền và thành viên đi đường riêng, cùng cách như trong ProjectsView.
-      if (contractValue !== undefined) {
-        await api.updateProjectFinance(created.id, { contractValue });
-      }
-      if (members && members.length > 0) {
-        const existing = await api.listMembers(created.id);
-        await api.setMembers(created.id, {
-          members: mergeNewProjectMembers(existing.items, members),
-        });
-      }
+      // Số tiền, thành viên và đối tượng liên quan đi đường riêng, cùng cách như trong ProjectsView.
+      const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects });
+      for (const text of warnings) toast.warning(text);
       await reload();
       onProjectsChanged?.();
       onOpenProject(created.id);

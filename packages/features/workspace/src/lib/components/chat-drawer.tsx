@@ -104,6 +104,11 @@ export interface ChatDrawerProps {
    * Mỗi lần mở chỉ áp một lần; tin nằm quá xa thì giữ trang mới nhất và báo ngắn.
    */
   readonly focusMessageId?: string;
+  /**
+   * Nằm ngay trong trang (dưới các tab của chi tiết công việc) thay vì ngăn kéo trượt từ cạnh phải: không lớp mờ,
+   * không nút đóng, Esc không đóng. Nhận tin, gửi tin, đính kèm, thời gian thực giữ nguyên như ngăn kéo.
+   */
+  readonly inline?: boolean;
 }
 
 /** Gần đáy đủ để coi là "đang đọc tin mới nhất", tính bằng px. */
@@ -141,6 +146,7 @@ export function ChatDrawer({
   projectId,
   onDocumentUploaded,
   focusMessageId,
+  inline = false,
 }: ChatDrawerProps) {
   const directory = useDirectory();
   const live = useRealtimeStatus();
@@ -462,20 +468,20 @@ export function ChatDrawer({
   }, [open, refreshFromRealtime]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || inline) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open, inline, onClose]);
 
   // Ngăn kéo mở thì ẩn nút chat nổi của khung, vì nút nằm đúng chỗ nút Gửi và che mất nó.
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || inline) return undefined;
     document.body.setAttribute('data-side-drawer', 'open');
     return () => document.body.removeAttribute('data-side-drawer');
-  }, [open]);
+  }, [open, inline]);
 
   const suggestions = mention ? suggestMembers(members, mention.term, directory.nameOf) : [];
 
@@ -652,37 +658,48 @@ export function ChatDrawer({
   // Đổi mỗi phút để nút "Sửa" của các tin (đã `memo`) biến mất đúng lúc hết cửa sổ 15 phút.
   const minute = Math.floor(Date.now() / 60_000);
 
+  const liveBadge = (
+    <Tooltip
+      content={
+        live
+          ? 'Đang nhận tin mới theo thời gian thực.'
+          : live === undefined
+            ? 'Đang kết nối kênh thời gian thực.'
+            : 'Mất kết nối thời gian thực. Tin mới vẫn được cập nhật định kỳ khoảng 30 giây; sẽ tự nối lại.'
+      }
+    >
+      <span
+        className={styles.liveState}
+        data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}
+        role="status"
+      >
+        <i aria-hidden />
+        {live ? 'Trực tiếp' : live === undefined ? 'Đang kết nối' : 'Mất kết nối'}
+      </span>
+    </Tooltip>
+  );
+
+  // Khung ngoài: ngăn kéo nổi bên phải, hoặc một khối nằm ngay trong trang (`inline`).
+  const Frame = inline ? 'section' : 'aside';
+
   return (
     <>
     {/* Lớp mờ phủ màn bên dưới: chặn bấm nhầm khi ngăn kéo chưa thu, và bấm vào đó thì thu ngăn kéo lại. */}
-    <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />
-    <aside
-      className={styles.drawer}
-      role="complementary"
+    {inline ? null : <div className={styles.drawerBackdrop} onClick={onClose} aria-hidden="true" />}
+    <Frame
+      className={inline ? styles.chatInline : styles.drawer}
+      role={inline ? undefined : 'complementary'}
       aria-label={`Trao đổi về ${title}`}
     >
+      {inline ? (
+        // Trong tab Trao đổi: không lặp tiêu đề; chỉ báo khi chưa nhận tin tức thời được.
+        live ? null : <div className={styles.chatInlineStatus}>{liveBadge}</div>
+      ) : (
       <header className={styles.drawerHead}>
         <div>
           <h3>
             Trao đổi
-            <Tooltip
-              content={
-                live
-                  ? 'Đang nhận tin mới theo thời gian thực.'
-                  : live === undefined
-                    ? 'Đang kết nối kênh thời gian thực.'
-                    : 'Mất kết nối thời gian thực. Tin mới vẫn được cập nhật định kỳ khoảng 30 giây; sẽ tự nối lại.'
-              }
-            >
-              <span
-                className={styles.liveState}
-                data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}
-                role="status"
-              >
-                <i aria-hidden />
-                {live ? 'Trực tiếp' : live === undefined ? 'Đang kết nối' : 'Mất kết nối'}
-              </span>
-            </Tooltip>
+            {liveBadge}
           </h3>
           <p>{title}</p>
         </div>
@@ -690,6 +707,7 @@ export function ChatDrawer({
           <X size={16} />
         </button>
       </header>
+      )}
 
       <div className={styles.drawerBody} ref={bodyRef} onScroll={onBodyScroll}>
         {hasMore ? (
@@ -945,7 +963,7 @@ export function ChatDrawer({
           onDocumentUploaded?.();
         }}
       />
-    </aside>
+    </Frame>
     </>
   );
 }

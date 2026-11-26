@@ -12,7 +12,7 @@ import {
   type WorkItemReopenPolicy,
   type WorkItemType,
 } from '@enterprise-platform/contracts-workspace';
-import { fromLocalInput, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
+import { fromLocalInput, toast, type SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -26,6 +26,8 @@ import {
   type CompletionDraft,
 } from '../completion-draft';
 import { loadProcedureOptions, type ProcedureOption } from '../procedure-api';
+import { linkRelatedObjects, loadEntityRelatedRows, saveRelatedChanges } from '../related-objects-link';
+import { completedRelated, relatedLinkWarning, type PendingRelatedObject } from '../related-objects.model';
 import { priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { useDirectory } from './use-directory';
@@ -42,9 +44,11 @@ import { CompletionConditionsEditor } from './completion-conditions-editor';
 import { ConfirmBox } from './confirm-box';
 import { Dialog, Field } from './dialog';
 import { ProjectPeoplePicker } from './project-people-picker';
+import { RelatedObjectsEditor } from './related-objects-editor';
 import { TagPicker } from './tag-picker';
 import { TitleInput, useRecentTitles } from './title-input';
 import { TransportSection } from './transport-section';
+import { useRelatedObjectKinds } from './use-related-object-kinds';
 import { useSourceTransport, type SourceTransportState } from './use-source-transport';
 import {
   draftRow,
@@ -74,6 +78,7 @@ export interface WorkItemFormProps {
   /**
    * `procedureDefinitionId` chỉ có khi chọn "Theo quy trình". Nơi gọi chịu
    * trách nhiệm mở hồ sơ bên Quy trình sau khi công việc đã được tạo.
+   * Trả về công việc vừa tạo để form gắn tiếp "Đối tượng liên quan" của việc đó; không trả thì bỏ qua bước gắn.
    */
   readonly onCreate: (
     input: Omit<CreateWorkItemRequest, 'projectId'>,
@@ -84,7 +89,7 @@ export interface WorkItemFormProps {
      * trách/cùng làm.
      */
     addMemberUserIds?: string[],
-  ) => Promise<void>;
+  ) => Promise<{ readonly id: string; readonly code?: string } | void>;
   /** `addMemberUserIds`: người phụ trách mới chưa thuộc dự án; nơi gọi thêm họ vào dự án trước khi lưu. */
   readonly onUpdate: (input: UpdateWorkItemRequest, addMemberUserIds?: string[]) => Promise<void>;
   /** Tạo công việc điều chỉnh cho công việc đã huỷ hiệu lực: điền sẵn từ công việc gốc. */
@@ -106,6 +111,8 @@ export interface WorkItemFormProps {
   readonly onProjectChange?: (projectId: string) => void;
   /** Giá trị ban đầu khi tạo mới (bản nháp của Trợ lý); `seq` mới thì gộp vào form đang mở. */
   readonly prefill?: FormPrefill<WorkItemPrefill>;
+  /** Vừa gắn hay gỡ đối tượng liên quan (tạo hoặc sửa): nơi gọi tải lại những chỗ đang hiện danh sách đó. */
+  readonly onRelatedChanged?: () => void;
 }
 
 interface FormState {
@@ -177,6 +184,7 @@ export function WorkItemForm({
   projectOptions,
   onProjectChange,
   prefill,
+  onRelatedChanged,
 }: WorkItemFormProps) {
   const directory = useDirectory();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -191,6 +199,29 @@ export function WorkItemForm({
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set());
   /** Tên công việc đã dùng, gợi ý khi gõ tên. */
   const titleHistory = useRecentTitles(open);
+  /** Loại hồ sơ gắn được vào từng việc; rỗng thì không có khối "Đối tượng liên quan" (form sửa vẫn hiện liên kết đã lưu). */
+  const { kinds: relatedKinds } = useRelatedObjectKinds(open);
+  /** Form sửa: danh sách đang sửa của khối "Đối tượng liên quan", và liên kết đã lưu lúc mở cùng quyền thêm. */
+  const [related, setRelated] = useState<PendingRelatedObject[]>([]);
+  const [relatedBase, setRelatedBase] = useState<{ rows: PendingRelatedObject[]; canAdd: boolean }>();
+
+  // Đọc liên kết đã lưu của việc đang sửa; đọc lỗi thì ẩn khối và lúc lưu không gắn hay gỡ gì.
+  useEffect(() => {
+    setRelated([]);
+    setRelatedBase(undefined);
+    if (!open || !item) return;
+    let alive = true;
+    loadEntityRelatedRows({ type: 'work_item', id: item.id })
+      .then((result) => {
+        if (!alive) return;
+        setRelated(result.rows);
+        setRelatedBase(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [open, item]);
 
   // Chỉ hỏi module Quy trình khi người dùng thật sự chọn "Theo quy trình",
   // và chỉ một lần mỗi lần mở form.
@@ -554,6 +585,17 @@ export function WorkItemForm({
         },
         addMemberUserIds.length > 0 ? addMemberUserIds : undefined,
       );
+      // Công việc đã lưu như trước; liên kết gắn hay gỡ sau đó, lỗi chỉ cảnh báo.
+      if (item && relatedBase) {
+        const saved = await saveRelatedChanges(
+          { type: 'work_item', id: item.id },
+          relatedBase.rows,
+          related,
+          `công việc ${item.code}`,
+        );
+        for (const text of saved.warnings) toast.warning(text);
+        if (saved.changed) onRelatedChanged?.();
+      }
       onClose();
     } catch (cause) {
       setError((cause as { message?: string })?.message ?? 'Không lưu được công việc.');
@@ -645,6 +687,9 @@ export function WorkItemForm({
     const pending = rows.filter((row) => row.title.trim());
     setSubmitting(true);
     let created = 0;
+    /** Lời báo của các việc đã tạo nhưng chưa gắn được hết đối tượng liên quan; hiện khi xong cả lượt. */
+    const linkWarnings: string[] = [];
+    let linkedAny = false;
     try {
       for (const row of pending) {
         const phase = row.itemType === 'phase';
@@ -652,7 +697,7 @@ export function WorkItemForm({
         // Người phụ trách đã có ô riêng, không lặp lại trong người thực hiện cùng.
         const participants = row.participantUserIds.filter((userId) => userId !== row.assigneeUserId);
         const procedure = !phase && row.executionType === 'procedure';
-        await onCreate(
+        const saved = await onCreate(
           {
             ...progressMethodPayload(progressOf(row), { withChecklist: true }),
             parentId: row.parentId || undefined,
@@ -682,6 +727,14 @@ export function WorkItemForm({
           const rest = current.filter((entry) => entry.key !== row.key);
           return rest.length > 0 ? rest : [draftRow()];
         });
+        // Việc đã có thì mới gắn được hồ sơ; liên kết nào lỗi chỉ cảnh báo, việc vẫn giữ và lượt tạo đi tiếp.
+        if (saved && completedRelated(row.relatedObjects).length > 0) {
+          const failures = await linkRelatedObjects({ type: 'work_item', id: saved.id }, row.relatedObjects);
+          if (failures.length > 0) {
+            linkWarnings.push(relatedLinkWarning(failures, `công việc ${saved.code ?? row.title.trim()}`));
+          }
+          linkedAny = true;
+        }
       }
       onClose();
     } catch (cause) {
@@ -692,6 +745,9 @@ export function WorkItemForm({
           : message,
       );
       setSubmitting(false);
+    } finally {
+      for (const text of linkWarnings) toast.warning(text);
+      if (linkedAny) onRelatedChanged?.();
     }
   };
 
@@ -702,14 +758,14 @@ export function WorkItemForm({
       title={item ? `Sửa ${item.code}` : adjustmentOf ? 'Công việc điều chỉnh' : 'Công việc mới'}
       subtitle={
         item
-          ? 'Mã và loại công việc không thay đổi được sau khi tạo.'
+          ? undefined
           : adjustmentOf
             ? `Thay cho ${adjustmentOf.code} đã huỷ hiệu lực (${adjustmentOf.reversal?.reason ?? ''}).`
           : parent
             ? `Tạo bên dưới ${parent.code} · ${parent.title}`
-            : 'Tạo ở cấp gốc của dự án.'
+            : undefined
       }
-      size={item ? 'default' : 'extraWide'}
+      size="large"
       submitLabel={
         item
           ? 'Lưu thay đổi'
@@ -739,7 +795,22 @@ export function WorkItemForm({
           transport={transport}
           conditionsLocked={conditionsLocked}
         />
-      ) : (
+      ) : null}
+      {item && relatedBase && ((relatedBase.canAdd && relatedKinds.length > 0) || related.length > 0) ? (
+        // Liên kết đã lưu của việc này cùng dòng mới; gắn hay gỡ khi bấm Lưu, sau khi việc đã lưu.
+        <div className={styles.draftOptions}>
+          <RelatedObjectsEditor
+            kinds={relatedKinds}
+            value={related}
+            onChange={setRelated}
+            ariaPrefix="Đối tượng liên quan"
+            canAdd={relatedBase.canAdd}
+            defaultOpen={related.length > 0}
+            disabled={submitting}
+          />
+        </div>
+      ) : null}
+      {item ? null : (
         <>
           {projectOptions ? (
             <Field label="Dự án">
@@ -814,6 +885,7 @@ export function WorkItemForm({
                   done: option.done,
                 }))}
                 procedures={procedures}
+                relatedKinds={relatedKinds}
               />
             ))}
           </div>
@@ -822,10 +894,6 @@ export function WorkItemForm({
             <button type="button" className={styles.buttonSmall} onClick={addRow}>
               <Plus size={13} /> Thêm công việc
             </button>
-            <span className={styles.fieldHint}>
-              Mỗi công việc có thông tin riêng. Nút nhân bản chép mọi trường trừ tên; dán nhiều dòng
-              vào ô tên để tạo nhiều việc cùng thông tin.
-            </span>
           </div>
         </>
       )}
@@ -898,103 +966,61 @@ function EditFields({
 }) {
   return (
     <>
-      <Field label="Tên công việc">
-        <TitleInput value={form.title} history={titleHistory} onChange={(title) => set({ title })} />
-      </Field>
-
-      <Field label="Mô tả">
-        <textarea
-          rows={3}
-          value={form.description}
-          onChange={(event) => set({ description: event.target.value })}
-        />
-      </Field>
-
-      <Field label="Độ ưu tiên">
-        <Choice
-          label="Độ ưu tiên"
-          value={form.priority}
-          options={priorityKeys().map((priority) => ({
-            value: priority,
-            label: priorityLabel(priority),
-          }))}
-          onChange={(value) => set({ priority: value as WorkItemPriority })}
-        />
-      </Field>
-
-      {isPhase ? null : (
-        <div className={styles.fieldRow}>
-          <Field label="Người phụ trách">
-            <Choice
-              label="Người phụ trách"
-              value={form.assigneeUserId}
-              emptyOption="Chưa giao"
-              options={assigneeChoices.options}
-              extra={assigneeChoices.extra}
-              renderOption={renderAssignee}
-              onChange={(value) => set({ assigneeUserId: value })}
-            />
-          </Field>
-          <Field label="Giờ ước lượng">
+      {/* Ô ngắn xếp hai cột, ô dài (tên, người cùng làm, nhãn, mô tả) chiếm cả hàng. */}
+      <div className={styles.formGrid}>
+        <Field label="Tên công việc" className={styles.formSpanAll}>
+          <TitleInput value={form.title} history={titleHistory} onChange={(title) => set({ title })} />
+        </Field>
+        <Field label="Độ ưu tiên">
+          <Choice
+            label="Độ ưu tiên"
+            value={form.priority}
+            options={priorityKeys().map((priority) => ({
+              value: priority,
+              label: priorityLabel(priority),
+            }))}
+            onChange={(value) => set({ priority: value as WorkItemPriority })}
+          />
+        </Field>
+        {isPhase ? null : (
+          <>
+            <Field label="Người phụ trách">
+              <Choice
+                label="Người phụ trách"
+                value={form.assigneeUserId}
+                emptyOption="Chưa giao"
+                options={assigneeChoices.options}
+                extra={assigneeChoices.extra}
+                renderOption={renderAssignee}
+                onChange={(value) => set({ assigneeUserId: value })}
+              />
+            </Field>
+            <Field label="Giờ ước lượng">
+              <input
+                type="number"
+                min={0}
+                max={MAX_WORK_ITEM_ESTIMATE_HOURS}
+                step="0.5"
+                value={form.estimateHours}
+                onChange={(event) => set({ estimateHours: event.target.value })}
+              />
+            </Field>
+          </>
+        )}
+        {showWeight ? (
+          <Field
+            label="Tỷ trọng"
+          >
             <input
               type="number"
               min={0}
-              max={MAX_WORK_ITEM_ESTIMATE_HOURS}
-              step="0.5"
-              value={form.estimateHours}
-              onChange={(event) => set({ estimateHours: event.target.value })}
+              max={MAX_WORK_ITEM_WEIGHT}
+              step="any"
+              value={form.weight}
+              onChange={(event) => set({ weight: event.target.value })}
             />
           </Field>
-        </div>
-      )}
-
-      <ProgressMethodFields
-        idPrefix="edit"
-        creating={false}
-        methods={isPhase ? ['manual', 'child_weight'] : ['manual', 'quantity', 'checklist', 'child_weight']}
-        value={form.progress}
-        onChange={(patch) => set({ progress: { ...form.progress, ...patch } })}
-      />
-
-      {showWeight ? (
-        <Field
-          label="Tỷ trọng"
-          hint={
-            isRoot
-              ? 'Dùng khi dự án tính tiến độ theo tỷ trọng công việc. Để trống là chưa đặt: công việc tính bằng mức trung bình của các việc đã đặt.'
-              : 'Dùng khi công việc cha tính tiến độ theo tỷ trọng các việc con. Để trống là chưa đặt: tính bằng mức trung bình của các việc con đã đặt.'
-          }
-        >
-          <input
-            type="number"
-            min={0}
-            max={MAX_WORK_ITEM_WEIGHT}
-            step="any"
-            value={form.weight}
-            onChange={(event) => set({ weight: event.target.value })}
-          />
-        </Field>
-      ) : null}
-
-      {isPhase ? null : (
-        <Field label="Người thực hiện cùng">
-          <ProjectPeoplePicker
-            people={participantPeople}
-            memberIds={memberIds}
-            selected={form.participantUserIds}
-            exclude={form.assigneeUserId ? [form.assigneeUserId] : []}
-            nameOf={nameOf}
-            loaded={directoryLoaded}
-            onChange={(participantUserIds) => set({ participantUserIds })}
-          />
-        </Field>
-      )}
-
-      <Field label="Nhãn">
-        <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
-      </Field>
-
-      <div className={styles.fieldRow}>
+        ) : null}
         <Field label="Bắt đầu dự kiến">
           <DatePickerInput
             height={38}
@@ -1009,7 +1035,38 @@ function EditFields({
             onChange={(value) => set({ plannedEnd: value })}
           />
         </Field>
+        {isPhase ? null : (
+          <Field label="Người thực hiện cùng" className={styles.formSpanAll}>
+            <ProjectPeoplePicker
+              people={participantPeople}
+              memberIds={memberIds}
+              selected={form.participantUserIds}
+              exclude={form.assigneeUserId ? [form.assigneeUserId] : []}
+              nameOf={nameOf}
+              loaded={directoryLoaded}
+              onChange={(participantUserIds) => set({ participantUserIds })}
+            />
+          </Field>
+        )}
+        <Field label="Nhãn" className={styles.formSpanAll}>
+          <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
+        </Field>
+        <Field label="Mô tả" className={styles.formSpanAll}>
+          <textarea
+            rows={3}
+            value={form.description}
+            onChange={(event) => set({ description: event.target.value })}
+          />
+        </Field>
       </div>
+
+      <ProgressMethodFields
+        idPrefix="edit"
+        creating={false}
+        methods={isPhase ? ['manual', 'child_weight'] : ['manual', 'quantity', 'checklist', 'child_weight']}
+        value={form.progress}
+        onChange={(patch) => set({ progress: { ...form.progress, ...patch } })}
+      />
 
       {isPhase ? null : (
         <div className={styles.draftOptions}>

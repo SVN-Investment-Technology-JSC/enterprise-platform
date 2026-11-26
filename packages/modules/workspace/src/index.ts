@@ -35,3 +35,6 @@ export * from './lib/application/crm-customer.port.js';
 export * from './lib/application/crm-customer-link.service.js';
 export * from './lib/domain/crm-customer-sync.js';
 export * from './lib/infrastructure/crm-customer-events.js';
+export * from './lib/application/related-object.port.js';
+export * from './lib/application/related-object.service.js';
+export * from './lib/presentation/related-objects.controller.js';

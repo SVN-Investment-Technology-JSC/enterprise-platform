@@ -126,6 +126,11 @@ import type {
   FleetAvailabilityView,
   SourceTransport,
   TransportSourceType,
+  CreateRelatedObjectRequest,
+  RelatedObject,
+  RelatedObjectCandidateList,
+  RelatedObjectKindList,
+  RelatedObjectList,
 } from '@enterprise-platform/contracts-workspace';
 import { MY_WORK_SEARCH_MAX_LENGTH } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -1012,6 +1017,49 @@ export const changeWorkItemProcedure = (id: string, definitionId: string) =>
 
 export const unlinkWorkItem = (workItemId: string, referenceId: string) =>
   request<void>(`/work-items/${workItemId}/links/${referenceId}`, { method: 'DELETE' });
+
+/* =========================================================================
+   ĐỐI TƯỢNG LIÊN QUAN
+
+   Người dùng gắn dự án hay công việc với hồ sơ ở module khác (báo giá, hợp
+   đồng...). Workspace chỉ lưu con trỏ và nhãn ngắn; thông tin đầy đủ đọc từ
+   module gốc mỗi lần xem. Module công ty không dùng thì danh sách loại không
+   có nó: giao diện phải chạy được với danh sách loại rỗng.
+   ========================================================================= */
+
+/** Loại hồ sơ người dùng gắn được, gom từ các module công ty đang dùng mà người này vào được. */
+export const listRelatedObjectKinds = () =>
+  request<RelatedObjectKindList>('/related-objects/kinds', { cache: 'no-store' });
+
+/** Tìm hồ sơ của một loại để chọn; `q` rỗng thì module gốc trả các hồ sơ gần đây. */
+export const searchRelatedObjects = (kind: string, q = '') =>
+  request<RelatedObjectCandidateList>(
+    `/related-objects/search?${new URLSearchParams({ kind, q: q.trim() })}`,
+    { cache: 'no-store' },
+  );
+
+/** Liên kết của dự án, gồm cả liên kết gắn ở từng công việc. */
+export const listProjectRelatedObjects = (projectId: string) =>
+  request<RelatedObjectList>(`/projects/${projectId}/related-objects`, { cache: 'no-store' });
+
+export const listWorkItemRelatedObjects = (workItemId: string) =>
+  request<RelatedObjectList>(`/work-items/${workItemId}/related-objects`, { cache: 'no-store' });
+
+export const addProjectRelatedObject = (projectId: string, body: CreateRelatedObjectRequest) =>
+  request<RelatedObject>(`/projects/${projectId}/related-objects`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const addWorkItemRelatedObject = (workItemId: string, body: CreateRelatedObjectRequest) =>
+  request<RelatedObject>(`/work-items/${workItemId}/related-objects`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Gỡ liên kết; hồ sơ gốc ở module kia không đổi. */
+export const removeRelatedObject = (id: string) =>
+  request<void>(`/related-objects/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 /* =========================================================================
    TÀI CHÍNH (P9)

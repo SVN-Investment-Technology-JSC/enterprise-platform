@@ -2450,6 +2450,153 @@ export interface ExternalReferenceList {
 }
 
 /* =========================================================================
+   ĐỐI TƯỢNG LIÊN QUAN
+
+   Người dùng gắn dự án hoặc công việc với hồ sơ ở module khác (báo giá, hợp đồng, phiếu thu...).
+   Workspace chỉ lưu con trỏ và nhãn ngắn (mã + tên, không số tiền); thông tin đầy đủ đọc trực tiếp từ module gốc mỗi
+   lần xem, dưới danh nghĩa người xem, nên module gốc quyết ai thấy gì. Hợp đồng giữa các module ở
+   `contracts-integration` (`LinkableObject`...).
+   Khác `ExternalReference`: đó là con trỏ hệ thống tới hồ sơ Quy trình của công việc, không phải liên kết người dùng thêm.
+
+   Route (tiền tố /api/workspace):
+     GET    /v1/related-objects/kinds                 → RelatedObjectKindList
+     GET    /v1/related-objects/search?kind=&q=       → RelatedObjectCandidateList
+     GET    /v1/related-objects/preview?kind=&id=     → RelatedObjectPreview (404 nếu không xem được)
+     GET    /v1/projects/:id/related-objects          → RelatedObjectList (cả liên kết của dự án và của mọi công việc)
+     GET    /v1/work-items/:id/related-objects        → RelatedObjectList
+     POST   /v1/projects/:id/related-objects          ← CreateRelatedObjectRequest → RelatedObject
+     POST   /v1/work-items/:id/related-objects        ← CreateRelatedObjectRequest → RelatedObject
+     DELETE /v1/related-objects/:id                   → 204
+   ========================================================================= */
+
+/** Tối đa đối tượng liên quan trên một dự án hoặc một công việc. */
+export const RELATED_OBJECT_MAX_PER_ENTITY = 20;
+
+export type RelatedObjectFieldType = 'text' | 'money' | 'date';
+
+export interface RelatedObjectField {
+  readonly key: string;
+  readonly label: string;
+  /** `money`: số VND; `date`: `YYYY-MM-DD`; `text`: chuỗi; `null` khi trống. */
+  readonly value: string | number | null;
+  readonly type: RelatedObjectFieldType;
+}
+
+export interface RelatedObjectRef {
+  readonly kind: string;
+  readonly id: string;
+  readonly code?: string;
+  readonly label: string;
+  /** Tên loại để hiển thị, ví dụ "Báo giá". */
+  readonly kindLabel?: string;
+}
+
+/**
+ * Vì sao không đọc được thông tin đầy đủ:
+ *  - `module_unavailable`: công ty không còn dùng module đó (chưa cấp hoặc đã thu hồi);
+ *  - `forbidden`: người xem không có quyền ở module gốc;
+ *  - `not_found`: hồ sơ đã bị xoá hoặc người xem không thấy nó;
+ *  - `unreachable`: module không trả lời kịp (nhãn có thể cũ).
+ */
+export type RelatedObjectUnavailableReason = 'module_unavailable' | 'forbidden' | 'not_found' | 'unreachable';
+
+export interface RelatedObject {
+  readonly id: string;
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  readonly projectId: string;
+  /** Mã và tên công việc khi liên kết gắn ở công việc. */
+  readonly entityLabel?: string;
+  /** Khoá loại `<module>.<loại>`, ví dụ `crm.contract`. */
+  readonly kind: string;
+  readonly moduleKey: string;
+  readonly objectId: string;
+  readonly code?: string;
+  /** Nhãn ngắn (mã + tên), luôn có, kể cả khi không đọc được module gốc. */
+  readonly label: string;
+  readonly status?: string;
+  readonly launchUrl: string;
+  readonly kindLabel?: string;
+  readonly moduleLabel?: string;
+  /** Thông tin đầy đủ đọc từ module gốc; rỗng khi `unavailableReason` có giá trị. */
+  readonly fields: readonly RelatedObjectField[];
+  readonly unavailableReason?: RelatedObjectUnavailableReason;
+  /** Người xem gỡ được liên kết này (người đã thêm, hoặc quản lý dự án trở lên, dự án chưa lưu trữ). */
+  readonly canRemove: boolean;
+  readonly createdBy: string;
+  readonly createdByName?: string;
+  readonly createdAt: string;
+}
+
+export interface RelatedObjectList {
+  readonly items: readonly RelatedObject[];
+  /** Người xem thêm được liên kết (thành viên dự án trở lên, dự án chưa lưu trữ). */
+  readonly canAdd: boolean;
+  /** `true` khi có module không trả lời kịp nên một số dòng chỉ có nhãn đã lưu. */
+  readonly degraded: boolean;
+}
+
+export interface CreateRelatedObjectRequest {
+  readonly kind: string;
+  readonly objectId: string;
+}
+
+/** Loại đối tượng người dùng chọn được, gom từ các module công ty đang dùng mà người này vào được. */
+export interface RelatedObjectKind {
+  readonly key: string;
+  readonly moduleKey: string;
+  readonly moduleLabel: string;
+  readonly label: string;
+  /** Dùng được cho ô "Tạo từ" của form dự án mới (có thông tin điền sẵn). */
+  readonly prefill: boolean;
+}
+
+export interface RelatedObjectKindList {
+  readonly kinds: readonly RelatedObjectKind[];
+}
+
+export interface RelatedObjectCandidate {
+  readonly kind: string;
+  readonly id: string;
+  readonly code?: string;
+  readonly label: string;
+  readonly status?: string;
+  /** Dòng phụ để phân biệt, ví dụ tên khách hàng. */
+  readonly hint?: string;
+}
+
+export interface RelatedObjectCandidateList {
+  readonly items: readonly RelatedObjectCandidate[];
+}
+
+/** Gợi ý điền sẵn form dự án mới; chỉ các khoá Workspace hiểu. Ngày `YYYY-MM-DD`, tiền số VND. */
+export interface RelatedObjectPrefill {
+  readonly title?: string;
+  readonly description?: string;
+  readonly startDate?: string;
+  readonly endDate?: string;
+  readonly contractValue?: number;
+  /** Id khách ở Bán hàng; gắn vào dự án qua `POST /v1/crm-customers/:crmCustomerId/link` sẵn có. */
+  readonly crmCustomerId?: string;
+}
+
+/** Xem trước một hồ sơ trước khi gắn (dùng cho ô "Tạo từ" và gợi ý gắn cả chuỗi). */
+export interface RelatedObjectPreview {
+  readonly kind: string;
+  readonly id: string;
+  readonly code?: string;
+  readonly label: string;
+  readonly status?: string;
+  readonly launchUrl: string;
+  readonly kindLabel?: string;
+  readonly moduleLabel?: string;
+  readonly fields: readonly RelatedObjectField[];
+  /** Hồ sơ phía trước trong chuỗi (hợp đồng → báo giá → cơ hội), để gợi ý gắn luôn. */
+  readonly upstream: readonly RelatedObjectRef[];
+  readonly prefill?: RelatedObjectPrefill;
+}
+
+/* =========================================================================
    TÀI CHÍNH (P9)
 
    Đơn vị VND. Chưa hỗ trợ đa tiền tệ. Chỉ `owner`, `manager` và quản trị viên
