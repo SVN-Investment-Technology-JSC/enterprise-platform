@@ -46,11 +46,14 @@ export interface CompOffDraft {
 export function CompOffConversionPanel({
   month: fixedMonth,
   beforeLock = false,
+  editable = false,
   onDraftChange,
 }: {
   month?: string;
   /** Xem trước và chỉnh trước khi chốt công: chọn sẵn các dòng chờ chuyển đổi, không có nút xác nhận riêng (xác nhận cùng lúc chốt công). */
   beforeLock?: boolean;
+  /** Cho chọn, sửa và bấm chuyển đổi ngay trong panel (bước bù khi cộng quỹ lúc chốt công không thành). Mặc định chỉ để xem. */
+  editable?: boolean;
   onDraftChange?: (draft: CompOffDraft) => void;
 } = {}) {
   const { can } = useHrmPermissions();
@@ -82,7 +85,9 @@ export function CompOffConversionPanel({
   }, [month, load]);
 
   const rows = useMemo(() => preview?.rows ?? [], [preview]);
-  const canConfirm = canConvert && (beforeLock || Boolean(preview?.locked)) && Boolean(preview?.enabled);
+  // Tab Chuyển đổi tháng chỉ để xem trước; chỉ chỉnh và xác nhận được trong bước chốt bảng công hoặc bước bù (editable).
+  const interactive = beforeLock || editable;
+  const canConfirm = canConvert && interactive && (beforeLock || Boolean(preview?.locked)) && Boolean(preview?.enabled);
   const problems = useMemo(
     () => new Map(rows.filter((r) => selected.has(r.employeeId)).map((r) => [r.employeeId, conversionRowProblem(r, edits[r.employeeId])])),
     [rows, selected, edits],
@@ -143,13 +148,17 @@ export function CompOffConversionPanel({
           Không còn nhân viên nào chờ chuyển đổi trong tháng này (đã chuyển đổi hoặc không có giờ dư), nên không có dòng nào để chọn.
         </Notice>
       ) : null}
-      {preview && preview.enabled && !preview.locked && !beforeLock ? (
-        <Notice tone="warn">Tháng này chưa chốt công. Số liệu dưới đây chỉ để xem; chuyển đổi sau khi chốt công.</Notice>
+      {preview && preview.enabled && !interactive ? (
+        <Notice tone="info">
+          {preview.locked
+            ? 'Tháng đã chốt công: số liệu dưới đây chỉ để xem. Cần sửa quỹ thì dùng "Điều chỉnh quỹ" ở mục Số dư.'
+            : 'Xem trước quỹ nghỉ bù của tháng. Việc chuyển đổi được xác nhận khi chốt bảng công tháng này.'}
+        </Notice>
       ) : null}
       <TableShell label="Chuyển đổi giờ dư thành nghỉ bù">
         <thead className="bg-slate-50">
           <tr>
-            <th className={th}>
+            {interactive ? <th className={th}>
               <input
                 type="checkbox"
                 aria-label="Chọn tất cả"
@@ -158,7 +167,7 @@ export function CompOffConversionPanel({
                 checked={selectable.length > 0 && selectable.every((r) => selected.has(r.employeeId))}
                 onChange={(e) => setSelected(e.target.checked ? new Set(selectable.map((r) => r.employeeId)) : new Set())}
               />
-            </th>
+            </th> : null}
             <th className={th}>Nhân viên</th>
             <th className={thRight}>Làm thêm thực tế (giờ)</th>
             <th className={thRight}>Tính lương (giờ)</th>
@@ -171,15 +180,15 @@ export function CompOffConversionPanel({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {!preview && !error ? <EmptyRow colSpan={8}>Đang tải…</EmptyRow> : null}
-          {preview && rows.length === 0 ? <EmptyRow colSpan={8}>Không có nhân viên nào có giờ làm thêm trong tháng.</EmptyRow> : null}
+          {!preview && !error ? <EmptyRow colSpan={interactive ? 8 : 7}>Đang tải…</EmptyRow> : null}
+          {preview && rows.length === 0 ? <EmptyRow colSpan={interactive ? 8 : 7}>Không có nhân viên nào có giờ làm thêm trong tháng.</EmptyRow> : null}
           {rows.map((r) => {
-            const isSelected = selected.has(r.employeeId);
+            const isSelected = interactive && selected.has(r.employeeId);
             const edit = edits[r.employeeId];
             const problem = problems.get(r.employeeId) ?? '';
             return (
               <tr key={r.employeeId} className={isSelected ? 'bg-blue-50/40' : undefined}>
-                <td className={td}>
+                {interactive ? <td className={td}>
                   <input
                     type="checkbox"
                     aria-label={`Chọn ${r.employeeName ?? r.employeeId}`}
@@ -188,10 +197,9 @@ export function CompOffConversionPanel({
                     checked={isSelected}
                     onChange={() => toggle(r.employeeId)}
                   />
-                </td>
+                </td> : null}
                 <td className={td}>
                   <div className="font-medium">{r.employeeName ?? r.employeeId}</div>
-                  <div className="text-xs text-slate-500">{r.employeeCode}</div>
                 </td>
                 <td className={tdRight}>{formatCompNumber(r.actualOtHours)}</td>
                 <td className={tdRight}>{formatCompNumber(r.countedOtHours)}</td>

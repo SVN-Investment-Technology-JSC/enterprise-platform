@@ -52,6 +52,10 @@ interface ShiftForm {
   graceEarlyMinutes: number;
   checkInBeforeMinutes: number;
   checkOutAfterMinutes: number;
+  /** Chặn chấm vào muộn quá số phút sau giờ bắt đầu; để trống = không chặn. */
+  blockLateInMinutes: string;
+  /** Chặn chấm ra sớm quá số phút trước giờ kết thúc; để trống = không chặn. */
+  blockEarlyOutMinutes: string;
   status: 'ACTIVE' | 'INACTIVE';
 }
 
@@ -69,6 +73,8 @@ const EMPTY_FORM: ShiftForm = {
   graceEarlyMinutes: 5,
   checkInBeforeMinutes: 120,
   checkOutAfterMinutes: 240,
+  blockLateInMinutes: '',
+  blockEarlyOutMinutes: '',
   status: 'ACTIVE',
 };
 
@@ -91,6 +97,8 @@ function formFromShift(shift: HrmShiftDefinition): ShiftForm {
     graceEarlyMinutes: shift.graceEarlyMinutes ?? 5,
     checkInBeforeMinutes: shift.checkInBeforeMinutes ?? 120,
     checkOutAfterMinutes: shift.checkOutAfterMinutes ?? 240,
+    blockLateInMinutes: shift.blockLateInMinutes == null ? '' : String(shift.blockLateInMinutes),
+    blockEarlyOutMinutes: shift.blockEarlyOutMinutes == null ? '' : String(shift.blockEarlyOutMinutes),
     status: shift.status ?? 'ACTIVE',
   };
 }
@@ -273,9 +281,14 @@ export default function ShiftsPage() {
       return;
     }
     const { hasBreak, ...fields } = form;
-    for (const n of [form.checkInBeforeMinutes, form.checkOutAfterMinutes]) {
-      if (!Number.isInteger(n) || n < 0 || n > 1440) {
-        setFormError('Khung chấm công trước/sau ca phải là số phút nguyên từ 0 đến 1440.');
+    if (!Number.isInteger(form.checkOutAfterMinutes) || form.checkOutAfterMinutes < 0 || form.checkOutAfterMinutes > 1440) {
+      setFormError('Khung chấm ra sau ca phải là số phút nguyên từ 0 đến 1440.');
+      return;
+    }
+    for (const text of [form.blockLateInMinutes, form.blockEarlyOutMinutes]) {
+      const n = Number(text);
+      if (text.trim() !== '' && (!Number.isInteger(n) || n < 0 || n > 1440)) {
+        setFormError('Giới hạn chặn chấm công phải là số phút nguyên từ 0 đến 1440, hoặc để trống nếu không chặn.');
         return;
       }
     }
@@ -295,8 +308,11 @@ export default function ShiftsPage() {
         return;
       }
     }
+    const limitOf = (text: string) => (text.trim() === '' ? null : Number(text));
     const payload = {
       ...fields,
+      blockLateInMinutes: limitOf(form.blockLateInMinutes),
+      blockEarlyOutMinutes: limitOf(form.blockEarlyOutMinutes),
       code: form.code.trim(),
       name: form.name.trim(),
       breakMinutes: hasBreak ? form.breakMinutes : 0,
@@ -366,7 +382,7 @@ export default function ShiftsPage() {
   }
 
   const numberField = (
-    key: 'graceLateMinutes' | 'graceEarlyMinutes' | 'checkInBeforeMinutes' | 'checkOutAfterMinutes',
+    key: 'graceLateMinutes' | 'graceEarlyMinutes' | 'checkOutAfterMinutes',
   ) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [key]: Number(e.target.value) || 0 });
 
@@ -515,8 +531,14 @@ export default function ShiftsPage() {
                         {shift.graceLateMinutes}p / {shift.graceEarlyMinutes}p
                       </span>
                       <p className="mt-1 text-[11px] text-slate-500">
-                        Chấm: -{shift.checkInBeforeMinutes ?? 120}p / +{shift.checkOutAfterMinutes ?? 240}p
+                        Chấm ra tối đa +{shift.checkOutAfterMinutes ?? 240}p sau ca
                       </p>
+                      {shift.blockLateInMinutes != null || shift.blockEarlyOutMinutes != null ? (
+                        <p className="text-[11px] text-slate-500">
+                          Chặn: vào muộn {shift.blockLateInMinutes != null ? `>${shift.blockLateInMinutes}p` : 'không'} · ra sớm{' '}
+                          {shift.blockEarlyOutMinutes != null ? `>${shift.blockEarlyOutMinutes}p` : 'không'}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5 @3xl:justify-end">
@@ -715,15 +737,25 @@ export default function ShiftsPage() {
                   <SettingsField label="Dung sai về sớm (phút)" htmlFor="shift-grace-early">
                     <Input id="shift-grace-early" aria-label="Dung sai về sớm (phút)" type="number" min={0} value={form.graceEarlyMinutes} onChange={numberField('graceEarlyMinutes')} className="h-9 font-mono text-xs" />
                   </SettingsField>
-                  <SettingsField label="Cho chấm vào trước ca (phút)" htmlFor="shift-checkin-before">
-                    <Input id="shift-checkin-before" aria-label="Cho chấm vào trước ca (phút)" type="number" min={0} max={1440} value={form.checkInBeforeMinutes} onChange={numberField('checkInBeforeMinutes')} className="h-9 font-mono text-xs" />
-                  </SettingsField>
                   <SettingsField label="Cho chấm ra sau ca (phút)" htmlFor="shift-checkout-after">
                     <Input id="shift-checkout-after" aria-label="Cho chấm ra sau ca (phút)" type="number" min={0} max={1440} value={form.checkOutAfterMinutes} onChange={numberField('checkOutAfterMinutes')} className="h-9 font-mono text-xs" />
                   </SettingsField>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Lượt chấm nằm ngoài khung này (từ {form.checkInBeforeMinutes} phút trước giờ vào đến {form.checkOutAfterMinutes} phút sau giờ ra) không được gán vào ca.
+                  Chấm vào sớm bao nhiêu cũng được. Chấm ra muộn hơn giờ kết thúc quá {form.checkOutAfterMinutes} phút thì không được gán vào ca.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <SettingsField label="Chặn chấm vào muộn quá (phút)" htmlFor="shift-block-late-in" hint="Để trống = không chặn.">
+                    <Input id="shift-block-late-in" aria-label="Chặn chấm vào muộn quá (phút)" type="number" min={0} max={1440} placeholder="Không chặn" value={form.blockLateInMinutes} onChange={(e) => setForm({ ...form, blockLateInMinutes: e.target.value })} className="h-9 font-mono text-xs" />
+                  </SettingsField>
+                  <SettingsField label="Chặn chấm ra sớm quá (phút)" htmlFor="shift-block-early-out" hint="Để trống = không chặn.">
+                    <Input id="shift-block-early-out" aria-label="Chặn chấm ra sớm quá (phút)" type="number" min={0} max={1440} placeholder="Không chặn" value={form.blockEarlyOutMinutes} onChange={(e) => setForm({ ...form, blockEarlyOutMinutes: e.target.value })} className="h-9 font-mono text-xs" />
+                  </SettingsField>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {form.blockLateInMinutes.trim() !== ''
+                    ? `Ví dụ ca bắt đầu ${form.startTime}, dung sai ${form.graceLateMinutes} phút, chặn ${form.blockLateInMinutes} phút: chấm vào sau giờ bắt đầu quá ${form.graceLateMinutes} phút thì tính trễ đủ số phút; sau ${form.blockLateInMinutes} phút không chấm vào được nữa.`
+                    : 'Chặn chấm vào muộn: sau giờ bắt đầu quá số phút này thì không chấm vào được nữa. Chặn chấm ra sớm: trước giờ kết thúc quá số phút này thì không chấm ra được.'}
                 </p>
                 <SettingsField label="Trạng thái áp dụng">
                   <Segmented

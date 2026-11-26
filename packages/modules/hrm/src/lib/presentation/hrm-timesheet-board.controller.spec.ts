@@ -228,6 +228,20 @@ describe('POST /timesheet-months/:month/close-requests', () => {
     expect(data.month.requestsClosedAt).not.toBeNull();
   });
 
+  it('phản hồi sau chốt đơn từ không nạp bảng công để tính điều kiện chốt công (tốn nhiều nhất)', async () => {
+    const { controller, calls } = setup(['hrm.timesheet.calculate']);
+    const { data } = await controller.closeRequests(req, PAST);
+    expect(data.blockersForLock).toEqual([]);
+    expect(calls.some((c) => c.sql.includes('FROM hrm_schema.attendance_events'))).toBe(false);
+  });
+
+  it('close-state?for=requests chỉ tính điều kiện chốt đơn từ, không nạp bảng công', async () => {
+    const { controller, calls } = setup(['hrm.timesheet.read']);
+    const { data } = await controller.closeState(req, PAST, 'requests');
+    expect(data.blockersForLock).toEqual([]);
+    expect(calls.some((c) => c.sql.includes('FROM hrm_schema.attendance_events'))).toBe(false);
+  });
+
   it('còn đơn chờ duyệt: 409 kèm danh sách blocker và số lượng, không ghi requests_closed_at', async () => {
     const { controller, calls, audits } = setup(['hrm.timesheet.calculate'], { pending: { leaves: 3, ots: 1 } });
     const error = await controller.closeRequests(req, PAST).catch((e) => e);

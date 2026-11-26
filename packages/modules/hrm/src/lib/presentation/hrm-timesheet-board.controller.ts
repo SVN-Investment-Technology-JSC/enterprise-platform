@@ -197,10 +197,12 @@ export class HrmTimesheetBoardController {
   async closeState(
     @Req() req: Request,
     @Param('month') month: string,
+    /** `for=requests`: chỉ cần điều kiện chốt đơn từ, bỏ phần điều kiện chốt công (nặng hơn nhiều). */
+    @Query('for') purpose?: string,
   ): Promise<{ data: HrmMonthCloseState }> {
     const range = parseMonth(month);
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.timesheet.read');
-    return { data: await monthCloseState(pool, tenantId, range) };
+    return { data: await monthCloseState(pool, tenantId, range, undefined, { lockBlockers: purpose !== 'requests' }) };
   }
 
   @RequirePermission('hrm.timesheet.calculate')
@@ -214,7 +216,7 @@ export class HrmTimesheetBoardController {
     return {
       data: await hrmTransaction(pool, async (db) => {
         await closeMonthRequests(db, tenantId, principal.userId, range);
-        return monthCloseState(db, tenantId, range);
+        return monthCloseState(db, tenantId, range, undefined, { lockBlockers: false });
       }),
     };
   }
@@ -231,7 +233,7 @@ export class HrmTimesheetBoardController {
     return {
       data: await hrmTransaction(pool, async (db) => {
         const result = await calculateMonth(db, tenantId, principal.userId, range);
-        return { ...(await monthCloseState(db, tenantId, range)), result };
+        return { ...(await monthCloseState(db, tenantId, range, undefined, { lockBlockers: false })), result };
       }),
     };
   }
@@ -298,7 +300,7 @@ export class HrmTimesheetBoardController {
     return {
       data: await hrmTransaction(pool, async (db) => {
         await reopenMonth(db, tenantId, principal.userId, range, reason);
-        return monthCloseState(db, tenantId, range);
+        return monthCloseState(db, tenantId, range, undefined, { lockBlockers: false });
       }),
     };
   }

@@ -71,9 +71,15 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   HOLIDAY_YEAR_IMPORTED: 'Nạp lịch nghỉ lễ',
   SITE_UPDATED: 'Cập nhật địa điểm chấm công',
   SITE_DEACTIVATED: 'Ngừng địa điểm chấm công',
+  SITE_DELETED: 'Xóa địa điểm chấm công',
   approve: 'Duyệt thiết bị chấm công',
   revoke: 'Thu hồi thiết bị chấm công',
   POLICY_VERSION_PUBLISHED: 'Ban hành phiên bản chính sách',
+  COMP_OFF_ACCRUED: 'Cộng quỹ nghỉ bù từ chốt công',
+  COMP_OFF_ACCRUAL_REVERSED: 'Đảo quỹ nghỉ bù khi mở lại kỳ công',
+  COMP_OFF_ADJUSTED: 'Điều chỉnh quỹ nghỉ bù',
+  COMP_OFF_ADJUST_REVERSED: 'Đảo điều chỉnh quỹ nghỉ bù',
+  COMP_OFF_IMPORTED: 'Nhập quỹ nghỉ bù từ Excel',
   OVERTIME_COMP_SETTINGS_SAVED: 'Lưu cấu hình làm thêm và nghỉ bù',
   OVERTIME_COMP_VERSION_REMOVED: 'Xóa phiên bản làm thêm và nghỉ bù',
   SHIFT_CREATED: 'Tạo ca làm việc',
@@ -168,6 +174,7 @@ const ENTITY_SOURCES: [string, string, string][] = [
   ['Loại nghỉ', 'hrm_schema.leave_types x', `x.code||' · '||x.name${DELETED_MARK}`],
   ['Loại đơn', 'hrm_schema.request_reason_categories x', `x.code||' · '||x.name${DELETED_MARK}`],
   ['Lịch cộng phép', 'hrm_schema.leave_accrual_schedules x JOIN hrm_schema.leave_types lt ON lt.id=x.leave_type_id', `lt.name||' · từ '||${vn('x.effective_from')}`],
+  ['Quỹ nghỉ bù', 'hrm_schema.comp_off_ledger x', `${emp('x.employee_id')}||COALESCE(' · tháng '||x.period_month,'')`],
   ['Giao dịch phép', 'hrm_schema.leave_transactions x', `${emp('x.employee_id')}||' · năm '||x.balance_year`],
   ['Quyết toán phép', 'hrm_schema.leave_settlements x', `${emp('x.employee_id')}||' · năm '||x.year`],
   ['Hợp đồng lao động', 'hrm_schema.employment_contracts x', `x.contract_code||COALESCE(' · '||${emp('x.employee_id')},'')`],
@@ -188,7 +195,7 @@ const ENTITY_SOURCES: [string, string, string][] = [
   ['Ca làm việc', 'hrm_schema.shift_definitions x', `x.code||' · '||x.name${DELETED_MARK}`],
   ['Phân ca', 'hrm_schema.shift_assignments x', `${emp('x.employee_id')}||' · từ '||${vn('x.effective_from')}`],
   ['Lịch làm việc', 'hrm_schema.work_calendar x', `${vn('x.work_date')}||' · '||x.name`],
-  ['Địa điểm chấm công', 'hrm_schema.attendance_sites x', `x.name`],
+  ['Địa điểm chấm công', 'hrm_schema.attendance_sites x', `x.name${DELETED_MARK}`],
   ['Phiên bản chính sách', 'hrm_schema.policy_versions x JOIN hrm_schema.policies po ON po.id=x.policy_id', `po.name||' · v'||x.version_no`],
 ];
 
@@ -218,6 +225,7 @@ const APPROVER = `CASE WHEN a.detail->>'approverId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}
 
 /** Loại đối tượng suy từ tiền tố action, dùng khi bản ghi gốc đã bị xóa. */
 const ACTION_ENTITY_KIND: [string, string][] = [
+  ['COMP_OFF_', 'Quỹ nghỉ bù'],
   ['LEAVE_SCHEDULE_', 'Lịch cộng phép'],
   ['LEAVE_SETTLE', 'Quyết toán phép'],
   ['LEAVE_TYPE_', 'Loại nghỉ'],

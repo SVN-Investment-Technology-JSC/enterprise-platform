@@ -1,11 +1,5 @@
 import { calculateTimesheet } from './hrm-timesheet-calculation';
 
-jest.mock('./hrm-time.js', () => ({
-  ...jest.requireActual('./hrm-time.js'),
-  resolvePolicy: jest.fn(async () => ({ id: 'pol-att', config_json: { timezone: 'Asia/Ho_Chi_Minh' } })),
-  dayContextForDate: jest.fn(async () => ({ shift: null, scheduleDayType: null, holidayPaid: null })),
-}));
-
 /**
  * OT không lương (đơn chọn lý do có paid=false): vẫn là đơn hợp lệ và vẫn ghi giờ thực tế, nhưng chỉ OT đã duyệt
  * có lương mới được cộng vào timesheets.ot_minutes (nguồn của OT_MINUTES khi tính lương).
@@ -13,6 +7,8 @@ jest.mock('./hrm-time.js', () => ({
 const DAY = '2026-10-05';
 const ot = (id: string, startHour: number, over: Record<string, unknown> = {}) => ({
   id,
+  employee_id: 'emp-1',
+  the_date: DAY,
   work_date: DAY,
   approved_minutes: 60,
   ot_rate_multiplier: 1.5,
@@ -35,8 +31,8 @@ async function run(otRows: Record<string, unknown>[]) {
         return rows([{ employee_id: 'emp-1', join_date: '2026-01-01', inactive_from: null }]);
       if (sql.includes('FROM hrm_schema.attendance_events'))
         return rows([
-          { id: 'in', event_kind: 'IN', occurred_at: `${DAY}T11:00:00.000Z` },
-          { id: 'out', event_kind: 'OUT', occurred_at: `${DAY}T13:00:00.000Z` },
+          { id: 'in', employee_id: 'emp-1', the_date: DAY, event_kind: 'IN', occurred_at: `${DAY}T11:00:00.000Z`, voided_cid: null },
+          { id: 'out', employee_id: 'emp-1', the_date: DAY, event_kind: 'OUT', occurred_at: `${DAY}T13:00:00.000Z`, voided_cid: null },
         ]);
       if (sql.includes('FROM hrm_schema.ot_requests')) return rows(otRows);
       if (sql.includes('count(*)::int AS count')) return rows([{ count: 1, abnormal: 0 }]);
@@ -46,11 +42,12 @@ async function run(otRows: Record<string, unknown>[]) {
   await calculateTimesheet(db as never, 't', 'period-1');
   const upserts = calls.filter((c) => c.sql.includes('INSERT INTO hrm_schema.timesheets'));
   expect(upserts).toHaveLength(1);
-  const otUpdates = Object.fromEntries(
-    calls
-      .filter((c) => c.sql.includes('UPDATE hrm_schema.ot_requests'))
-      .map((c) => [c.params[1] as string, { actual: c.params[2], billable: c.params[3] }]),
-  );
+  // Số phút thực tế và tính lương của các đơn làm thêm giờ được ghi bằng một câu lệnh theo lô.
+  const otUpdates: Record<string, { actual: unknown; billable: unknown }> = {};
+  for (const c of calls.filter((c) => c.sql.includes('UPDATE hrm_schema.ot_requests'))) {
+    const [, ids, actual, billable] = c.params as [string, string[], number[], number[]];
+    ids.forEach((id, i) => (otUpdates[id] = { actual: actual[i], billable: billable[i] }));
+  }
   const params = upserts[0].params;
   return { otMinutes: params[11], snapshot: JSON.parse(params[16] as string), otUpdates };
 }

@@ -317,7 +317,8 @@ export async function compOffStatus(db: Db, tenant: string, asOf: string = today
 }
 
 /**
- * Lịch sử điều chỉnh quỹ nghỉ bù của mọi nhân viên (bấm tay, import Excel và dòng đảo), mới nhất trước.
+ * Lịch sử điều chỉnh quỹ nghỉ bù của mọi nhân viên (bấm tay, import Excel, dòng đảo và các lần cộng quỹ từ chốt công
+ * tháng), mới nhất trước.
  * Cùng dạng với sổ từng nhân viên, thêm họ tên, mã và phòng ban.
  */
 export async function compOffAdjustmentHistory(db: Db, tenant: string): Promise<HrmCompOffAdjustmentRow[]> {
@@ -336,7 +337,7 @@ export async function compOffAdjustmentHistory(db: Db, tenant: string): Promise<
             (SELECT r.id FROM hrm_schema.comp_off_ledger r WHERE r.tenant_id = l.tenant_id AND r.reverses_id = l.id LIMIT 1) AS reversed_by_id
        FROM hrm_schema.comp_off_ledger l
        JOIN hrm_schema.employee_directory e ON e.employee_id = l.employee_id AND e.tenant_id = l.tenant_id
-      WHERE l.tenant_id=$1 AND l.kind='ADJUST'
+      WHERE l.tenant_id=$1 AND (l.kind='ADJUST' OR (l.kind='ACCRUAL' AND l.period_month IS NOT NULL))
       ORDER BY l.created_at DESC, l.id DESC LIMIT 2000`,
     [tenant],
   );

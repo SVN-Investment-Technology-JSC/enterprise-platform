@@ -1,7 +1,8 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SearchableSelect, formatDateTime } from '@enterprise-platform/shared-ui';
-import { AlertTriangle, RefreshCw, Search } from 'lucide-react';
+import { Popover } from '@base-ui/react/popover';
+import { AlertTriangle, CircleHelp, RefreshCw, Search } from 'lucide-react';
 import type { HrmCompOffAdjustmentRow, HrmLeaveTransaction } from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { compOffApi } from '../hrm-comp-off-api';
@@ -16,7 +17,7 @@ import { PageTitle } from '../ui/page-title';
 const PAGE_SIZE = 20;
 const TH = 'px-3 py-2.5 text-left text-[12px] font-bold text-slate-500';
 
-type TypeFilter = 'ALL' | 'ADJUSTMENT' | 'REVERSAL';
+type TypeFilter = 'ALL' | 'ADJUSTMENT' | 'REVERSAL' | 'CLOSING';
 type FundFilter = 'ALL' | 'ANNUAL' | 'COMP_OFF';
 
 const FUND_OPTIONS: { value: FundFilter; label: string }[] = [
@@ -42,6 +43,10 @@ interface HistoryRow {
   readonly actorEmail: string | null;
   /** Nguồn import Excel (chỉ quỹ nghỉ bù). */
   readonly imported: boolean;
+  /** Cộng quỹ nghỉ bù khi chốt công tháng (không phải điều chỉnh tay). */
+  readonly closing: boolean;
+  /** Tháng công của lần cộng quỹ từ chốt công, dạng MM/YYYY. */
+  readonly closingMonth: string | null;
 }
 
 /** Mốc thời gian dạng số; so sánh chuỗi sai khi hai nguồn khác định dạng (ISO với ngày giờ của DB). */
@@ -65,6 +70,8 @@ const fromLeave = (r: HrmLeaveTransaction): HistoryRow => ({
   actorLabel: r.actorLabel ?? null,
   actorEmail: r.actorEmail ?? null,
   imported: false,
+  closing: false,
+  closingMonth: null,
 });
 
 const fromCompOff = (r: HrmCompOffAdjustmentRow): HistoryRow => ({
@@ -82,12 +89,15 @@ const fromCompOff = (r: HrmCompOffAdjustmentRow): HistoryRow => ({
   actorLabel: r.actorLabel ?? null,
   actorEmail: r.actorEmail ?? null,
   imported: r.source === 'IMPORT',
+  closing: r.kind === 'ACCRUAL',
+  closingMonth: r.kind === 'ACCRUAL' && r.periodMonth ? `${r.periodMonth.slice(5)}/${r.periodMonth.slice(0, 4)}` : null,
 });
 
 const TYPE_OPTIONS: { value: TypeFilter; label: string }[] = [
   { value: 'ALL', label: 'Tất cả điều chỉnh' },
   { value: 'ADJUSTMENT', label: 'Điều chỉnh' },
   { value: 'REVERSAL', label: 'Đảo điều chỉnh' },
+  { value: 'CLOSING', label: 'Cộng từ chốt công' },
 ];
 
 const signed = (value: number) => (value > 0 ? `+${formatLeaveNumber(value)}` : formatLeaveNumber(value));
@@ -106,6 +116,8 @@ export default function LeaveAdjustmentHistoryScreen() {
   const [type, setType] = useState<TypeFilter>('ALL');
   const [fund, setFund] = useState<FundFilter>('ALL');
   const [search, setSearch] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,18 +172,23 @@ export default function LeaveAdjustmentHistoryScreen() {
 
   const filtered = useMemo(() => {
     const needle = normalizeSearchText(search.trim());
+    const from = fromDate ? Date.parse(`${fromDate}T00:00:00`) : null;
+    const to = toDate ? Date.parse(`${toDate}T23:59:59.999`) : null;
     return rows.filter((r) => {
+      const at = timeOf(r.createdAt);
+      if (from !== null && at < from) return false;
+      if (to !== null && at > to) return false;
       if (fund !== 'ALL' && r.fund !== fund) return false;
-      if (type !== 'ALL' && (type === 'REVERSAL') !== r.reversal) return false;
+      if (type === 'CLOSING' && !r.closing) return false;
+      if (type === 'REVERSAL' && !r.reversal) return false;
+      if (type === 'ADJUSTMENT' && (r.reversal || r.closing)) return false;
       if (!needle) return true;
-      const hay = normalizeSearchText(
-        [r.employeeName, r.employeeCode, r.actorLabel, r.actorEmail, r.note].filter(Boolean).join(' '),
-      );
+      const hay = normalizeSearchText(r.employeeName);
       return hay.includes(needle);
     });
-  }, [rows, fund, type, search]);
+  }, [rows, fund, type, search, fromDate, toDate]);
 
-  useEffect(() => setPage(1), [year, fund, type, search]);
+  useEffect(() => setPage(1), [year, fund, type, search, fromDate, toDate]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pageCount);
   const visible = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
@@ -222,11 +239,33 @@ export default function LeaveAdjustmentHistoryScreen() {
             placeholder="Loại"
           />
         </div>
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          Từ ngày
+          <Input
+            type="date"
+            aria-label="Từ ngày"
+            className="h-9 w-36 border-slate-200 text-xs"
+            value={fromDate}
+            max={toDate || undefined}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          Đến ngày
+          <Input
+            type="date"
+            aria-label="Đến ngày"
+            className="h-9 w-36 border-slate-200 text-xs"
+            value={toDate}
+            min={fromDate || undefined}
+            onChange={(e) => setToDate(e.target.value)}
+          />
+        </label>
         <div className="relative min-w-60 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <Input
-            aria-label="Tìm theo nhân viên, tài khoản thực hiện hoặc lý do"
-            placeholder="Tìm theo nhân viên, tài khoản thực hiện, lý do..."
+            aria-label="Tìm theo tên nhân viên"
+            placeholder="Tìm theo tên nhân viên"
             className="h-9 border-slate-200 pl-9 text-xs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -258,7 +297,26 @@ export default function LeaveAdjustmentHistoryScreen() {
                 <th className={TH}>Quỹ</th>
                 <th className={TH}>Loại</th>
                 <th className={`${TH} text-right`}>Số ngày</th>
-                <th className={`${TH} text-right`}>Còn lại sau</th>
+                <th className={`${TH} text-right`}>
+                  <span className="inline-flex items-center gap-1">
+                    Còn lại sau
+                    <Popover.Root>
+                      <Popover.Trigger
+                        aria-label="Giải thích Còn lại sau"
+                        className="inline-flex size-3.5 cursor-pointer items-center justify-center rounded-full text-amber-500/80 outline-none hover:text-amber-600 focus-visible:ring-2 focus-visible:ring-amber-400"
+                      >
+                        <CircleHelp aria-hidden="true" className="size-3.5" />
+                      </Popover.Trigger>
+                      <Popover.Portal>
+                        <Popover.Positioner side="top" sideOffset={8} className="z-[100]">
+                          <Popover.Popup className="relative z-[100] max-w-72 rounded-md border border-slate-200 bg-slate-900 px-2.5 py-2 text-left text-xs font-normal leading-5 text-white shadow-xl outline-none">
+                            Số ngày còn lại của quỹ phép năm của nhân viên ngay sau lần điều chỉnh này. Quỹ nghỉ bù chưa ghi số này nên hiện dấu gạch.
+                          </Popover.Popup>
+                        </Popover.Positioner>
+                      </Popover.Portal>
+                    </Popover.Root>
+                  </span>
+                </th>
                 <th className={TH}>Lý do</th>
                 <th className={TH}>Tài khoản thực hiện</th>
               </tr>
@@ -284,10 +342,6 @@ export default function LeaveAdjustmentHistoryScreen() {
                     </td>
                     <td className="px-3 py-2.5">
                       <span className="block font-semibold text-slate-900">{r.employeeName}</span>
-                      <span className="block text-[12px] text-slate-500">
-                        {r.employeeCode}
-                        {r.department ? ` · ${r.department}` : ''}
-                      </span>
                     </td>
                     <td className="px-3 py-2.5">
                       <span className="block font-semibold text-slate-900">
@@ -300,10 +354,18 @@ export default function LeaveAdjustmentHistoryScreen() {
                         className={
                           r.reversal
                             ? 'border-amber-200 bg-amber-50 text-amber-700'
-                            : 'border-blue-200 bg-blue-50 text-blue-700'
+                            : r.closing
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-blue-200 bg-blue-50 text-blue-700'
                         }
                       >
-                        {r.reversal ? 'Đảo điều chỉnh' : r.imported ? 'Import Excel' : 'Điều chỉnh'}
+                        {r.reversal
+                          ? 'Đảo điều chỉnh'
+                          : r.closing
+                            ? `Chốt công ${r.closingMonth ?? ''}`.trim()
+                            : r.imported
+                              ? 'Import Excel'
+                              : 'Điều chỉnh'}
                       </Badge>
                     </td>
                     <td

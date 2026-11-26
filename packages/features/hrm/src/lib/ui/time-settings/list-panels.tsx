@@ -108,12 +108,15 @@ export function SitesPanel({
   onAdd,
   onEdit,
   onStop,
+  onDelete,
 }: {
   rows: Settings['sites'];
   canConfigure: boolean;
   onAdd: () => void;
   onEdit: (row: SiteRow) => void;
   onStop: (row: SiteRow) => Promise<void>;
+  /** Xóa mềm: địa điểm biến khỏi danh mục, lịch sử và chứng cứ chấm công cũ vẫn giữ. */
+  onDelete: (row: SiteRow) => Promise<void>;
 }) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('ALL');
@@ -158,33 +161,55 @@ export function SitesPanel({
       header: 'Thao tác',
       actions: 'corner',
       cell: (r) =>
-        r.active && canConfigure ? (
+        canConfigure ? (
           <div className="flex items-center justify-end gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              aria-label={`Sửa ${r.name}`}
-              onClick={() => onEdit(r)}
-              className="h-8 px-3 text-xs"
-            >
-              Sửa
-            </Button>
+            {r.active ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label={`Sửa ${r.name}`}
+                  onClick={() => onEdit(r)}
+                  className="h-8 px-3 text-xs"
+                >
+                  Sửa
+                </Button>
+                <Popconfirm
+                  title={`Ngừng địa điểm ${r.name}?`}
+                  description="Giữ lịch sử và chứng cứ đã ghi nhận. Kỳ công mở bị ảnh hưởng phải tính lại."
+                  okText="Ngừng địa điểm"
+                  cancelText="Không"
+                  okType="danger"
+                  placement="top-end"
+                  onConfirm={() => onStop(r)}
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    aria-label={`Ngừng ${r.name}`}
+                    className="h-8 border-red-200 px-3 text-xs text-red-700 hover:bg-red-50"
+                  >
+                    Ngừng
+                  </Button>
+                </Popconfirm>
+              </>
+            ) : null}
             <Popconfirm
-              title={`Ngừng địa điểm ${r.name}?`}
-              description="Giữ lịch sử và chứng cứ đã ghi nhận. Kỳ công mở bị ảnh hưởng phải tính lại."
-              okText="Ngừng địa điểm"
+              title={`Xóa địa điểm ${r.name}?`}
+              description="Địa điểm biến khỏi danh mục và các phạm vi áp dụng bị gỡ. Lịch sử chấm công và chứng cứ đã ghi nhận vẫn được giữ."
+              okText="Xóa địa điểm"
               cancelText="Không"
               okType="danger"
               placement="top-end"
-              onConfirm={() => onStop(r)}
+              onConfirm={() => onDelete(r)}
             >
               <Button
                 type="button"
                 variant="outline"
-                aria-label={`Ngừng ${r.name}`}
+                aria-label={`Xóa ${r.name}`}
                 className="h-8 border-red-200 px-3 text-xs text-red-700 hover:bg-red-50"
               >
-                Ngừng
+                Xóa
               </Button>
             </Popconfirm>
           </div>

@@ -519,8 +519,7 @@ export function BoardDayDrawer({
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-slate-900">{employee.employeeName}</span>
                     <span className="block text-xs text-slate-500">
-                      {employee.employeeCode}
-                      {employee.departmentName ? ` · ${employee.departmentName}` : ''} · {weekdayVn(day.date)},{' '}
+                      {employee.departmentName ? `${employee.departmentName} · ` : ''}{weekdayVn(day.date)},{' '}
                       {formatDateVn(day.date)}
                       {day.kind === 'HOLIDAY' && day.holidayName ? ` · Lễ: ${day.holidayName}` : ''}
                     </span>

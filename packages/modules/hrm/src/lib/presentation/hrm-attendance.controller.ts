@@ -209,6 +209,8 @@ export class HrmAttendanceController {
     @Query('employee_id') employeeId?: string,
     @Query('page') pageValue = '1',
     @Query('page_size') sizeValue = '50',
+    /** `group=employee`: mỗi dòng một nhân viên (tổng hợp các ngày công trong khoảng), phân trang theo nhân viên. */
+    @Query('group') group?: string,
   ) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.attendance.read');
     const from = requireDate(fromDate, 'from'),
@@ -241,6 +243,55 @@ export class HrmAttendanceController {
     if (q?.trim()) {
       params.push(`%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
       where += ` AND (e.employee_code ILIKE $${params.length} OR e.full_name ILIKE $${params.length})`;
+    }
+    if (group === 'employee') {
+      // Gom theo nhân viên trước rồi mới nối view nhân viên (nặng) cho các dòng đã gom, thay vì nối cho từng ngày công.
+      const personParams: unknown[] = [tenantId, from, to];
+      let personWhere = `a.tenant_id=$1 AND a.work_date BETWEEN $2::date AND $3::date`;
+      if (employeeId) {
+        personParams.push(requireUuid(employeeId, 'employee_id'));
+        personWhere += ` AND a.employee_id=$${personParams.length}`;
+      }
+      if (status) {
+        personParams.push(status);
+        personWhere += ` AND a.status=$${personParams.length}`;
+      }
+      let nameFilter = '';
+      if (q?.trim()) {
+        personParams.push(`%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+        nameFilter = ` AND (e.employee_code ILIKE $${personParams.length} OR e.full_name ILIKE $${personParams.length})`;
+      }
+      const people = await pool.query(
+        `WITH g AS (
+           SELECT a.employee_id, count(*)::int AS days, COALESCE(sum(a.worked_minutes),0)::int AS worked,
+                  COALESCE(sum(a.scheduled_minutes),0)::int AS scheduled,
+                  count(*) FILTER (WHERE a.late_minutes > 0)::int AS late_days,
+                  COALESCE(sum(a.late_minutes),0)::int AS late_minutes, COALESCE(sum(a.early_minutes),0)::int AS early_minutes,
+                  count(*) FILTER (WHERE a.status IN ('ABNORMAL','MISSING_PUNCH'))::int AS abnormal_days
+             FROM hrm_schema.attendances a WHERE ${personWhere} GROUP BY a.employee_id
+         ), p AS (
+           SELECT g.*, e.full_name, e.department_name
+             FROM g JOIN hrm_schema.employee_directory e ON e.tenant_id=$1 AND e.employee_id=g.employee_id${nameFilter}
+         )
+         SELECT p.*, count(*) OVER ()::int AS total FROM p ORDER BY p.full_name, p.employee_id
+         LIMIT $${personParams.length + 1} OFFSET $${personParams.length + 2}`,
+        [...personParams, size, (page - 1) * size],
+      );
+      return {
+        data: people.rows.map((r) => ({
+          employeeId: r.employee_id as string,
+          employeeName: (r.full_name as string | null) ?? '',
+          departmentName: (r.department_name as string | null) ?? null,
+          days: Number(r.days),
+          workedMinutes: Number(r.worked),
+          scheduledMinutes: Number(r.scheduled),
+          lateDays: Number(r.late_days),
+          lateMinutes: Number(r.late_minutes),
+          earlyMinutes: Number(r.early_minutes),
+          abnormalDays: Number(r.abnormal_days),
+        })),
+        meta: { total: people.rows[0] ? Number(people.rows[0].total) : 0, page, pageSize: size },
+      };
     }
     const base = `FROM hrm_schema.attendances a
       LEFT JOIN hrm_schema.employee_directory e ON e.tenant_id=a.tenant_id AND e.employee_id=a.employee_id

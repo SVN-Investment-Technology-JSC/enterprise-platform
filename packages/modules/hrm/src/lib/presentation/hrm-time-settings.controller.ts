@@ -58,7 +58,7 @@ export class HrmTimeSettingsController {
         [tenantId],
       ),
       pool.query(
-        `SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 ORDER BY name`,
+        `SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND deleted_at IS NULL ORDER BY name`,
         [tenantId],
       ),
       pool.query(
@@ -525,6 +525,60 @@ export class HrmTimeSettingsController {
   ) {
     return this.mutateSite(req, id, body, true);
   }
+  /**
+   * Xóa mềm địa điểm: đặt deleted_at, ngừng dùng và gỡ các phạm vi áp dụng (để chế độ "đã có phân công" không bị giữ lại bởi
+   * địa điểm không còn). Dòng và nhật ký vẫn còn nên chứng cứ chấm công cũ (tên, tọa độ lúc chấm) truy vết được.
+   * Đang bật kiểm tra vị trí thì không xóa được địa điểm đang dùng cuối cùng, vì không ai chấm công được nữa.
+   */
+  @Delete('sites/:id')
+  async deleteSite(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: { expectedUpdatedAt: string; reason: string },
+  ) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.time.configure');
+    requireUuid(id, 'id');
+    requireText(body.reason, 'reason', 1000);
+    return hrmTransaction(pool, async (db) => {
+      const row = (
+        await db.query(
+          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',
+          [tenantId, id],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException('Không tìm thấy địa điểm');
+      assertLifecycleVersion(row, body.expectedUpdatedAt);
+      if (row.active && (await loadAttendanceLocationSettings(db, tenantId))?.locationCheck) {
+        const others = await db.query(
+          'SELECT 1 FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id<>$2 AND active=true AND deleted_at IS NULL LIMIT 1',
+          [tenantId, id],
+        );
+        if (!others.rowCount)
+          throw new ConflictException({
+            code: 'HRM_SITE_LAST_ACTIVE',
+            message:
+              'Đang bật kiểm tra vị trí: thêm địa điểm khác hoặc tắt kiểm tra vị trí trước khi xóa địa điểm đang dùng cuối cùng.',
+          });
+      }
+      const assignments = await db.query(
+        'DELETE FROM hrm_schema.attendance_site_assignments WHERE tenant_id=$1 AND site_id=$2 RETURNING scope_type, scope_id',
+        [tenantId, id],
+      );
+      const result = await db.query(
+        `UPDATE hrm_schema.attendance_sites SET active=false, deleted_at=now(), updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
+          WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [tenantId, id],
+      );
+      await lifecycleAudit(db, tenantId, principal.userId, 'SITE_DELETED', id, {
+        before: row,
+        after: result.rows[0],
+        assignments: assignments.rows,
+        reason: body.reason,
+      });
+      return { data: { id, deleted: true } };
+    });
+  }
+
   private async mutateSite(
     req: Request,
     id: string,
@@ -548,7 +602,7 @@ export class HrmTimeSettingsController {
     return hrmTransaction(pool, async (db) => {
       const row = (
         await db.query(
-          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2 FOR UPDATE',
+          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',
           [tenantId, id],
         )
       ).rows[0];
@@ -613,7 +667,7 @@ export class HrmTimeSettingsController {
         throw new BadRequestException('Cơ sở dữ liệu HRM chưa được cập nhật (migration 0071); chạy migration trước');
       if (body.locationCheck) {
         const active = await db.query(
-          'SELECT 1 FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND active=true LIMIT 1',
+          'SELECT 1 FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND active=true AND deleted_at IS NULL LIMIT 1',
           [tenantId],
         );
         if (!active.rowCount)
@@ -651,7 +705,7 @@ export class HrmTimeSettingsController {
     return hrmTransaction(pool, async (db) => {
       const site = (
         await db.query(
-          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2',
+          'SELECT * FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL',
           [tenantId, id],
         )
       ).rows[0];

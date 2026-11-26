@@ -594,10 +594,14 @@ export interface HrmShiftDefinition {
   readonly crossMidnight: boolean;
   readonly graceLateMinutes: number;
   readonly graceEarlyMinutes: number;
-  /** Cho phép chấm vào sớm tối đa bao nhiêu phút trước giờ bắt đầu ca. */
+  /** Không còn dùng: chấm vào sớm bao nhiêu cũng được. Giữ lại để tương thích dữ liệu và API cũ. */
   readonly checkInBeforeMinutes: number;
   /** Cho phép chấm ra muộn tối đa bao nhiêu phút sau giờ kết thúc ca. */
   readonly checkOutAfterMinutes: number;
+  /** Chấm vào sau giờ bắt đầu quá số phút này thì bị từ chối; null = không chặn. */
+  readonly blockLateInMinutes?: number | null;
+  /** Chấm ra trước giờ kết thúc quá số phút này thì bị từ chối; null = không chặn. */
+  readonly blockEarlyOutMinutes?: number | null;
   readonly status: 'ACTIVE' | 'INACTIVE';
   readonly deletedAt?: string | null;
   readonly createdAt: string;
@@ -617,6 +621,8 @@ export interface CreateShiftDefinitionRequest {
   readonly graceEarlyMinutes?: number;
   readonly checkInBeforeMinutes?: number;
   readonly checkOutAfterMinutes?: number;
+  readonly blockLateInMinutes?: number | null;
+  readonly blockEarlyOutMinutes?: number | null;
   readonly status?: 'ACTIVE' | 'INACTIVE';
 }
 
@@ -633,6 +639,9 @@ export interface UpdateShiftDefinitionRequest {
   readonly graceEarlyMinutes?: number;
   readonly checkInBeforeMinutes?: number;
   readonly checkOutAfterMinutes?: number;
+  /** Bỏ trống = giữ nguyên; null = bỏ chặn. */
+  readonly blockLateInMinutes?: number | null;
+  readonly blockEarlyOutMinutes?: number | null;
   readonly status?: 'ACTIVE' | 'INACTIVE';
 }
 

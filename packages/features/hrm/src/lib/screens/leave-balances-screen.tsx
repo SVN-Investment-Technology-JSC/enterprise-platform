@@ -348,7 +348,7 @@ function groupByDepartment(rows: readonly Row[]): DepartmentGroup[] {
 }
 
 const TH = 'px-3 py-2.5 text-[12px] font-bold text-slate-600';
-const COLUMN_COUNT = 10;
+const COLUMN_COUNT = 9;
 const DASH = <span className="text-slate-400">—</span>;
 
 /**
@@ -693,7 +693,6 @@ export default function LeaveBalancesScreen() {
                         />
                       </th>
                       <th className={TH}>Tên nhân viên</th>
-                      <th className={TH}>Mã NV</th>
                       <ColumnHeader
                         className={`${TH} text-right`}
                         label="Tổng quỹ năm"
@@ -747,7 +746,7 @@ export default function LeaveBalancesScreen() {
                             data-testid="leave-group-row"
                             className="border-t border-slate-200 bg-slate-50 font-bold text-slate-900"
                           >
-                            <td colSpan={3} className="px-3 py-2">
+                            <td colSpan={2} className="px-3 py-2">
                               <button
                                 type="button"
                                 aria-expanded={!isCollapsed}
@@ -834,9 +833,6 @@ export default function LeaveBalancesScreen() {
                                         <SignDateNote row={r} />
                                       </span>
                                     </span>
-                                  </td>
-                                  <td className="px-3 py-2 font-mono text-slate-600">
-                                    {r.employeeCode}
                                   </td>
                                   <td className="px-3 py-2 text-right">
                                     {none

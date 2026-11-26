@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { HrmOvertimeBlock, HrmOvertimeMonthSummary } from '@enterprise-platform/contracts-hrm';
 import { compOffApi } from '../../hrm-comp-off-api';
 import { BLOCK_SOURCE_LABEL, currentMonthKey, formatCompNumber, shortLocal } from '../../comp-off-model';
@@ -79,7 +79,15 @@ function EditBlockDialog({ block, onClose, onDone }: { block: HrmOvertimeBlock; 
   );
 }
 
-function SummaryTable({ rows }: { rows: HrmOvertimeMonthSummary[] }) {
+function SummaryTable({
+  rows,
+  selectedId,
+  onSelect,
+}: {
+  rows: HrmOvertimeMonthSummary[];
+  selectedId: string | null;
+  onSelect: (employeeId: string | null) => void;
+}) {
   return (
     <TableShell label="Tổng hợp làm thêm theo nhân viên">
       <thead className="bg-slate-50">
@@ -96,10 +104,22 @@ function SummaryTable({ rows }: { rows: HrmOvertimeMonthSummary[] }) {
       <tbody className="divide-y divide-slate-100">
         {rows.length === 0 ? <EmptyRow colSpan={7}>Chưa có dữ liệu làm thêm của tháng.</EmptyRow> : null}
         {rows.map((r) => (
-          <tr key={r.employeeId}>
+          <tr
+            key={r.employeeId}
+            tabIndex={0}
+            aria-selected={selectedId === r.employeeId}
+            title="Bấm để xem các ca làm thêm của nhân viên này"
+            className={`cursor-pointer hover:bg-slate-50 focus-visible:outline-none ${selectedId === r.employeeId ? 'bg-blue-50' : ''}`}
+            onClick={() => onSelect(selectedId === r.employeeId ? null : r.employeeId)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(selectedId === r.employeeId ? null : r.employeeId);
+              }
+            }}
+          >
             <td className={td}>
               <div className="font-medium">{r.employeeName ?? r.employeeId}</div>
-              <div className="text-xs text-slate-500">{r.employeeCode}</div>
             </td>
             <td className={tdRight}>{formatCompNumber(r.actualOtHours)}</td>
             <td className={tdRight}>{formatCompNumber(r.countedOtHours)}</td>
@@ -123,10 +143,12 @@ export function OvertimeClassifyPanel() {
   const [summary, setSummary] = useState<{ enabled: boolean; rows: HrmOvertimeMonthSummary[] } | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<HrmOvertimeBlock | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const load = useCallback(
     async (target: string) => {
       setError('');
+      setSelectedId(null);
       setBlocks(null);
       setSummary(null);
       try {
@@ -139,6 +161,8 @@ export function OvertimeClassifyPanel() {
     },
     [canClassify],
   );
+
+  const selectedBlocks = useMemo(() => (blocks ?? []).filter((b) => b.employeeId === selectedId), [blocks, selectedId]);
 
   useEffect(() => {
     void load(month);
@@ -158,15 +182,19 @@ export function OvertimeClassifyPanel() {
       ) : null}
       <section className="space-y-2">
         <h3 className="text-sm font-bold text-slate-900">Tổng hợp theo nhân viên (giờ)</h3>
-        <SummaryTable rows={summary?.rows ?? []} />
+        <SummaryTable rows={summary?.rows ?? []} selectedId={selectedId} onSelect={setSelectedId} />
       </section>
-      {canClassify ? (
+      {canClassify && !selectedId ? (
+        <p className="text-xs text-slate-500">Bấm vào một nhân viên ở bảng trên để xem và sửa phân loại từng ca làm thêm của người đó.</p>
+      ) : null}
+      {canClassify && selectedId ? (
         <section className="space-y-2">
-          <h3 className="text-sm font-bold text-slate-900">Phân loại từng ca</h3>
+          <h3 className="text-sm font-bold text-slate-900">
+            Phân loại từng ca · {summary?.rows.find((r) => r.employeeId === selectedId)?.employeeName ?? 'nhân viên đã chọn'}
+          </h3>
           <TableShell label="Phân loại làm thêm và ca đêm theo ca">
             <thead className="bg-slate-50">
               <tr>
-                <th className={th}>Nhân viên</th>
                 <th className={th}>Ca làm thêm</th>
                 <th className={thRight}>Số giờ</th>
                 <th className={thRight}>Gợi ý (làm thêm / ca đêm)</th>
@@ -179,14 +207,10 @@ export function OvertimeClassifyPanel() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {blocks === null && !error ? <EmptyRow colSpan={8}>Đang tải…</EmptyRow> : null}
-              {blocks !== null && blocks.length === 0 ? <EmptyRow colSpan={8}>Không có ca làm thêm đã phân loại trong tháng.</EmptyRow> : null}
-              {(blocks ?? []).map((b) => (
+              {blocks === null && !error ? <EmptyRow colSpan={7}>Đang tải…</EmptyRow> : null}
+              {blocks !== null && selectedBlocks.length === 0 ? <EmptyRow colSpan={7}>Không có ca làm thêm đã phân loại trong tháng.</EmptyRow> : null}
+              {selectedBlocks.map((b) => (
                 <tr key={b.id}>
-                  <td className={td}>
-                    <div className="font-medium">{b.employeeName ?? b.employeeId}</div>
-                    <div className="text-xs text-slate-500">{b.employeeCode}</div>
-                  </td>
                   <td className={td}>
                     {shortLocal(b.start)} - {shortLocal(b.end)}
                     {b.crossesMidnight ? <span className="ml-1 text-[11px] text-slate-500">(xuyên đêm)</span> : null}
