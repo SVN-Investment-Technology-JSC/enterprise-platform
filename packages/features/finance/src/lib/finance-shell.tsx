@@ -1,12 +1,18 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ConfigProvider } from 'antd';
 import viVN from 'antd/locale/vi_VN';
-import { ModuleShell, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
+import { ModuleShell, forwardEscapeToHost, type ModuleNavItem } from '@enterprise-platform/feature-module-shell';
 import { AppIcon, type AppIconProps } from '@enterprise-platform/shared-ui';
 import { FinanceCrumbsProvider } from './finance-crumbs';
-import { financeNavigation, getActiveFinanceNavId, normalizeFinancePath } from './finance-navigation';
+import {
+  financeNavigation,
+  getActiveFinanceNavId,
+  isFinanceEmbedPath,
+  normalizeFinancePath,
+  stripFinanceEmbed,
+} from './finance-navigation';
 import { FinancePermissionsProvider, useFinancePermissions } from './finance-permissions';
 
 const FINANCE_NAV_SLOT: Partial<Record<string, AppIconProps['slot']>> = {
@@ -100,7 +106,50 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
     [router],
   );
 
-  const blocked = !permissions.loading && !permissions.error && !permissions.canOpenPage(currentPath === '' ? '/' : topSegment(currentPath));
+  // Trang nhúng kiểm quyền theo trang gốc: `/embed/payments/<id>` cần quyền mở `/payments` như màn hình thường.
+  const embedded = isFinanceEmbedPath(pathname);
+  const gatedPath = stripFinanceEmbed(currentPath);
+  const blocked = !permissions.loading && !permissions.error && !permissions.canOpenPage(gatedPath === '' ? '/' : topSegment(gatedPath));
+
+  // Esc khi tiêu điểm đang trong trang nhúng: chuyển cho popup của bên chủ (nghe ở cấp tài liệu vì tiêu điểm có thể nằm ở thân trang).
+  useEffect(() => {
+    if (!embedded) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => void forwardEscapeToHost(event);
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [embedded]);
+
+  const body = permissions.loading ? (
+    <div role="status" className="flex items-center justify-center p-12 text-sm text-slate-500">
+      <span className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-accent-strong border-t-transparent" />
+      Đang tải quyền Tài chính…
+    </div>
+  ) : permissions.error ? (
+    <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
+      <div className="mb-1 font-semibold">Không thể tải thông tin quyền hạn</div>
+      <p>{permissions.error}</p>
+    </div>
+  ) : blocked ? (
+    <div role="alert" className="mx-auto mt-6 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 shadow-xs">
+      <div className="mb-2 text-base font-bold">Chưa được cấp quyền truy cập</div>
+      <p className="leading-relaxed">
+        Tài khoản của bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có thể cấp quyền tại màn hình Phân quyền của ERP.
+      </p>
+    </div>
+  ) : (
+    children
+  );
+
+  // Trang nhúng trong popup của phân hệ khác: chỉ có nội dung, không thanh bên, breadcrumb hay Trợ lý lồng trong popup.
+  if (embedded) {
+    return (
+      <FinanceCrumbsProvider value={setCrumbs}>
+        <div className="finance-workspace fixed inset-0 min-h-0 overflow-auto bg-white" onClickCapture={openLinksOutsideFrame}>
+          {body}
+        </div>
+      </FinanceCrumbsProvider>
+    );
+  }
 
   return (
     <FinanceCrumbsProvider value={setCrumbs}>
@@ -117,31 +166,23 @@ function FinanceShellContent({ children }: { children: ReactNode }) {
         collapsed={collapsed}
         onCollapsedChange={changeCollapsed}
       >
-        <div className="finance-workspace">
-          {permissions.loading ? (
-            <div role="status" className="flex items-center justify-center p-12 text-sm text-slate-500">
-              <span className="mr-2 inline-block size-4 animate-spin rounded-full border-2 border-accent-strong border-t-transparent" />
-              Đang tải quyền Tài chính…
-            </div>
-          ) : permissions.error ? (
-            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700 shadow-xs">
-              <div className="mb-1 font-semibold">Không thể tải thông tin quyền hạn</div>
-              <p>{permissions.error}</p>
-            </div>
-          ) : blocked ? (
-            <div role="alert" className="mx-auto mt-6 max-w-2xl rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800 shadow-xs">
-              <div className="mb-2 text-base font-bold">Chưa được cấp quyền truy cập</div>
-              <p className="leading-relaxed">
-                Tài khoản của bạn chưa được cấp quyền truy cập chức năng này. Quản trị tenant có thể cấp quyền tại màn hình Phân quyền của ERP.
-              </p>
-            </div>
-          ) : (
-            children
-          )}
-        </div>
+        <div className="finance-workspace">{body}</div>
       </ModuleShell>
     </FinanceCrumbsProvider>
   );
+}
+
+/**
+ * Trang nhúng không có thanh bên để quay lại: liên kết sang nơi khác (hồ sơ quy trình, dự án…) mở ở thẻ mới, không tải
+ * đè lên khung nhúng của popup.
+ */
+function openLinksOutsideFrame(event: MouseEvent<HTMLElement>) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  const anchor = (event.target as HTMLElement).closest('a[href]');
+  const href = anchor?.getAttribute('href');
+  if (!anchor || !href || href.startsWith('#') || anchor.hasAttribute('download')) return;
+  event.preventDefault();
+  window.open(href, '_blank', 'noopener');
 }
 
 /** `/receipts/abc` → `/receipts`: quyền kiểm theo trang gốc. */

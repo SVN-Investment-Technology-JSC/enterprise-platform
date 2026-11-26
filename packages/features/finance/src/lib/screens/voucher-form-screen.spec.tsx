@@ -2,13 +2,16 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FinanceVoucher } from '@enterprise-platform/contracts-finance';
 import { financeFetch, financePost } from '../finance-api';
+import { MODULE_EMBED_MESSAGE } from '@enterprise-platform/feature-module-shell';
 import VoucherFormScreen, { allocationProblem, buildRequest } from './voucher-form-screen';
 
 const mockPush = jest.fn();
 let mockQuery = '';
+let mockPathname = '/modules/finance/receipts/new';
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, replace: jest.fn() }),
   useSearchParams: () => new URLSearchParams(mockQuery),
+  usePathname: () => mockPathname,
 }));
 const mockUpload = jest.fn();
 jest.mock('../attachment-upload', () => {
@@ -36,6 +39,7 @@ const PROJECTS = [
 beforeEach(() => {
   jest.clearAllMocks();
   mockQuery = '';
+  mockPathname = '/modules/finance/receipts/new';
   fetchMock.mockImplementation(async (path: string) => {
     if (path.startsWith('/catalogs')) return CATALOGS as never;
     if (path.startsWith('/accounts')) return [{ id: 'a1', code: 'VCB', name: 'Vietcombank', accountType: 'BANK', accountNumber: '001', isActive: true, balance: 5_000_000 }] as never;
@@ -104,6 +108,53 @@ describe('Form tạo phiếu thu', () => {
     expect(body).toMatchObject({ kind: 'RECEIPT', content: 'Thu tiền hàng đợt 1', lines: [{ description: 'Hàng A', quantity: 1, unitAmount: 120000, total: 120000 }] });
     expect(postMock.mock.calls[1][0]).toBe('/vouchers/v1/submit');
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/receipts/v1'));
+  });
+
+  it('trong popup nhúng (/embed): lưu xong quay về phiếu trong khung nhúng và báo bên chủ tải lại hồ sơ', async () => {
+    mockPathname = '/modules/finance/embed/receipts/v1/edit';
+    const parent = { postMessage: jest.fn() };
+    const original = Object.getOwnPropertyDescriptor(window, 'parent');
+    Object.defineProperty(window, 'parent', { configurable: true, value: parent });
+    try {
+      render(<VoucherFormScreen kind="RECEIPT" />);
+      await screen.findByDisplayValue('NHAP_PT_2610_0005');
+      fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'Thu tiền hàng đợt 1' } });
+      fireEvent.change(screen.getByLabelText('Diễn giải dòng 1'), { target: { value: 'Hàng A' } });
+      fireEvent.change(screen.getByLabelText('Số tiền dòng 1'), { target: { value: '120000' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+      await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/embed/receipts/v1'));
+      expect(parent.postMessage).toHaveBeenCalledWith({ type: MODULE_EMBED_MESSAGE.changed }, window.location.origin);
+    } finally {
+      if (original) Object.defineProperty(window, 'parent', original);
+    }
+  });
+
+  it('trong popup nhúng: không còn tiêu đề trang và thẻ bao quanh; nút ở chân nằm bên phải, Hủy bỏ trước và nút chính ngoài cùng', async () => {
+    mockPathname = '/modules/finance/embed/receipts/v1/edit';
+    const { container } = render(<VoucherFormScreen kind="RECEIPT" />);
+    await screen.findByDisplayValue('NHAP_PT_2610_0005');
+    expect(container.querySelector('header')).toBeNull();
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(container.querySelector('.shadow-sm.rounded-xl')).toBeNull();
+    const footer = container.querySelector('footer') as HTMLElement;
+    expect(footer.className).toContain('justify-end');
+    expect(Array.from(footer.querySelectorAll('button')).map((button) => (button.textContent ?? '').trim())).toEqual([
+      'Hủy bỏ',
+      'Gửi duyệt',
+    ]);
+  });
+
+  it('trang đầy đủ (ngoài popup) giữ tiêu đề, thẻ bao quanh và nút chính đứng trước, căn trái như cũ', async () => {
+    const { container } = render(<VoucherFormScreen kind="RECEIPT" />);
+    await screen.findByDisplayValue('NHAP_PT_2610_0005');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Tạo mới phiếu thu');
+    expect(container.querySelector('.shadow-sm.rounded-xl')).not.toBeNull();
+    const footer = container.querySelector('footer') as HTMLElement;
+    expect(footer.className).not.toContain('justify-end');
+    expect(Array.from(footer.querySelectorAll('button')).map((button) => (button.textContent ?? '').trim())).toEqual([
+      'Gửi duyệt',
+      'Hủy bỏ',
+    ]);
   });
 
   it('lỗi từ máy chủ hiện trên form (kèm từng điều kiện gửi duyệt chưa đạt) và không chuyển trang', async () => {

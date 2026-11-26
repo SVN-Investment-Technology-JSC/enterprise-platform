@@ -1,11 +1,16 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FinanceVoucher } from '@enterprise-platform/contracts-finance';
+import { MODULE_EMBED_MESSAGE } from '@enterprise-platform/feature-module-shell';
 import { financeFetch, financePost } from '../finance-api';
 import VoucherDetailScreen from './voucher-detail-screen';
 
 const mockPush = jest.fn();
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, replace: jest.fn() }) }));
+let mockPathname = '/modules/finance/payments/v1';
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush, replace: jest.fn() }),
+  usePathname: () => mockPathname,
+}));
 jest.mock('../finance-api', () => {
   const actual = jest.requireActual('../finance-api');
   return { ...actual, financeFetch: jest.fn(), financePost: jest.fn(), financeDelete: jest.fn() };
@@ -91,6 +96,7 @@ const load = (v: FinanceVoucher) => fetchMock.mockImplementation(async () => v a
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockPathname = '/modules/finance/payments/v1';
   postMock.mockImplementation(async () => voucher({ status: 'APPROVED', posted: true }) as never);
 });
 
@@ -305,5 +311,164 @@ describe('Chi tiết phiếu', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Không tìm thấy phiếu.');
     fireEvent.click(screen.getByRole('button', { name: 'Về danh sách' }));
     expect(mockPush).toHaveBeenCalledWith('/payments');
+  });
+});
+
+describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)', () => {
+  const sourcedVoucher = () =>
+    voucher({
+      status: 'DRAFT',
+      approvalMode: 'INHERITED',
+      sourceCode: 'PR-0012',
+      source: {
+        instanceId: 'inst-12',
+        instanceCode: 'PR-0012',
+        instanceTitle: 'Đề nghị thanh toán',
+        definitionName: 'Đề nghị thanh toán',
+        stepName: 'Chi tiền',
+        activation: 1,
+        status: 'OPEN',
+        values: { amount: 1_500_000, content: 'Chi', counterpartyName: 'ABC', counterpartyAccountNo: '0123', counterpartyBank: 'VCB', voucherDate: null },
+        requestedProjectId: null,
+        requestedWorkItemId: null,
+        lockedFields: [],
+        assigneeLabel: 'Kế toán',
+        handlingBy: null,
+        handlingByName: null,
+        handlingSince: null,
+        canAct: true,
+        canActReason: null,
+        reversalReason: null,
+        reversalError: null,
+        sourceModule: 'procedure-engine',
+        sourceRef: null,
+      },
+      permissions: { ...none, sourced: { canEditSourced: true, canPost: true, canReturnSource: false, canTakeOver: false, canRetryReversal: false } },
+    });
+
+  function insideFrame() {
+    const parent = { postMessage: jest.fn() };
+    const original = Object.getOwnPropertyDescriptor(window, 'parent');
+    Object.defineProperty(window, 'parent', { configurable: true, value: parent });
+    return {
+      parent,
+      restore: () => original && Object.defineProperty(window, 'parent', original),
+    };
+  }
+
+  it('ghi sổ xong thì báo bên chủ tải lại hồ sơ (chỉ tới đúng tên miền của mình); Nhập thông tin kế toán đi trang sửa nhúng', async () => {
+    mockPathname = '/modules/finance/embed/payments/v1';
+    const frame = insideFrame();
+    try {
+      load(sourcedVoucher());
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      await screen.findByRole('region', { name: 'Thông tin chung' });
+
+      fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
+      expect(mockPush).toHaveBeenCalledWith('/embed/payments/v1/edit');
+
+      fireEvent.click(screen.getByRole('button', { name: /Ghi sổ/ }));
+      await confirm('Ghi sổ');
+      await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/post-sourced', { revision: 2 }));
+      await waitFor(() =>
+        expect(frame.parent.postMessage).toHaveBeenCalledWith({ type: MODULE_EMBED_MESSAGE.changed }, window.location.origin),
+      );
+    } finally {
+      frame.restore();
+    }
+  });
+
+  it('trong popup không lặp mã và trạng thái ở đầu trang mà báo lên tiêu đề popup: mã, mã nháp, trạng thái và ghi sổ', async () => {
+    mockPathname = '/modules/finance/embed/payments/v1';
+    const frame = insideFrame();
+    try {
+      load(voucher({ status: 'APPROVED', code: 'PC-2610-0045', officialCode: 'PC-2610-0045', posted: true }));
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      await screen.findByRole('region', { name: 'Thông tin chung' });
+      expect(screen.queryByRole('heading', { name: 'PC-2610-0045' })).toBeNull();
+      expect(screen.queryByText('Mã nháp: NHAP_PC_2610_0003')).toBeNull();
+      await waitFor(() =>
+        expect(frame.parent.postMessage).toHaveBeenCalledWith(
+          {
+            type: MODULE_EMBED_MESSAGE.summary,
+            code: 'PC-2610-0045',
+            note: 'Mã nháp: NHAP_PC_2610_0003',
+            badges: [
+              { label: 'Đã duyệt', tone: 'success' },
+              { label: 'Đã ghi sổ tài khoản', tone: 'success' },
+            ],
+          },
+          window.location.origin,
+        ),
+      );
+    } finally {
+      frame.restore();
+    }
+  });
+
+  it('trong popup không còn thanh đầu trang; dải nút nằm ở chân và bị ẩn khi phiếu không có nút thao tác nào', async () => {
+    mockPathname = '/modules/finance/embed/payments/v1';
+    load(voucher());
+    const { container } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    await screen.findByRole('region', { name: 'Thông tin chung' });
+    expect(container.querySelector('header')).toBeNull();
+    expect(container.querySelector('h1')).toBeNull();
+    const footer = container.querySelector('footer') as HTMLElement;
+    expect(footer.className).toContain('hidden');
+    expect(footer.className).toContain('has-[button]:flex');
+    expect(footer.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('dải nút ở chân popup: Nhập thông tin kế toán, Trả hồ sơ, rồi Ghi sổ ngoài cùng bên phải', async () => {
+    mockPathname = '/modules/finance/embed/payments/v1';
+    const sourcedWithAll = sourcedVoucher();
+    sourcedWithAll.permissions = {
+      ...none,
+      sourced: { canEditSourced: true, canPost: true, canReturnSource: true, canTakeOver: false, canRetryReversal: false },
+    };
+    load(sourcedWithAll);
+    const { container } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    await screen.findByRole('region', { name: 'Thông tin chung' });
+    const labels = Array.from((container.querySelector('footer') as HTMLElement).querySelectorAll('button')).map((button) =>
+      (button.textContent ?? '').trim(),
+    );
+    expect(labels).toEqual(['Nhập thông tin kế toán', 'Trả hồ sơ', 'Ghi sổ']);
+  });
+
+  it('trang đầy đủ (ngoài popup) vẫn có thanh đầu trang với mã, trạng thái và dải nút cùng thứ tự: Trả hồ sơ trước Ghi sổ', async () => {
+    const sourcedWithAll = sourcedVoucher();
+    sourcedWithAll.permissions = {
+      ...none,
+      sourced: { canEditSourced: true, canPost: true, canReturnSource: true, canTakeOver: false, canRetryReversal: false },
+    };
+    load(sourcedWithAll);
+    const { container } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' });
+    expect(container.querySelector('footer')).toBeNull();
+    const labels = Array.from((container.querySelector('header') as HTMLElement).querySelectorAll('button')).map((button) =>
+      (button.textContent ?? '').trim(),
+    );
+    expect(labels).toEqual(['Nhập thông tin kế toán', 'Trả hồ sơ', 'Ghi sổ']);
+  });
+
+  it('không tìm thấy phiếu: báo lỗi và không có nút "Về danh sách" (popup không có danh sách để về)', async () => {
+    mockPathname = '/modules/finance/embed/payments/x';
+    fetchMock.mockRejectedValueOnce(new Error('Không tìm thấy phiếu.'));
+    render(<VoucherDetailScreen kind="PAYMENT" id="x" />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Không tìm thấy phiếu.');
+    expect(screen.queryByRole('button', { name: 'Về danh sách' })).toBeNull();
+  });
+
+  it('ngoài popup (trang đầy đủ) thao tác xong không phát tin nào cho cửa sổ cha', async () => {
+    const frame = insideFrame();
+    try {
+      load(sourcedVoucher());
+      render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+      await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' });
+      fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
+      expect(mockPush).toHaveBeenCalledWith('/payments/v1/edit');
+    } finally {
+      frame.restore();
+    }
   });
 });

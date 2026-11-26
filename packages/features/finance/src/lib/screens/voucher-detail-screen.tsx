@@ -1,12 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Ban, BookCheck, Check, CornerUpLeft, Lock, Paperclip, Pencil, RefreshCw, Send, Trash2, Undo2, UserCheck, X } from 'lucide-react';
+import {
+  MODULE_EMBED_MESSAGE,
+  postModuleEmbedMessage,
+  postModuleEmbedSummary,
+  type ModuleEmbedBadgeTone,
+} from '@enterprise-platform/feature-module-shell';
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import {
   FINANCE_ALLOCATION_LABELS,
   FINANCE_VOUCHER_EVENT_LABELS,
+  FINANCE_VOUCHER_STATUS_LABELS,
   financeAllocationLabel,
   type FinanceProcedureProgress,
   type FinanceSourceLockedField,
@@ -19,9 +26,19 @@ import { financeDelete, financeErrorMessage, financeFetch, financePost } from '.
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { dateTimeVn, dateVn, money, newFinanceIdempotencyKey } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
+import { FINANCE_EMBED_PREFIX, isFinanceEmbedPath } from '../finance-navigation';
 import { Button } from '../ui/button';
 import { EmptyState, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { NoteView } from '../ui/note-view';
+
+/** Màu nhãn trạng thái phiếu ở tiêu đề popup của bên chủ. */
+const STATUS_TONE: Record<FinanceVoucher['status'], ModuleEmbedBadgeTone> = {
+  DRAFT: 'neutral',
+  PENDING: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  CANCELLED: 'neutral',
+};
 
 const STEP_STATUS_TEXT: Record<string, string> = {
   running: 'Đang chạy',
@@ -217,6 +234,9 @@ function Info({ label, children }: { label: ReactNode; children: ReactNode }) {
 export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucherKind; id: string }) {
   const config = FINANCE_KIND_CONFIG[kind];
   const router = useRouter();
+  // Trang nhúng trong popup của phân hệ khác (`/embed/...`): điều hướng nội bộ giữ trong khung nhúng, việc xong thì báo bên chủ.
+  const embedded = isFinanceEmbedPath(usePathname());
+  const basePath = embedded ? `${FINANCE_EMBED_PREFIX}${config.path}` : config.path;
   const [voucher, setVoucher] = useState<FinanceVoucher | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -239,12 +259,27 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
     void load();
   }, [load]);
 
+  // Trong popup: mã và trạng thái hiện ở tiêu đề popup của bên chủ, nên trang không tự lặp lại chúng (xem `header` bên dưới).
+  useEffect(() => {
+    if (!embedded || !voucher) return;
+    const badges: { label: string; tone: ModuleEmbedBadgeTone }[] = [
+      { label: FINANCE_VOUCHER_STATUS_LABELS[voucher.status], tone: STATUS_TONE[voucher.status] },
+    ];
+    if (voucher.posted && voucher.status === 'APPROVED') badges.push({ label: 'Đã ghi sổ tài khoản', tone: 'success' });
+    postModuleEmbedSummary({
+      code: voucher.code,
+      ...(voucher.draftCode && voucher.draftCode !== voucher.code ? { note: `Mã nháp: ${voucher.draftCode}` } : {}),
+      badges,
+    });
+  }, [embedded, voucher]);
+
   async function act(path: string, body: unknown, success: string) {
     setBusy(true);
     try {
       setVoucher(await financePost<FinanceVoucher>(`/vouchers/${id}/${path}`, body));
       setError(null);
       toast.success(success);
+      postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
     } catch (e) {
       setError(financeErrorMessage(e));
     } finally {
@@ -263,7 +298,12 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
     try {
       await financeDelete(`/vouchers/${id}`);
       toast.success('Đã xoá phiếu');
-      router.push(config.path);
+      if (embedded) {
+        postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
+        postModuleEmbedMessage(MODULE_EMBED_MESSAGE.close);
+      } else {
+        router.push(config.path);
+      }
     } catch (e) {
       setError(financeErrorMessage(e));
       setBusy(false);
@@ -275,7 +315,9 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
     return (
       <div className="p-4">
         <ErrorBanner message={error ?? 'Không tìm thấy phiếu.'} />
-        <Button type="button" variant="outline" className="mt-3" onClick={() => router.push(config.path)}>Về danh sách</Button>
+        {embedded ? null : (
+          <Button type="button" variant="outline" className="mt-3" onClick={() => router.push(config.path)}>Về danh sách</Button>
+        )}
       </div>
     );
 
@@ -284,107 +326,115 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
   const source = voucher.approvalMode === 'INHERITED' ? voucher.source : null;
   const isTransfer = kind === 'TRANSFER';
 
+  // Dải nút thao tác: ở đầu trang thường; trong popup nhúng nằm ở chân popup (xem `footer` bên dưới).
+  // Thứ tự: nút phụ, Trả hồ sơ, rồi Ghi sổ ngoài cùng bên phải.
+  const actionBar = (
+    <div className="flex flex-wrap items-center gap-2">
+      {sourced.canEditSourced ? (
+        <Button type="button" variant="outline" onClick={() => router.push(`${basePath}/${id}/edit`)}>
+          <Pencil aria-hidden /> Nhập thông tin kế toán
+        </Button>
+      ) : null}
+      {sourced.canReturnSource ? (
+        <Popconfirm
+          title="Trả hồ sơ"
+          description="Hồ sơ quay về bước đã cấu hình để người lập sửa; phiếu chỉ xem cho tới khi hồ sơ quay lại."
+          reasonRequired
+          reasonLabel="Lý do trả hồ sơ"
+          reasonPlaceholder="Nhập lý do để người lập chỉnh sửa hồ sơ"
+          okText="Trả hồ sơ"
+          onConfirm={(reason) => act('return-source', { reason, revision: voucher.revision }, 'Đã trả hồ sơ')}
+        >
+          <Button type="button" variant="destructive" disabled={busy}><CornerUpLeft aria-hidden /> Trả hồ sơ</Button>
+        </Popconfirm>
+      ) : null}
+      {sourced.canPost ? (
+        <Popconfirm
+          title="Ghi sổ phiếu này?"
+          description="Tiền được ghi vào sổ tài khoản, phiếu nhận mã chính thức và bước Tài chính của hồ sơ được đóng."
+          okType="primary"
+          okText="Ghi sổ"
+          onConfirm={() => act('post-sourced', { revision: voucher.revision }, 'Đã ghi sổ')}
+        >
+          <Button type="button" disabled={busy}><BookCheck aria-hidden /> Ghi sổ</Button>
+        </Popconfirm>
+      ) : null}
+      {sourced.canTakeOver ? (
+        <Popconfirm
+          title="Nhận xử lý thay?"
+          description={`${source?.handlingByName ?? 'Người khác'} đang xử lý phiếu này. Việc nhận thay được ghi vào lịch sử phiếu.`}
+          okType="primary"
+          okText="Nhận xử lý"
+          onConfirm={() => act('take-over', {}, 'Đã nhận xử lý phiếu')}
+        >
+          <Button type="button" variant="outline" disabled={busy}><UserCheck aria-hidden /> Nhận xử lý thay</Button>
+        </Popconfirm>
+      ) : null}
+      {sourced.canRetryReversal ? (
+        <Button type="button" variant="outline" disabled={busy} onClick={() => act('retry-source-reversal', {}, 'Đã đảo phiếu theo hồ sơ')}>
+          <RefreshCw aria-hidden /> Đảo lại
+        </Button>
+      ) : null}
+      {can.canEdit ? (
+        <Button type="button" variant="outline" onClick={() => router.push(`${basePath}/${id}/edit`)}>
+          <Pencil aria-hidden /> Sửa
+        </Button>
+      ) : null}
+      {can.canSubmit ? (
+        <Popconfirm title="Gửi phiếu để duyệt?" description="Sau khi gửi, phiếu không sửa được cho đến khi được duyệt hoặc từ chối." okType="primary" okText="Gửi duyệt" onConfirm={() => act('submit', {}, 'Đã gửi duyệt')}>
+          <Button type="button" disabled={busy}><Send aria-hidden /> Gửi duyệt</Button>
+        </Popconfirm>
+      ) : null}
+      {can.canApprove ? (
+        <Popconfirm title="Duyệt và ghi sổ phiếu này?" description={viaProcedure ? 'Phiếu qua quy trình: tiền được ghi sổ khi bước duyệt cuối hoàn tất.' : 'Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt.'} okType="primary" okText="Duyệt" onConfirm={() => decide('approve', undefined, viaProcedure ? 'Đã duyệt bước của bạn' : 'Đã duyệt và ghi sổ')}>
+          <Button type="button" disabled={busy}><Check aria-hidden /> Duyệt</Button>
+        </Popconfirm>
+      ) : null}
+      {can.canReject ? (
+        <Popconfirm title="Từ chối phiếu" reasonRequired reasonLabel="Lý do từ chối" reasonPlaceholder="Nhập lý do để người lập chỉnh sửa" okText="Từ chối" onConfirm={(reason) => decide('reject', reason, 'Đã từ chối phiếu')}>
+          <Button type="button" variant="destructive" disabled={busy}><X aria-hidden /> Từ chối</Button>
+        </Popconfirm>
+      ) : null}
+      {can.canRetryProcedure ? (
+        <Button type="button" variant="outline" disabled={busy} onClick={() => act('procedure-retry', {}, 'Đã thử lại')}>
+          <RefreshCw aria-hidden /> {voucher.procedure?.syncStatus === 'CONFLICT' ? 'Áp lại' : 'Thử lại'}
+        </Button>
+      ) : null}
+      {can.canCancel ? (
+        <Popconfirm title="Huỷ phiếu" reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu" okText="Huỷ phiếu" onConfirm={(reason) => act('cancel', { note: reason }, 'Đã huỷ phiếu')}>
+          <Button type="button" variant="outline" disabled={busy}><Ban aria-hidden /> Huỷ phiếu</Button>
+        </Popconfirm>
+      ) : null}
+      {can.canReverse ? (
+        <Popconfirm title="Huỷ phiếu đã ghi sổ" description="Hệ thống ghi bút toán đảo vào hôm nay; số của kỳ đã qua không bị sửa." reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu đã ghi sổ" okText="Đảo bút toán" onConfirm={(reason) => act('reverse', { note: reason }, 'Đã huỷ phiếu và đảo bút toán')}>
+          <Button type="button" variant="destructive" disabled={busy}><Undo2 aria-hidden /> Huỷ phiếu đã ghi sổ</Button>
+        </Popconfirm>
+      ) : null}
+      {can.canDelete ? (
+        <Popconfirm title="Xoá phiếu?" description="Phiếu chưa ghi sổ nên xoá được; bị xoá hẳn và không khôi phục được." okText="Xoá" onConfirm={remove}>
+          <Button type="button" variant="ghost" disabled={busy}><Trash2 aria-hidden /> Xoá</Button>
+        </Popconfirm>
+      ) : null}
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-5 py-3">
-        <div className="flex items-center gap-3">
-          <div>
-            <h1 className="text-lg font-semibold text-slate-900">{voucher.code}</h1>
-            {voucher.draftCode && voucher.draftCode !== voucher.code ? (
-              <p className="text-xs text-slate-500">Mã nháp: {voucher.draftCode}</p>
-            ) : null}
+      {embedded ? null : (
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-5 py-3">
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-lg font-semibold text-slate-900">{voucher.code}</h1>
+              {voucher.draftCode && voucher.draftCode !== voucher.code ? (
+                <p className="text-xs text-slate-500">Mã nháp: {voucher.draftCode}</p>
+              ) : null}
+            </div>
+            <StatusBadge status={voucher.status} />
+            {voucher.posted && voucher.status === 'APPROVED' ? <span className="text-xs text-emerald-700">Đã ghi sổ tài khoản</span> : null}
           </div>
-          <StatusBadge status={voucher.status} />
-          {voucher.posted && voucher.status === 'APPROVED' ? <span className="text-xs text-emerald-700">Đã ghi sổ tài khoản</span> : null}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {sourced.canEditSourced ? (
-            <Button type="button" variant="outline" onClick={() => router.push(`${config.path}/${id}/edit`)}>
-              <Pencil aria-hidden /> Nhập thông tin kế toán
-            </Button>
-          ) : null}
-          {sourced.canPost ? (
-            <Popconfirm
-              title="Ghi sổ phiếu này?"
-              description="Tiền được ghi vào sổ tài khoản, phiếu nhận mã chính thức và bước Tài chính của hồ sơ được đóng."
-              okType="primary"
-              okText="Ghi sổ"
-              onConfirm={() => act('post-sourced', { revision: voucher.revision }, 'Đã ghi sổ')}
-            >
-              <Button type="button" disabled={busy}><BookCheck aria-hidden /> Ghi sổ</Button>
-            </Popconfirm>
-          ) : null}
-          {sourced.canReturnSource ? (
-            <Popconfirm
-              title="Trả hồ sơ"
-              description="Hồ sơ quay về bước đã cấu hình để người lập sửa; phiếu chỉ xem cho tới khi hồ sơ quay lại."
-              reasonRequired
-              reasonLabel="Lý do trả hồ sơ"
-              reasonPlaceholder="Nhập lý do để người lập chỉnh sửa hồ sơ"
-              okText="Trả hồ sơ"
-              onConfirm={(reason) => act('return-source', { reason, revision: voucher.revision }, 'Đã trả hồ sơ')}
-            >
-              <Button type="button" variant="destructive" disabled={busy}><CornerUpLeft aria-hidden /> Trả hồ sơ</Button>
-            </Popconfirm>
-          ) : null}
-          {sourced.canTakeOver ? (
-            <Popconfirm
-              title="Nhận xử lý thay?"
-              description={`${source?.handlingByName ?? 'Người khác'} đang xử lý phiếu này. Việc nhận thay được ghi vào lịch sử phiếu.`}
-              okType="primary"
-              okText="Nhận xử lý"
-              onConfirm={() => act('take-over', {}, 'Đã nhận xử lý phiếu')}
-            >
-              <Button type="button" variant="outline" disabled={busy}><UserCheck aria-hidden /> Nhận xử lý thay</Button>
-            </Popconfirm>
-          ) : null}
-          {sourced.canRetryReversal ? (
-            <Button type="button" variant="outline" disabled={busy} onClick={() => act('retry-source-reversal', {}, 'Đã đảo phiếu theo hồ sơ')}>
-              <RefreshCw aria-hidden /> Đảo lại
-            </Button>
-          ) : null}
-          {can.canEdit ? (
-            <Button type="button" variant="outline" onClick={() => router.push(`${config.path}/${id}/edit`)}>
-              <Pencil aria-hidden /> Sửa
-            </Button>
-          ) : null}
-          {can.canSubmit ? (
-            <Popconfirm title="Gửi phiếu để duyệt?" description="Sau khi gửi, phiếu không sửa được cho đến khi được duyệt hoặc từ chối." okType="primary" okText="Gửi duyệt" onConfirm={() => act('submit', {}, 'Đã gửi duyệt')}>
-              <Button type="button" disabled={busy}><Send aria-hidden /> Gửi duyệt</Button>
-            </Popconfirm>
-          ) : null}
-          {can.canApprove ? (
-            <Popconfirm title="Duyệt và ghi sổ phiếu này?" description={viaProcedure ? 'Phiếu qua quy trình: tiền được ghi sổ khi bước duyệt cuối hoàn tất.' : 'Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt.'} okType="primary" okText="Duyệt" onConfirm={() => decide('approve', undefined, viaProcedure ? 'Đã duyệt bước của bạn' : 'Đã duyệt và ghi sổ')}>
-              <Button type="button" disabled={busy}><Check aria-hidden /> Duyệt</Button>
-            </Popconfirm>
-          ) : null}
-          {can.canReject ? (
-            <Popconfirm title="Từ chối phiếu" reasonRequired reasonLabel="Lý do từ chối" reasonPlaceholder="Nhập lý do để người lập chỉnh sửa" okText="Từ chối" onConfirm={(reason) => decide('reject', reason, 'Đã từ chối phiếu')}>
-              <Button type="button" variant="destructive" disabled={busy}><X aria-hidden /> Từ chối</Button>
-            </Popconfirm>
-          ) : null}
-          {can.canRetryProcedure ? (
-            <Button type="button" variant="outline" disabled={busy} onClick={() => act('procedure-retry', {}, 'Đã thử lại')}>
-              <RefreshCw aria-hidden /> {voucher.procedure?.syncStatus === 'CONFLICT' ? 'Áp lại' : 'Thử lại'}
-            </Button>
-          ) : null}
-          {can.canCancel ? (
-            <Popconfirm title="Huỷ phiếu" reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu" okText="Huỷ phiếu" onConfirm={(reason) => act('cancel', { note: reason }, 'Đã huỷ phiếu')}>
-              <Button type="button" variant="outline" disabled={busy}><Ban aria-hidden /> Huỷ phiếu</Button>
-            </Popconfirm>
-          ) : null}
-          {can.canReverse ? (
-            <Popconfirm title="Huỷ phiếu đã ghi sổ" description="Hệ thống ghi bút toán đảo vào hôm nay; số của kỳ đã qua không bị sửa." reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu đã ghi sổ" okText="Đảo bút toán" onConfirm={(reason) => act('reverse', { note: reason }, 'Đã huỷ phiếu và đảo bút toán')}>
-              <Button type="button" variant="destructive" disabled={busy}><Undo2 aria-hidden /> Huỷ phiếu đã ghi sổ</Button>
-            </Popconfirm>
-          ) : null}
-          {can.canDelete ? (
-            <Popconfirm title="Xoá phiếu?" description="Phiếu chưa ghi sổ nên xoá được; bị xoá hẳn và không khôi phục được." okText="Xoá" onConfirm={remove}>
-              <Button type="button" variant="ghost" disabled={busy}><Trash2 aria-hidden /> Xoá</Button>
-            </Popconfirm>
-          ) : null}
-        </div>
-      </header>
+          {actionBar}
+        </header>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
         <ErrorBanner message={error} />
@@ -546,6 +596,13 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
           </aside>
         </div>
       </div>
+
+      {embedded ? (
+        // Chỉ hiện khi có nút nào; luôn nằm sát đáy popup dù nội dung dài phải cuộn.
+        <footer className="hidden flex-wrap items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 has-[button]:flex">
+          {actionBar}
+        </footer>
+      ) : null}
     </div>
   );
 }
