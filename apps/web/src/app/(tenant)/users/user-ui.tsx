@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { userAvatarUrl } from '@enterprise-platform/contracts-chat';
-import { usePerson } from '@enterprise-platform/feature-chat';
+import { pastelAvatarStyle, usePerson } from '@enterprise-platform/feature-chat';
 import { useState } from 'react';
 import type { TenantCoreUser } from './user-types';
 
@@ -67,9 +67,15 @@ export function UserAvatar({
   return (
     <span
       aria-hidden
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.38) }}
-      className={`grid shrink-0 place-items-center rounded-md font-bold ${
-        muted ? 'bg-slate-100 text-slate-500' : 'bg-[#ffc90a] text-[#18181b]'
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.38),
+        // Tài khoản ngừng dùng thì xám; còn lại mỗi người một màu pastel cố định.
+        ...(muted ? null : pastelAvatarStyle(userId || name || 'user')),
+      }}
+      className={`grid shrink-0 place-items-center rounded-md font-normal ${
+        muted ? 'bg-slate-100 text-slate-500' : ''
       }`}
     >
       {initials(name)}
