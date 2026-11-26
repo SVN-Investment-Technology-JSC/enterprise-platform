@@ -5,6 +5,14 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { usePerson } from './people-directory';
 import styles from './user-avatar.module.scss';
 
+/** Màu pastel cố định theo từng tài khoản: cùng một người luôn ra cùng một màu, người khác nhau thường khác màu. */
+export function pastelAvatarStyle(seed: string): CSSProperties {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  return { background: `hsl(${hue} 75% 90%)`, color: `hsl(${hue} 45% 32%)` };
+}
+
 export interface UserAvatarProps {
   readonly userId?: string | null;
   /** Tên để lấy chữ viết tắt khi chưa có ảnh (mặc định lấy từ danh bạ). */
@@ -29,7 +37,10 @@ export function UserAvatar({ userId, name, avatarVersion, size = 32, presence, c
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [userId, version]);
   const showImage = Boolean(userId && version !== null && !failed);
-  const style = { '--ep-avatar-size': `${size}px` } as CSSProperties;
+  const style = {
+    '--ep-avatar-size': `${size}px`,
+    ...(showImage ? null : pastelAvatarStyle(userId || label || 'user')),
+  } as CSSProperties;
   return (
     <span className={[styles.avatar, className].filter(Boolean).join(' ')} style={style} title={title ?? (label || undefined)}>
       {showImage ? (
