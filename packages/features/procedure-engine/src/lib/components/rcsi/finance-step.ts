@@ -141,3 +141,11 @@ export function financeVoucherCard(voucher: ProcedureStepFinanceVoucher): {
 export function financeVoucherHref(kind: ProcedureStepIntegration['voucherKind'], voucherId: string): string {
   return `/modules/finance/${kind === 'RECEIPT' ? 'receipts' : 'payments'}/${encodeURIComponent(voucherId)}`;
 }
+
+/**
+ * Trang phiếu nhúng của app Tài chính để mở ngay trong popup của hồ sơ (không thanh bên). Quyền và thao tác vẫn do
+ * Tài chính quyết bằng API của nó, như khi mở phiếu ở trang đầy đủ.
+ */
+export function financeVoucherEmbedHref(kind: ProcedureStepIntegration['voucherKind'], voucherId: string): string {
+  return `/modules/finance/embed/${kind === 'RECEIPT' ? 'receipts' : 'payments'}/${encodeURIComponent(voucherId)}`;
+}

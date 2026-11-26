@@ -9,7 +9,7 @@ import type {
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { financeStepEvents } from '../domain/procedure-finance-step.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
-import type { FinanceIntegrationResolver } from './finance-integration.port.js';
+import { FinanceNotEntitledError, type FinanceIntegrationResolver } from './finance-integration.port.js';
 import { ProcedureFinanceEvents } from './finance-step-events.js';
 import type { InitiatorActorResolver } from './initiator-actor.port.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
@@ -31,8 +31,10 @@ class SequentialIds implements ProcedureIdGenerator {
 
 class FakeFinance implements FinanceIntegrationResolver {
   failing = false;
+  notEntitled = false;
   kinds: ProcedureFinanceCapabilities['voucherKinds'] = ['PAYMENT', 'RECEIPT'];
   async capabilities(): Promise<ProcedureFinanceCapabilities> {
+    if (this.notEntitled) throw new FinanceNotEntitledError();
     if (this.failing) throw new Error('Tài chính không phản hồi');
     return { voucherKinds: this.kinds };
   }
@@ -181,6 +183,18 @@ describe('Bước Tài chính — công bố', () => {
     const missing = setup({ finance: null });
     const other = await missing.application.createDefinition(designer, paymentInput());
     await expect(missing.application.publishDefinition(designer, other.id)).rejects.toThrow('Chưa cấu hình kết nối');
+  });
+
+  it('tenant chưa được cấp phân hệ Tài chính: chặn công bố và nói đúng nguyên nhân, không nói "không phản hồi"', async () => {
+    const finance = new FakeFinance();
+    finance.notEntitled = true;
+    const { application } = setup({ finance });
+    const draft = await application.createDefinition(designer, paymentInput());
+    const error = await application.publishDefinition(designer, draft.id).catch((cause: unknown) => cause as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('Phân hệ Tài chính chưa được cấp cho doanh nghiệp');
+    expect((error as Error).message).toContain('thử lại sau');
+    expect((error as Error).message).not.toContain('không phản hồi');
   });
 
   it('chặn công bố khi Tài chính chưa nhận loại phiếu', async () => {

@@ -1,0 +1,106 @@
+/*
+ * Popup phiếu Tài chính: rộng gần hết màn hình; tiêu đề gọn ở trên, trang phiếu của Tài chính chiếm phần còn lại sát mép
+ * (không thêm khung, viền hay đệm quanh nó) để chỉ còn một lớp thẻ — của chính trang phiếu — thay vì thẻ lồng thẻ.
+ */
+.dialog.dialog {
+  max-width: min(960px, 100%);
+  height: min(780px, 100%);
+  padding: 0;
+  background: #fff;
+}
+
+.dialog.dialog > header {
+  align-items: center;
+  margin: 0;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.dialog.dialog h2 {
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+.dialog.dialog header p {
+  margin: 2px 0 0;
+  font-size: 13px;
+}
+
+.frameWrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: #64748b;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+
+/* Dòng phụ ở tiêu đề: mã phiếu kèm các nhãn trạng thái do trang phiếu báo về. */
+.subtitleRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.neutral {
+  border-color: #e2e8f0;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}

@@ -13,7 +13,8 @@ export interface MinimalFormData {
 export interface MinimalPopupFormProps {
   readonly isOpen: boolean;
   readonly title?: string;
-  readonly subtitle?: string;
+  /** Dòng phụ dưới tiêu đề; nhận cả phần tử (ví dụ mã kèm nhãn trạng thái). */
+  readonly subtitle?: React.ReactNode;
   readonly initialValues?: Partial<MinimalFormData>;
   readonly submitText?: string;
   readonly cancelText?: string;

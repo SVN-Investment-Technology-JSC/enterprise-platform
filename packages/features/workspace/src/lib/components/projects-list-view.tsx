@@ -16,6 +16,8 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { matchProjectFilter, type ProjectFilter } from '../project-filter.model';
+import { compareByColumn, nextColumnSort, type ProjectColumnSort, type ProjectSortColumn } from '../project-column-sort';
+import { earliestStartDate, isProjectOverdue, nextEndDate } from '../project-dates';
 import { mergeNewProjectMembers } from '../project-tree.model';
 import {
   clearReturnedProject,
@@ -66,23 +68,23 @@ const UNCLASSIFIED = 'Chưa phân loại';
 /** Dự án đã đóng hoặc huỷ thì không còn đóng hồ sơ được nữa. */
 const CLOSED_PROJECT_STATUSES: readonly ProjectStatus[] = ['completed', 'cancelled'];
 
-/** Cách xếp dự án trong từng nhóm; chạy cùng lúc với bộ lọc. */
-type ProjectSort = 'name' | 'code' | 'updated';
+/** Xếp mặc định trong từng nhóm (và làm tiêu chí phụ khi sắp xếp theo cột): theo tên. */
+const byName = (a: ProjectSummary, b: ProjectSummary) => a.name.localeCompare(b.name, 'vi');
 
-const SORT_OPTIONS: readonly { value: ProjectSort; label: string }[] = [
-  { value: 'name', label: 'Theo tên' },
-  { value: 'code', label: 'Theo mã' },
-  { value: 'updated', label: 'Cập nhật gần nhất' },
-];
-
-const PROJECT_SORTS: Record<ProjectSort, (a: ProjectSummary, b: ProjectSummary) => number> = {
-  name: (a, b) => a.name.localeCompare(b.name, 'vi'),
-  code: (a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }),
-  updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-};
+/** Cột bấm tiêu đề để sắp xếp được (ô chọn và nút "⋯" thì không). */
+const SORTABLE_COLUMNS: ReadonlySet<string> = new Set(['project', 'customer', 'tags', 'status', 'startDate', 'endDate', 'progress']);
 
 /** Các cột của bảng, theo thứ tự mặc định. */
-type ProjectColumn = 'select' | 'project' | 'customer' | 'tags' | 'status' | 'time' | 'progress' | 'actions';
+type ProjectColumn =
+  | 'select'
+  | 'project'
+  | 'customer'
+  | 'tags'
+  | 'status'
+  | 'startDate'
+  | 'endDate'
+  | 'progress'
+  | 'actions';
 
 const PROJECT_COLUMNS: readonly ProjectColumn[] = [
   'select',
@@ -90,7 +92,8 @@ const PROJECT_COLUMNS: readonly ProjectColumn[] = [
   'customer',
   'tags',
   'status',
-  'time',
+  'startDate',
+  'endDate',
   'progress',
   'actions',
 ];
@@ -104,7 +107,8 @@ const PROJECT_COLUMN_LABELS: Record<ProjectColumn, string> = {
   customer: 'Khách hàng',
   tags: 'Nhãn',
   status: 'Trạng thái',
-  time: 'Thời gian',
+  startDate: 'Bắt đầu',
+  endDate: 'Kết thúc',
   progress: '% hoàn thành',
   actions: 'Thao tác',
 };
@@ -115,7 +119,8 @@ const PROJECT_COL_CLASS: Record<ProjectColumn, string | undefined> = {
   customer: styles.projectsColCustomer,
   tags: styles.projectsColTags,
   status: styles.projectsColStatus,
-  time: styles.projectsColTime,
+  startDate: styles.projectsColDate,
+  endDate: styles.projectsColDate,
   progress: styles.projectsColProgress,
   actions: styles.projectsColActions,
 };
@@ -195,7 +200,8 @@ export function ProjectsListView({
 
   /** Nhóm dự án đang mở; mới vào trang thì mọi nhóm thu gọn. */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(memory.expanded));
-  const [sortKey, setSortKey] = useState<ProjectSort>(memory.sortKey);
+  /** Sắp xếp theo cột đang bấm trên tiêu đề; chưa bấm là xếp theo tên. */
+  const [columnSort, setColumnSort] = useState<ProjectColumnSort | undefined>(memory.columnSort);
 
   // Nhớ mọi thao tác trên danh sách để quay lại từ một dự án vẫn thấy đúng như đã để.
   useEffect(() => {
@@ -206,10 +212,10 @@ export function ProjectsListView({
       typeFilter,
       tagFilter,
       customerFilter,
-      sortKey,
+      columnSort,
       projectFilter,
     });
-  }, [scope, expanded, statusFilter, typeFilter, tagFilter, customerFilter, sortKey, projectFilter]);
+  }, [scope, expanded, statusFilter, typeFilter, tagFilter, customerFilter, columnSort, projectFilter]);
   /** Dự án đang được lưu sau khi sửa trên bảng: khoá ô của dòng đó cho tới khi xong. */
   const [savingProject, setSavingProject] = useState<string>();
   const toggleGroup = (type: string) =>
@@ -334,18 +340,27 @@ export function ProjectsListView({
       if (bucket) bucket.push(project);
       else byType.set(key, [project]);
     }
-    for (const rows of byType.values()) rows.sort(PROJECT_SORTS[sortKey]);
-    const latest = (rows: readonly ProjectSummary[]) =>
-      rows.reduce((max, project) => (project.updatedAt > max ? project.updatedAt : max), '');
-    return [...byType.entries()].sort(([a, aRows], [b, bRows]) => {
-      // Xếp theo cập nhật: nhóm có dự án vừa sửa lên đầu.
-      if (sortKey === 'updated') return latest(bRows).localeCompare(latest(aRows));
+    // Sắp xếp theo cột chỉ đổi thứ tự dòng trong từng nhóm; thứ tự các nhóm giữ nguyên.
+    const statuses = projectStatusKeys();
+    const lookups = {
+      customerName: (project: ProjectSummary) => customerOf(project.customerId)?.name ?? '',
+      tagNames: (project: ProjectSummary) =>
+        (project.tagIds ?? []).map((tagId) => tags.find(tagId)?.name ?? '').filter(Boolean),
+      statusRank: (status: string) => {
+        const rank = statuses.indexOf(status as ProjectStatus);
+        return rank < 0 ? statuses.length : rank;
+      },
+    };
+    for (const rows of byType.values()) {
+      rows.sort((a, b) => (columnSort ? compareByColumn(columnSort, lookups, a, b) : 0) || byName(a, b));
+    }
+    return [...byType.entries()].sort(([a], [b]) => {
       // "Chưa phân loại" xuống cuối; còn lại xếp theo chữ cái tiếng Việt.
       if (a === UNCLASSIFIED) return 1;
       if (b === UNCLASSIFIED) return -1;
       return a.localeCompare(b, 'vi');
     });
-  }, [visible, sortKey]);
+  }, [visible, columnSort, customerOf, tags]);
 
   /** Số dự án đang chạy / đã hoàn thành trong phần đang hiện, cho dòng tóm tắt. */
   const activeCount = visible.filter((project) => project.status === 'active').length;
@@ -592,7 +607,7 @@ export function ProjectsListView({
             <div ref={panelBox} className={styles.timelinePanelBox}>
               <button
                 type="button"
-                className={facets > 0 || sortKey !== 'name' || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
+                className={facets > 0 || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
                 aria-haspopup="dialog"
                 aria-expanded={panelOpen}
                 onClick={() => setPanelOpen((value) => !value)}
@@ -658,19 +673,9 @@ export function ProjectsListView({
                         onChange={setCustomerFilter}
                       />
                     </div>
-                    <div className={styles.filterField}>
-                      <span className={styles.filterLabel}>Sắp xếp theo</span>
-                      <Choice
-                        label="Sắp xếp dự án"
-                        selectOnly
-                        value={sortKey}
-                        options={SORT_OPTIONS}
-                        onChange={(value) => setSortKey((value || 'name') as ProjectSort)}
-                      />
-                    </div>
                   </div>
                   <div className={styles.reqPanelFoot}>
-                    {hasFilter || sortKey !== 'name' ? (
+                    {hasFilter ? (
                       <button
                         type="button"
                         className={styles.linkButton}
@@ -679,7 +684,6 @@ export function ProjectsListView({
                           setTypeFilter('');
                           setTagFilter('');
                           setCustomerFilter('');
-                          setSortKey('name');
                         }}
                       >
                         Xoá lọc
@@ -736,6 +740,12 @@ export function ProjectsListView({
                     sizing={sizing}
                     label={PROJECT_COLUMN_LABELS[id]}
                     className={id === 'progress' ? styles.numeric : undefined}
+                    sortDirection={columnSort?.column === id ? columnSort.direction : undefined}
+                    onSort={
+                      SORTABLE_COLUMNS.has(id)
+                        ? () => setColumnSort((current) => nextColumnSort(current, id as ProjectSortColumn))
+                        : undefined
+                    }
                   >
                     {id === 'select' ? (
                       <input
@@ -1001,22 +1011,16 @@ function GroupRows({
   const countOf = (test: (project: ProjectSummary) => boolean) => rows.filter(test).length;
   const counts = {
     // Trễ hạn: đã qua ngày kết thúc mà chưa hoàn thành hay huỷ.
-    overdue: countOf(
-      (project) =>
-        Boolean(project.endDate && project.endDate < today) && !CLOSED_PROJECT_STATUSES.includes(project.status),
-    ),
+    overdue: countOf((project) => isProjectOverdue(project, today, CLOSED_PROJECT_STATUSES)),
     notStarted: countOf((project) => project.status === 'planning'),
     active: countOf((project) => project.status === 'active' || project.status === 'on_hold'),
     finished: countOf((project) => project.status === 'completed'),
   };
   // Hàng nhóm là hàng TÓM TẮT: mỗi ô ứng đúng tiêu đề cột, nên thu gọn nhóm vẫn đọc được số liệu của nó.
-  const open = rows.filter((project) => !CLOSED_PROJECT_STATUSES.includes(project.status));
   const customerCount = new Set(rows.map((project) => project.customerId).filter(Boolean)).size;
   const tagCount = new Set(rows.flatMap((project) => project.tagIds ?? [])).size;
-  const nextEnd = open
-    .map((project) => project.endDate)
-    .filter((value): value is string => Boolean(value))
-    .sort()[0];
+  const nextEnd = nextEndDate(rows, CLOSED_PROJECT_STATUSES);
+  const earliestStart = earliestStartDate(rows);
   const progress = rows.length
     ? Math.round(rows.reduce((sum, project) => sum + (project.progressPercent ?? 0), 0) / rows.length)
     : 0;
@@ -1075,7 +1079,18 @@ function GroupRows({
           <GroupCounts counts={counts} unit="dự án" />
         </td>
     ),
-    time: (
+    startDate: (
+        <td>
+          {earliestStart ? (
+            <Tooltip content="Ngày bắt đầu sớm nhất trong nhóm">
+              <span className={styles.groupSummaryText}>{formatDate(earliestStart)}</span>
+            </Tooltip>
+          ) : (
+            <span className={styles.groupSummaryMuted}>—</span>
+          )}
+        </td>
+    ),
+    endDate: (
         <td>
           {counts.overdue > 0 ? (
             <span className={styles.groupOverdue}>Trễ hạn {counts.overdue}</span>
@@ -1110,7 +1125,6 @@ function GroupRows({
         ))}
       </tr>
       {collapsed ? null : rows.map((project) => {
-        const closable = !CLOSED_PROJECT_STATUSES.includes(project.status);
         const checked = selected.has(project.id);
         const busy = savingId === project.id;
         // Server vẫn kiểm quyền; ở đây chỉ khoá ô để người không có quyền khỏi bấm rồi nhận lỗi.
@@ -1242,20 +1256,21 @@ function GroupRows({
               />
             </td>
           ),
-          time: (
+          startDate: (
             <td className={styles.nowrap}>
-              {project.startDate || project.endDate ? (
-                <Tooltip
-                  content={closable && project.endDate && project.endDate < today ? 'Đã quá hạn kết thúc' : undefined}
-                >
-                  <span
-                    className={
-                      project.endDate && project.endDate < today && closable ? styles.groupOverdue : undefined
-                    }
-                  >
-                    {formatDate(project.startDate) || '…'} – {formatDate(project.endDate) || '…'}
-                  </span>
-                </Tooltip>
+              {project.startDate ? formatDate(project.startDate) : <span className={styles.muted}>—</span>}
+            </td>
+          ),
+          endDate: (
+            <td className={styles.nowrap}>
+              {project.endDate ? (
+                isProjectOverdue(project, today, CLOSED_PROJECT_STATUSES) ? (
+                  <Tooltip content="Đã quá hạn kết thúc">
+                    <span className={styles.groupOverdue}>{formatDate(project.endDate)}</span>
+                  </Tooltip>
+                ) : (
+                  formatDate(project.endDate)
+                )
               ) : (
                 <span className={styles.muted}>—</span>
               )}

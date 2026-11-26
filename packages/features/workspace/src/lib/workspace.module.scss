@@ -10816,7 +10816,7 @@ button.kpiCard {
 .projectsTable {
   --work-code-w: 7rem;
 
-  min-width: 1134px;
+  min-width: 1160px;
 }
 
 .projectsColCheck {
@@ -10835,8 +10835,9 @@ button.kpiCard {
   width: 148px;
 }
 
-.projectsColTime {
-  width: 198px;
+// Ngày bắt đầu và kết thúc: mỗi cột vừa một ngày dd/mm/yyyy (trước đây gộp một cột "bắt đầu – kết thúc" 198px).
+.projectsColDate {
+  width: 112px;
 }
 
 .projectsColProgress {
@@ -12116,6 +12117,52 @@ th[data-column-id='select'] .columnResizeHandle {
     background: var(--ep-accent-strong, #d9ab00);
     opacity: 1;
   }
+}
+
+/* Nút sắp xếp nhỏ trên tiêu đề cột, ngay cạnh tay nắm kéo độ rộng: mờ khi chưa sắp theo cột này, rõ khi đang áp. */
+/* Đủ độ ưu tiên để thắng padding mặc định của tiêu đề bảng (kể cả cột số căn phải). */
+.table thead th.columnSortable {
+  padding-right: 30px;
+}
+
+.columnSortButton {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  z-index: 11;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ep-text-muted, #6b7280);
+  cursor: pointer;
+  opacity: 0.45;
+  transform: translateY(-50%);
+  transition:
+    opacity 0.12s,
+    background-color 0.12s;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+    background: rgb(0 0 0 / 8%);
+    outline: none;
+  }
+}
+
+.columnSortButtonOn {
+  opacity: 1;
+  color: var(--ep-accent-strong, #d9ab00);
 }
 
 .columnResizeHandleActive::after {

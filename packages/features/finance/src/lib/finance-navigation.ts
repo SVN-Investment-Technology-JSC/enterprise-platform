@@ -46,6 +46,21 @@ export function normalizeFinancePath(pathname: string): string {
   );
 }
 
+/**
+ * Tiền tố trang nhúng: `/embed/payments/<id>` là phiếu chi hiện trong popup của phân hệ khác (hồ sơ Quy trình), không
+ * có thanh bên, breadcrumb hay Trợ lý. Quyền vẫn kiểm theo trang gốc (`/payments`) và ở server như màn hình thường.
+ */
+export const FINANCE_EMBED_PREFIX = '/embed';
+
+export function isFinanceEmbedPath(pathname: string): boolean {
+  return normalizeFinancePath(pathname).startsWith(`${FINANCE_EMBED_PREFIX}/`);
+}
+
+/** `/embed/payments/abc` → `/payments/abc`; đường dẫn thường giữ nguyên. */
+export function stripFinanceEmbed(path: string): string {
+  return path.startsWith(`${FINANCE_EMBED_PREFIX}/`) ? path.slice(FINANCE_EMBED_PREFIX.length) : path;
+}
+
 /** Mục menu đang mở: khớp tiền tố dài nhất, để `/receipts/new` và `/receipts/<id>` vẫn sáng mục Phiếu thu. */
 export function getActiveFinanceNavId(pathname: string): string | null {
   const path = normalizeFinancePath(pathname);

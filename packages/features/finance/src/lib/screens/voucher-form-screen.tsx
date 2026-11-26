@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Lock, Plus, Trash2, X } from 'lucide-react';
+import { MODULE_EMBED_MESSAGE, postModuleEmbedMessage } from '@enterprise-platform/feature-module-shell';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
@@ -25,6 +26,7 @@ import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } f
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { money, todayVn } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
+import { FINANCE_EMBED_PREFIX, isFinanceEmbedPath } from '../finance-navigation';
 import { PROJECT_STATUS_LABELS, loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -175,6 +177,9 @@ export function buildRequest(kind: FinanceVoucherKind, form: FormState, revision
 export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKind; id?: string }) {
   const config = FINANCE_KIND_CONFIG[kind];
   const router = useRouter();
+  // Trang nhúng trong popup của phân hệ khác (`/embed/...`): sau khi lưu hoặc hủy quay về phiếu trong khung nhúng.
+  const embedded = isFinanceEmbedPath(usePathname());
+  const basePath = embedded ? `${FINANCE_EMBED_PREFIX}${config.path}` : config.path;
   /** Nhân bản: tạo mới điền sẵn dữ liệu từ phiếu nguồn (`?from=<id>`), chỉ áp dụng khi đang tạo mới (không có `id`). */
   const fromId = useSearchParams().get('from');
   const [form, setForm] = useState<FormState>(emptyState);
@@ -368,7 +373,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
         if (saved.status !== 'PENDING') await financePost<FinanceVoucher>(`/vouchers/${saved.id}/submit`);
         toast.success(`Đã gửi duyệt ${saved.code}`);
       }
-      router.push(`${config.path}/${saved.id}`);
+      postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
+      router.push(`${basePath}/${saved.id}`);
     } catch (e) {
       setError(financeErrorMessage(e));
     } finally {
@@ -409,20 +415,43 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
         {source
           ? 'Phiếu tạo từ hồ sơ quy trình: chỉ kế toán đang được giao bước Tài chính mới nhập được.'
           : 'Phiếu này không còn sửa được (đã gửi duyệt hoặc đã xử lý).'}{' '}
-        <button type="button" className="font-semibold underline" onClick={() => router.push(`${config.path}/${id}`)}>
+        <button type="button" className="font-semibold underline" onClick={() => router.push(`${basePath}/${id}`)}>
           Xem phiếu
         </button>
       </div>
     );
 
+  const saveButton = (
+    <Button type="button" disabled={saving} onClick={() => void save()}>
+      {source ? 'Lưu' : 'Gửi duyệt'}
+    </Button>
+  );
+  const cancelButton = (
+    <Button
+      type="button"
+      variant="outline"
+      disabled={saving}
+      onClick={() => router.push(embedded && id ? `${basePath}/${id}` : config.path)}
+    >
+      Hủy bỏ
+    </Button>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
-        <h1 className="text-lg font-semibold text-slate-900">{id ? `Sửa ${config.singular}` : config.createTitle}</h1>
-      </header>
+      {embedded ? null : (
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+          <h1 className="text-lg font-semibold text-slate-900">{id ? `Sửa ${config.singular}` : config.createTitle}</h1>
+        </header>
+      )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
-        <div className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-5 shadow-sm">
+      {/* Trong popup: nền trắng, không thẻ bao quanh biểu mẫu (popup đã là khung, không để thẻ lồng thẻ). */}
+      <div className={embedded ? 'min-h-0 flex-1 overflow-y-auto bg-white px-5 pb-4' : 'min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4'}>
+        <div
+          className={
+            embedded ? 'w-full' : 'mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white px-5 shadow-sm'
+          }
+        >
           <ErrorBanner message={error} />
           {source ? (
             <p role="note" className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
@@ -669,9 +698,18 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
         </div>
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-slate-200 bg-white px-5 py-3">
-        <Button type="button" disabled={saving} onClick={() => void save()}>{source ? 'Lưu' : 'Gửi duyệt'}</Button>
-        <Button type="button" variant="outline" disabled={saving} onClick={() => router.push(config.path)}>Hủy bỏ</Button>
+      <footer className={`flex items-center gap-2 border-t border-slate-200 bg-white px-5 py-3${embedded ? ' justify-end' : ''}`}>
+        {embedded ? (
+          <>
+            {cancelButton}
+            {saveButton}
+          </>
+        ) : (
+          <>
+            {saveButton}
+            {cancelButton}
+          </>
+        )}
       </footer>
     </div>
   );
