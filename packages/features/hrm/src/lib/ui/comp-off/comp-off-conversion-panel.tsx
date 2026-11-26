@@ -191,7 +191,6 @@ export function CompOffConversionPanel({
                 </td>
                 <td className={td}>
                   <div className="font-medium">{r.employeeName ?? r.employeeId}</div>
-                  <div className="text-xs text-slate-500">{r.employeeCode}</div>
                 </td>
                 <td className={tdRight}>{formatCompNumber(r.actualOtHours)}</td>
                 <td className={tdRight}>{formatCompNumber(r.countedOtHours)}</td>

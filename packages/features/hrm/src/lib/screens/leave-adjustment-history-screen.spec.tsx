@@ -144,6 +144,38 @@ describe('Lịch sử điều chỉnh phép năm', () => {
     mockActions.delete('hrm.comp_off.view');
   });
 
+  it('hiện cả lần cộng quỹ từ chốt công kèm tháng, tài khoản chốt và lọc được riêng', async () => {
+    mockActions.add('hrm.comp_off.view');
+    const row = (id: string, kind: string, days: number, extra: Record<string, unknown> = {}) => ({
+      id,
+      kind,
+      days,
+      occurredOn: '2026-11-01',
+      createdAt: '2026-11-25T06:32:59.000Z',
+      reason: 'Cộng quỹ bù tháng 10/2026',
+      source: null,
+      reversesId: null,
+      periodMonth: null,
+      actorLabel: 'HR01 · Nguyễn Thị Hoa',
+      actorEmail: 'hoa@savinajsc.com',
+      employeeId: 'e-9',
+      employeeName: 'Bùi Công Quyền',
+      employeeCode: 'SVN-001',
+      department: null,
+      ...extra,
+    });
+    fetchMock.mockImplementation((async (path: string) => {
+      if (String(path).startsWith('/comp-off/adjustments'))
+        return { data: [row('c-acc', 'ACCRUAL', 4.3, { periodMonth: '2026-10' }), row('c-adj', 'ADJUST', 1, { reason: 'Bù tay', source: 'MANUAL' })] };
+      return { data: [] };
+    }) as never);
+    render(<LeaveAdjustmentHistoryScreen />);
+    await waitFor(() => expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(2));
+    expect(screen.getByText('Chốt công 10/2026')).toBeTruthy();
+    expect(screen.getByText('Cộng quỹ bù tháng 10/2026')).toBeTruthy();
+    mockActions.delete('hrm.comp_off.view');
+  });
+
   it('không có quyền xem quỹ nghỉ bù thì không gọi API nghỉ bù', async () => {
     render(<LeaveAdjustmentHistoryScreen />);
     await waitFor(() => expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(3));

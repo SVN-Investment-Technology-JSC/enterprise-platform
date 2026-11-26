@@ -193,10 +193,16 @@ describe('Phân loại làm thêm', () => {
   it('sửa ca cần lý do; ca của tháng đã chốt chỉ đọc', async () => {
     mockActions.add('hrm.comp_off.view');
     mockActions.add('hrm.overtime.classify');
-    api.monthSummary.mockResolvedValue({ month: '2026-10', enabled: true, rows: [] });
+    api.monthSummary.mockResolvedValue({
+      month: '2026-10',
+      enabled: true,
+      rows: [{ employeeId: 'e1', employeeCode: 'NV1', employeeName: 'Nhân viên 1', actualOtHours: 6, countedOtHours: 6, nightHours: 0, excessOtHours: 0, compDays: 0, nightRestDays: 0 }],
+    });
     api.blocks.mockResolvedValue([block, { ...block, id: 'b2', locked: true }]);
     api.overrideBlock.mockResolvedValue({ ...block, source: 'MANUAL' });
     render(<OvertimeClassifyPanel />);
+    expect(screen.queryByText('Sửa')).toBeNull();
+    fireEvent.click(await screen.findByText('Nhân viên 1'));
     const edit = await screen.findAllByText('Sửa');
     expect(edit).toHaveLength(1);
     expect(screen.getByText('Đã chốt công')).toBeTruthy();

@@ -328,9 +328,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                 />
               </div>
             </details>
-          ) : (
-            <p className="mt-2 text-[12px] text-slate-500">Duyệt trực tiếp, không qua Procedure Engine.</p>
-          )}
+          ) : null}
         </section>
 
         <RequestThread
