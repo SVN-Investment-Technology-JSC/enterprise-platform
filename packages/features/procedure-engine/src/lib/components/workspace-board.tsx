@@ -52,8 +52,7 @@ import {
 } from './instance-flow-view';
 import { chatPeopleOf } from '../chat-people';
 import { ChatPanel } from './chat-panel';
-import { FinanceVoucherCard } from './finance-voucher-card';
-import financeStyles from './finance-voucher-card.module.scss';
+import { FinanceVoucherCard, FinanceWaitingNote } from './finance-voucher-card';
 import { HistoryPanel } from './history-panel';
 import { InstanceSourceValue, SourceSummaryCard } from './instance-source';
 import { LinkedPanel } from './linked-panel';
@@ -1369,7 +1368,7 @@ export function WorkspaceBoard({
                                 ))}
                               </div>
 
-                              <FinanceVoucherCard step={step} />
+                              <FinanceVoucherCard step={step} onRefresh={() => onRefreshInstance?.(selected.id)} />
 
                               {/* QT-U1: tài liệu nộp ở chính bước này, để bước sau xem được bước trước up gì. */}
                               <StepDocuments
@@ -1447,7 +1446,7 @@ export function WorkspaceBoard({
           ))}
           extra={
             <>
-              <FinanceVoucherCard step={detailStep} />
+              <FinanceVoucherCard step={detailStep} onRefresh={() => onRefreshInstance?.(selected.id)} />
               <StepDocuments
                 files={(attachments ?? []).filter(
                   (file) => file.instanceId === selected.id && file.stepInstanceId === detailStep.id,
@@ -2048,10 +2047,7 @@ function ActionPanel({
           {/* QT-U5: ô "trả lại về bước" + xác nhận nằm trong pop-up nền mờ (xem cuối panel). */}
 
           {current?.integration?.module === 'finance' && current.status === 'active' ? (
-            <p className={financeStyles.waitingNote}>
-              Bước này đóng khi kế toán ghi sổ phiếu ở module Tài chính; kế toán trả hồ sơ thì hồ sơ tự quay về bước đã cấu
-              hình. Ở đây chỉ gửi trao đổi.
-            </p>
+            <FinanceWaitingNote step={current} />
           ) : null}
 
           {/* Ý kiến và nút thao tác ghim ở đáy khung chi tiết: bước dài vẫn bấm được ngay. */}
