@@ -434,23 +434,27 @@ export default async function TenantPortalPage() {
 
       <section
         aria-label="Lời chào và tóm tắt"
-        className="relative mb-2 flex flex-wrap items-center gap-7 overflow-hidden rounded-2xl border border-[#ffc90a]/20 bg-gradient-to-br from-[#1c1c20] to-[#2a2a2f] px-6 py-6 sm:px-8 sm:py-7"
+        className="relative mb-2 flex flex-wrap items-center gap-7 overflow-hidden rounded-2xl border border-white/15 bg-[linear-gradient(135deg,#072144_0%,#0b4785_38%,#006db2_70%,#0089d9_100%)] px-6 py-6 sm:px-8 sm:py-7"
       >
         <span
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-36 size-[360px] rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.18)_0%,transparent_70%)]"
+          className="pointer-events-none absolute -right-24 -top-32 size-[420px] rounded-full border border-white/10"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-8 -top-16 size-[300px] rounded-full border border-white/10"
         />
         <div aria-hidden className="relative grid size-24 shrink-0 place-items-center">
-          <span className="absolute -inset-3.5 rounded-full bg-[radial-gradient(circle,rgba(255,201,10,.25)_0%,transparent_65%)]" />
+          <span className="absolute -inset-3.5 rounded-full bg-[radial-gradient(circle,rgba(139,225,255,.3)_0%,transparent_65%)]" />
           {/* Ảnh đại diện người dùng tự tải lên ở "Tài khoản của tôi"; chưa có ảnh thì hiện chữ viết tắt. */}
-          <UserAvatar userId={principal.userId} name={displayName} size={84} className="relative" />
+          <UserAvatar userId={principal.userId} name={displayName} size={84} className="relative ring-2 ring-white/40 !bg-[linear-gradient(135deg,#1e90ff,#0b4785)] !text-white" />
         </div>
         <div className="relative flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">
-          <span className="text-[12px] font-semibold tracking-[1.2px] text-[#ffc90a]">
+          <span className="text-[12px] font-semibold tracking-[1.2px] text-[#8BE1FF]">
             TENANT PORTAL · {principal.tenantSlug.toUpperCase()}
           </span>
           <h1 className="m-0 text-[26px] font-bold leading-[1.3] tracking-[-0.3px] text-white">
-            Xin chào, <span className="text-[#ffc90a]">{displayName}</span>
+            Xin chào, <span className="text-[#8BE1FF]">{displayName}</span>
           </h1>
           <p className="m-0 text-[14px] leading-relaxed text-white/80">
             {workClauses.length > 0 ? <>Hôm nay có {joinClauses(workClauses)}. </> : null}
@@ -473,7 +477,7 @@ export default async function TenantPortalPage() {
               <QuickLink href="/organization" icon={<OrganizationQuickIcon />}>
                 Thiết lập tổ chức
               </QuickLink>
-              <QuickLink href="/applications" icon={<ApplicationsQuickIcon />} accent>
+              <QuickLink href="/applications" icon={<ApplicationsQuickIcon />}>
                 Quản lý ứng dụng
               </QuickLink>
             </div>
@@ -822,27 +826,22 @@ function formatTaskDate(value?: string): string {
 }
 
 function Strong({ children }: { children: ReactNode }) {
-  return <b className="font-semibold text-[#ffd84d]">{children}</b>;
+  return <b className="font-semibold text-[#8BE1FF]">{children}</b>;
 }
 
 function QuickLink({
   href,
   icon,
-  accent = false,
   children,
 }: {
   href: string;
   icon: ReactNode;
-  accent?: boolean;
   children: ReactNode;
 }) {
   return (
     <Link
       href={href}
-      className={`flex h-[34px] items-center gap-1.5 rounded-lg border px-3 text-[14px] font-semibold ${accent
-        ? 'border-[#ffc90a]/50 bg-[#ffc90a]/12 text-[#ffd84d] hover:bg-[#ffc90a]/20'
-        : 'border-white/20 bg-white/5 text-white hover:bg-white/10'
-        }`}
+      className="flex h-[34px] items-center gap-1.5 rounded-lg border border-white/25 bg-white/10 px-3 text-[14px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,.15)] backdrop-blur-sm transition-colors hover:bg-white/20"
     >
       {icon}
       {children}

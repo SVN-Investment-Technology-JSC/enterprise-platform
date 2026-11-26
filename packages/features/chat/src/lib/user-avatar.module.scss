@@ -8,10 +8,11 @@
   width: var(--ep-avatar-size, 32px);
   height: var(--ep-avatar-size, 32px);
   border-radius: 9999px;
-  background: linear-gradient(135deg, #ffc90a, #e8b400);
-  color: #18181b;
+  /* Màu nền và chữ pastel theo từng tài khoản đặt ở user-avatar.tsx; đây chỉ là màu dự phòng. */
+  background: #e0f2fe;
+  color: #0c4a6e;
   font-size: calc(var(--ep-avatar-size, 32px) * 0.38);
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1;
   user-select: none;
 }

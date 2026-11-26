@@ -88,7 +88,7 @@ export function UsersTable({ groups }: { groups: readonly UserGroup[] }) {
                       <div className="flex min-w-0 flex-col">
                         <Link
                           href={`/users/${user.id}`}
-                          className="truncate font-semibold text-[#18181b] outline-none hover:underline focus-visible:underline"
+                          className="truncate font-normal text-[#18181b] outline-none hover:underline focus-visible:underline"
                         >
                           {user.fullName}
                         </Link>
