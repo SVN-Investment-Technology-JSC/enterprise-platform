@@ -30,8 +30,3 @@ tmp
 *.xlsx
 *.dump
 *.md
-**/*.spec.ts
-**/*.spec.tsx
-**/*.test.ts
-**/*.test.tsx
-**/*.snap
