@@ -118,7 +118,7 @@ beforeEach(() => {
 describe('EmployeesScreen', () => {
   it('không còn tab Chức danh: chức danh của mỗi người do Core quản lý, trang không gọi danh mục chức danh và ngạch lương', async () => {
     render(<EmployeesScreen />);
-    expect(await screen.findByText('NV001')).toBeTruthy();
+    expect((await screen.findAllByRole('button', { name: 'Xem chi tiết' })).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(screen.queryByRole('tab', { name: /Chức danh|Ngạch|Thang bảng lương|Cấu hình lương/ })).toBeNull();
     expect(
@@ -130,7 +130,7 @@ describe('EmployeesScreen', () => {
 
   it('tolerates null sensitive fields and shows a hidden marker in the drawer', async () => {
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const hidden = await screen.findAllByTitle('Bạn không có quyền xem thông tin nhạy cảm');
     // CCCD, MST, BHXH, tài khoản, ngân hàng
@@ -141,7 +141,7 @@ describe('EmployeesScreen', () => {
   it('shows empty labels instead of the hidden marker for users allowed to see sensitive data', async () => {
     grant('hrm.employee.read', 'hrm.employee.sensitive');
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     expect((await screen.findAllByText('Chưa liên kết')).length).toBeGreaterThan(0);
     expect(screen.queryByTitle('Bạn không có quyền xem thông tin nhạy cảm')).toBeNull();
@@ -149,7 +149,7 @@ describe('EmployeesScreen', () => {
 
   it('shows the Core-owned note with links and no add-person wording', async () => {
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     const note = screen.getByTestId('core-owned-note');
     expect(note.textContent).toContain('được quản lý tại Core');
     expect(screen.getByRole('link', { name: 'Người dùng' }).getAttribute('href')).toBe('/users');
@@ -182,7 +182,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read', 'hrm.employee.manage');
     withApi({ pending: 2 });
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(await screen.findByRole('button', { name: /Nạp nhân sự từ Core/ })).toBeTruthy();
     expect(await screen.findByText('2 chờ')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Khởi tạo hồ sơ HRM/ })).toBeNull();
@@ -193,7 +193,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read', 'hrm.employee.manage');
     withApi({ pending: 1 });
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(await screen.findByRole('button', { name: /Nạp nhân sự từ Core/ })).toBeTruthy();
     expect(await screen.findByText('1 chờ')).toBeTruthy();
   });
@@ -202,7 +202,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read', 'hrm.employee.manage');
     withApi({ pending: 0 });
     const first = render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([p]) => String(p) === '/employees/core-people')).toBe(true),
     );
@@ -212,7 +212,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read');
     withApi({ pending: 5 });
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(screen.queryByRole('button', { name: /Nạp nhân sự từ Core/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Cập nhật từ Core' })).toBeNull();
   });
@@ -234,7 +234,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read', 'hrm.employee.manage');
     withApi({ pending: 0, refreshed: 4 });
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Cập nhật từ Core' }));
     await waitFor(() =>
       expect(
@@ -250,7 +250,7 @@ describe('EmployeesScreen', () => {
     grant('hrm.employee.read', 'hrm.employee.manage');
     withApi({ pending: 0, refreshed: 0 });
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Cập nhật từ Core' }));
     await waitFor(() =>
       expect(toastSuccess).toHaveBeenCalledWith('Họ tên và email đã khớp với Core'),
@@ -259,7 +259,7 @@ describe('EmployeesScreen', () => {
 
   it('does not call core-people without manage permission', async () => {
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(fetchMock.mock.calls.some(([p]) => String(p) === '/employees/core-people')).toBe(false);
   });
 
@@ -272,14 +272,14 @@ describe('EmployeesScreen', () => {
       return { data: [], meta: { total: 0 } };
     }) as never);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(screen.queryByText(/chờ$/)).toBeNull();
     expect(screen.queryByText('boom')).toBeNull();
   });
 
   it('exports the filtered list as CSV without sensitive columns', async () => {
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xuất Excel' }));
     await waitFor(() => expect(downloadMock).toHaveBeenCalledTimes(1));
     const [rows, labels, fileName] = downloadMock.mock.calls[0];
@@ -315,7 +315,7 @@ describe('EmployeesScreen', () => {
       person(4, { employmentStatus: 'TERMINATED' }),
     ]);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     const stat = (key: string) => screen.getByTestId(`employee-stat-${key}`).textContent ?? '';
     expect(stat('total')).toContain('4');
     expect(stat('active')).toContain('2');
@@ -327,10 +327,10 @@ describe('EmployeesScreen', () => {
   it('bấm thẻ tổng quan lọc danh sách nhân sự theo nhóm của thẻ; bấm lại để bỏ lọc', async () => {
     withEmployees([person(1), person(2), person(3, { employmentStatus: 'RESIGNED' }), person(4, { employmentStatus: 'TERMINATED' })]);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Lọc danh sách: Nghỉ việc' }));
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(2);
-    expect(screen.getByText('NV003')).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 3' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Lọc danh sách: Nghỉ việc' }));
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(4);
     fireEvent.click(screen.getByRole('button', { name: 'Lọc danh sách: Đang làm việc' }));
@@ -340,7 +340,7 @@ describe('EmployeesScreen', () => {
   it('lọc theo phòng ban và trạng thái; thẻ tổng quan không đổi theo bộ lọc', async () => {
     withEmployees([person(1), person(2), person(3), person(4, { employmentStatus: 'RESIGNED' })]);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(4);
     fireEvent.click(screen.getByDisplayValue('Phòng ban: Tất cả'));
     fireEvent.click(await screen.findByRole('option', { name: 'Phòng Kỹ thuật', hidden: true }));
@@ -349,27 +349,27 @@ describe('EmployeesScreen', () => {
     fireEvent.click(screen.getByDisplayValue('Trạng thái: Tất cả'));
     fireEvent.click(await screen.findByRole('option', { name: 'Đã nghỉ việc', hidden: true }));
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(1);
-    expect(screen.getByText('NV004')).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 4' })).toBeTruthy();
   });
 
   it('phân trang 12 nhân viên mỗi trang và hiển thị khoảng đang xem', async () => {
     withEmployees(Array.from({ length: 30 }, (_, i) => person(i + 1)));
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(12);
     expect(bodyText()).toContain('Hiển thị 1 - 12 trong 30 nhân sự');
     fireEvent.click(screen.getByRole('button', { name: 'Trang 3' }));
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(6);
     expect(bodyText()).toContain('Hiển thị 25 - 30 trong 30 nhân sự');
-    expect(screen.getByText('NV030')).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 30' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Trang trước' }));
-    expect(screen.getByText('NV013')).toBeTruthy();
+    expect(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 13' })).toBeTruthy();
   });
 
   it('tick chọn nhân viên thì Xuất Excel chỉ xuất người đã chọn; chọn cả trang bằng ô đầu bảng', async () => {
     withEmployees([person(1), person(2), person(3)]);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('checkbox', { name: 'Chọn Nhân viên 2' }));
     fireEvent.click(screen.getByRole('button', { name: /Xuất Excel \(1\)/ }));
     await waitFor(() => expect(downloadMock).toHaveBeenCalledTimes(1));
@@ -380,19 +380,13 @@ describe('EmployeesScreen', () => {
     expect(screen.getByRole('button', { name: /Xuất Excel \(3\)/ })).toBeTruthy();
   });
 
-  it('bảng chỉ để nút Xem chi tiết, không còn menu thao tác ngoài dòng; click vào Mã NV hoặc Họ tên cũng mở Drawer', async () => {
+  it('bảng chỉ để nút Xem chi tiết, không còn menu thao tác ngoài dòng; click vào Họ tên cũng mở Drawer', async () => {
     grant('hrm.employee.read', 'hrm.employee.manage', 'hrm.appointment.manage');
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     // Không còn nút menu thao tác khác bên ngoài bảng
     expect(screen.queryByRole('button', { name: 'Thao tác khác' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Xem chi tiết' })).toBeTruthy();
-
-    // Click vào Mã NV mở Drawer
-    fireEvent.click(screen.getByRole('button', { name: 'NV001' }));
-    expect(await screen.findByRole('dialog')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Đóng' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     // Click vào Họ và tên cũng mở Drawer
     fireEvent.click(screen.getByRole('button', { name: /Nguyễn Văn An/ }));
@@ -401,10 +395,22 @@ describe('EmployeesScreen', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('bấm vào dòng nhân viên mở Drawer; tick chọn không mở Drawer', async () => {
+    grant('hrm.employee.read');
+    render(<EmployeesScreen />);
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /^Chọn Nguyễn Văn An/ }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(screen.getAllByRole('row')[1]);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+  });
+
   it('nút Sửa trên Drawer kích hoạt chế độ chỉnh sửa trực tiếp với highlight nổi bật', async () => {
     grant('hrm.employee.read', 'hrm.employee.manage');
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const dialog = await screen.findByRole('dialog');
 
@@ -425,7 +431,7 @@ describe('EmployeesScreen', () => {
 
   it('hồ sơ nhân sự là drawer: ba khối gọn, mức hoàn thiện và ba tab giấy tờ, người phụ thuộc, hợp đồng', async () => {
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Nguyễn Văn An')).toBeTruthy();
@@ -456,7 +462,7 @@ describe('EmployeesScreen', () => {
       return { data: [], meta: { total: 0 } };
     }) as never);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const dialog = await screen.findByRole('dialog');
     await waitFor(() =>
@@ -481,7 +487,7 @@ describe('EmployeesScreen', () => {
       return { data: [], meta: { total: 0 } };
     }) as never);
     render(<EmployeesScreen />);
-    await screen.findByText('NV001');
+    await screen.findAllByRole('button', { name: 'Xem chi tiết' });
     fireEvent.click(screen.getByRole('button', { name: 'Xem chi tiết' }));
     const dialog = await screen.findByRole('dialog');
 
