@@ -5,6 +5,8 @@ COPY infrastructure/nginx/procedure-maintenance.html /usr/share/nginx/html/proce
 COPY infrastructure/nginx/maintenance-maintenance.html /usr/share/nginx/html/maintenance-maintenance.html
 COPY infrastructure/nginx/workspace-maintenance.html /usr/share/nginx/html/workspace-maintenance.html
 COPY infrastructure/nginx/hrm-maintenance.html /usr/share/nginx/html/hrm-maintenance.html
+COPY infrastructure/nginx/finance-maintenance.html /usr/share/nginx/html/finance-maintenance.html
+COPY infrastructure/nginx/inventory-maintenance.html /usr/share/nginx/html/inventory-maintenance.html
 COPY infrastructure/nginx/assistant-maintenance.html /usr/share/nginx/html/assistant-maintenance.html
 COPY infrastructure/nginx/shared-maintenance.html /usr/share/nginx/html/shared-maintenance.html
 COPY infrastructure/nginx/social-maintenance.html /usr/share/nginx/html/social-maintenance.html

@@ -25,6 +25,14 @@ const nextConfig = {
   },
   poweredByHeader: false,
   typedRoutes: true,
+  experimental: {
+    optimizePackageImports: [
+      'antd',
+      '@ant-design/icons',
+      'lucide-react',
+      '@enterprise-platform/shared-ui',
+    ],
+  },
   async rewrites() {
     const apiBaseUrl = (process.env.API_BASE_URL ?? 'http://localhost:3333')
       .trim()

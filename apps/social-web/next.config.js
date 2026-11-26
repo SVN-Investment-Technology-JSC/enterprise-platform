@@ -19,6 +19,9 @@ const nextConfig = {
     .map((entry) => entry.trim())
     .filter(Boolean),
   basePath: '/modules/social',
+  experimental: {
+    optimizePackageImports: ['antd', '@ant-design/icons', 'lucide-react', '@enterprise-platform/shared-ui'],
+  },
   outputFileTracingRoot: path.join(__dirname, '../..'),
   output: process.env.NEXT_BUILD_OUTPUT === 'standalone' ? 'standalone' : undefined,
   poweredByHeader: false,

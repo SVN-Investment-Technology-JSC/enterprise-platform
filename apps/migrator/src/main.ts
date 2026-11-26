@@ -32,18 +32,19 @@ async function main() {
       console.log('Tenant RBAC migrations completed.');
       return;
     }
-    await migrate(platform, 'platform-core', '0001-platform', 'platform/0001-platform.sql');
-    await migrate(platform, 'platform-core', '0003-platform-events', 'platform/0003-platform-events.sql');
-    await migrate(platform, 'platform-core', '0004-tenant-password-reset', 'platform/0004-tenant-password-reset.sql');
-    await migrate(platform, 'platform-core', '0005-drop-legacy-organization', 'platform/0005-drop-legacy-organization.sql');
-    await migrate(platform, 'platform-core', '0006-tenant-deletion', 'platform/0006-tenant-deletion.sql');
-    await migrate(platform, 'platform-core', '0007-remove-crm', 'platform/0007-remove-crm.sql');
-    await migrate(platform, 'platform-core', '0009-tenant-storage-quota', 'platform/0009-tenant-storage-quota.sql');
-    await migrate(platform, 'platform-core', '0010-brand-icon-storage', 'platform/0010-brand-icon-storage.sql');
-    await migrate(platform, 'platform-core', '0011-brand-icon-slots', 'platform/0011-brand-icon-slots.sql');
-    await migrate(platform, 'platform-core', '0012-brand-custom-slots', 'platform/0012-brand-custom-slots.sql');
-    await migrate(platform, 'platform-core', '0013-brand-slot-groups', 'platform/0013-brand-slot-groups.sql');
-    await migrate(platform, 'platform-core', '0014-brand-slot-overrides', 'platform/0014-brand-slot-overrides.sql');
+    const platformApplied = await loadAppliedMigrations(platform);
+    await migrate(platform, 'platform-core', '0001-platform', 'platform/0001-platform.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0003-platform-events', 'platform/0003-platform-events.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0004-tenant-password-reset', 'platform/0004-tenant-password-reset.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0005-drop-legacy-organization', 'platform/0005-drop-legacy-organization.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0006-tenant-deletion', 'platform/0006-tenant-deletion.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0007-remove-crm', 'platform/0007-remove-crm.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0009-tenant-storage-quota', 'platform/0009-tenant-storage-quota.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0010-brand-icon-storage', 'platform/0010-brand-icon-storage.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0011-brand-icon-slots', 'platform/0011-brand-icon-slots.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0012-brand-custom-slots', 'platform/0012-brand-custom-slots.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0013-brand-slot-groups', 'platform/0013-brand-slot-groups.sql', platformApplied);
+    await migrate(platform, 'platform-core', '0014-brand-slot-overrides', 'platform/0014-brand-slot-overrides.sql', platformApplied);
     await migrateTenantCoreSchemas(platform);
     await processProvisioningJobs(platform);
     await upgradeActiveEntitlements(platform);
@@ -137,7 +138,8 @@ async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false
     }
     const tenant = createPostgresPool(connectionString);
     try {
-      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      const applied = await loadAppliedMigrations(tenant);
+      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql', applied);
       const selected = rbacOnly
         ? TENANT_CORE_MIGRATIONS.filter((migration) =>
             [
@@ -154,6 +156,7 @@ async function migrateTenantCoreSchemas(platform: PostgresPool, rbacOnly = false
           'tenant-core',
           coreMigration.version,
           coreMigration.path,
+          applied,
         );
       }
     } finally {
@@ -177,22 +180,24 @@ async function processProvisioningJobs(platform: PostgresPool) {
     catch { await failProvisioning(platform, job, `Missing database secret ${job.secret_ref}.`); return; }
     const tenant = createPostgresPool(connectionString);
     try {
-      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
+      const applied = await loadAppliedMigrations(tenant);
+      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql', applied);
       for (const coreMigration of TENANT_CORE_MIGRATIONS) {
-        await migrate(tenant, 'tenant-core', coreMigration.version, coreMigration.path);
+        await migrate(tenant, 'tenant-core', coreMigration.version, coreMigration.path, applied);
       }
       for (const migration of tenantModuleMigrations(job.module_key)) {
-        await migrate(tenant, job.module_key, migration.version, migration.path);
+        await migrate(tenant, job.module_key, migration.version, migration.path, applied);
       }
-      await inTransaction(platform, async (client) => {
-        const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
-        if (!active.rowCount) return;
-        await client.query(`UPDATE integration_schema.provisioning_jobs SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`, [job.id]);
-        await client.query(`UPDATE subscription_schema.tenant_entitlements SET status = 'active', provisioned_version = $3, updated_at = now() WHERE tenant_id = $1 AND module_id = $2`, [job.tenant_id, job.module_id, job.target_version]);
-      });
     } catch (error) {
       await failProvisioning(platform, job, error instanceof Error ? error.message : String(error));
+      return;
     } finally { await tenant.end(); }
+    await inTransaction(platform, async (client) => {
+      const active = await client.query("SELECT 1 FROM tenancy_schema.tenants WHERE id=$1 AND status='active' FOR SHARE", [job.tenant_id]);
+      if (!active.rowCount) return;
+      await client.query(`UPDATE integration_schema.provisioning_jobs SET status = 'completed', completed_at = now(), error = NULL WHERE id = $1`, [job.id]);
+      await client.query(`UPDATE subscription_schema.tenant_entitlements SET status = 'active', provisioned_version = $3, updated_at = now() WHERE tenant_id = $1 AND module_id = $2`, [job.tenant_id, job.module_id, job.target_version]);
+    });
     });
   }
 }
@@ -212,26 +217,42 @@ async function upgradeActiveEntitlements(platform: PostgresPool, moduleKey?: 'hr
       ORDER BY e.tenant_id, mo.key`,
     [moduleKey || null],
   );
+  const byTenant = new Map<string, { secret_ref: string; database_name: string; moduleKeys: ProvisioningJob['module_key'][] }>();
   for (const entitlement of entitlements.rows) {
-    await withActiveTenant(platform, entitlement.tenant_id, async () => {
-    let connectionString: string;
-    try {
-      connectionString = resolveTenantDatabaseUrl(entitlement.secret_ref, entitlement.database_name);
-    } catch {
-      throw new Error(`Missing database secret ${entitlement.secret_ref} for tenant ${entitlement.tenant_id}.`);
+    let entry = byTenant.get(entitlement.tenant_id);
+    if (!entry) {
+      entry = { secret_ref: entitlement.secret_ref, database_name: entitlement.database_name, moduleKeys: [] };
+      byTenant.set(entitlement.tenant_id, entry);
     }
-    const tenant = createPostgresPool(connectionString);
-    try {
-      await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql');
-      for (const coreMigration of TENANT_CORE_MIGRATIONS) {
-        await migrate(tenant, 'tenant-core', coreMigration.version, coreMigration.path);
+    entry.moduleKeys.push(entitlement.module_key);
+  }
+  for (const [tenantId, entry] of byTenant) {
+    await withActiveTenant(platform, tenantId, async () => {
+      let connectionString: string;
+      try {
+        connectionString = resolveTenantDatabaseUrl(entry.secret_ref, entry.database_name);
+      } catch {
+        throw new Error(`Missing database secret ${entry.secret_ref} for tenant ${tenantId}.`);
       }
-      for (const moduleMigration of tenantModuleMigrations(entitlement.module_key)) {
-        await migrate(tenant, entitlement.module_key, moduleMigration.version, moduleMigration.path);
+      const tenant = createPostgresPool(connectionString);
+      try {
+        const applied = await loadAppliedMigrations(tenant);
+        // Run core migrations only when invoked standalone (e.g. --hrm-only);
+        // the normal flow already ran migrateTenantCoreSchemas right before this.
+        if (moduleKey) {
+          await migrate(tenant, 'integration', '0001-integration', 'tenant/0001-integration.sql', applied);
+          for (const coreMigration of TENANT_CORE_MIGRATIONS) {
+            await migrate(tenant, 'tenant-core', coreMigration.version, coreMigration.path, applied);
+          }
+        }
+        for (const activeModuleKey of entry.moduleKeys) {
+          for (const moduleMigration of tenantModuleMigrations(activeModuleKey)) {
+            await migrate(tenant, activeModuleKey, moduleMigration.version, moduleMigration.path, applied);
+          }
+        }
+      } finally {
+        await tenant.end();
       }
-    } finally {
-      await tenant.end();
-    }
     });
   }
 }
@@ -246,25 +267,57 @@ async function failProvisioning(platform: PostgresPool, job: ProvisioningJob, me
   });
 }
 
-async function migrate(pool: PostgresPool, moduleKey: string, version: string, relativePath: string) {
-  // A migration checksum identifies SQL content, not the checkout platform.
-  // Git may convert LF to CRLF on Windows while production containers use LF.
-  const sql = (await migration(relativePath)).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
-  const checksum = createHash('sha256').update(sql).digest('hex');
+async function loadAppliedMigrations(pool: PostgresPool): Promise<Map<string, string>> {
+  const applied = new Map<string, string>();
   try {
-    const existing = await pool.query<{ checksum: string }>('SELECT checksum FROM integration_schema.schema_migrations WHERE module_key = $1 AND version = $2', [moduleKey, version]);
-    if (existing.rows[0]) {
-      if (existing.rows[0].checksum !== checksum) throw new Error(`Checksum mismatch for ${moduleKey}/${version}.`);
-      return;
+    const result = await pool.query<{ module_key: string; version: string; checksum: string }>(
+      'SELECT module_key, version, checksum FROM integration_schema.schema_migrations',
+    );
+    for (const row of result.rows) {
+      applied.set(`${row.module_key}\0${row.version}`, row.checksum);
     }
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code !== '42P01' && code !== '3F000') throw error;
   }
+  return applied;
+}
+
+async function migrate(
+  pool: PostgresPool,
+  moduleKey: string,
+  version: string,
+  relativePath: string,
+  applied?: Map<string, string>,
+) {
+  // A migration checksum identifies SQL content, not the checkout platform.
+  // Git may convert LF to CRLF on Windows while production containers use LF.
+  const sql = (await migration(relativePath)).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const checksum = createHash('sha256').update(sql).digest('hex');
+  const cacheKey = `${moduleKey}\0${version}`;
+  if (applied) {
+    const existingChecksum = applied.get(cacheKey);
+    if (existingChecksum !== undefined) {
+      if (existingChecksum !== checksum) throw new Error(`Checksum mismatch for ${moduleKey}/${version}.`);
+      return;
+    }
+  } else {
+    try {
+      const existing = await pool.query<{ checksum: string }>('SELECT checksum FROM integration_schema.schema_migrations WHERE module_key = $1 AND version = $2', [moduleKey, version]);
+      if (existing.rows[0]) {
+        if (existing.rows[0].checksum !== checksum) throw new Error(`Checksum mismatch for ${moduleKey}/${version}.`);
+        return;
+      }
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== '42P01' && code !== '3F000') throw error;
+    }
+  }
   await inTransaction(pool, async (client) => {
     await client.query(sql);
     await client.query(`INSERT INTO integration_schema.schema_migrations (module_key, version, checksum) VALUES ($1, $2, $3) ON CONFLICT (module_key, version) DO NOTHING`, [moduleKey, version, checksum]);
   });
+  applied?.set(cacheKey, checksum);
   console.log(`Applied ${moduleKey}/${version}.`);
 }
 
