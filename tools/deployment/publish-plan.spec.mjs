@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pickBase, planPublish, productionRelease } from './publish-plan.mjs';
+import {
+  createGitHistory,
+  pickBase,
+  planPublish,
+  productionRelease,
+} from './publish-plan.mjs';
 
 const sha = (n) => String(n).padStart(40, '0');
 const head = sha(9);
@@ -105,4 +110,17 @@ test('builds everything when the registry or nx cannot be trusted', () => {
   });
   assert.deepEqual(nxFails.build, ['api', 'procedure-api', 'gateway']);
   assert.deepEqual(nxFails.retag, []);
+});
+
+test('createGitHistory indexes ancestors and commit times in one pass', () => {
+  const history = createGitHistory([
+    `${sha(1)} 1700000100`,
+    `${sha(4)} 1700000400`,
+    '',
+  ].join('\n'));
+  assert.equal(history.isAncestor(sha(1), head), true);
+  assert.equal(history.isAncestor(sha(4), head), true);
+  assert.equal(history.isAncestor(sha(7), head), false);
+  assert.equal(history.commitTime(sha(4)), 1700000400);
+  assert.equal(pickBase([sha(1), sha(4), sha(7)], head, history), sha(4));
 });

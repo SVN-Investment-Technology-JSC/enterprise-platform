@@ -18,6 +18,26 @@ import { fileURLToPath } from 'node:url';
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/**
+ * Parses `git log --format=%H %ct HEAD` output into an O(1) lookup of ancestor
+ * commits and their Unix commit timestamps.
+ */
+export function createGitHistory(logOutput) {
+  const commits = new Map();
+  for (const line of logOutput.split(/\r?\n/)) {
+    if (!line) continue;
+    const space = line.indexOf(' ');
+    if (space <= 0) continue;
+    const sha = line.slice(0, space);
+    const time = Number(line.slice(space + 1));
+    commits.set(sha, time);
+  }
+  return {
+    isAncestor: (sha) => commits.has(sha),
+    commitTime: (sha) => commits.get(sha) ?? 0,
+  };
+}
+
 export function productionRelease(service, versions) {
   const production = versions.find((version) =>
     version.tags.includes(`${service}-production`),
@@ -94,6 +114,7 @@ export function planPublish({ services, versions, head, git, affectedSince }) {
 function run(file, args) {
   return execFileSync(file, args, {
     encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
     shell: process.platform === 'win32',
     stdio: ['ignore', 'pipe', 'inherit'],
   }).trim();
@@ -115,9 +136,11 @@ async function listVersions({ owner, repository, token }) {
     }
     const result = await response.json();
     for (const version of result) {
+      const tags = version.metadata?.container?.tags ?? [];
+      if (tags.length === 0) continue;
       versions.push({
         name: version.name,
-        tags: version.metadata?.container?.tags ?? [],
+        tags,
       });
     }
     if (result.length < 100) return versions;
@@ -145,17 +168,9 @@ async function main() {
     console.error(`Cannot read GHCR package versions: ${error.message}`);
   }
 
-  const git = {
-    isAncestor: (sha, descendant) => {
-      try {
-        run('git', ['merge-base', '--is-ancestor', sha, descendant]);
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    commitTime: (sha) => Number(run('git', ['show', '-s', '--format=%ct', sha])),
-  };
+  const git = createGitHistory(
+    run('git', ['log', '--format=%H %ct', head]),
+  );
 
   const plan = planPublish({
     services: manifest.services,
