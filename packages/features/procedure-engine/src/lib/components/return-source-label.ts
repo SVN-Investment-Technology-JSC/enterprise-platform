@@ -1,11 +1,11 @@
 /** Tên phân hệ theo đường dẫn quay về (`returnTo`), cho dải "xử lý xong sẽ tự quay về"; không nhận ra thì "Trang chủ". */
 const RETURN_SOURCE_LABELS: Readonly<Record<string, string>> = {
-  crm: 'Bán hàng',
-  hrm: 'Nhân sự',
+  crm: 'Kinh doanh',
+  hrm: 'Nhân sự & Công',
   finance: 'Tài chính',
-  inventory: 'Kho',
+  inventory: 'Kho & Tài sản',
   maintenance: 'Bảo trì',
-  workspace: 'Workspace',
+  workspace: 'Dự án & Công việc',
 };
 
 export function returnSourceLabel(path: string): string {

@@ -251,7 +251,7 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
                           key={m}
                           className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
                         >
-                          {m === 'procedure-engine' ? 'Procedure' : m === 'maintenance' ? 'Maintenance' : 'Inventory'}
+                          {m === 'procedure-engine' ? 'Quy trình' : m === 'maintenance' ? 'Bảo trì' : 'Kho & Tài sản'}
                         </span>
                       ))}
                     </div>
@@ -347,9 +347,9 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
                 </h4>
                 <div className="space-y-2 border border-slate-200 p-3 rounded-md bg-slate-50">
                   {[
-                    { key: 'procedure-engine', label: 'Procedure Engine' },
-                    { key: 'maintenance', label: 'Maintenance' },
-                    { key: 'inventory', label: 'Inventory' },
+                    { key: 'procedure-engine', label: 'Quy trình' },
+                    { key: 'maintenance', label: 'Bảo trì' },
+                    { key: 'inventory', label: 'Kho & Tài sản' },
                   ].map((m) => (
                     <label key={m.key} className="flex items-center gap-2 text-sm text-slate-800 cursor-pointer">
                       <input

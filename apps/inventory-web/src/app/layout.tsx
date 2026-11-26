@@ -15,7 +15,7 @@ const fontSans = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: 'Kho & Vật tư · Enterprise Platform',
+  title: 'Kho & Tài sản · Enterprise Platform',
   description: 'Quản lý tài sản, vật tư và tồn kho theo tenant.',
   icons: {
     icon: '/favicon.ico',

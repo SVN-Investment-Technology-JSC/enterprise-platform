@@ -256,7 +256,7 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
                               key={m}
                               className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100"
                             >
-                              {m === 'procedure-engine' ? 'Procedure' : m === 'maintenance' ? 'Maintenance' : 'Inventory'}
+                              {m === 'procedure-engine' ? 'Quy trình' : m === 'maintenance' ? 'Bảo trì' : 'Kho & Tài sản'}
                             </span>
                           ))}
                         </div>
@@ -376,9 +376,9 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
 }
 
 const PLAN_MODULE_OPTIONS = [
-  { key: 'procedure-engine', label: 'Quy trình', hint: 'Procedure Engine' },
-  { key: 'maintenance', label: 'Bảo trì', hint: 'Maintenance' },
-  { key: 'inventory', label: 'Kho & Tài sản', hint: 'Inventory' },
+  { key: 'procedure-engine', label: 'Quy trình', hint: 'Bộ máy quy trình' },
+  { key: 'maintenance', label: 'Bảo trì', hint: 'Thiết bị và bảo trì phòng ngừa' },
+  { key: 'inventory', label: 'Kho & Tài sản', hint: 'Vật tư, kho và tồn kho' },
 ] as const;
 
 function PlanFormSection({ description, icon: Icon, title, children }: { description: string; icon: typeof PackageCheck; title: string; children: React.ReactNode }) {

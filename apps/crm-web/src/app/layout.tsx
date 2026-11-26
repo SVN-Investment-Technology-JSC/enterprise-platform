@@ -15,7 +15,7 @@ const fontSans = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: 'CRM · Enterprise Platform',
+  title: 'Kinh doanh · Enterprise Platform',
   description: 'Khách hàng, cơ hội, báo giá, hợp đồng, đơn bán, công nợ và bảo hành.',
   icons: {
     icon: '/favicon.ico',
