@@ -63,5 +63,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "Triggering Coolify deployment (IMAGE_TAG=$IMAGE_TAG, reason=${DEPLOY_REASON:-n/a})"
-          curl --fail --show-error --silent --request GET "$COOLIFY_WEBHOOK" \
-            --header "Authorization: Bearer $COOLIFY_TOKEN"
+          curl --fail --show-error --silent --request POST "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "Content-Type: application/json"
