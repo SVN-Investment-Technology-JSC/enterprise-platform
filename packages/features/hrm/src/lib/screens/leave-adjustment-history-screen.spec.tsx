@@ -65,11 +65,14 @@ describe('Lịch sử điều chỉnh phép năm', () => {
     expect(actors[2]).toContain('Không xác định (dữ liệu cũ)');
   });
 
-  it('tìm theo tài khoản thực hiện', async () => {
+  it('chỉ tìm theo tên nhân viên, không tìm theo tài khoản thực hiện', async () => {
     render(<LeaveAdjustmentHistoryScreen />);
     await waitFor(() => expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(3));
-    fireEvent.change(screen.getByLabelText(/Tìm theo nhân viên, tài khoản thực hiện/), { target: { value: 'hr@savina' } });
-    expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(2);
+    const box = screen.getByLabelText('Tìm theo tên nhân viên');
+    fireEvent.change(box, { target: { value: 'hr@savina' } });
+    expect(screen.queryAllByTestId('leave-adjustment-row')).toHaveLength(0);
+    fireEvent.change(box, { target: { value: '' } });
+    expect(screen.getAllByTestId('leave-adjustment-row')).toHaveLength(3);
   });
 
   it('có quyền xem quỹ nghỉ bù thì gộp cả dòng import nghỉ bù và lọc được theo quỹ', async () => {

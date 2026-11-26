@@ -53,6 +53,20 @@ export interface AttendanceDataRow {
   source: string | null;
 }
 
+/** Một dòng của chế độ gom theo nhân viên (`group=employee`): tổng hợp các ngày công trong khoảng đang xem. */
+export interface AttendancePersonRow {
+  employeeId: string;
+  employeeName: string;
+  departmentName: string | null;
+  days: number;
+  workedMinutes: number;
+  scheduledMinutes: number;
+  lateDays: number;
+  lateMinutes: number;
+  earlyMinutes: number;
+  abnormalDays: number;
+}
+
 export interface AttendanceFilters {
   from: string;
   to: string;
@@ -85,6 +99,26 @@ export function buildAttendanceQuery(
   });
   const q = filters.q.trim();
   if (q) params.set('q', q);
+  if (filters.status) params.set('status', filters.status);
+  return params.toString();
+}
+
+/** Truy vấn gom theo nhân viên: phân trang theo nhân viên, không phải theo ngày công. */
+export function buildAttendancePeopleQuery(filters: AttendanceFilters, page: number): string {
+  const params = new URLSearchParams(buildAttendanceQuery(filters, page));
+  params.set('group', 'employee');
+  return params.toString();
+}
+
+/** Các ngày công của một nhân viên trong khoảng đang lọc (tối đa 93 ngày nên một trang là đủ), mới nhất trước. */
+export function buildAttendanceDaysQuery(filters: AttendanceFilters, employeeId: string): string {
+  const params = new URLSearchParams({
+    from: filters.from,
+    to: filters.to,
+    employee_id: employeeId,
+    page: '1',
+    page_size: '200',
+  });
   if (filters.status) params.set('status', filters.status);
   return params.toString();
 }

@@ -556,6 +556,14 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0084-hrm-ot-request-groups',
       path: 'tenant/hrm/0084-hrm-ot-request-groups.sql',
     },
+    {
+      version: '0085-hrm-shift-punch-block',
+      path: 'tenant/hrm/0085-hrm-shift-punch-block.sql',
+    },
+    {
+      version: '0086-hrm-attendance-site-soft-delete',
+      path: 'tenant/hrm/0086-hrm-attendance-site-soft-delete.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

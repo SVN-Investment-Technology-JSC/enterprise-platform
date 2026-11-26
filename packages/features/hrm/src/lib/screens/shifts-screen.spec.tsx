@@ -170,23 +170,39 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     expect(body.breakEndTime).toBe('13:30');
   });
 
-  it('sửa khung chấm công trước/sau ca và gửi lên máy chủ; giá trị âm bị chặn', async () => {
+  it('khung chấm ra sau ca và giới hạn chặn chấm vào/ra được gửi lên máy chủ; chấm vào sớm không còn giới hạn', async () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
-    expect(screen.getAllByText('Chấm: -120p / +240p').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Chấm ra tối đa +240p sau ca').length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole('button', { name: 'Sửa' })[0]);
     const dialog = await screen.findByRole('dialog', { name: /Cập nhật ca: HC/ });
-    const before = within(dialog).getByLabelText('Cho chấm vào trước ca (phút)') as HTMLInputElement;
+    expect(within(dialog).queryByLabelText('Cho chấm vào trước ca (phút)')).toBeNull();
     const after = within(dialog).getByLabelText('Cho chấm ra sau ca (phút)') as HTMLInputElement;
-    expect(before.value).toBe('120');
+    const lateIn = within(dialog).getByLabelText('Chặn chấm vào muộn quá (phút)') as HTMLInputElement;
+    const earlyOut = within(dialog).getByLabelText('Chặn chấm ra sớm quá (phút)') as HTMLInputElement;
     expect(after.value).toBe('240');
-    fireEvent.change(before, { target: { value: '90' } });
+    // Ca chưa cấu hình giới hạn thì để trống = không chặn.
+    expect(lateIn.value).toBe('');
+    expect(earlyOut.value).toBe('');
     fireEvent.change(after, { target: { value: '180' } });
+    fireEvent.change(lateIn, { target: { value: '30' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật thay đổi' }));
     await waitFor(() => expect(patches()).toHaveLength(1));
     const body = JSON.parse(String(patches()[0].init?.body));
-    expect(body.checkInBeforeMinutes).toBe(90);
     expect(body.checkOutAfterMinutes).toBe(180);
+    expect(body.blockLateInMinutes).toBe(30);
+    expect(body.blockEarlyOutMinutes).toBeNull();
+  });
+
+  it('giới hạn chặn chấm công âm hoặc không nguyên bị chặn ở giao diện', async () => {
+    render(<ShiftsScreen />);
+    await screen.findByText('Hành chính');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sửa' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Cập nhật ca: HC/ });
+    fireEvent.change(within(dialog).getByLabelText('Chặn chấm vào muộn quá (phút)'), { target: { value: '-5' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cập nhật thay đổi' }));
+    expect(await within(dialog).findByText(/Giới hạn chặn chấm công phải là số phút nguyên/)).toBeTruthy();
+    expect(patches()).toHaveLength(0);
   });
 
   it('creates a shift with POST and without expectedUpdatedAt', async () => {

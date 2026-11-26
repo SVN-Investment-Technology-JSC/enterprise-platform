@@ -6,6 +6,7 @@ import {
 import { isIP } from 'node:net';
 import type { Request } from 'express';
 import type { Pool } from 'pg';
+import { punchBlockReason } from '../domain/punch-block.js';
 import { hrmTransaction } from './hrm-transaction.js';
 import {
   assertOpenDate,
@@ -107,6 +108,25 @@ export async function ingestEvent(
         throw new BadRequestException(
           'Chưa có ca hợp lệ tại thời điểm chấm công',
         );
+      // Giới hạn chặn chấm công trong giờ ca (đọc qua to_jsonb để tenant chưa có migration 0085 vẫn chạy).
+      const limits = (
+        await db.query(
+          `SELECT to_jsonb(s)->>'block_late_in_minutes' AS late_in, to_jsonb(s)->>'block_early_out_minutes' AS early_out
+             FROM hrm_schema.shift_definitions s WHERE s.tenant_id=$1 AND s.id=$2`,
+          [tenantId, context.shift.id],
+        )
+      ).rows[0];
+      const blocked = punchBlockReason(
+        input.kind,
+        Date.parse(input.occurredAt),
+        context.shift.window,
+        {
+          lateInMinutes: limits?.late_in == null ? null : Number(limits.late_in),
+          earlyOutMinutes: limits?.early_out == null ? null : Number(limits.early_out),
+        },
+        context.timezone,
+      );
+      if (blocked) throw new BadRequestException(blocked);
       // Only trust the socket peer unless an operator has explicitly configured trusted gateway addresses.
       let ip = (selfRequest.socket.remoteAddress || '').replace(/^::ffff:/, '');
       const proxies = (process.env.HRM_TRUSTED_PROXY_IPS || '')

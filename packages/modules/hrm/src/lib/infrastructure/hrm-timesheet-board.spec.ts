@@ -11,13 +11,20 @@ import {
   type BoardDayInput,
   type BoardShiftDef,
 } from './hrm-timesheet-board';
-import { dayContextForDate, resolvePolicy } from './hrm-time';
-
-jest.mock('./hrm-time.js', () => ({
-  ...jest.requireActual('./hrm-time.js'),
-  resolvePolicy: jest.fn(),
-  dayContextForDate: jest.fn(),
-}));
+// Đường lưu nạp đầu vào một lần (loadTimesheetInputs); ca và chính sách của từng ca thử được cấp qua hai mock này.
+const mockPolicy = jest.fn();
+const mockDayContext = jest.fn();
+jest.mock('./hrm-timesheet-inputs.js', () => {
+  const actual = jest.requireActual('./hrm-timesheet-inputs.js');
+  return {
+    ...actual,
+    loadTimesheetInputs: async (...args: unknown[]) => ({
+      ...(await actual.loadTimesheetInputs(...args)),
+      policy: (...a: unknown[]) => mockPolicy(...a),
+      dayContext: (...a: unknown[]) => mockDayContext(...a),
+    }),
+  };
+});
 
 const TZ = 'Asia/Ho_Chi_Minh';
 const MON = '2026-10-05'; // thứ Hai
@@ -350,8 +357,8 @@ function legacyStatus(status: string): string {
 async function savedPath(s: Scenario) {
   const date = s.date ?? MON;
   const config = { timezone: TZ };
-  (resolvePolicy as jest.Mock).mockResolvedValue({ id: 'pol', config_json: config });
-  (dayContextForDate as jest.Mock).mockResolvedValue({
+  mockPolicy.mockReturnValue({ id: 'pol', config_json: config });
+  mockDayContext.mockReturnValue({
     shift: s.noShift
       ? null
       : { id: SHIFT.id, window: shiftWindowOf(SHIFT, date, TZ) },
@@ -371,17 +378,19 @@ async function savedPath(s: Scenario) {
       if (sql.includes('FROM hrm_schema.employee_profiles'))
         return rows([{ employee_id: 'e1', join_date: '2026-01-01', inactive_from: null }]);
       if (sql.includes('FROM hrm_schema.attendance_events'))
-        return rows((s.events ?? []).map((e) => ({ id: e.id, event_kind: e.kind, occurred_at: e.at })));
+        return rows((s.events ?? []).map((e) => ({ id: e.id, employee_id: 'e1', the_date: date, event_kind: e.kind, occurred_at: e.at, voided_cid: null })));
       if (sql.includes('NOT EXISTS(SELECT 1 FROM hrm_schema.leave_request_days')) return rows([]);
       if (sql.includes('JOIN hrm_schema.leave_request_days'))
-        return rows((s.leaves ?? []).map((l, i) => ({ id: `l${i}`, ...l })));
-      if (sql.includes('FROM hrm_schema.business_trip_requests')) return rows(s.trip ? [{ id: 'trip-1' }] : []);
+        return rows((s.leaves ?? []).map((l, i) => ({ id: `l${i}`, employee_id: 'e1', the_date: date, ...l })));
+      if (sql.includes('FROM hrm_schema.business_trip_requests')) return rows(s.trip ? [{ id: 'trip-1', employee_id: 'e1', from_date: date, to_date: date }] : []);
       if (sql.includes('FROM hrm_schema.ot_requests'))
         return rows(
           s.ot
             ? [
                 {
                   id: 'ot-1',
+                  employee_id: 'e1',
+                  the_date: date,
                   approved_minutes: s.ot.approved,
                   ot_rate_multiplier: 1.5,
                   paid: true,

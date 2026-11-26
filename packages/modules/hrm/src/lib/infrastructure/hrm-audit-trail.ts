@@ -71,6 +71,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   HOLIDAY_YEAR_IMPORTED: 'Nạp lịch nghỉ lễ',
   SITE_UPDATED: 'Cập nhật địa điểm chấm công',
   SITE_DEACTIVATED: 'Ngừng địa điểm chấm công',
+  SITE_DELETED: 'Xóa địa điểm chấm công',
   approve: 'Duyệt thiết bị chấm công',
   revoke: 'Thu hồi thiết bị chấm công',
   POLICY_VERSION_PUBLISHED: 'Ban hành phiên bản chính sách',
@@ -194,7 +195,7 @@ const ENTITY_SOURCES: [string, string, string][] = [
   ['Ca làm việc', 'hrm_schema.shift_definitions x', `x.code||' · '||x.name${DELETED_MARK}`],
   ['Phân ca', 'hrm_schema.shift_assignments x', `${emp('x.employee_id')}||' · từ '||${vn('x.effective_from')}`],
   ['Lịch làm việc', 'hrm_schema.work_calendar x', `${vn('x.work_date')}||' · '||x.name`],
-  ['Địa điểm chấm công', 'hrm_schema.attendance_sites x', `x.name`],
+  ['Địa điểm chấm công', 'hrm_schema.attendance_sites x', `x.name${DELETED_MARK}`],
   ['Phiên bản chính sách', 'hrm_schema.policy_versions x JOIN hrm_schema.policies po ON po.id=x.policy_id', `po.name||' · v'||x.version_no`],
 ];
 

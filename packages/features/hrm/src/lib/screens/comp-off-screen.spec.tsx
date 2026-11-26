@@ -122,45 +122,55 @@ describe('Quỹ nghỉ bù: số dư', () => {
 });
 
 describe('Quỹ nghỉ bù: chuyển đổi tháng', () => {
-  it('tháng chưa chốt công: chỉ xem, không có nút chuyển đổi', async () => {
+  it('tab Chuyển đổi tháng chỉ để xem: không chọn, không sửa, không có nút chuyển đổi dù tháng đã chốt', async () => {
+    mockActions.add('hrm.comp_off.convert');
+    api.conversionPreview.mockResolvedValue(preview());
+    render(<CompOffConversionPanel />);
+    expect(await screen.findByText(/chỉ để xem/)).toBeTruthy();
+    expect(screen.queryByText(/Chuyển đổi \d+ nhân viên/)).toBeNull();
+    expect(screen.queryByLabelText('Chọn Nhân viên 1')).toBeNull();
+    expect(screen.queryByLabelText('Số ngày nghỉ bù của Nhân viên 1')).toBeNull();
+  });
+
+  it('tháng chưa chốt công: nhắc xác nhận khi chốt bảng công', async () => {
     mockActions.add('hrm.comp_off.convert');
     api.conversionPreview.mockResolvedValue(preview({ locked: false }));
     render(<CompOffConversionPanel />);
-    expect(await screen.findByText(/chưa chốt công/)).toBeTruthy();
-    expect(screen.queryByText(/Chuyển đổi \d+ nhân viên/)).toBeNull();
-    expect((screen.getByLabelText('Chọn Nhân viên 1') as HTMLInputElement).disabled).toBe(true);
+    expect(await screen.findByText(/xác nhận khi chốt bảng công/)).toBeTruthy();
   });
 
-  it('không có quyền chuyển đổi: không có nút dù tháng đã chốt', async () => {
-    mockActions.add('hrm.comp_off.view');
-    api.conversionPreview.mockResolvedValue(preview());
-    render(<CompOffConversionPanel />);
-    await screen.findByText('Chờ chuyển đổi');
-    expect(screen.queryByText(/Chuyển đổi \d+ nhân viên/)).toBeNull();
-  });
-
-  it('chọn dòng, chỉnh số ngày không cần lý do; gửi đúng nội dung', async () => {
+  it('bước bù (editable): chọn dòng, chỉnh số ngày không cần lý do rồi chuyển đổi', async () => {
     mockActions.add('hrm.comp_off.convert');
     api.conversionPreview.mockResolvedValue(preview());
     api.convert.mockResolvedValue({ month: '2026-10', created: 1, skipped: [] });
-    render(<CompOffConversionPanel />);
+    render(<CompOffConversionPanel editable />);
     fireEvent.click(await screen.findByLabelText('Chọn Nhân viên 1'));
     const button = screen.getByText('Chuyển đổi 1 nhân viên').closest('button') as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
-
     fireEvent.change(screen.getByLabelText('Số ngày nghỉ bù của Nhân viên 1'), { target: { value: '4' } });
     expect(screen.queryByLabelText('Lý do chỉnh số ngày của Nhân viên 1')).toBeNull();
-    expect(button.disabled).toBe(false);
     fireEvent.click(button);
     await waitFor(() =>
       expect(api.convert).toHaveBeenCalledWith({ month: expect.stringMatching(/^\d{4}-\d{2}$/), rows: [{ employeeId: 'e1', days: 4 }] }),
     );
   });
 
+  it('trước khi chốt công: chọn dòng, chỉnh số ngày không cần lý do; bản nháp gửi đúng nội dung', async () => {
+    mockActions.add('hrm.comp_off.convert');
+    api.conversionPreview.mockResolvedValue(preview({ locked: false }));
+    const onDraftChange = jest.fn();
+    render(<CompOffConversionPanel beforeLock month="2026-10" onDraftChange={onDraftChange} />);
+    await screen.findByLabelText('Số ngày nghỉ bù của Nhân viên 1');
+    fireEvent.change(screen.getByLabelText('Số ngày nghỉ bù của Nhân viên 1'), { target: { value: '4' } });
+    expect(screen.queryByLabelText('Lý do chỉnh số ngày của Nhân viên 1')).toBeNull();
+    await waitFor(() =>
+      expect(onDraftChange).toHaveBeenLastCalledWith({ rows: [{ employeeId: 'e1', days: 4 }], hasProblem: false }),
+    );
+  });
+
   it('dòng đã chuyển đổi không chọn được và hiện số ngày đã ghi', async () => {
     mockActions.add('hrm.comp_off.convert');
     api.conversionPreview.mockResolvedValue(preview({ rows: [conversionRow({ status: 'CONVERTED', convertedDays: 4.3 })] }));
-    render(<CompOffConversionPanel />);
+    render(<CompOffConversionPanel beforeLock month="2026-10" />);
     expect(await screen.findByText('Đã chuyển đổi')).toBeTruthy();
     expect((screen.getByLabelText('Chọn Nhân viên 1') as HTMLInputElement).disabled).toBe(true);
   });
@@ -196,7 +206,7 @@ describe('Phân loại làm thêm', () => {
     api.monthSummary.mockResolvedValue({
       month: '2026-10',
       enabled: true,
-      rows: [{ employeeId: 'e1', employeeCode: 'NV1', employeeName: 'Nhân viên 1', actualOtHours: 6, countedOtHours: 6, nightHours: 0, excessOtHours: 0, compDays: 0, nightRestDays: 0 }],
+      rows: [{ month: '2026-10', payrollHours: 6, blockCount: 1, employeeId: 'e1', employeeCode: 'NV1', employeeName: 'Nhân viên 1', actualOtHours: 6, countedOtHours: 6, nightHours: 0, excessOtHours: 0, compDays: 0, nightRestDays: 0 }],
     });
     api.blocks.mockResolvedValue([block, { ...block, id: 'b2', locked: true }]);
     api.overrideBlock.mockResolvedValue({ ...block, source: 'MANUAL' });

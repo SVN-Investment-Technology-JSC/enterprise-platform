@@ -183,9 +183,7 @@ export default function LeaveAdjustmentHistoryScreen() {
       if (type === 'REVERSAL' && !r.reversal) return false;
       if (type === 'ADJUSTMENT' && (r.reversal || r.closing)) return false;
       if (!needle) return true;
-      const hay = normalizeSearchText(
-        [r.employeeName, r.employeeCode, r.department, r.actorLabel, r.actorEmail, r.note, r.closingMonth].filter(Boolean).join(' '),
-      );
+      const hay = normalizeSearchText(r.employeeName);
       return hay.includes(needle);
     });
   }, [rows, fund, type, search, fromDate, toDate]);
@@ -266,8 +264,8 @@ export default function LeaveAdjustmentHistoryScreen() {
         <div className="relative min-w-60 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <Input
-            aria-label="Tìm theo nhân viên, tài khoản thực hiện hoặc lý do"
-            placeholder="Tìm theo nhân viên, tài khoản thực hiện, lý do..."
+            aria-label="Tìm theo tên nhân viên"
+            placeholder="Tìm theo tên nhân viên"
             className="h-9 border-slate-200 pl-9 text-xs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
