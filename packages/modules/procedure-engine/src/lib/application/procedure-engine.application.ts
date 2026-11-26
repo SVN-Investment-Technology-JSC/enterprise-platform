@@ -1,5 +1,5 @@
 import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
-import type { FinanceIntegrationResolver } from './finance-integration.port.js';
+import { FinanceNotEntitledError, type FinanceIntegrationResolver } from './finance-integration.port.js';
 import type { InventoryTaskTemplateResolver } from './inventory-task-template.port.js';
 import {
   PROCEDURE_INVENTORY_SOURCE_TYPE,
@@ -998,7 +998,13 @@ export class ProcedureEngineApplication {
     let supported: readonly ProcedureFinanceVoucherKind[];
     try {
       supported = (await this.financeIntegration.capabilities(tenantId)).voucherKinds;
-    } catch {
+    } catch (error) {
+      if (error instanceof FinanceNotEntitledError) {
+        throw new ProcedureEngineError(
+          'conflict',
+          'Phân hệ Tài chính chưa được cấp cho doanh nghiệp nên chưa công bố được quy trình có bước Tài chính. Hãy liên hệ quản trị để kích hoạt phân hệ Tài chính rồi thử lại sau.',
+        );
+      }
       throw new ProcedureEngineError(
         'conflict',
         'Module Tài chính không phản hồi nên chưa công bố được quy trình có bước Tài chính; thử lại sau.',
