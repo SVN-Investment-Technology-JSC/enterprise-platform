@@ -556,7 +556,6 @@ export default function EmployeesManagementPage() {
                         className="size-3.5 rounded border-slate-300"
                       />
                     </th>
-                    <th className="px-3 py-2.5">Mã NV</th>
                     <th className="px-3 py-2.5">Họ và tên</th>
                     <th className="px-3 py-2.5">Đơn vị / Phòng ban</th>
                     <th className="px-3 py-2.5">Chức danh</th>
@@ -568,7 +567,7 @@ export default function EmployeesManagementPage() {
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400">
+                      <td colSpan={7} className="p-8 text-center text-slate-400">
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="size-4 animate-spin text-[#021E73]" />
                           <span>Đang tải hồ sơ nhân sự từ Database...</span>
@@ -579,7 +578,7 @@ export default function EmployeesManagementPage() {
                     canManageEmployees &&
                     pendingCoreCount >= 1 ? (
                     <tr>
-                      <td colSpan={8} className="p-10 text-center">
+                      <td colSpan={7} className="p-10 text-center">
                         <div role="status" className="flex flex-col items-center gap-3">
                           <p className="text-sm font-semibold text-slate-700">
                             Chưa có hồ sơ HRM. {pendingCoreCount} người đã khai
@@ -598,7 +597,7 @@ export default function EmployeesManagementPage() {
                     </tr>
                   ) : filteredEmployees.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-8 text-center text-slate-400">
+                      <td colSpan={7} className="p-8 text-center text-slate-400">
                         Không có hồ sơ nhân viên phù hợp với bộ lọc.
                       </td>
                     </tr>
@@ -609,9 +608,13 @@ export default function EmployeesManagementPage() {
                         <tr
                           key={emp.employeeId}
                           data-testid={`employee-row-${emp.employeeId}`}
-                          className="transition-colors hover:bg-slate-50/80"
+                          className="cursor-pointer transition-colors hover:bg-slate-50/80"
+                          onClick={() => {
+                            setSelectedEmployee(emp);
+                            setIsEmployeeDrawerOpen(true);
+                          }}
                         >
-                          <td className="px-3 py-2.5">
+                          <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               aria-label={`Chọn ${emp.fullName || emp.employeeCode}`}
@@ -619,19 +622,6 @@ export default function EmployeesManagementPage() {
                               onChange={() => toggleOne(emp.employeeId)}
                               className="size-3.5 rounded border-slate-300"
                             />
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedEmployee(emp);
-                                setIsEmployeeDrawerOpen(true);
-                              }}
-                              className="font-mono font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer text-left transition-colors"
-                              title="Bấm để xem chi tiết hồ sơ nhân sự"
-                            >
-                              {emp.employeeCode}
-                            </button>
                           </td>
                           <td className="px-3 py-2.5">
                             <button
