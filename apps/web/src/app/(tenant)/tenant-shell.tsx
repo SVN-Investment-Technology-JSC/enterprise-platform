@@ -173,7 +173,7 @@ export function TenantShell({
     <ModuleShell<TenantView>
       appearance="light"
       moduleKey="tenant-portal"
-      title="Tenant Portal"
+      title="Trang chủ"
       homeHref="/dashboard"
       nav={nav}
       view={view}

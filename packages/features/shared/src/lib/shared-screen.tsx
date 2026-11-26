@@ -111,7 +111,7 @@ export function SharedScreen() {
     <ModuleShell<Tab>
       moduleKey="shared"
       appearance="light"
-      title="Hệ dùng chung"
+      title="Hồ sơ & Tài liệu"
       nav={nav}
       view={view}
       onViewChange={navigate}

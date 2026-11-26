@@ -15,7 +15,7 @@ const fontSans = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: 'Hệ dùng chung · Enterprise Platform',
+  title: 'Hồ sơ & Tài liệu · Enterprise Platform',
   description: 'Tài liệu công ty và dịch vụ dùng chung giữa các phân hệ.',
   icons: {
     icon: '/favicon.ico',

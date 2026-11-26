@@ -16,7 +16,7 @@ const fontSans = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: 'HRM & Chấm công · Enterprise Platform',
+  title: 'Nhân sự & Công · Enterprise Platform',
   description: 'Quản lý nhân sự, chấm công, ca làm việc và đơn từ phê duyệt.',
   icons: {
     icon: '/favicon.ico',

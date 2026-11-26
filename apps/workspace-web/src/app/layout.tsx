@@ -15,7 +15,7 @@ const fontSans = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: 'Workspace · Enterprise Platform',
+  title: 'Dự án & Công việc · Enterprise Platform',
   description: 'Dự án, công việc, tài liệu và lịch biểu theo tenant.',
   icons: {
     icon: '/favicon.ico',

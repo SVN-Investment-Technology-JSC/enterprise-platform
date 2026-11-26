@@ -158,7 +158,7 @@ export function CrmScreen() {
     <ModuleShell<CrmView>
       moduleKey="crm"
       appearance="light"
-      title="CRM"
+      title="Kinh doanh"
       nav={nav}
       view={current.id}
       onViewChange={navigate}
