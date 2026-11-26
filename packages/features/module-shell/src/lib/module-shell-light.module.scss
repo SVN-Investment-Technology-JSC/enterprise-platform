@@ -560,6 +560,13 @@
   color: var(--ep-text-sub);
 }
 
+/* Mọi icon trên thanh menu cùng cỡ 24px, kể cả icon do từng phân hệ tự truyền vào (lucide size-4, icon thương hiệu...). */
+.navIcon svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
 .navItemActive .navIcon {
   color: var(--ep-text);
 }
