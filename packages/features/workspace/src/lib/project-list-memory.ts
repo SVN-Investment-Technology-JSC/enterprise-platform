@@ -6,6 +6,7 @@
  * Giữ ở bộ nhớ của mô-đun (sống suốt phiên làm việc trong trang) và sao lưu sang `sessionStorage` để F5 cũng không mất.
  */
 
+import { parseColumnSort, type ProjectColumnSort } from './project-column-sort';
 import { EMPTY_PROJECT_FILTER, type ProjectFilter } from './project-filter.model';
 
 const STORAGE_KEY = 'workspace.projects-list.v1';
@@ -14,7 +15,6 @@ const STORAGE_KEY = 'workspace.projects-list.v1';
 export const RETURN_MARK_TTL_MS = 30 * 60 * 1000;
 
 export type ProjectListScope = 'active' | 'archived';
-export type ProjectListSort = 'name' | 'code' | 'updated';
 
 export interface ProjectListMemory {
   readonly scope: ProjectListScope;
@@ -24,7 +24,8 @@ export interface ProjectListMemory {
   readonly typeFilter: string;
   readonly tagFilter: string;
   readonly customerFilter: string;
-  readonly sortKey: ProjectListSort;
+  /** Sắp xếp theo cột đang bấm trên tiêu đề; vắng là xếp theo tên. */
+  readonly columnSort?: ProjectColumnSort;
   readonly projectFilter: ProjectFilter;
 }
 
@@ -35,7 +36,6 @@ const DEFAULTS: ProjectListMemory = {
   typeFilter: '',
   tagFilter: '',
   customerFilter: '',
-  sortKey: 'name',
   projectFilter: EMPTY_PROJECT_FILTER,
 };
 
@@ -62,7 +62,7 @@ function parse(raw: string | null): Stored {
         typeFilter: text(list.typeFilter),
         tagFilter: text(list.tagFilter),
         customerFilter: text(list.customerFilter),
-        sortKey: list.sortKey === 'code' || list.sortKey === 'updated' ? list.sortKey : 'name',
+        columnSort: parseColumnSort(list.columnSort),
         projectFilter: { ...EMPTY_PROJECT_FILTER, ...(list.projectFilter ?? {}) },
       },
       opened:

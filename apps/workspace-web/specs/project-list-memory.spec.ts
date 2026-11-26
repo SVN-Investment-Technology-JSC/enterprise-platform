@@ -12,7 +12,7 @@ beforeEach(() => resetProjectListMemoryForTests());
 
 describe('project-list-memory', () => {
   it('mặc định: tab Đang làm, không nhóm nào mở, không bộ lọc', () => {
-    expect(readProjectListMemory()).toMatchObject({ scope: 'active', expanded: [], statusFilter: '', sortKey: 'name' });
+    expect(readProjectListMemory()).toMatchObject({ scope: 'active', expanded: [], statusFilter: '' });
   });
 
   it('giữ nhóm đang mở, tab và bộ lọc qua lần đọc lại (kể cả sau khi bộ nhớ mô-đun bị xoá, nhờ sessionStorage)', () => {
@@ -21,7 +21,7 @@ describe('project-list-memory', () => {
       scope: 'archived',
       expanded: ['Cá basa', 'Chưa phân loại'],
       statusFilter: 'active',
-      sortKey: 'updated',
+      columnSort: { column: 'endDate', direction: 'desc' },
     });
     // Mô phỏng F5: bộ nhớ mô-đun mất, chỉ còn sessionStorage.
     const saved = window.sessionStorage.getItem('workspace.projects-list.v1');
@@ -31,13 +31,14 @@ describe('project-list-memory', () => {
       scope: 'archived',
       expanded: ['Cá basa', 'Chưa phân loại'],
       statusFilter: 'active',
-      sortKey: 'updated',
+      columnSort: { column: 'endDate', direction: 'desc' },
     });
   });
 
   it('dữ liệu hỏng hay thiếu trường thì về mặc định, không ném lỗi', () => {
     window.sessionStorage.setItem('workspace.projects-list.v1', '{"list":{"scope":"x","expanded":[1,"A"]}}');
-    expect(readProjectListMemory()).toMatchObject({ scope: 'active', expanded: ['A'], sortKey: 'name' });
+    expect(readProjectListMemory()).toMatchObject({ scope: 'active', expanded: ['A'] });
+    expect(readProjectListMemory().columnSort).toBeUndefined();
     resetProjectListMemoryForTests();
     window.sessionStorage.setItem('workspace.projects-list.v1', 'không phải JSON');
     expect(readProjectListMemory().scope).toBe('active');
