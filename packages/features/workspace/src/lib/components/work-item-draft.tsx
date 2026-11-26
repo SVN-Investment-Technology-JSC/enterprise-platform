@@ -4,6 +4,7 @@ import {
   MAX_WORK_ITEM_ESTIMATE_HOURS,
   WORK_ITEM_TYPES,
   type DirectoryPerson,
+  type RelatedObjectKind,
   type WorkItemPriority,
   type WorkItemReopenPolicy,
   type WorkItemType,
@@ -18,6 +19,7 @@ import { ChevronDown, ChevronRight, Copy, Info, Trash2, Truck } from 'lucide-rea
 import { useEffect, useState, type ReactNode } from 'react';
 import type { ProcedureOption } from '../procedure-api';
 import { cloneCompletion, emptyCompletion, type CompletionDraft } from '../completion-draft';
+import type { PendingRelatedObject } from '../related-objects.model';
 import { ITEM_TYPE_LABELS, formatDate, priorityKeys, priorityLabel } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { Tooltip } from './tooltip';
@@ -31,6 +33,7 @@ import {
   type ProgressMethodDraft,
 } from './progress-method-fields';
 import { ProjectPeoplePicker } from './project-people-picker';
+import { RelatedObjectsEditor } from './related-objects-editor';
 import { TagPicker } from './tag-picker';
 import { TitleInput } from './title-input';
 import { TransportSection } from './transport-section';
@@ -62,6 +65,8 @@ export interface DraftRow {
   reopenPolicy: WorkItemReopenPolicy;
   /** Cha đã hoàn thành: true là mở lại cha rồi tạo, false là chưa chọn (không tạo được). */
   reopenParent: boolean;
+  /** Hồ sơ ở module khác gắn vào việc này sau khi tạo xong. */
+  relatedObjects: PendingRelatedObject[];
 }
 
 export type DraftFields = Omit<DraftRow, 'key'>;
@@ -84,6 +89,7 @@ const BLANK: DraftFields = {
   completion: emptyCompletion(),
   reopenPolicy: 'assignee',
   reopenParent: false,
+  relatedObjects: [],
 };
 
 let lastKey = 0;
@@ -101,6 +107,7 @@ export function draftRow(from: Partial<DraftFields> = {}): DraftRow {
     tagIds: [...(from.tagIds ?? [])],
     progress: { ...(from.progress ?? BLANK.progress) },
     completion: cloneCompletion(from.completion ?? BLANK.completion),
+    relatedObjects: [...(from.relatedObjects ?? [])],
     key: lastKey,
   };
 }
@@ -132,6 +139,8 @@ export interface WorkItemDraftEditorProps {
   readonly parentOptions: ReadonlyArray<{ value: string; label: string; done?: boolean }>;
   /** `undefined` là đang tải danh sách quy trình. */
   readonly procedures: readonly ProcedureOption[] | undefined;
+  /** Loại hồ sơ gắn được ("Đối tượng liên quan"); rỗng thì không có khối đó. */
+  readonly relatedKinds: readonly RelatedObjectKind[];
 }
 
 /** Lựa chọn của ô "Người phụ trách": thành viên dự án, rồi nhóm "Ngoài dự án" gập sau một nút. */
@@ -166,6 +175,7 @@ export function WorkItemDraftEditor({
   memberIds,
   parentOptions,
   procedures,
+  relatedKinds,
 }: WorkItemDraftEditorProps) {
   const isPhase = row.itemType === 'phase';
   const doneParent = row.parentId ? parentOptions.find((option) => option.value === row.parentId && option.done) : undefined;
@@ -456,7 +466,6 @@ export function WorkItemDraftEditor({
             </span>
             <div className={styles.parentDoneText}>
               <strong>Công việc cha đã hoàn thành</strong>
-              <span className={styles.fieldHint}>Thêm việc con vào đây thì cha không còn đúng là đã xong.</span>
             </div>
             <div className={styles.parentDoneChoice}>
               <Choice
@@ -506,6 +515,19 @@ export function WorkItemDraftEditor({
             onChange={(event) => onChange({ description: event.target.value })}
           />
         </div>
+
+        {/* Mỗi việc một danh sách riêng, gập sẵn: phần lớn việc không cần gắn hồ sơ nào. */}
+        {relatedKinds.length > 0 ? (
+          <div className={`${styles.draftOptions} ${styles.draftSpanAll}`}>
+            <RelatedObjectsEditor
+              kinds={relatedKinds}
+              value={row.relatedObjects}
+              onChange={(relatedObjects) => onChange({ relatedObjects })}
+              ariaPrefix={`Đối tượng liên quan của công việc ${index + 1}`}
+              height={FIELD_HEIGHT}
+            />
+          </div>
+        ) : null}
 
         {isPhase ? null : (
           <div className={`${styles.draftOptions} ${styles.draftSpanAll}`}>

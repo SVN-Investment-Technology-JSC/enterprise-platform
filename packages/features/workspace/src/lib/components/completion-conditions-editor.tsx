@@ -4,7 +4,6 @@ import { COMPLETION_RULES, MAX_COMPLETION_CONDITIONS, type CompletionRule } from
 import { ListChecks, Plus, X } from 'lucide-react';
 import { useRef } from 'react';
 import {
-  COMPLETION_RULE_HINTS,
   COMPLETION_RULE_LABELS,
   filledConditions,
   type CompletionDraft,
@@ -73,11 +72,6 @@ export function CompletionConditionsEditor({
               <span className={styles.completionCount}>{value.conditions.length}</span>
             ) : null}
           </Label>
-          <span className={styles.completionSub}>
-            {value.conditions.length === 0
-              ? 'Không bắt buộc. Có điều kiện thì người nhận việc phải xác nhận trước khi hoàn thành.'
-              : 'Người nhận việc xác nhận các mục này trước khi hoàn thành.'}
-          </span>
         </div>
         {readOnly ? null : (
           <button
@@ -129,7 +123,6 @@ export function CompletionConditionsEditor({
               </span>
             ) : null}
           </div>
-          <p className={`${styles.fieldHint} ${styles.completionHint}`}>{COMPLETION_RULE_HINTS[value.rule]}</p>
 
           <ol className={styles.completionList}>
             {value.conditions.map((condition, index) => (

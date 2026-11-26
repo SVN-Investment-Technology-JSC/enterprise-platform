@@ -12,6 +12,7 @@ import { HttpAssetDirectory } from './infrastructure/http-asset-directory.js';
 import { HttpFleetAvailabilityClient } from './infrastructure/http-fleet-availability.js';
 import { PostgresMaintenanceStore } from './infrastructure/postgres-maintenance-store.js';
 import { MaintenanceController } from './presentation/maintenance.controller.js';
+import { MaintenanceLinkableController } from './presentation/linkable.controller.js';
 
 @Injectable()
 class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
@@ -64,7 +65,7 @@ class MaintenanceScheduler implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
-  controllers: [MaintenanceController],
+  controllers: [MaintenanceController, MaintenanceLinkableController],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,

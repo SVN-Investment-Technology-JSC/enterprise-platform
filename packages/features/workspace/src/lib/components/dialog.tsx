@@ -23,9 +23,9 @@ export interface DialogProps {
   readonly error?: string;
   /**
    * `wide` cho hộp thoại có hai cột hoặc cây chọn (khoảng 52rem); `extraWide` cho bảng nhập nhiều dòng
-   * (khoảng 68rem).
+   * (khoảng 68rem); `large` cho form tạo / sửa nhiều ô (khoảng 62rem, màn hẹp thì vừa màn).
    */
-  readonly size?: 'default' | 'wide' | 'extraWide';
+  readonly size?: 'default' | 'wide' | 'extraWide' | 'large';
   /** Căn hộp thoại giữa màn hình theo chiều dọc thay vì sát mép trên. */
   readonly centered?: boolean;
   /**
@@ -205,7 +205,13 @@ export function Dialog({
       <div
         className={[
           styles.dialog,
-          size === 'wide' ? styles.dialogWide : size === 'extraWide' ? styles.dialogExtraWide : '',
+          size === 'wide'
+            ? styles.dialogWide
+            : size === 'extraWide'
+              ? styles.dialogExtraWide
+              : size === 'large'
+                ? styles.dialogLarge
+                : '',
           fixedHeight ? styles.dialogFixed : '',
         ]
           .filter(Boolean)
@@ -229,16 +235,19 @@ export function Field({
   label,
   hint,
   required = false,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
   /** Hiện dấu * cho trường bắt buộc. */
   required?: boolean;
+  /** Lớp thêm, vd chiếm cả hàng trong lưới hai cột của form lớn. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className={styles.field}>
+    <div className={className ? `${styles.field} ${className}` : styles.field}>
       <span className={styles.fieldLabel}>
         {label}
         {required ? <span className={styles.fieldRequired}> *</span> : null}

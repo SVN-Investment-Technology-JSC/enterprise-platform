@@ -14,12 +14,14 @@ import {
   type UpdateProjectRequest,
   type ProjectCodePreview,
 } from '@enterprise-platform/contracts-workspace';
-import { SearchableSelect } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Plus, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatVndWhileTyping, parseVndInput, toVndInput } from '../money';
 import { orgUnitOptions } from '../org-units';
+import { loadEntityRelatedRows, saveRelatedChanges } from '../related-objects-link';
+import { completedRelated, type PendingRelatedObject } from '../related-objects.model';
 import {
   createCustomer,
   linkCrmCustomer,
@@ -38,10 +40,12 @@ import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
+import { RelatedObjectsEditor } from './related-objects-editor';
 import { TagPicker } from './tag-picker';
 import { TaskTitleListEditor } from './task-title-list-editor';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
+import { useRelatedObjectKinds } from './use-related-object-kinds';
 
 export interface ProjectFormProps {
   readonly open: boolean;
@@ -58,10 +62,15 @@ export interface ProjectFormProps {
    * tạo tự thành chủ nhiệm). Nơi gọi gán họ qua endpoint thành viên riêng,
    * cùng kiểu "đi đường riêng" như `contractValue`.
    */
+  /**
+   * `relatedObjects`: hồ sơ ở module khác chọn lúc tạo (đã đủ loại và hồ sơ, không trùng). Nơi gọi gắn chúng sau khi
+   * dự án đã có; lỗi gắn không được làm hỏng lượt tạo (xem `finishProjectCreate`).
+   */
   readonly onCreate: (
     input: CreateProjectRequest,
     contractValue?: number | null,
     members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>,
+    relatedObjects?: readonly PendingRelatedObject[],
   ) => Promise<void>;
   readonly onUpdate: (
     input: UpdateProjectRequest,
@@ -69,6 +78,8 @@ export interface ProjectFormProps {
   ) => Promise<void>;
   /** Người dùng được xem và sửa tài chính dự án; tắt thì ẩn ô giá trị hợp đồng. */
   readonly financeEnabled?: boolean;
+  /** Form sửa vừa gắn hay gỡ đối tượng liên quan: nơi gọi tải lại những chỗ đang hiện danh sách đó. */
+  readonly onRelatedChanged?: () => void;
 }
 
 interface FormState {
@@ -126,6 +137,7 @@ export function ProjectForm({
   onCreate,
   onUpdate,
   financeEnabled = false,
+  onRelatedChanged,
 }: ProjectFormProps) {
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
@@ -163,6 +175,15 @@ export function ProjectForm({
   /** Người dùng đã tự sửa danh sách: mẫu tải về chậm không được ghi đè. */
   const tasksTouched = useRef(false);
   const methodTouched = useRef(false);
+  /** Loại hồ sơ gắn được; rỗng thì không có khối "Đối tượng liên quan" (form sửa vẫn hiện liên kết đã lưu). */
+  const { kinds: relatedKinds } = useRelatedObjectKinds(open);
+  /** Danh sách đang sửa của khối "Đối tượng liên quan" (dòng mới và liên kết đã lưu). */
+  const [related, setRelated] = useState<PendingRelatedObject[]>([]);
+  /**
+   * Liên kết đã lưu lúc mở form và quyền thêm. Form tạo: rỗng ngay. Form sửa: `undefined` tới khi đọc xong; đọc lỗi thì
+   * giữ `undefined`, khối bị ẩn và lúc lưu không gắn hay gỡ gì.
+   */
+  const [relatedBase, setRelatedBase] = useState<{ rows: PendingRelatedObject[]; canAdd: boolean }>();
 
   useEffect(() => {
     if (!open) return;
@@ -274,6 +295,24 @@ export function ProjectForm({
     setSavingCustomer(false);
     setCrmSearch('');
     setLinkingCustomer(false);
+    setRelated([]);
+    setRelatedBase(project ? undefined : { rows: [], canAdd: true });
+  }, [open, project]);
+
+  // Form sửa: đọc liên kết đã lưu của chính dự án (danh sách của dự án có cả liên kết gắn ở công việc).
+  useEffect(() => {
+    if (!open || !project) return;
+    let alive = true;
+    loadEntityRelatedRows({ type: 'project', id: project.id })
+      .then((result) => {
+        if (!alive) return;
+        setRelated(result.rows);
+        setRelatedBase(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
   }, [open, project]);
 
   const set = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
@@ -392,6 +431,17 @@ export function ProjectForm({
           startDate: form.startDate || null,
           endDate: form.endDate || null,
         }, contractValue);
+        // Dự án đã lưu như trước; liên kết gắn hay gỡ sau đó, lỗi chỉ cảnh báo.
+        if (relatedBase) {
+          const saved = await saveRelatedChanges(
+            { type: 'project', id: project.id },
+            relatedBase.rows,
+            related,
+            `dự án ${project.code}`,
+          );
+          for (const text of saved.warnings) toast.warning(text);
+          if (saved.changed) onRelatedChanged?.();
+        }
       } else {
         const members = addPeople && newMembers.length > 0 ? newMembers : undefined;
         await onCreate({
@@ -410,7 +460,7 @@ export function ProjectForm({
             templateLoaded || tasksTouched.current
               ? initialTasks.map((title) => title.trim()).filter(Boolean)
               : undefined,
-        }, contractValue, members);
+        }, contractValue, members, completedRelated(related));
       }
       onClose();
     } catch (cause) {
@@ -423,106 +473,211 @@ export function ProjectForm({
     <Dialog
       open={open}
       title={project ? 'Sửa dự án' : 'Dự án mới'}
-      subtitle={
-        project ? `Mã dự án ${project.code} không thay đổi được.` : 'Người tạo tự thành chủ nhiệm.'
-      }
+      subtitle={project ? `Mã dự án ${project.code}` : undefined}
+      size="large"
       submitLabel={project ? 'Lưu thay đổi' : 'Tạo dự án'}
       submitting={submitting}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Nhóm dự án" hint="Thêm hoặc sửa nhóm ở Cài đặt > Nhóm dự án.">
-        <Choice
-          label="Nhóm dự án"
-          value={form.projectType}
-          emptyOption="Chưa phân loại"
-          options={[
-            ...types.map((type) => ({ value: type.name, label: type.name })),
-            // Nhóm đang gắn mà danh mục chưa tải xong vẫn hiện đúng tên.
-            ...(form.projectType && !types.some((type) => type.name === form.projectType)
-              ? [{ value: form.projectType, label: form.projectType }]
-              : []),
-          ]}
-          create={
-            canCreateGroup
-              ? {
-                  namePlaceholder: 'Tên nhóm mới',
-                  codePlaceholder: 'Mã',
-                  codeLabel: 'Mã viết tắt (tuỳ chọn)',
-                  addLabel: 'Thêm',
-                  addTitle: 'Thêm nhóm',
-                  onCreate: async (name, code) => {
-                    const created = await createProjectGroupNamed(name, code);
-                    setTypes((current) =>
-                      current.some((type) => type.name === created) ? current : [...current, { name: created, count: 0 }],
-                    );
-                    return created;
-                  },
-                }
-              : undefined
-          }
-          onChange={(value) => set({ projectType: value })}
-        />
-      </Field>
-
-      {project ? null : (
-        <Field
-          label="Mã dự án"
-          hint="Cấp tự động khi lưu theo quy tắc ở Cài đặt > Mã dự án; không sửa được. Số có thể tăng nếu có người tạo dự án cùng dãy ngay trước bạn."
-        >
-          <input
-            value={codePreview?.code ?? (codePreview ? '' : 'Đang tính…')}
-            readOnly
-            disabled
-            aria-label="Mã dự án dự kiến"
+      {/* Ô ngắn xếp hai cột, ô dài (tên, nhãn, mô tả) chiếm cả hàng. */}
+      <div className={styles.formGrid}>
+        <Field label="Nhóm dự án">
+          <Choice
+            label="Nhóm dự án"
+            value={form.projectType}
+            emptyOption="Chưa phân loại"
+            options={[
+              ...types.map((type) => ({ value: type.name, label: type.name })),
+              // Nhóm đang gắn mà danh mục chưa tải xong vẫn hiện đúng tên.
+              ...(form.projectType && !types.some((type) => type.name === form.projectType)
+                ? [{ value: form.projectType, label: form.projectType }]
+                : []),
+            ]}
+            create={
+              canCreateGroup
+                ? {
+                    namePlaceholder: 'Tên nhóm mới',
+                    codePlaceholder: 'Mã',
+                    codeLabel: 'Mã viết tắt (tuỳ chọn)',
+                    addLabel: 'Thêm',
+                    addTitle: 'Thêm nhóm',
+                    onCreate: async (name, code) => {
+                      const created = await createProjectGroupNamed(name, code);
+                      setTypes((current) =>
+                        current.some((type) => type.name === created) ? current : [...current, { name: created, count: 0 }],
+                      );
+                      return created;
+                    },
+                  }
+                : undefined
+            }
+            onChange={(value) => set({ projectType: value })}
           />
-          {codePreview?.error ? (
-            <p role="alert" className={styles.alert}>
-              {codePreview.error}
-            </p>
-          ) : null}
         </Field>
-      )}
-
-      <Field label="Tên dự án">
-        <input
-          value={form.name}
-          required
-          maxLength={180}
-          onChange={(event) => set({ name: event.target.value })}
-        />
-      </Field>
-
-      <Field
-        label="Phòng ban phụ trách"
-        hint="Đơn vị trên cây tổ chức chịu trách nhiệm dự án; không ảnh hưởng tới thành viên dự án."
-      >
-        <SearchableSelect
-          options={[
-            ...unitOptions,
-            // Phòng ban đang gắn mà cây tổ chức chưa tải xong (hoặc đã bị xoá) vẫn hiện, không mất lựa chọn.
-            ...(form.orgUnitId && !unitOptions.some((option) => option.value === form.orgUnitId)
-              ? [{ value: form.orgUnitId, label: directory.loaded ? 'Đơn vị không còn trên cây tổ chức' : 'Đang tải…' }]
-              : []),
-          ]}
-          value={form.orgUnitId}
-          placeholder="Chọn phòng ban (gõ tên để lọc)…"
-          emptyText={directory.degraded ? 'Không đọc được cây tổ chức lúc này.' : 'Không có đơn vị nào khớp.'}
-          clearable
-          onChange={(value) => set({ orgUnitId: value })}
-        />
-      </Field>
-
-      <Field label="Mô tả">
-        <textarea
-          rows={3}
-          value={form.description}
-          onChange={(event) => set({ description: event.target.value })}
-        />
-      </Field>
-
-      <div className={styles.fieldRow}>
+        {project ? null : (
+          <Field
+            label="Mã dự án"
+          >
+            <input
+              value={codePreview?.code ?? (codePreview ? '' : 'Đang tính…')}
+              readOnly
+              disabled
+              aria-label="Mã dự án dự kiến"
+            />
+            {codePreview?.error ? (
+              <p role="alert" className={styles.alert}>
+                {codePreview.error}
+              </p>
+            ) : null}
+          </Field>
+        )}
+        {project ? (
+          <Field label="Trạng thái">
+            <Choice
+              label="Trạng thái"
+              value={form.status}
+              options={PROJECT_STATUSES.map((status) => ({
+                value: status,
+                label: PROJECT_STATUS_LABELS[status],
+              }))}
+              onChange={(value) => set({ status: value })}
+            />
+          </Field>
+        ) : null}
+        <Field label="Tên dự án" className={styles.formSpanAll}>
+          <input
+            value={form.name}
+            required
+            maxLength={180}
+            onChange={(event) => set({ name: event.target.value })}
+          />
+        </Field>
+        <Field
+          label="Phòng ban phụ trách"
+        >
+          <SearchableSelect
+            options={[
+              ...unitOptions,
+              // Phòng ban đang gắn mà cây tổ chức chưa tải xong (hoặc đã bị xoá) vẫn hiện, không mất lựa chọn.
+              ...(form.orgUnitId && !unitOptions.some((option) => option.value === form.orgUnitId)
+                ? [{ value: form.orgUnitId, label: directory.loaded ? 'Đơn vị không còn trên cây tổ chức' : 'Đang tải…' }]
+                : []),
+            ]}
+            value={form.orgUnitId}
+            placeholder="Chọn phòng ban (gõ tên để lọc)…"
+            emptyText={directory.degraded ? 'Không đọc được cây tổ chức lúc này.' : 'Không có đơn vị nào khớp.'}
+            clearable
+            onChange={(value) => set({ orgUnitId: value })}
+          />
+        </Field>
+        {crmMode ? (
+          <Field
+            label="Khách hàng"
+          >
+            <input
+              value={crmSearch}
+              placeholder="Tìm ở CRM theo mã, tên hoặc mã số thuế…"
+              aria-label="Tìm khách hàng ở CRM"
+              maxLength={100}
+              onChange={(event) => setCrmSearch(event.target.value)}
+            />
+            <SearchableSelect
+              options={crmSelectOptions}
+              value={crmSelectValue}
+              placeholder="Chọn khách hàng từ CRM…"
+              emptyText="Không có khách hàng nào khớp ở CRM."
+              disabled={linkingCustomer}
+              clearable
+              onChange={(value) => void chooseCrmCustomer(value)}
+            />
+            <ErrorToast message={customerError} />
+            <a className={styles.linkButton} href="/modules/crm">
+              <Plus size={13} /> Tạo khách hàng ở CRM
+            </a>
+          </Field>
+        ) : (
+        <Field label="Khách hàng">
+          <SearchableSelect
+            options={customers.map((customer) => ({
+              value: customer.id,
+              label: `${customer.code} · ${customer.name}`,
+            }))}
+            value={form.customerId}
+            placeholder="Chọn khách hàng (gõ mã hoặc tên để lọc)…"
+            emptyText="Chưa có khách hàng nào khớp."
+            clearable
+            onChange={(value) => set({ customerId: value })}
+          />
+          {addCustomer ? (
+            // Tạo nhanh khách hàng ngay trong hộp dự án, khỏi rời form rồi quay lại.
+            <div className={styles.inlineCreate}>
+              <div className={styles.fieldRow}>
+                <input
+                  value={newCustomer.code}
+                  placeholder="Mã khách hàng"
+                  maxLength={32}
+                  aria-label="Mã khách hàng mới"
+                  onChange={(event) =>
+                    setNewCustomer((current) => ({ ...current, code: event.target.value }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void saveNewCustomer();
+                    }
+                  }}
+                />
+                <input
+                  value={newCustomer.name}
+                  placeholder="Tên khách hàng"
+                  maxLength={180}
+                  aria-label="Tên khách hàng mới"
+                  onChange={(event) =>
+                    setNewCustomer((current) => ({ ...current, name: event.target.value }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void saveNewCustomer();
+                    }
+                  }}
+                />
+              </div>
+              <ErrorToast message={customerError} />
+              <div className={styles.rowActions}>
+                <button
+                  type="button"
+                  className={styles.buttonSmall}
+                  disabled={savingCustomer}
+                  onClick={() => void saveNewCustomer()}
+                >
+                  {savingCustomer ? 'Đang lưu…' : 'Lưu khách hàng'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.buttonGhost}
+                  onClick={() => {
+                    setAddCustomer(false);
+                    setCustomerError(undefined);
+                  }}
+                >
+                  <X size={14} /> Huỷ
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => setAddCustomer(true)}
+            >
+              <Plus size={13} /> Tạo khách hàng mới
+            </button>
+          )}
+        </Field>
+        )}
         <Field label="Ngày bắt đầu">
           <DatePickerInput
             height={38}
@@ -537,191 +692,79 @@ export function ProjectForm({
             onChange={(value) => set({ endDate: value })}
           />
         </Field>
+        <Field
+          label="Cách tính tiến độ"
+        >
+          <Choice
+            label="Cách tính tiến độ"
+            value={form.progressMethod}
+            selectOnly
+            options={[
+              ...PROGRESS_METHOD_ORDER,
+              // Dự án có từ trước vẫn đang dùng cách cũ: hiện đúng để không bị đổi ngầm khi lưu.
+              ...(form.progressMethod === 'weighted_hours' ? (['weighted_hours'] as const) : []),
+            ].map((method) => ({ value: method, label: PROGRESS_METHOD_INFO[method].label }))}
+            renderOption={(option) => (
+              <span>
+                <b>{option.label}</b>
+                <br />
+                <small>{PROGRESS_METHOD_INFO[option.value as ProjectProgressMethod].description}</small>
+              </span>
+            )}
+            onChange={(value) => {
+              methodTouched.current = true;
+              set({ progressMethod: value as ProjectProgressMethod });
+            }}
+          />
+        </Field>
+        {/*
+          Giá trị hợp đồng nhập ngay lúc lập dự án: đó là con số mọi báo cáo
+          lợi nhuận dựa vào, và bắt người dùng tạo xong rồi mới mở tab Tài
+          chính để điền là thừa một bước. Ô chỉ hiện với người được xem tài
+          chính — server cũng chỉ nhận lệnh ghi từ chủ nhiệm và quản lý.
+        */}
+        {financeEnabled ? (
+          <Field label="Giá trị hợp đồng (VND)">
+            <input
+              inputMode="decimal"
+              value={form.contractValue}
+              placeholder="Ví dụ 2.500.000.000"
+              onChange={(event) =>
+                set({ contractValue: formatVndWhileTyping(event.target.value) })
+              }
+            />
+          </Field>
+        ) : null}
+        <Field label="Nhãn" className={styles.formSpanAll}>
+          <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
+        </Field>
+        <Field label="Mô tả" className={styles.formSpanAll}>
+          <textarea
+            rows={3}
+            value={form.description}
+            onChange={(event) => set({ description: event.target.value })}
+          />
+        </Field>
       </div>
 
-      <Field
-        label="Cách tính tiến độ"
-        hint="Tiến độ dự án tự tính từ các công việc cấp gốc theo cách này, không nhập tay. Đổi lúc nào cũng được, tiến độ tính lại ngay."
-      >
-        <Choice
-          label="Cách tính tiến độ"
-          value={form.progressMethod}
-          selectOnly
-          options={[
-            ...PROGRESS_METHOD_ORDER,
-            // Dự án có từ trước vẫn đang dùng cách cũ: hiện đúng để không bị đổi ngầm khi lưu.
-            ...(form.progressMethod === 'weighted_hours' ? (['weighted_hours'] as const) : []),
-          ].map((method) => ({ value: method, label: PROGRESS_METHOD_INFO[method].label }))}
-          renderOption={(option) => (
-            <span>
-              <b>{option.label}</b>
-              <br />
-              <small>{PROGRESS_METHOD_INFO[option.value as ProjectProgressMethod].description}</small>
-            </span>
-          )}
-          onChange={(value) => {
-            methodTouched.current = true;
-            set({ progressMethod: value as ProjectProgressMethod });
-          }}
-        />
-      </Field>
-
-      <Field label="Nhãn" hint="Gắn nhiều nhãn để lọc dự án trên trang Dự án.">
-        <TagPicker selected={form.tagIds} onChange={(tagIds) => set({ tagIds })} />
-      </Field>
-
-      {crmMode ? (
-        <Field
-          label="Khách hàng"
-          hint="Khách hàng chủ quản của dự án, lấy từ phân hệ CRM. Bỏ trống nếu chưa gắn."
-        >
-          <input
-            value={crmSearch}
-            placeholder="Tìm ở CRM theo mã, tên hoặc mã số thuế…"
-            aria-label="Tìm khách hàng ở CRM"
-            maxLength={100}
-            onChange={(event) => setCrmSearch(event.target.value)}
+      {/* Hồ sơ ở nơi khác gắn với dự án; form sửa hiện cả liên kết đã lưu. Không có loại nào thì không hiện. */}
+      {relatedBase && ((relatedBase.canAdd && relatedKinds.length > 0) || related.length > 0) ? (
+        <div className={styles.draftOptions}>
+          <RelatedObjectsEditor
+            kinds={relatedKinds}
+            value={related}
+            onChange={setRelated}
+            ariaPrefix="Đối tượng liên quan"
+            canAdd={relatedBase.canAdd}
+            defaultOpen={Boolean(project) && related.length > 0}
+            disabled={submitting}
           />
-          <SearchableSelect
-            options={crmSelectOptions}
-            value={crmSelectValue}
-            placeholder="Chọn khách hàng từ CRM…"
-            emptyText="Không có khách hàng nào khớp ở CRM."
-            disabled={linkingCustomer}
-            clearable
-            onChange={(value) => void chooseCrmCustomer(value)}
-          />
-          <ErrorToast message={customerError} />
-          <a className={styles.linkButton} href="/modules/crm">
-            <Plus size={13} /> Tạo khách hàng ở CRM
-          </a>
-        </Field>
-      ) : (
-      <Field label="Khách hàng" hint="Khách hàng chủ quản của dự án. Bỏ trống nếu chưa gắn.">
-        <SearchableSelect
-          options={customers.map((customer) => ({
-            value: customer.id,
-            label: `${customer.code} · ${customer.name}`,
-          }))}
-          value={form.customerId}
-          placeholder="Chọn khách hàng (gõ mã hoặc tên để lọc)…"
-          emptyText="Chưa có khách hàng nào khớp."
-          clearable
-          onChange={(value) => set({ customerId: value })}
-        />
-        {addCustomer ? (
-          // Tạo nhanh khách hàng ngay trong hộp dự án, khỏi rời form rồi quay lại.
-          <div className={styles.inlineCreate}>
-            <div className={styles.fieldRow}>
-              <input
-                value={newCustomer.code}
-                placeholder="Mã khách hàng"
-                maxLength={32}
-                aria-label="Mã khách hàng mới"
-                onChange={(event) =>
-                  setNewCustomer((current) => ({ ...current, code: event.target.value }))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    void saveNewCustomer();
-                  }
-                }}
-              />
-              <input
-                value={newCustomer.name}
-                placeholder="Tên khách hàng"
-                maxLength={180}
-                aria-label="Tên khách hàng mới"
-                onChange={(event) =>
-                  setNewCustomer((current) => ({ ...current, name: event.target.value }))
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    void saveNewCustomer();
-                  }
-                }}
-              />
-            </div>
-            <ErrorToast message={customerError} />
-            <div className={styles.rowActions}>
-              <button
-                type="button"
-                className={styles.buttonSmall}
-                disabled={savingCustomer}
-                onClick={() => void saveNewCustomer()}
-              >
-                {savingCustomer ? 'Đang lưu…' : 'Lưu khách hàng'}
-              </button>
-              <button
-                type="button"
-                className={styles.buttonGhost}
-                onClick={() => {
-                  setAddCustomer(false);
-                  setCustomerError(undefined);
-                }}
-              >
-                <X size={14} /> Huỷ
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            className={styles.linkButton}
-            onClick={() => setAddCustomer(true)}
-          >
-            <Plus size={13} /> Tạo khách hàng mới
-          </button>
-        )}
-      </Field>
-      )}
-
-      {/*
-        Giá trị hợp đồng nhập ngay lúc lập dự án: đó là con số mọi báo cáo
-        lợi nhuận dựa vào, và bắt người dùng tạo xong rồi mới mở tab Tài
-        chính để điền là thừa một bước. Ô chỉ hiện với người được xem tài
-        chính — server cũng chỉ nhận lệnh ghi từ chủ nhiệm và quản lý.
-      */}
-      {financeEnabled || project ? (
-        <div className={styles.fieldRow}>
-          {financeEnabled ? (
-            <Field label="Giá trị hợp đồng (VND)" hint="Bỏ trống nếu chưa ký hợp đồng.">
-              <input
-                inputMode="decimal"
-                value={form.contractValue}
-                placeholder="Ví dụ 2.500.000.000"
-                onChange={(event) =>
-                  set({ contractValue: formatVndWhileTyping(event.target.value) })
-                }
-              />
-            </Field>
-          ) : null}
-          {project ? (
-            <Field label="Trạng thái">
-              <Choice
-                label="Trạng thái"
-                value={form.status}
-                options={PROJECT_STATUSES.map((status) => ({
-                  value: status,
-                  label: PROJECT_STATUS_LABELS[status],
-                }))}
-                onChange={(value) => set({ status: value })}
-              />
-            </Field>
-          ) : null}
         </div>
       ) : null}
 
       {project ? null : (
         <Field
           label="Công việc tạo sẵn"
-          hint={
-            initialTasks.length > 0
-              ? `Tạo sẵn ${initialTasks.filter((title) => title.trim()).length} công việc cấp gốc cùng dự án, chưa giao ai. Thêm, bớt hoặc đổi thứ tự cho dự án này; mẫu chung sửa ở Cài đặt > Cấu hình chung.`
-              : 'Không bắt buộc: thêm các công việc cấp gốc để tạo sẵn cùng dự án. Mẫu chung sửa ở Cài đặt > Cấu hình chung.'
-          }
         >
           <TaskTitleListEditor
             idPrefix="Công việc tạo sẵn"
@@ -753,7 +796,7 @@ export function ProjectForm({
 
           {addPeople ? (
             <>
-              <Field label="Người tham gia" hint="Chọn người rồi đặt vai trò cho từng người bên dưới.">
+              <Field label="Người tham gia">
                 <PeoplePicker
                   people={directory.people}
                   selected={newMembers.map((member) => member.userId)}

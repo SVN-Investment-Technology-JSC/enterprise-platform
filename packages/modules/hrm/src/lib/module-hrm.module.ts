@@ -54,6 +54,7 @@ import { HrmInternalController } from './presentation/hrm-internal.controller.js
 import { HrmPersonnelDecisionController } from './presentation/hrm-personnel-decision.controller.js';
 import { HrmTaskApprovalController } from './presentation/hrm-task-approval.controller.js';
 import { HrmTaskApprovalService } from './application/hrm-task-approval.service.js';
+import { HrmLinkableController } from './presentation/linkable.controller.js';
 
 import { HrmProcedureBridgeService } from './infrastructure/hrm-procedure-bridge.service.js';
 import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.js';
@@ -107,6 +108,7 @@ import { OrgHrmBridgeConsumer } from './infrastructure/org-hrm-bridge.consumer.j
     HrmSalaryController,
     HrmPayrollController,
     HrmDashboardController,
+    HrmLinkableController,
   ],
   providers: [
     PostgresPoolRegistry,

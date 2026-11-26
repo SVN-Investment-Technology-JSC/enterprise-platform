@@ -16,12 +16,6 @@ export const REOPEN_POLICY_LABELS: Record<WorkItemReopenPolicy, string> = {
   none: 'Không cho hoàn tác',
 };
 
-const REOPEN_POLICY_HINTS: Record<WorkItemReopenPolicy, string> = {
-  assignee: 'Sau khi hoàn thành, người phụ trách hoặc cùng thực hiện có thể đưa công việc về "Đang làm".',
-  manager: 'Sau khi hoàn thành, chỉ quản lý hoặc chủ nhiệm dự án đưa được công việc về "Đang làm".',
-  none: '"Hoàn thành" là chốt. Chỉ chủ nhiệm dự án huỷ hiệu lực rồi lập công việc điều chỉnh được.',
-};
-
 export const reopenPolicyOf = (policy: WorkItemReopenPolicy | undefined): WorkItemReopenPolicy =>
   policy ?? DEFAULT_WORK_ITEM_REOPEN_POLICY;
 
@@ -48,7 +42,7 @@ export function ReopenPolicyField({
         <Label className={styles.reopenLabel}>
           <RotateCcw size={14} aria-hidden="true" /> Hoàn tác sau khi hoàn thành
         </Label>
-        <p className={styles.fieldHint}>{readOnly && readOnlyReason ? readOnlyReason : REOPEN_POLICY_HINTS[value]}</p>
+        {readOnly && readOnlyReason ? <p className={styles.fieldHint}>{readOnlyReason}</p> : null}
       </div>
       <div className={styles.reopenChoice}>
         <Choice

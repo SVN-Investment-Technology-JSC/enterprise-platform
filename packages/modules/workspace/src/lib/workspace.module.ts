@@ -54,6 +54,16 @@ import { HttpExternalReferenceClient } from './infrastructure/http-external-refe
 import { HttpOrganizationDirectory } from './infrastructure/http-organization-directory.js';
 import { PostgresWorkspaceStore } from './infrastructure/postgres-workspace-store.js';
 import { WorkspaceController } from './presentation/workspace.controller.js';
+import { RelatedObjectsController } from './presentation/related-objects.controller.js';
+import { RelatedObjectService } from './application/related-object.service.js';
+import {
+  LINKABLE_PROVIDERS,
+  RELATED_OBJECT_STORE,
+  type LinkableProviderRegistry,
+  type RelatedObjectStore,
+} from './application/related-object.port.js';
+import { createLinkableProviderRegistry } from './infrastructure/http-linkable-provider.js';
+import { PostgresRelatedObjectStore } from './infrastructure/postgres-related-object-store.js';
 
 /**
  * Composition root của module.
@@ -67,7 +77,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
  * guard đăng ký `TenantDatabaseReference` sau mỗi access-decision.
  */
 @Module({
-  controllers: [WorkspaceController],
+  controllers: [WorkspaceController, RelatedObjectsController],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
@@ -287,6 +297,24 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       provide: ContractService,
       useFactory: (store: WorkspaceStore) => new ContractService(store),
       inject: [WORKSPACE_STORE],
+    },
+    // Đối tượng liên quan: kho và cổng riêng, không đụng WorkspaceStore hay con trỏ Quy trình.
+    {
+      provide: RELATED_OBJECT_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresRelatedObjectStore((tenantId) => pools.forTenant(references.require(tenantId))),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    { provide: LINKABLE_PROVIDERS, useFactory: () => createLinkableProviderRegistry() },
+    {
+      provide: RelatedObjectService,
+      useFactory: (
+        related: RelatedObjectStore,
+        store: WorkspaceStore,
+        projects: ProjectService,
+        providers: LinkableProviderRegistry,
+      ) => new RelatedObjectService(related, store, projects, providers),
+      inject: [RELATED_OBJECT_STORE, WORKSPACE_STORE, ProjectService, LINKABLE_PROVIDERS],
     },
   ],
   exports: [

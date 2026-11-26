@@ -4,6 +4,7 @@ import { LetterAttachmentsController } from './letter-attachments.controller.js'
 import { LetterFlowController } from './letter-flow.controller.js';
 import { LetterQueriesController } from './letter-queries.controller.js';
 import { LetterRevocationController } from './letter-revocation.controller.js';
+import { CorrespondenceLinkableController } from './linkable.controller.js';
 
 /** Khoá metadata Nest ghi cho `@Controller`, `@Get`… (giá trị của `PATH_METADATA`, `METHOD_METADATA`). */
 const PATH_METADATA = 'path';
@@ -26,6 +27,7 @@ const ROUTES = [
   'POST letters/:id/attachments', 'POST letters/:id/attachments/:attachmentId/versions',
   'POST letters/:id/attachments/:attachmentId/complete', 'GET letters/:id/attachments/:attachmentId/download',
   'DELETE letters/:id/attachments/:attachmentId',
+  'GET linkable/kinds', 'GET linkable/search', 'GET linkable/resolve',
 ];
 
 describe('Bảng route Văn thư', () => {
@@ -36,6 +38,7 @@ describe('Bảng route Văn thư', () => {
       LetterFlowController,
       LetterRevocationController,
       LetterAttachmentsController,
+      CorrespondenceLinkableController,
     ];
     const found: string[] = [];
     for (const controller of controllers) {

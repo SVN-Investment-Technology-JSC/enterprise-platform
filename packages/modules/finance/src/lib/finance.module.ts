@@ -4,9 +4,10 @@ import { FinanceApplication } from './application/finance.application.js';
 import { FINANCE_STORAGE, createFinanceStorage } from './infrastructure/attachments.store.js';
 import { FinanceDatabase } from './infrastructure/finance.database.js';
 import { FinanceController } from './presentation/finance.controller.js';
+import { LinkableController } from './presentation/linkable.controller.js';
 
 @Module({
-  controllers: [FinanceController],
+  controllers: [FinanceController, LinkableController],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
