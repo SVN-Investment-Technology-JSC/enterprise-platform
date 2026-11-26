@@ -17,6 +17,7 @@ import {
   type StandaloneTaskRole,
   type StandaloneTaskScope,
   type UpdateStandaloneTaskRequest,
+  type WorkItemProcedureSteps,
   type WorkItemStatus,
 } from '@enterprise-platform/contracts-workspace';
 import {
@@ -49,6 +50,8 @@ import {
 import { loadProgressReportSettings } from './progress-report-settings.js';
 import type { DirectoryService } from './directory.service.js';
 import type { ProcedureReversalChecker } from './procedure-reversal-check.port.js';
+import { loadProcedureSteps } from './procedure-steps.js';
+import type { ProcedureStepsReader } from './procedure-steps.port.js';
 import type { WorkspaceActor } from './workspace.application.js';
 import { WorkspaceLabelService } from './workspace-label.service.js';
 import type {
@@ -89,6 +92,8 @@ export class StandaloneTaskService {
     private readonly directory: DirectoryService,
     /** Hỏi Quy trình trước khi huỷ hiệu lực việc có hồ sơ đã hoàn tất. */
     private readonly procedureReversal?: ProcedureReversalChecker,
+    /** Đọc các bước hồ sơ của việc theo quy trình; vắng (test) thì báo không đọc được. */
+    private readonly procedureStepsReader?: ProcedureStepsReader,
   ) {}
 
   /** Danh mục mức ưu tiên ở Cài đặt; đọc lại mỗi lần nên không cần chia sẻ thực thể. */
@@ -119,6 +124,12 @@ export class StandaloneTaskService {
   async detail(actor: WorkspaceActor, taskId: string): Promise<StandaloneTaskDetail> {
     const { task, role } = await this.load(actor, taskId);
     return this.toDetail(actor, task, role);
+  }
+
+  /** Các bước hồ sơ gắn với việc; ai xem được việc (cùng luật với `detail`) thì xem được. */
+  async procedureSteps(actor: WorkspaceActor, taskId: string): Promise<WorkItemProcedureSteps> {
+    const { task } = await this.load(actor, taskId);
+    return loadProcedureSteps(this.procedureStepsReader, actor.tenantId, task.procedure?.instanceId);
   }
 
   async create(

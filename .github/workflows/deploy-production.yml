@@ -1,0 +1,67 @@
+name: Deploy production via Coolify
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag suffix (production or sha-<40-hex-commit>)
+        required: true
+        default: production
+        type: string
+      reason:
+        description: Deployment or rollback note
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  deploy-production:
+    name: Trigger Coolify production deployment
+    runs-on: ubuntu-24.04
+    environment: production
+    permissions:
+      contents: read
+    env:
+      IMAGE_TAG: ${{ inputs.image_tag }}
+      DEPLOY_REASON: ${{ inputs.reason }}
+      COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_PRODUCTION_WEBHOOK }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_PRODUCTION_TOKEN }}
+      COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
+      COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+    steps:
+      - name: Validate image tag and required Coolify secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$IMAGE_TAG" =~ ^(production|sha-[0-9a-f]{40})$ ]]; then
+            echo "::error::Invalid image_tag '$IMAGE_TAG'. Expected 'production' or 'sha-<40-hex-commit>'."
+            exit 1
+          fi
+          if [[ -z "$COOLIFY_WEBHOOK" || -z "$COOLIFY_TOKEN" ]]; then
+            echo "::error::Missing COOLIFY_PRODUCTION_WEBHOOK or COOLIFY_PRODUCTION_TOKEN secret in 'production' environment."
+            exit 1
+          fi
+
+      - name: Update IMAGE_TAG in Coolify when rolling back or pinning commit
+        if: inputs.image_tag != 'production' || (env.COOLIFY_API_URL != '' && env.COOLIFY_APP_UUID != '')
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$COOLIFY_API_URL" || -z "$COOLIFY_APP_UUID" ]]; then
+            echo "::error::Missing COOLIFY_API_URL or COOLIFY_APP_UUID secret required to update IMAGE_TAG before triggering deploy."
+            exit 1
+          fi
+          payload=$(node -e 'process.stdout.write(JSON.stringify({ key: "IMAGE_TAG", value: process.env.IMAGE_TAG, is_preview: false }))')
+          curl --fail --show-error --silent --request PATCH \
+            "${COOLIFY_API_URL%/}/api/v1/applications/${COOLIFY_APP_UUID}/envs" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$payload"
+
+      - name: Trigger Coolify deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Triggering Coolify deployment (IMAGE_TAG=$IMAGE_TAG, reason=${DEPLOY_REASON:-n/a})"
+          curl --fail --show-error --silent --request GET "$COOLIFY_WEBHOOK" \
+            --header "Authorization: Bearer $COOLIFY_TOKEN"

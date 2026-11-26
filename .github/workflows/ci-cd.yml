@@ -16,10 +16,9 @@ concurrency:
 env:
   NODE_VERSION: '24.11.0'
   PNPM_VERSION: '10.33.1'
-  # The affected graph can include most of the workspace. Run a small number of
-  # tasks at once and give each Node process a bounded heap so ESLint is not
-  # terminated by the hosted runner running out of memory.
-  NX_PARALLEL: '2'
+  # Run up to 3 Nx tasks concurrently on the 4-vCPU / 16 GB runner with a
+  # bounded Node heap per process so ESLint/TSC stay well within memory.
+  NX_PARALLEL: '3'
   NODE_OPTIONS: '--max-old-space-size=3072'
 
 jobs:
@@ -59,15 +58,16 @@ jobs:
             image_inputs:
               - 'apps/**'
               - 'packages/**'
+              - 'migrations/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - 'nx.json'
               - 'tsconfig*.json'
+              - '.dockerignore'
               - 'tools/deployment/services.json'
               - 'tools/deployment/ci-matrix.mjs'
               - 'tools/deployment/publish-plan.mjs'
-              - 'infrastructure/docker/**'
               - 'infrastructure/nginx/**'
 
   validate:
@@ -156,7 +156,7 @@ jobs:
           fi
 
       # The build of an app is not repeated here: the Docker image of every app
-      # runs that same build (verify-containers on pull requests, publish on
+      # runs that same build (verify-containers on pull requests, build-images on
       # push). Library builds still run, as dependencies of tests and directly.
       - name: Lint, type-check, test, and build affected projects
         shell: bash
@@ -170,10 +170,11 @@ jobs:
             pnpm nx run-many -t build --exclude="$apps" --parallel="$NX_PARALLEL" --nxBail
           fi
 
-      # Only the suites that need the database, broker or Redis run here, and always
-      # uncached. The unit tests of these projects run, with the cache, in the step
-      # above whenever the project is affected, so running them again only costs time.
+      # Only the affected suites that need the database, broker or Redis run here
+      # without cache. Dependency builds run first with cache enabled so they
+      # are not rebuilt sequentially under --skipNxCache --parallel=1.
       - name: Verify notification database, broker, and recovery integrations without cache
+        shell: bash
         env:
           NOTIFICATIONS_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           HRM_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
@@ -186,7 +187,40 @@ jobs:
           WORKSPACE_TEST_ADMIN_URL: postgresql://notification_test:notification_test@localhost:5432/postgres
           RABBITMQ_TEST_URL: amqp://notification_test:notification_test@localhost:5672
           REALTIME_TEST_REDIS_URL: redis://localhost:6379
-        run: pnpm nx run-many -t test -p contracts-realtime module-notifications adapter-events realtime-api notification-worker platform-entitlement module-hrm module-finance module-shared module-inventory module-crm module-workspace --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1 --testPathPatterns='\.integration\.spec\.ts$|hrm-notification-migration\.spec\.ts$'
+        run: |
+          integration_projects=(
+            contracts-realtime
+            module-notifications
+            adapter-events
+            realtime-api
+            notification-worker
+            platform-entitlement
+            module-hrm
+            module-finance
+            module-shared
+            module-inventory
+            module-crm
+            module-workspace
+          )
+          if [[ -n '${{ steps.nx-range.outputs.base }}' ]]; then
+            affected=$(pnpm exec nx show projects --affected --base='${{ steps.nx-range.outputs.base }}' --head=HEAD --json)
+            mapfile -t selected < <(node -e '
+              const affected = new Set(JSON.parse(process.argv[1]));
+              for (const project of process.argv.slice(2)) {
+                if (affected.has(project)) console.log(project);
+              }
+            ' "$affected" "${integration_projects[@]}")
+          else
+            selected=("${integration_projects[@]}")
+          fi
+          if [[ "${#selected[@]}" -eq 0 ]]; then
+            echo "No integration-tested projects affected; skipping integration tests."
+            exit 0
+          fi
+          projects_csv=$(IFS=,; echo "${selected[*]}")
+          echo "Running integration tests for: $projects_csv"
+          pnpm nx run-many -t build-deps -p "$projects_csv" --parallel="$NX_PARALLEL"
+          pnpm nx run-many -t test -p "$projects_csv" --excludeTaskDependencies --runInBand --detectOpenHandles --skipNxCache --skipRemoteCache --parallel=1 --testPathPatterns='\.integration\.spec\.ts$|hrm-notification-migration\.spec\.ts$'
 
   prepare-services:
     name: Create deployment matrix
@@ -202,6 +236,8 @@ jobs:
       verify_matrix: ${{ steps.verify-matrix.outputs.matrix }}
       # Pushes build the services that changed since their production image...
       publish_matrix: ${{ steps.publish-plan.outputs.publish_matrix }}
+      build_count: ${{ steps.publish-plan.outputs.build_count }}
+      build_services: ${{ steps.publish-plan.outputs.build_services }}
       # ...and only re-tag the production image of the others.
       retag: ${{ steps.publish-plan.outputs.retag }}
       retag_count: ${{ steps.publish-plan.outputs.retag_count }}
@@ -263,6 +299,8 @@ jobs:
           echo "Plan: $plan"
           {
             echo "publish_matrix=$(INCLUDE_SERVICES="$(jq -c .build <<<"$plan")" node tools/deployment/ci-matrix.mjs)"
+            echo "build_count=$(jq '.build | length' <<<"$plan")"
+            echo "build_services=$(jq -c .build <<<"$plan")"
             echo "retag=$(jq -c .retag <<<"$plan")"
             echo "retag_count=$(jq '.retag | length' <<<"$plan")"
           } >> "$GITHUB_OUTPUT"
@@ -301,17 +339,17 @@ jobs:
           docker compose -f infrastructure/docker/compose.coolify.yml config --quiet
           docker compose -f infrastructure/docker/compose.full.yml config --quiet
 
-  publish:
-    name: Build and publish ${{ matrix.service }}
-    needs: [detect-changes, validate, prepare-services, validate-deployment]
+  # Runs in parallel with validate on push to main/dev/release, pushing only
+  # immutable :sha-<commit> tags. Production tags are promoted atomically after
+  # both validate and build-images pass.
+  build-images:
+    name: Build image ${{ matrix.service }}
+    needs: [detect-changes, prepare-services, validate-deployment]
     if: >-
-      always() &&
       github.event_name != 'pull_request' &&
       (github.ref_name == 'main' || github.ref_name == 'dev/release') &&
       needs.detect-changes.outputs.image_inputs == 'true' &&
-      needs.validate.result == 'success' &&
-      needs.prepare-services.result == 'success' &&
-      needs.validate-deployment.result == 'success'
+      needs.prepare-services.outputs.build_count != '0'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -332,25 +370,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push sha-tagged image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          provenance: false
+          sbom: false
           platforms: linux/amd64
           tags: |
             ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:${{ matrix.service }}-sha-${{ github.sha }}
-            ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:${{ matrix.service }}-production
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.service }}
+          secrets: |
+            NX_CLOUD_ACCESS_TOKEN=${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+          cache-from: type=registry,ref=ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:buildcache-${{ matrix.service }}
+          cache-to: type=registry,ref=ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:buildcache-${{ matrix.service }},mode=min,ignore-error=true
 
-  retag-unchanged:
-    name: Tag unchanged service images
-    needs: [detect-changes, validate, prepare-services, validate-deployment]
+  promote-production:
+    name: Promote production tags
+    needs:
+      [
+        detect-changes,
+        validate,
+        prepare-services,
+        validate-deployment,
+        build-images,
+      ]
     if: >-
       always() &&
       github.event_name != 'pull_request' &&
@@ -359,14 +407,16 @@ jobs:
       needs.validate.result == 'success' &&
       needs.prepare-services.result == 'success' &&
       needs.validate-deployment.result == 'success' &&
-      needs.prepare-services.outputs.retag_count != '0'
+      (needs.build-images.result == 'success' || needs.build-images.result == 'skipped')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
     env:
       IMAGE_REPOSITORY: ghcr.io/svn-investment-technology-jsc/enterprise-platform
+      HEAD_SHA: ${{ github.sha }}
       RETAG: ${{ needs.prepare-services.outputs.retag }}
+      BUILD_SERVICES: ${{ needs.prepare-services.outputs.build_services }}
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -378,19 +428,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Points the new sha tag at the exact digest the plan resolved, not at the
-      # mutable -production tag, so a concurrent publish cannot be tagged by mistake.
-      - name: Add the commit tag to each unchanged image
+      # Atomically attach <service>-sha-<commit> to unchanged images and advance
+      # <service>-production for newly built images only after all checks pass.
+      - name: Tag unchanged and promote newly built images
         shell: bash
         run: |
-          jq -c '.[]' <<<"$RETAG" | while read -r item; do
+          set -euo pipefail
+          jq -c '.[]' <<<"$RETAG" | xargs -r -P 8 -I {} bash -ec '
+            item="$1"
             service=$(jq -r .service <<<"$item")
             digest=$(jq -r .digest <<<"$item")
-            echo "$service: ${digest}"
+            echo "Tagging unchanged $service: $digest"
             docker buildx imagetools create \
-              --tag "$IMAGE_REPOSITORY:${service}-sha-${{ github.sha }}" \
+              --tag "$IMAGE_REPOSITORY:${service}-sha-${HEAD_SHA}" \
               "$IMAGE_REPOSITORY@${digest}"
-          done
+          ' _ {}
+
+          jq -r '.[]' <<<"$BUILD_SERVICES" | xargs -r -P 8 -I {} bash -ec '
+            service="$1"
+            echo "Promoting $service -> ${service}-production"
+            docker buildx imagetools create \
+              --tag "$IMAGE_REPOSITORY:${service}-production" \
+              "$IMAGE_REPOSITORY:${service}-sha-${HEAD_SHA}"
+          ' _ {}
 
   # Image builds do not depend on lint, type-check or test results, so they run
   # alongside validate. pr-validation-complete still requires both to succeed.
@@ -403,6 +463,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare-services.outputs.verify_matrix) }}
@@ -412,6 +473,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Log in to GHCR for read-only build cache
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build image without publishing
         uses: docker/build-push-action@v6
         with:
@@ -419,10 +487,13 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: false
           load: true
+          provenance: false
+          sbom: false
           tags: enterprise-platform-ci/${{ matrix.service }}:verify
           platforms: linux/amd64
-          cache-from: type=gha,scope=${{ matrix.service }}
-          cache-to: type=gha,mode=max,ignore-error=true,scope=${{ matrix.service }}
+          secrets: |
+            NX_CLOUD_ACCESS_TOKEN=${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+          cache-from: type=registry,ref=ghcr.io/svn-investment-technology-jsc/${{ matrix.imageRepository }}:buildcache-${{ matrix.service }}
 
       - name: Verify declared Node runtime dependencies
         if: matrix.runtimeCheck != null
@@ -464,17 +535,3 @@ jobs:
             test '${{ needs.validate.result }}' = 'skipped'
             test '${{ needs.verify-containers.result }}' = 'skipped'
           fi
-
-  # Enable this job when GitHub Actions should trigger Coolify automatically.
-  # deploy-production:
-  #   name: Trigger Coolify production deployment
-  #   needs: publish
-  #   env:
-  #     COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_PRODUCTION_WEBHOOK }}
-  #     COOLIFY_TOKEN: ${{ secrets.COOLIFY_PRODUCTION_TOKEN }}
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - name: Request deployment after all images are published
-  #       run: |
-  #         curl --fail --show-error --silent --request GET "$COOLIFY_WEBHOOK" \
-  #           --header "Authorization: Bearer $COOLIFY_TOKEN"

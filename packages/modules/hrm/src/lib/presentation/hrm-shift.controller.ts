@@ -85,8 +85,8 @@ export class HrmShiftController {
         `INSERT INTO hrm_schema.shift_definitions (
         tenant_id, code, name, start_time, end_time, break_minutes, cross_midnight,
         grace_late_minutes, grace_early_minutes, status, break_start_time, break_end_time,
-        check_in_before_minutes, check_out_after_minutes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        check_in_before_minutes, check_out_after_minutes, block_late_in_minutes, block_early_out_minutes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *`,
         [
           tenantId,
@@ -103,6 +103,8 @@ export class HrmShiftController {
           body.breakEndTime || null,
           body.checkInBeforeMinutes ?? DEFAULT_CHECK_IN_BEFORE_MINUTES,
           body.checkOutAfterMinutes ?? DEFAULT_CHECK_OUT_AFTER_MINUTES,
+          body.blockLateInMinutes ?? null,
+          body.blockEarlyOutMinutes ?? null,
         ],
       );
       await lifecycleAudit(db, tenantId, principal.userId, 'SHIFT_CREATED', created.rows[0].id, {
@@ -240,6 +242,8 @@ export class HrmShiftController {
         break_start_time = $11, break_end_time = $12,
         check_in_before_minutes = COALESCE($13, check_in_before_minutes),
         check_out_after_minutes = COALESCE($14, check_out_after_minutes),
+        block_late_in_minutes = CASE WHEN $15::boolean THEN $16::integer ELSE block_late_in_minutes END,
+        block_early_out_minutes = CASE WHEN $17::boolean THEN $18::integer ELSE block_early_out_minutes END,
         updated_at = GREATEST(clock_timestamp(),updated_at+interval '1 millisecond')
       WHERE tenant_id = $1 AND id = $2
       RETURNING *`,
@@ -258,6 +262,10 @@ export class HrmShiftController {
           merged.breakEndTime || null,
           body.checkInBeforeMinutes,
           body.checkOutAfterMinutes,
+          body.blockLateInMinutes !== undefined,
+          body.blockLateInMinutes ?? null,
+          body.blockEarlyOutMinutes !== undefined,
+          body.blockEarlyOutMinutes ?? null,
         ],
       );
     });
@@ -400,6 +408,12 @@ export class HrmShiftController {
         throw new BadRequestException(
           'Khung chấm công trước/sau ca phải là số phút nguyên từ 0 đến 1440',
         );
+    // Giới hạn chặn chấm công trong ca: bỏ trống (null) = không chặn; có giá trị thì 0 đến độ dài ca.
+    for (const n of [body.blockLateInMinutes, body.blockEarlyOutMinutes])
+      if (n !== undefined && n !== null && (!Number.isInteger(n) || n < 0 || n > end - start))
+        throw new BadRequestException(
+          'Giới hạn chặn chấm công phải là số phút nguyên từ 0 đến độ dài ca, hoặc để trống nếu không chặn',
+        );
     if (body.breakMinutes) {
       if (!body.breakStartTime || !body.breakEndTime)
         throw new BadRequestException(
@@ -433,6 +447,8 @@ export class HrmShiftController {
       graceEarlyMinutes: row.grace_early_minutes as number,
       checkInBeforeMinutes: row.check_in_before_minutes as number,
       checkOutAfterMinutes: row.check_out_after_minutes as number,
+      blockLateInMinutes: (row.block_late_in_minutes as number | null) ?? null,
+      blockEarlyOutMinutes: (row.block_early_out_minutes as number | null) ?? null,
       status: row.status as any,
       deletedAt: row.deleted_at ? timestamp(row.deleted_at) : null,
       createdAt: timestamp(row.created_at),

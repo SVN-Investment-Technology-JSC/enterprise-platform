@@ -233,7 +233,6 @@ describe('LeaveBalancesScreen', () => {
       .map((h) => h.textContent);
     for (const title of [
       'Tên nhân viên',
-      'Mã NV',
       'Tổng quỹ năm',
       'Đã dùng',
       'Chờ duyệt',
@@ -257,7 +256,7 @@ describe('LeaveBalancesScreen', () => {
       expect(
         screen.getByRole('button', { name: `Giải thích ${name}` }),
       ).toBeTruthy();
-    expect(screen.getByText('NV001')).toBeTruthy();
+    expect(screen.queryByText('NV001')).toBeNull();
     expect(screen.getByText('Trần Thị Bình')).toBeTruthy();
     expect(screen.getByText('Lê Văn Cường')).toBeTruthy();
     // Dữ liệu của dòng đầu: được hưởng 14, đã dùng 4, chờ 1, còn lại 10.

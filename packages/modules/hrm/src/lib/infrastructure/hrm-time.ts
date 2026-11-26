@@ -207,7 +207,7 @@ export async function dayContextForDate(
   const { picked, scheduleDayType, holidayPaid } = await resolveDay(db, tenantId, employeeId, date, timezone);
   return { shift: picked ? shiftOf(picked) : null, scheduleDayType, holidayPaid };
 }
-function shiftOf(picked: NonNullable<Awaited<ReturnType<typeof resolveDay>>['picked']>) {
+export function shiftOf(picked: NonNullable<Awaited<ReturnType<typeof resolveDay>>['picked']>) {
   const row = picked.row;
   return {
     id: row.id as string,
@@ -266,8 +266,8 @@ export async function timeContext(
     timezone,
   );
   const timestamp = Date.parse(at);
+  // Chấm vào sớm bao nhiêu cũng được (không còn khung "trước ca"); chỉ giới hạn chấm ra muộn sau giờ kết thúc ca.
   const includes = (s: NonNullable<typeof current>) =>
-    timestamp >= Date.parse(s.window.start) - s.before * 60000 &&
     timestamp <= Date.parse(s.window.end) + s.after * 60000;
   const candidates = [
     { date: today as string, shift: current },
@@ -279,6 +279,18 @@ export async function timeContext(
       timestamp < Date.parse(c.shift!.window.end),
   );
   let matched = inside.length ? inside : candidates;
+  // Không còn cận dưới nên một lượt chấm ngoài giờ có thể khớp cả ca hôm qua (chấm ra muộn) lẫn ca hôm nay (chấm vào sớm):
+  // chọn ca có giờ gần lượt chấm nhất; chỉ khi hai ca cách đều nhau mới báo xung đột.
+  if (!inside.length && candidates.length > 1) {
+    const distance = (c: (typeof candidates)[number]) =>
+      Math.min(
+        Math.abs(timestamp - Date.parse(c.shift!.window.start)),
+        Math.abs(timestamp - Date.parse(c.shift!.window.end)),
+      );
+    const nearest = Math.min(...candidates.map(distance));
+    const closest = candidates.filter((c) => distance(c) === nearest);
+    if (closest.length === 1) matched = closest;
+  }
   // Làm thêm giờ đã duyệt qua nửa đêm (ví dụ 22:00-02:00): lần chấm ra thuộc ngày làm việc của đơn, không rơi sang ngày sau.
   if (!inside.length && !candidates.some((c) => c.date === yesterday)) {
     const ot = await db.query(

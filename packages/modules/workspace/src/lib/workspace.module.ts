@@ -47,6 +47,7 @@ import { WorkItemService } from './application/work-item.service.js';
 import { WorkItemDeletionService } from './application/work-item-deletion.service.js';
 import { HttpProcedureInstanceReplacer } from './infrastructure/http-procedure-instance-replacer.js';
 import { HttpProcedureReversalChecker } from './infrastructure/http-procedure-reversal-check.js';
+import { HttpProcedureStepsReader } from './infrastructure/http-procedure-steps.js';
 import { WorkspaceApplication } from './application/workspace.application.js';
 import { WORKSPACE_STORE, type WorkspaceStore } from './application/workspace-store.port.js';
 import { HttpExternalReferenceClient } from './infrastructure/http-external-reference.js';
@@ -169,6 +170,7 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
           new HttpProcedureReversalChecker(),
           fleet,
           new HttpProcedureInstanceReplacer(),
+          new HttpProcedureStepsReader(),
         ),
       inject: [WORKSPACE_STORE, ProjectService, FleetTransportService],
     },
@@ -261,7 +263,12 @@ import { WorkspaceController } from './presentation/workspace.controller.js';
       // suy từ vai của người gọi trên chính việc đó.
       provide: StandaloneTaskService,
       useFactory: (store: WorkspaceStore, directory: DirectoryService) =>
-        new StandaloneTaskService(store, directory, new HttpProcedureReversalChecker()),
+        new StandaloneTaskService(
+          store,
+          directory,
+          new HttpProcedureReversalChecker(),
+          new HttpProcedureStepsReader(),
+        ),
       inject: [WORKSPACE_STORE, DirectoryService],
     },
     {

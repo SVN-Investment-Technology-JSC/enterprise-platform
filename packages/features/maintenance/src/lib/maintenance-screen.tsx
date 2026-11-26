@@ -811,8 +811,8 @@ export function MaintenanceScreen() {
     <ModuleShell<View>
       moduleKey="maintenance"
       appearance="light"
-      title="Bảo trì phòng ngừa"
-      subtitle="Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý trong module Kho & Vật tư."
+      title="Bảo trì"
+      subtitle="Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý trong module Kho & Tài sản."
       nav={NAV}
       view={view}
       onViewChange={navigate}

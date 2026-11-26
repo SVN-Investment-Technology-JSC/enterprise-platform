@@ -1,3 +1,5 @@
+import { calculateTimesheet } from '../infrastructure/hrm-timesheet-calculation.js';
+import { ensureMonthPeriod } from '../infrastructure/hrm-timesheet-month.js';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -94,6 +96,10 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
     await migrate('hrm/0070-hrm-attendance-site-assignments.sql');
     await migrate('hrm/0071-hrm-attendance-location-settings.sql');
     await migrate('hrm/0072-hrm-attendance-site-unit-exclusions.sql');
+    await migrate('hrm/0019-timesheet-attachment-lifecycle.sql');
+    await migrate('hrm/0046-hrm-timesheet-month-close.sql');
+    await migrate('hrm/0085-hrm-shift-punch-block.sql');
+    await migrate('hrm/0086-hrm-attendance-site-soft-delete.sql');
     const ctx = {
       getContext: async () => ({ pool, tenantId, principal: { userId } }),
       resolveEmployee: async () => ({ employeeId: userId }),
@@ -493,5 +499,249 @@ integration('HRM time lifecycle PostgreSQL integration', () => {
       { employeeId: userId, kind: 'OUT' as const, occurredAt: '2026-07-02T10:00:00Z', source: 'WEB_PORTAL', externalEventId: randomUUID() },
       at('203.0.113.9'),
     );
+  });
+
+  it('chặn chấm công trong giờ ca: vào muộn quá giới hạn và ra sớm quá giới hạn bị từ chối, vào sớm thì luôn được', async () => {
+    const settings = new HrmTimeSettingsController(ctx());
+    const shifts = new HrmShiftController(ctx());
+    await settings.updateLocation(req, { locationCheck: false, maxGpsAccuracyMeters: 30 });
+    const shift = (
+      await shifts.createShift(req, {
+        code: 'BLOCK-DAY',
+        name: 'Ca có chặn chấm công',
+        startTime: '07:30',
+        endTime: '16:30',
+        breakMinutes: 60,
+        breakStartTime: '12:00',
+        breakEndTime: '13:00',
+        graceLateMinutes: 10,
+        blockLateInMinutes: 30,
+        blockEarlyOutMinutes: 15,
+      })
+    ).data;
+    expect(shift).toMatchObject({ blockLateInMinutes: 30, blockEarlyOutMinutes: 15 });
+    await scheduleShift(userId, shift.id, '2026-07-06', '2026-07-09');
+    const web = { headers: {}, socket: { remoteAddress: '203.0.113.9' } } as Request;
+    const punch = (kind: 'IN' | 'OUT', occurredAt: string) =>
+      ingestEvent(pool as any, tenantId, userId, { employeeId: userId, kind, occurredAt, source: 'WEB_PORTAL', externalEventId: randomUUID() }, web);
+    // Giờ Việt Nam = UTC + 7: 07:30 là 00:30Z.
+    await punch('IN', '2026-07-06T00:45:00Z'); // 07:45, trễ 15 phút nhưng còn chấm được
+    await punch('IN', '2026-07-07T01:00:00Z'); // 08:00, đúng giới hạn 30 phút
+    await expect(punch('IN', '2026-07-08T01:01:00Z')).rejects.toThrow(/muộn nhất 08:00/); // 08:01
+    await expect(punch('IN', '2026-07-08T01:30:00Z')).rejects.toThrow(/muộn nhất 08:00/); // 08:30
+    await punch('IN', '2026-07-08T20:00:00Z'); // 03:00 sáng 09/07: chấm vào sớm bao nhiêu cũng được
+    await expect(punch('OUT', '2026-07-06T09:14:00Z')).rejects.toThrow(/sớm nhất 16:15/); // 16:14
+    await punch('OUT', '2026-07-06T09:15:00Z'); // 16:15
+    // Lượt chấm bị từ chối không để lại dữ liệu.
+    const saved = await pool.query(
+      `SELECT count(*)::int AS n FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date='2026-07-08'`,
+      [tenantId, userId],
+    );
+    expect(saved.rows[0].n).toBe(0);
+    // Sửa giới hạn khi ca đã được phân công vẫn được (chỉ ảnh hưởng lượt chấm sau này); null là bỏ chặn.
+    const updated = (await shifts.updateShift(req, shift.id, { blockLateInMinutes: null, expectedUpdatedAt: shift.updatedAt })).data;
+    expect(updated.blockLateInMinutes).toBeNull();
+    expect(updated.blockEarlyOutMinutes).toBe(15);
+  });
+
+  it('xóa mềm địa điểm chấm công: biến khỏi danh mục, gỡ phạm vi áp dụng, giữ dòng và nhật ký, không xóa địa điểm cuối khi đang kiểm tra vị trí', async () => {
+    const settings = new HrmTimeSettingsController(ctx());
+    const iso = (value: unknown) => new Date(value as string).toISOString();
+    const a = (await settings.site(req, { name: 'Địa điểm xóa A', latitude: 21, longitude: 105, radiusMeters: 100 })).data;
+    const b = (await settings.site(req, { name: 'Địa điểm xóa B', latitude: 22, longitude: 106, radiusMeters: 100 })).data;
+    await settings.updateSiteAssignments(req, a.id, { assignments: [{ scopeType: 'COMPANY', scopeId: '' }] });
+    const listed = async () => ((await settings.get(req)).data.sites as { id: string }[]).map((x) => x.id);
+    expect(await listed()).toEqual(expect.arrayContaining([a.id, b.id]));
+
+    // Phiên bản cũ bị từ chối; xóa đúng phiên bản thì địa điểm biến khỏi danh mục.
+    await expect(settings.deleteSite(req, a.id, { expectedUpdatedAt: '2000-01-01T00:00:00.000Z', reason: 'Xóa' })).rejects.toMatchObject({ status: 409 });
+    expect((await settings.deleteSite(req, a.id, { expectedUpdatedAt: iso(a.updated_at), reason: 'Xóa' })).data).toEqual({ id: a.id, deleted: true });
+    expect(await listed()).not.toContain(a.id);
+    expect(await listed()).toContain(b.id);
+
+    // Dòng vẫn còn (đã ngừng, có deleted_at), phạm vi áp dụng bị gỡ, nhật ký ghi lại cả phạm vi cũ.
+    const row = (await pool.query('SELECT active, deleted_at FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2', [tenantId, a.id])).rows[0];
+    expect(row.active).toBe(false);
+    expect(row.deleted_at).not.toBeNull();
+    expect((await pool.query('SELECT 1 FROM hrm_schema.attendance_site_assignments WHERE tenant_id=$1 AND site_id=$2', [tenantId, a.id])).rowCount).toBe(0);
+    const audit = (await pool.query(`SELECT detail FROM hrm_schema.audit_log WHERE tenant_id=$1 AND action='SITE_DELETED' AND entity_id=$2`, [tenantId, a.id])).rows[0];
+    expect(audit.detail.assignments).toEqual([{ scope_type: 'COMPANY', scope_id: expect.anything() }]);
+
+    // Địa điểm đã xóa không sửa, không ngừng, không gán lại, không xóa lần nữa.
+    await expect(settings.deleteSite(req, a.id, { expectedUpdatedAt: iso(row.deleted_at), reason: 'Xóa lại' })).rejects.toMatchObject({ status: 404 });
+    await expect(settings.updateSite(req, a.id, { name: 'Sửa', expectedUpdatedAt: iso(a.updated_at), reason: 'Sửa' })).rejects.toMatchObject({ status: 404 });
+    await expect(settings.updateSiteAssignments(req, a.id, { assignments: [{ scopeType: 'COMPANY', scopeId: '' }] })).rejects.toMatchObject({ status: 404 });
+
+    // Đang bật kiểm tra vị trí: không xóa được địa điểm đang dùng cuối cùng.
+    await pool.query('UPDATE hrm_schema.attendance_sites SET active=false WHERE tenant_id=$1 AND id<>$2', [tenantId, b.id]);
+    await settings.updateLocation(req, { locationCheck: true, maxGpsAccuracyMeters: 30 });
+    const fresh = (await pool.query('SELECT updated_at FROM hrm_schema.attendance_sites WHERE tenant_id=$1 AND id=$2', [tenantId, b.id])).rows[0];
+    await expect(settings.deleteSite(req, b.id, { expectedUpdatedAt: iso(fresh.updated_at), reason: 'Xóa' })).rejects.toMatchObject({ response: { code: 'HRM_SITE_LAST_ACTIVE' } });
+    await settings.updateLocation(req, { locationCheck: false, maxGpsAccuracyMeters: 30 });
+    await settings.deleteSite(req, b.id, { expectedUpdatedAt: iso(fresh.updated_at), reason: 'Xóa' });
+    expect(await listed()).not.toContain(b.id);
+  });
+
+  describe('ma trận chấm công với chặn vào muộn/ra sớm và bỏ khung chấm vào trước ca', () => {
+    // Giờ Việt Nam (UTC+7) -> thời điểm ISO.
+    const vn = (date: string, hhmm: string) => new Date(`${date}T${hhmm}:00+07:00`).toISOString();
+    const web = { headers: {}, socket: { remoteAddress: '203.0.113.9' } } as Request;
+    const punch = (kind: 'IN' | 'OUT', occurredAt: string, source = 'WEB_PORTAL', self: Request | null = web) =>
+      ingestEvent(pool as any, tenantId, userId, { employeeId: userId, kind, occurredAt, source, externalEventId: randomUUID() }, self ?? undefined);
+    const workDateOf = async (kind: 'IN' | 'OUT', occurredAt: string) =>
+      (
+        await pool.query(
+          `SELECT to_char(work_date,'YYYY-MM-DD') AS d FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND event_kind=$3 AND occurred_at=$4::timestamptz`,
+          [tenantId, userId, kind, occurredAt],
+        )
+      ).rows[0]?.d as string | undefined;
+    const calculate = async (month: string, from: string, to: string) => {
+      const client = await (pool as any).connect();
+      try {
+        await client.query('BEGIN');
+        const period = await ensureMonthPeriod(client, tenantId, { month, from, to } as any);
+        await calculateTimesheet(client, tenantId, period.id);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    };
+    const sheet = async (from: string, to: string) =>
+      Object.fromEntries(
+        (
+          await pool.query(
+            `SELECT to_char(work_date,'YYYY-MM-DD') AS d, late_minutes, early_leave_minutes, status FROM hrm_schema.timesheets
+              WHERE tenant_id=$1 AND employee_id=$2 AND work_date BETWEEN $3::date AND $4::date`,
+            [tenantId, userId, from, to],
+          )
+        ).rows.map((r) => [r.d, r]),
+      );
+
+    it('ca ngày 07:30-16:30 (dung sai trễ 10, sớm 5, chặn vào 30, chặn ra 15): từng mốc giờ và kết quả công', async () => {
+      const settings = new HrmTimeSettingsController(ctx());
+      const shifts = new HrmShiftController(ctx());
+      await settings.updateLocation(req, { locationCheck: false, maxGpsAccuracyMeters: 30 });
+      const shift = (
+        await shifts.createShift(req, {
+          code: 'MATRIX-DAY',
+          name: 'Ma trận ca ngày',
+          startTime: '07:30',
+          endTime: '16:30',
+          breakMinutes: 60,
+          breakStartTime: '12:00',
+          breakEndTime: '13:00',
+          graceLateMinutes: 10,
+          graceEarlyMinutes: 5,
+          checkOutAfterMinutes: 240,
+          blockLateInMinutes: 30,
+          blockEarlyOutMinutes: 15,
+        })
+      ).data;
+      await scheduleShift(userId, shift.id, '2026-08-03', '2026-08-18');
+      // Mỗi dòng: ngày, giờ vào, giờ ra, số phút trễ và về sớm tính công.
+      const days: [string, string, string, number, number][] = [
+        ['2026-08-03', '03:00', '16:30', 0, 0], // vào rất sớm vẫn được, không trễ
+        ['2026-08-04', '07:40', '16:30', 0, 0], // đúng dung sai 10 phút: không tính trễ
+        ['2026-08-05', '07:41', '16:30', 11, 0], // vượt dung sai: tính đủ 11 phút
+        ['2026-08-06', '07:45', '16:30', 15, 0], // ví dụ của yêu cầu: 07:45 trễ 15 phút
+        ['2026-08-07', '08:00', '16:30', 30, 0], // đúng giới hạn chặn: còn chấm được, trễ 30 phút
+        ['2026-08-10', '07:30', '16:25', 0, 0], // ra sớm 5 phút nằm trong dung sai
+        ['2026-08-11', '07:30', '16:15', 0, 15], // đúng giới hạn chặn ra sớm: còn chấm được, sớm 15 phút
+        ['2026-08-12', '07:30', '20:30', 0, 0], // chấm ra đúng cuối khung 240 phút sau ca
+      ];
+      for (const [date, inAt, outAt] of days) {
+        await punch('IN', vn(date, inAt));
+        await punch('OUT', vn(date, outAt));
+      }
+      // Vượt giới hạn: bị từ chối và không để lại lượt chấm.
+      await expect(punch('IN', vn('2026-08-13', '08:01'))).rejects.toThrow(/muộn nhất 08:00/);
+      await expect(punch('IN', vn('2026-08-13', '08:30'))).rejects.toThrow(/muộn nhất 08:00/);
+      await punch('IN', vn('2026-08-14', '07:30'));
+      await expect(punch('OUT', vn('2026-08-14', '16:14'))).rejects.toThrow(/sớm nhất 16:15/);
+      await punch('IN', vn('2026-08-17', '07:30'));
+      await expect(punch('OUT', vn('2026-08-17', '20:31'))).rejects.toThrow(/Chưa có ca hợp lệ/); // quá khung ra sau ca
+      expect((await pool.query(
+        `SELECT count(*)::int AS n FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date='2026-08-13'`,
+        [tenantId, userId],
+      )).rows[0].n).toBe(0);
+      // Nguồn máy chấm công không bị chặn (dữ liệu thật đã xảy ra, không từ chối).
+      await punch('IN', vn('2026-08-18', '08:30'), 'BIOMETRIC_DEVICE', null);
+
+      await calculate('2026-08', '2026-08-01', '2026-08-31');
+      const rows = await sheet('2026-08-03', '2026-08-12');
+      for (const [date, , , late, early] of days) {
+        expect({ date, late: Number(rows[date].late_minutes), early: Number(rows[date].early_leave_minutes) }).toEqual({ date, late, early });
+      }
+      expect(rows['2026-08-04'].status).toBe('NORMAL');
+    });
+
+    it('ca không cấu hình giới hạn: chấm vào muộn hay ra sớm tới đâu cũng không bị chặn', async () => {
+      const shifts = new HrmShiftController(ctx());
+      const shift = (await shifts.createShift(req, { code: 'FREE-DAY', name: 'Ca không chặn', startTime: '08:00', endTime: '17:00', breakMinutes: 60, breakStartTime: '12:00', breakEndTime: '13:00' })).data;
+      expect(shift).toMatchObject({ blockLateInMinutes: null, blockEarlyOutMinutes: null });
+      await scheduleShift(userId, shift.id, '2026-10-05', '2026-10-06');
+      await punch('IN', vn('2026-10-05', '12:00')); // muộn 4 giờ vẫn chấm được
+      await punch('OUT', vn('2026-10-05', '12:30')); // ra rất sớm vẫn chấm được
+    });
+
+    it('chặn 0 phút: chỉ chấm vào được đến đúng giờ bắt đầu, chỉ chấm ra được từ đúng giờ kết thúc', async () => {
+      const shifts = new HrmShiftController(ctx());
+      const shift = (await shifts.createShift(req, { code: 'ZERO-BLOCK', name: 'Chặn 0 phút', startTime: '08:00', endTime: '17:00', breakMinutes: 60, breakStartTime: '12:00', breakEndTime: '13:00', blockLateInMinutes: 0, blockEarlyOutMinutes: 0 })).data;
+      await scheduleShift(userId, shift.id, '2026-10-12', '2026-10-13');
+      await punch('IN', vn('2026-10-12', '08:00'));
+      await expect(punch('OUT', vn('2026-10-12', '16:59'))).rejects.toThrow(/sớm nhất 17:00/);
+      await punch('OUT', vn('2026-10-12', '17:00'));
+      await expect(punch('IN', vn('2026-10-13', '08:01'))).rejects.toThrow(/muộn nhất 08:00/);
+    });
+
+    it('ca đêm 22:00-06:00: chấm vào sớm được, chặn theo giờ bắt đầu/kết thúc, chấm ra buổi sáng thuộc ngày công của ca đêm', async () => {
+      const shifts = new HrmShiftController(ctx());
+      const shift = (
+        await shifts.createShift(req, {
+          code: 'MATRIX-NIGHT',
+          name: 'Ma trận ca đêm',
+          startTime: '22:00',
+          endTime: '06:00',
+          crossMidnight: true,
+          breakMinutes: 0,
+          graceLateMinutes: 10,
+          graceEarlyMinutes: 5,
+          checkOutAfterMinutes: 240,
+          blockLateInMinutes: 30,
+          blockEarlyOutMinutes: 20,
+        })
+      ).data;
+      await scheduleShift(userId, shift.id, '2026-09-07', '2026-09-10');
+      // Ca ngày 07/09: vào sớm 1 giờ, ra đúng 06:00 sáng hôm sau.
+      await punch('IN', vn('2026-09-07', '21:00'));
+      await punch('OUT', vn('2026-09-08', '06:00'));
+      expect(await workDateOf('IN', vn('2026-09-07', '21:00'))).toBe('2026-09-07');
+      // Lượt ra 06:00 sáng 08/09 gần ca đêm 07/09 hơn ca đêm 08/09 nên thuộc ngày công 07/09.
+      expect(await workDateOf('OUT', vn('2026-09-08', '06:00'))).toBe('2026-09-07');
+      // Ca ngày 08/09: vào 22:31 bị chặn, 22:30 được; ra 05:39 bị chặn, 05:40 được.
+      await expect(punch('IN', vn('2026-09-08', '22:31'))).rejects.toThrow(/muộn nhất 22:30/);
+      await punch('IN', vn('2026-09-08', '22:30'));
+      await expect(punch('OUT', vn('2026-09-09', '05:39'))).rejects.toThrow(/sớm nhất 05:40/);
+      await punch('OUT', vn('2026-09-09', '05:40'));
+      expect(await workDateOf('OUT', vn('2026-09-09', '05:40'))).toBe('2026-09-08');
+    });
+
+    it('ca đêm liền ca ngày: lượt chấm sáng sớm chọn ca có giờ gần nhất, không báo xung đột hai cửa sổ ca', async () => {
+      const shifts = new HrmShiftController(ctx());
+      const night = (await shifts.createShift(req, { code: 'B2B-NIGHT', name: 'Đêm', startTime: '22:00', endTime: '06:00', crossMidnight: true, breakMinutes: 0, checkOutAfterMinutes: 240 })).data;
+      const day = (await shifts.createShift(req, { code: 'B2B-DAY', name: 'Ngày', startTime: '07:30', endTime: '16:30', breakMinutes: 60, breakStartTime: '12:00', breakEndTime: '13:00', checkOutAfterMinutes: 240 })).data;
+      await scheduleShift(userId, night.id, '2026-09-14', '2026-09-14');
+      await scheduleShift(userId, day.id, '2026-09-15', '2026-09-15');
+      await punch('IN', vn('2026-09-14', '22:00'));
+      // 06:10 sáng 15/09: cách giờ kết thúc ca đêm 10 phút, cách giờ bắt đầu ca ngày 80 phút -> ra của ca đêm.
+      await punch('OUT', vn('2026-09-15', '06:10'));
+      expect(await workDateOf('OUT', vn('2026-09-15', '06:10'))).toBe('2026-09-14');
+      // 07:00 sáng 15/09: cách ca đêm 60 phút, cách ca ngày 30 phút -> vào của ca ngày.
+      await punch('IN', vn('2026-09-15', '07:00'));
+      expect(await workDateOf('IN', vn('2026-09-15', '07:00'))).toBe('2026-09-15');
+    });
   });
 });

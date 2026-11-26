@@ -154,7 +154,7 @@ function HrmShellContent({ children }: { children: ReactNode }) {
       <ModuleShell
         appearance="light"
         moduleKey="hrm"
-        title="Nhân sự"
+        title="Nhân sự & Công"
         nav={nav}
         view={activeNavId}
         onViewChange={onViewChange}

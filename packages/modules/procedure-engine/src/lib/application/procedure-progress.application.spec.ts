@@ -216,6 +216,28 @@ describe('FIX-E-02 - tiến độ hồ sơ cho module khác', () => {
     await expect(application.getInstanceProgressForService(TENANT, 'khong-co')).rejects.toMatchObject({ code: 'not_found' });
   });
 
+  it('getInstanceStepOverviewForService trả các bước đã lọc, 404 khi không có hoặc đã xoá', async () => {
+    const { application, store } = setup();
+    const { created } = await startLeave(application);
+    const overview = await application.getInstanceStepOverviewForService(TENANT, created.id);
+    expect(overview.instanceId).toBe(created.id);
+    expect(overview.steps.map((item) => item.name)).toEqual(['Nộp đơn', 'Trưởng phòng duyệt', 'Giám đốc duyệt']);
+    expect(overview.steps[1].assigneeLabel).toBe('Trưởng phòng A');
+    expect(overview.events.every((event) => event.action !== 'comment')).toBe(true);
+    await expect(application.getInstanceStepOverviewForService(TENANT, 'khong-co')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+
+    await store.transaction(TENANT, (state) => {
+      const instance = state.instances.find((candidate) => candidate.id === created.id) as ProcedureInstance;
+      instance.deletion = { deletedAt: '2026-10-06T08:00:00.000Z', deletedBy: 'admin', reason: 'x' } as never;
+      return instance;
+    });
+    await expect(application.getInstanceStepOverviewForService(TENANT, created.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
   it('đối soát: trả bước hiện tại, bỏ qua mã lạ, giới hạn 100 mã', async () => {
     const { application } = setup();
     const { created } = await startLeave(application);

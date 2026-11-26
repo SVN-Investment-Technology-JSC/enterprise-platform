@@ -143,6 +143,23 @@ export default function TimeSettingsScreen() {
     }
   }
 
+  /** Xóa mềm địa điểm sau khi người dùng xác nhận; địa điểm biến khỏi danh mục, lịch sử vẫn giữ ở máy chủ. */
+  async function deleteSite(row: { id: string; updated_at: string }) {
+    setError('');
+    setMessage('');
+    try {
+      await hrmFetch(`/time-settings/sites/${row.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reason: 'Xóa địa điểm chấm công', expectedUpdatedAt: row.updated_at }),
+      });
+      setMessage('Đã xóa địa điểm.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không xóa được địa điểm');
+    } finally {
+      void load(true);
+    }
+  }
+
   function openAddDialog() {
     setSite(emptySiteForm());
     setDialogOpen(true);
@@ -317,6 +334,7 @@ export default function TimeSettingsScreen() {
                 onAdd={openAddDialog}
                 onEdit={openEditDialog}
                 onStop={(row) => remove(row)}
+                onDelete={(row) => deleteSite(row)}
               />
             </div>
           ) : null}

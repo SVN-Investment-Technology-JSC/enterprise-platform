@@ -62,6 +62,7 @@ import { Confirm } from './confirm-box';
 import { ProgressCell } from './inline-cells';
 import { ProgressHistoryPanel } from './progress-history-panel';
 import { ChecklistPanel, STANDALONE_TASK_CHECKLIST_API } from './checklist-panel';
+import { ProcedureStepsPanel } from './procedure-steps-panel';
 import {
   STANDALONE_CHECKLIST_READONLY_NOTE,
   canEditStandaloneChecklist,
@@ -978,8 +979,21 @@ function TaskDetail({
         )}
       </section>
 
-      {task.executionType === 'procedure' && task.procedure ? (
-        <ProcedurePanel procedure={task.procedure} isChild={Boolean(task.parentId)} />
+      {task.procedure && (task.executionType === 'procedure' || task.procedure.instanceId) ? (
+        <section className={styles.panel}>
+          {task.executionType === 'procedure' ? (
+            <ProcedurePanel procedure={task.procedure} isChild={Boolean(task.parentId)} />
+          ) : null}
+          {task.procedure.instanceId ? (
+            <ProcedureStepsPanel
+              flat
+              key={task.id}
+              kind="standalone-task"
+              id={task.id}
+              version={`${task.updatedAt}|${task.status}|${task.procedure.instanceId}`}
+            />
+          ) : null}
+        </section>
       ) : null}
 
       {canShowStandaloneChecklist(task, checklistCount) ? (

@@ -281,6 +281,12 @@ export async function monthCloseState(
   tenant: string,
   range: MonthRange,
   today = todayInVietnam(),
+  /**
+   * `lockBlockers: false` bỏ qua phần điều kiện chốt công (nạp cả bảng công của tháng, tốn nhiều nhất) và trả
+   * `blockersForLock: []`; dùng cho chốt đơn từ và các phản hồi sau thao tác mà giao diện không đọc điều kiện chốt.
+   * Việc chặn chốt công vẫn được kiểm ở server trong `closeMonth`.
+   */
+  options: { lockBlockers?: boolean } = {},
 ): Promise<HrmMonthCloseState> {
   const periods = await findMonthPeriods(db, tenant, range);
   const month = monthInfoOf(range, periods);
@@ -299,7 +305,7 @@ export async function monthCloseState(
   return {
     month,
     blockersForRequests,
-    blockersForLock: await lockBlockers(db, tenant, range, periods, today),
+    blockersForLock: options.lockBlockers === false ? [] : await lockBlockers(db, tenant, range, periods, today),
   };
 }
 

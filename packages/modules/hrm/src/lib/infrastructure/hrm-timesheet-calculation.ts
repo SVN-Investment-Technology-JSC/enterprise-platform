@@ -12,14 +12,8 @@ import { applyScheduleDayKind } from '../domain/work-schedule.js';
 import { generateAutoAttendance } from './hrm-auto-attendance.js';
 import { dayTripAllowance, loadActiveRates } from './hrm-trip-allowance.js';
 import { zonedMs } from './hrm-timesheet-board.js';
-import {
-  dayContextForDate,
-  effectiveDayKind,
-  isUnassignedSunday,
-  isoDate,
-  isoTime,
-  resolvePolicy,
-} from './hrm-time.js';
+import { effectiveDayKind, isUnassignedSunday, isoDate, isoTime } from './hrm-time.js';
+import { isEmployedOn, loadTimesheetInputs } from './hrm-timesheet-inputs.js';
 
 /** Một đơn tác động tới ngày công (lưu ở timesheets.sources để truy vết từ ô công về đơn gốc). */
 export interface TimesheetSource {
@@ -106,30 +100,21 @@ export async function calculateTimesheet(
   await generateAutoAttendance(db, tenant, isoDate(period.from_date), isoDate(period.to_date));
   // Mức công tác phí theo hình thức công tác (đóng băng vào dòng công khi chốt kỳ).
   const tripRates = await loadActiveRates(db, tenant);
+  // Nạp một lần toàn bộ dữ liệu đầu vào của kỳ (thay cho ~12 truy vấn cho từng nhân viên-ngày), rồi tính trong bộ nhớ.
+  const inputs = await loadTimesheetInputs(db, tenant, isoDate(period.from_date), isoDate(period.to_date), {
+    employees: employees.rows,
+    dates: dates.rows.map((d) => d.date as string),
+  });
+  const rowsToSave: unknown[][] = [];
+  const otUpdates: { id: string; approved: number; billable: number }[] = [];
   for (const employee of employees.rows)
     for (const day of dates.rows) {
-      if (
-        day.date < isoDate(employee.join_date) ||
-        (employee.inactive_from && day.date >= isoDate(employee.inactive_from))
-      )
-        continue;
-      const policy = await resolvePolicy(
-        db,
-        tenant,
-        'ATTENDANCE',
-        day.date,
-        employee.employee_id,
-      );
+      if (!isEmployedOn(employee, day.date)) continue;
+      const policy = inputs.policy(day.date, employee.employee_id);
       const timezone = String(
         policy?.config_json.timezone || 'Asia/Ho_Chi_Minh',
       );
-      const dayContext = await dayContextForDate(
-        db,
-        tenant,
-        employee.employee_id,
-        day.date,
-        timezone,
-      );
+      const dayContext = inputs.dayContext(employee.employee_id, day.date, timezone);
       const shift = dayContext.shift;
       // Lịch phân ca của nhân viên (nghỉ / lễ / làm bù) quyết định ngày nghỉ; không còn ngày nghỉ hằng tuần dự phòng.
       const scheduledKind = applyScheduleDayKind(
@@ -143,10 +128,7 @@ export async function calculateTimesheet(
         isUnassignedSunday(day.date, scheduledKind, Boolean(shift))
           ? 'OFF'
           : scheduledKind;
-      const events = await db.query(
-        `SELECT id,event_kind,occurred_at,source FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NULL ORDER BY occurred_at,id`,
-        [tenant, employee.employee_id, day.date],
-      );
+      const events = { rows: inputs.punches(employee.employee_id, day.date) };
       const punches = events.rows.map((e) => ({
         id: e.id,
         kind: e.event_kind,
@@ -162,37 +144,15 @@ export async function calculateTimesheet(
         invalidShift = true;
         calculation = calculateAttendance(punches, null);
       }
-      const attendance = await db.query(
-        `SELECT id FROM hrm_schema.attendances WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3`,
-        [tenant, employee.employee_id, day.date],
-      );
-      const leaves = await db.query(
-        `SELECT r.id,d.quantity,d.paid_minutes,to_jsonb(r)->>'from_at' AS from_at,to_jsonb(r)->>'to_at' AS to_at,t.name AS reason_name FROM hrm_schema.leave_requests r LEFT JOIN hrm_schema.leave_types t ON t.id=r.leave_type_id AND t.tenant_id=r.tenant_id JOIN hrm_schema.leave_request_days d ON d.request_id=r.id AND d.tenant_id=r.tenant_id WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED' AND d.work_date=$3`,
-        [tenant, employee.employee_id, day.date],
-      );
-      const legacyLeaves = await db.query(
-        `SELECT r.id FROM hrm_schema.leave_requests r WHERE r.tenant_id=$1 AND r.employee_id=$2 AND r.status='APPROVED' AND $3::date BETWEEN r.from_date AND r.to_date AND NOT EXISTS(SELECT 1 FROM hrm_schema.leave_request_days d WHERE d.request_id=r.id)`,
-        [tenant, employee.employee_id, day.date],
-      );
-      const trips = await db.query(
-        `SELECT id,destination,business_trip_type,to_jsonb(business_trip_requests)->>'from_at' AS from_at,to_jsonb(business_trip_requests)->>'to_at' AS to_at FROM hrm_schema.business_trip_requests WHERE tenant_id=$1 AND employee_id=$2 AND status='APPROVED' AND $3::date BETWEEN from_date AND to_date ORDER BY created_at,id`,
-        [tenant, employee.employee_id, day.date],
-      );
-      const correctionRows = await db.query(
-        `SELECT DISTINCT cid FROM (
-           SELECT voided_by_correction_id::text AS cid FROM hrm_schema.attendance_events WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND voided_by_correction_id IS NOT NULL
-           UNION ALL SELECT to_jsonb(e)->'evidence'->>'correctionId' FROM hrm_schema.attendance_events e WHERE e.tenant_id=$1 AND e.employee_id=$2 AND e.work_date=$3 AND e.voided_by_correction_id IS NULL
-         ) x WHERE cid IS NOT NULL ORDER BY cid`,
-        [tenant, employee.employee_id, day.date],
-      );
-      const shiftChangeRows = await db.query(
-        `SELECT id FROM hrm_schema.shift_change_requests WHERE tenant_id=$1 AND status='APPROVED' AND applied_at IS NOT NULL AND (employee_id=$2 OR swap_with_employee_id=$2) AND $3::date BETWEEN from_date AND to_date ORDER BY approved_at,id`,
-        [tenant, employee.employee_id, day.date],
-      );
-      const ots = await db.query(
-        `SELECT * FROM hrm_schema.ot_requests WHERE tenant_id=$1 AND employee_id=$2 AND work_date=$3 AND status='APPROVED' ORDER BY created_at,id`,
-        [tenant, employee.employee_id, day.date],
-      );
+      const attendance = { rows: [{ id: inputs.attendanceId(employee.employee_id, day.date) }] };
+      const leaves = { rows: inputs.leaves(employee.employee_id, day.date) };
+      const leavesCount = leaves.rows.length;
+      const legacyLeaves = { rows: inputs.legacyLeaves(employee.employee_id, day.date) };
+      const trips = { rows: inputs.trips(employee.employee_id, day.date) };
+      const tripsCount = trips.rows.length;
+      const correctionRows = { rows: inputs.correctionIds(employee.employee_id, day.date).map((cid) => ({ cid })) };
+      const shiftChangeRows = { rows: inputs.shiftChanges(employee.employee_id, day.date) };
+      const ots = { rows: inputs.ots(employee.employee_id, day.date) };
       // Tăng ca tính theo khoảng thời gian ĐÃ DUYỆT trong đơn (từ ngày giờ đến ngày giờ, kể cả qua nửa đêm), không phụ thuộc
       // giờ chấm ra: ví dụ 22:00 đến 02:00 hôm sau là 4 giờ. Đơn chọn lý do không lương (paid=false) vẫn là đơn hợp lệ
       // nhưng không cộng vào ot_minutes nên không sinh tiền tăng ca. Đơn cũ chưa có paid tính là có lương.
@@ -201,10 +161,7 @@ export async function calculateTimesheet(
       for (const ot of ots.rows) {
         const approved = Math.max(0, Number(ot.approved_minutes));
         const billable = ot.paid !== false ? approved : 0;
-        await db.query(
-          `UPDATE hrm_schema.ot_requests SET actual_minutes=$3,billable_ot_minutes=$4,timesheet_updated_at=now() WHERE tenant_id=$1 AND id=$2`,
-          [tenant, ot.id, approved, billable],
-        );
+        otUpdates.push({ id: ot.id, approved, billable });
         otMinutes += billable;
         weightedOtMinutes += billable * Number(ot.ot_rate_multiplier);
       }
@@ -265,9 +222,9 @@ export async function calculateTimesheet(
           ? 'OFF'
           : holiday
             ? 'HOLIDAY'
-            : leaves.rowCount
+            : leavesCount
               ? 'LEAVE'
-              : trips.rowCount
+              : tripsCount
                 ? 'BUSINESS_TRIP'
                 : paid
                   ? 'NORMAL'
@@ -275,7 +232,7 @@ export async function calculateTimesheet(
       // Công tác phí: chỉ ngày làm việc có ca (cùng điều kiện với công tác được tính công); ngày nghỉ chồng công tác
       // đã bị đánh dấu bất thường nên không tính tiền cho tới khi được xử lý.
       const tripAllowance =
-        !off && !holiday && !leaves.rowCount && shift
+        !off && !holiday && !leavesCount && shift
           ? dayTripAllowance(
               tripRates,
               day.date,
@@ -340,40 +297,30 @@ export async function calculateTimesheet(
         otIds: ots.rows.map((r) => r.id),
         policyVersionId: policy?.id || null,
       };
-      await db.query(
-        `INSERT INTO hrm_schema.timesheets (tenant_id,period_id,employee_id,work_date,shift_id,attendance_id,leave_request_id,business_trip_request_id,scheduled_minutes,worked_minutes,paid_minutes,ot_minutes,late_minutes,early_leave_minutes,workday_units,status,calculation_snapshot,ot_request_id,sources)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-      ON CONFLICT (period_id,employee_id,work_date) DO UPDATE SET shift_id=EXCLUDED.shift_id,attendance_id=EXCLUDED.attendance_id,leave_request_id=EXCLUDED.leave_request_id,business_trip_request_id=EXCLUDED.business_trip_request_id,ot_request_id=EXCLUDED.ot_request_id,sources=EXCLUDED.sources,
-      scheduled_minutes=EXCLUDED.scheduled_minutes,worked_minutes=EXCLUDED.worked_minutes,
-      paid_minutes=CASE WHEN hrm_schema.timesheets.is_manually_adjusted THEN hrm_schema.timesheets.paid_minutes ELSE EXCLUDED.paid_minutes END,
-      ot_minutes=EXCLUDED.ot_minutes,late_minutes=EXCLUDED.late_minutes,early_leave_minutes=EXCLUDED.early_leave_minutes,
-      workday_units=CASE WHEN hrm_schema.timesheets.is_manually_adjusted THEN hrm_schema.timesheets.workday_units ELSE EXCLUDED.workday_units END,
-      status=CASE WHEN NOT hrm_schema.timesheets.is_manually_adjusted THEN EXCLUDED.status WHEN hrm_schema.timesheets.adjustment_needs_review OR hrm_schema.timesheets.calculation_snapshot IS DISTINCT FROM EXCLUDED.calculation_snapshot THEN 'ABNORMAL' ELSE 'ADJUSTED' END,
-      adjustment_needs_review=hrm_schema.timesheets.is_manually_adjusted AND (hrm_schema.timesheets.adjustment_needs_review OR hrm_schema.timesheets.calculation_snapshot IS DISTINCT FROM EXCLUDED.calculation_snapshot),
-      calculation_snapshot=EXCLUDED.calculation_snapshot,updated_at=GREATEST(clock_timestamp(),hrm_schema.timesheets.updated_at+interval '1 millisecond')`,
-        [
-          tenant,
-          periodId,
-          employee.employee_id,
-          day.date,
-          shift?.id || null,
-          attendance.rows[0]?.id || null,
-          leaves.rows[0]?.id || null,
-          trips.rows[0]?.id || null,
-          off ? 0 : scheduled,
-          calculation.workedMinutes,
-          paid,
-          otMinutes,
-          outcome.lateMinutes,
-          outcome.earlyMinutes,
-          outcome.workdayUnits,
-          status,
-          JSON.stringify(snapshot),
-          ots.rows[0]?.id || null,
-          JSON.stringify(sources),
-        ],
-      );
+      rowsToSave.push([
+        tenant,
+        periodId,
+        employee.employee_id,
+        day.date,
+        shift?.id || null,
+        attendance.rows[0]?.id || null,
+        leaves.rows[0]?.id || null,
+        trips.rows[0]?.id || null,
+        off ? 0 : scheduled,
+        calculation.workedMinutes,
+        paid,
+        otMinutes,
+        outcome.lateMinutes,
+        outcome.earlyMinutes,
+        outcome.workdayUnits,
+        status,
+        JSON.stringify(snapshot),
+        ots.rows[0]?.id || null,
+        JSON.stringify(sources),
+      ]);
     }
+  await saveTimesheetRows(db, rowsToSave);
+  await saveOtActuals(db, tenant, otUpdates);
   await db.query(
     `UPDATE hrm_schema.timesheet_periods SET calculated_at=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2`,
     [tenant, periodId],
@@ -383,4 +330,47 @@ export async function calculateTimesheet(
     [tenant, periodId],
   );
   return totals.rows[0] as { count: number; abnormal: number };
+}
+
+const TIMESHEET_COLUMNS =
+  'tenant_id,period_id,employee_id,work_date,shift_id,attendance_id,leave_request_id,business_trip_request_id,scheduled_minutes,worked_minutes,paid_minutes,ot_minutes,late_minutes,early_leave_minutes,workday_units,status,calculation_snapshot,ot_request_id,sources';
+const SAVE_CHUNK = 250;
+
+/** Ghi các dòng công theo lô (cùng luật cập nhật như khi ghi từng dòng: dòng đã điều chỉnh tay giữ số công, đánh dấu cần xem lại). */
+async function saveTimesheetRows(db: PoolClient, rows: unknown[][]) {
+  for (let i = 0; i < rows.length; i += SAVE_CHUNK) {
+    const chunk = rows.slice(i, i + SAVE_CHUNK);
+    const width = chunk[0].length;
+    const values = chunk
+      .map((_, r) => `(${Array.from({ length: width }, (_, c) => `$${r * width + c + 1}`).join(',')})`)
+      .join(',');
+    await db.query(
+      `INSERT INTO hrm_schema.timesheets (${TIMESHEET_COLUMNS})
+      VALUES ${values}
+      ON CONFLICT (period_id,employee_id,work_date) DO UPDATE SET shift_id=EXCLUDED.shift_id,attendance_id=EXCLUDED.attendance_id,leave_request_id=EXCLUDED.leave_request_id,business_trip_request_id=EXCLUDED.business_trip_request_id,ot_request_id=EXCLUDED.ot_request_id,sources=EXCLUDED.sources,
+      scheduled_minutes=EXCLUDED.scheduled_minutes,worked_minutes=EXCLUDED.worked_minutes,
+      paid_minutes=CASE WHEN hrm_schema.timesheets.is_manually_adjusted THEN hrm_schema.timesheets.paid_minutes ELSE EXCLUDED.paid_minutes END,
+      ot_minutes=EXCLUDED.ot_minutes,late_minutes=EXCLUDED.late_minutes,early_leave_minutes=EXCLUDED.early_leave_minutes,
+      workday_units=CASE WHEN hrm_schema.timesheets.is_manually_adjusted THEN hrm_schema.timesheets.workday_units ELSE EXCLUDED.workday_units END,
+      status=CASE WHEN NOT hrm_schema.timesheets.is_manually_adjusted THEN EXCLUDED.status WHEN hrm_schema.timesheets.adjustment_needs_review OR hrm_schema.timesheets.calculation_snapshot IS DISTINCT FROM EXCLUDED.calculation_snapshot THEN 'ABNORMAL' ELSE 'ADJUSTED' END,
+      adjustment_needs_review=hrm_schema.timesheets.is_manually_adjusted AND (hrm_schema.timesheets.adjustment_needs_review OR hrm_schema.timesheets.calculation_snapshot IS DISTINCT FROM EXCLUDED.calculation_snapshot),
+      calculation_snapshot=EXCLUDED.calculation_snapshot,updated_at=GREATEST(clock_timestamp(),hrm_schema.timesheets.updated_at+interval '1 millisecond')`,
+      chunk.flat(),
+    );
+  }
+}
+
+/** Ghi số phút thực tế và phút tính lương lên các đơn làm thêm giờ đã duyệt trong một câu lệnh. */
+async function saveOtActuals(
+  db: PoolClient,
+  tenant: string,
+  updates: { id: string; approved: number; billable: number }[],
+) {
+  if (!updates.length) return;
+  await db.query(
+    `UPDATE hrm_schema.ot_requests o SET actual_minutes=v.approved, billable_ot_minutes=v.billable, timesheet_updated_at=now()
+       FROM unnest($2::uuid[], $3::int[], $4::int[]) AS v(id, approved, billable)
+      WHERE o.tenant_id=$1 AND o.id=v.id`,
+    [tenant, updates.map((u) => u.id), updates.map((u) => u.approved), updates.map((u) => u.billable)],
+  );
 }

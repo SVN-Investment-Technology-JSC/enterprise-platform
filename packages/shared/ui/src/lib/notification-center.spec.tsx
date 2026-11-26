@@ -519,12 +519,12 @@ describe('NotificationDrawer search and group filter', () => {
 
     fireEvent.click(screen.getByPlaceholderText('Tất cả nhóm'));
     // Module có nhiều loại có thêm mục "cả module"; module một loại chỉ có mục theo loại.
-    await waitFor(() => expect(screen.getByText('Nhân sự (tất cả)')).toBeTruthy());
-    expect(screen.getByText('Nhân sự · Phê duyệt')).toBeTruthy();
-    expect(screen.getByText('Công việc · Giao việc')).toBeTruthy();
-    expect(screen.queryByText('Công việc (tất cả)')).toBeNull();
+    await waitFor(() => expect(screen.getByText('Nhân sự & Công (tất cả)')).toBeTruthy());
+    expect(screen.getByText('Nhân sự & Công · Phê duyệt')).toBeTruthy();
+    expect(screen.getByText('Dự án & Công việc · Giao việc')).toBeTruthy();
+    expect(screen.queryByText('Dự án & Công việc (tất cả)')).toBeNull();
 
-    fireEvent.click(screen.getByText('Nhân sự · Phê duyệt'));
+    fireEvent.click(screen.getByText('Nhân sự & Công · Phê duyệt'));
     await waitFor(() =>
       expect(fixture.client.list).toHaveBeenLastCalledWith({ limit: 30, module: 'hrm', category: 'approval' }),
     );

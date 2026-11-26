@@ -15,7 +15,7 @@ const fontSans = Be_Vietnam_Pro({
 });
 
 export const metadata = {
-  title: 'Maintenance · Enterprise Platform',
+  title: 'Bảo trì · Enterprise Platform',
   description: 'Quản lý thiết bị và bảo trì theo tenant.',
   icons: {
     icon: '/favicon.ico',

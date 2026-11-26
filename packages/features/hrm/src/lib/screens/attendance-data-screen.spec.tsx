@@ -45,6 +45,18 @@ const attendanceRow = {
   status: 'LATE',
   source: 'WEB',
 };
+const person = {
+  employeeId: 'e1',
+  employeeName: 'Nguyễn Văn An',
+  departmentName: 'Sản xuất',
+  days: 1,
+  workedMinutes: 480,
+  scheduledMinutes: 480,
+  lateDays: 1,
+  lateMinutes: 5,
+  earlyMinutes: 0,
+  abnormalDays: 0,
+};
 const events = [
   {
     id: 'ev2',
@@ -70,7 +82,9 @@ let total = 1;
 function route() {
   fetchMock.mockImplementation((async (path: string) => {
     if (path.startsWith('/attendance-data?')) {
-      return { data: [attendanceRow], meta: { total, page: 1, pageSize: 50 } };
+      // Chế độ gom theo nhân viên cho bảng; các ngày công của một người tải riêng khi mở drawer.
+      if (queryOf(path).get('group') === 'employee') return { data: [person], meta: { total, page: 1, pageSize: 50 } };
+      return { data: [attendanceRow], meta: { total: 1, page: 1, pageSize: 200 } };
     }
     if (path.startsWith('/attendance-events?')) return { data: events, meta: { total: 2 } };
     throw new Error(`Unexpected request ${path}`);
@@ -98,18 +112,15 @@ describe('AttendanceDataScreen', () => {
     expect(first.get('to')).toBe(range.to);
     expect(first.get('page')).toBe('1');
     expect(first.get('page_size')).toBe('50');
-    expect(screen.getByText('Đi muộn')).toBeTruthy();
-    expect(screen.getByText('08:05')).toBeTruthy();
-    expect(screen.getByText('Hiển thị 1-1 / 1')).toBeTruthy();
+    expect(first.get('group')).toBe('employee');
+    expect(screen.queryByText('NV001')).toBeNull();
+    expect(screen.getByText('Hiển thị 1-1 / 1 nhân viên')).toBeTruthy();
   });
 
-  it('forwards q and status filters and resets to page 1', async () => {
-    total = 120;
+  it('forwards q and status filters to the API', async () => {
     render(<AttendanceDataScreen />);
-    await screen.findByText('Hiển thị 1-1 / 120');
-    fireEvent.click(screen.getByRole('button', { name: 'Sau' }));
-    await waitFor(() => expect(queryOf(lastDataCall()).get('page')).toBe('2'));
-
+    await screen.findByText('Hiển thị 1-1 / 1 nhân viên');
+    expect(fetchMock.mock.calls.some((c) => queryOf(c[0] as string).get('employee_id'))).toBe(false);
     fireEvent.change(screen.getByLabelText('Tìm nhân viên'), { target: { value: 'an' } });
     fireEvent.click(screen.getByPlaceholderText('Tất cả trạng thái'));
     fireEvent.click(await screen.findByRole('option', { name: 'Thiếu quẹt' }));
@@ -136,10 +147,20 @@ describe('AttendanceDataScreen', () => {
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
 
-  it('opens a drawer with raw events of that day when a row is clicked', async () => {
+  it('opens a drawer per person and shows raw events of a day only when that day is clicked', async () => {
     render(<AttendanceDataScreen />);
+    expect(screen.queryByRole('dialog')).toBeNull();
     fireEvent.click(await screen.findByText('Nguyễn Văn An', { exact: false }));
     const dialog = await screen.findByRole('dialog');
+    // Chỉ khi mở drawer mới tải các ngày công của người đó (mới nhất trước), chưa tải lượt quẹt.
+    const daysPath = fetchMock.mock.calls
+      .map((c) => c[0] as string)
+      .find((path) => path.startsWith('/attendance-data?') && queryOf(path).get('employee_id')) as string;
+    expect(queryOf(daysPath).get('employee_id')).toBe('e1');
+    expect(queryOf(daysPath).get('page_size')).toBe('200');
+    expect(queryOf(daysPath).get('group')).toBeNull();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).startsWith('/attendance-events?'))).toBe(false);
+    fireEvent.click(await within(dialog).findByLabelText(/Xem lượt quẹt ngày/));
     const items = await within(dialog).findAllByTestId('attendance-event');
     expect(items).toHaveLength(2);
     const eventsPath = fetchMock.mock.calls.map((c) => c[0] as string).find((p) => p.startsWith('/attendance-events?')) as string;

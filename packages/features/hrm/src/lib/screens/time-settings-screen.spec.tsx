@@ -255,6 +255,31 @@ describe('TimeSettingsScreen: Địa điểm GPS gộp quy định chấm công'
     expect(await screen.findByText('Đã ngừng địa điểm.')).toBeTruthy();
   });
 
+  it('xóa mềm địa điểm: hộp xác nhận rồi gửi DELETE với lý do cố định và phiên bản hiện tại; địa điểm đã ngừng vẫn xóa được', async () => {
+    render(<TimeSettingsScreen />);
+    await screen.findByText('Văn phòng Hà Nội');
+    fireEvent.click(screen.getByRole('button', { name: 'Xóa Văn phòng Hà Nội' }));
+    expect(await screen.findByText('Xóa địa điểm Văn phòng Hà Nội?')).toBeTruthy();
+    expect(calls.some((c) => c.init?.method === 'DELETE')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Xóa địa điểm' }));
+    await waitFor(() =>
+      expect(bodyOf('/time-settings/sites/s1', 'DELETE')).toEqual({
+        reason: 'Xóa địa điểm chấm công',
+        expectedUpdatedAt: '2026-10-01T00:00:00.000Z',
+      }),
+    );
+    expect(await screen.findByText('Đã xóa địa điểm.')).toBeTruthy();
+  });
+
+  it('địa điểm đã ngừng không còn nút Sửa/Ngừng nhưng vẫn có nút Xóa', async () => {
+    settingsData = { ...settingsData, sites: [{ ...SITE, active: false, assignments: [] }] };
+    render(<TimeSettingsScreen />);
+    await screen.findByText('Văn phòng Hà Nội');
+    expect(screen.queryByRole('button', { name: 'Sửa Văn phòng Hà Nội' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Ngừng Văn phòng Hà Nội' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Xóa Văn phòng Hà Nội' })).toBeTruthy();
+  });
+
   it('địa điểm đã lưu nhưng gán phòng ban lỗi thì báo rõ để mở lại gán', async () => {
     fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
       if (path.endsWith('/assignments')) throw new Error('Không tìm thấy địa điểm');

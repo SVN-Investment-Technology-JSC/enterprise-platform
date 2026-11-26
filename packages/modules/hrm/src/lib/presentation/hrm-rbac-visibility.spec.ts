@@ -261,4 +261,24 @@ describe('Bảng công của tôi và dữ liệu chấm công', () => {
     Object.assign(controller, { ctx: { getContext: jest.fn(async () => { throw new ForbiddenException('thiếu quyền'); }) } });
     await expect(controller.attendanceData(req, '2026-10-01', '2026-10-31')).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  it('attendance-data?group=employee gom theo nhân viên ở máy chủ và phân trang theo nhân viên', async () => {
+    const calls: { sql: string; params: unknown[] }[] = [];
+    const pool = {
+      query: jest.fn(async (sql: string, params: unknown[]) => {
+        calls.push({ sql, params });
+        return { rows: [{ employee_id: 'e1', full_name: 'A', department_name: 'Kế toán', days: 20, worked: 9600, scheduled: 9600, late_days: 3, late_minutes: 40, early_minutes: 5, abnormal_days: 1, total: 7 }] };
+      }),
+    };
+    const controller = Object.create(HrmAttendanceController.prototype) as HrmAttendanceController;
+    Object.assign(controller, { ctx: { getContext: jest.fn(async () => ({ pool, tenantId: 't', principal: { userId: 'u1' } })) } });
+    const result = await controller.attendanceData(req, '2026-10-01', '2026-10-31', undefined, 'an', undefined, '2', '25', 'employee');
+    expect(result.data[0]).toEqual({ employeeId: 'e1', employeeName: 'A', departmentName: 'Kế toán', days: 20, workedMinutes: 9600, scheduledMinutes: 9600, lateDays: 3, lateMinutes: 40, earlyMinutes: 5, abnormalDays: 1 });
+    expect(result.meta).toEqual({ total: 7, page: 2, pageSize: 25 });
+    // Một truy vấn gom, nối view nhân viên sau khi gom, phân trang theo nhân viên.
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain('GROUP BY a.employee_id');
+    expect(calls[0].sql.indexOf('GROUP BY a.employee_id')).toBeLessThan(calls[0].sql.indexOf('hrm_schema.employee_directory'));
+    expect(calls[0].params.slice(-2)).toEqual([25, 25]);
+  });
 });

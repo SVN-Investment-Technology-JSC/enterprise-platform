@@ -116,7 +116,7 @@ function MonthCloseDialog({
   useEffect(() => {
     if (kind === 'reopen') return;
     let live = true;
-    hrmFetch<{ data: HrmMonthCloseState }>(`/timesheet-months/${month}/close-state`)
+    hrmFetch<{ data: HrmMonthCloseState }>(`/timesheet-months/${month}/close-state?for=${kind}`)
       .then((result) => {
         if (live) setState(result.data);
       })
@@ -207,7 +207,7 @@ function MonthCloseDialog({
         {step === 'comp-off' ? (
           <>
             <div className="max-h-[60vh] overflow-y-auto p-5 text-xs">
-              <CompOffConversionPanel month={month} />
+              <CompOffConversionPanel month={month} editable />
             </div>
             <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
               <Button variant="outline" onClick={onDone}>

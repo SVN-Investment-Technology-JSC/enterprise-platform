@@ -609,31 +609,14 @@ services:
     image: ghcr.io/svn-investment-technology-jsc/enterprise-platform:gateway-${IMAGE_TAG:-production}
     expose:
       - '80'
+    # nginx.docker.conf dùng DNS động (resolver 127.0.0.11 ... resolve) và trả
+    # trang bảo trì 503 riêng cho từng phân hệ đang khởi động, nên gateway chỉ cần
+    # chờ container api và web được khởi tạo thay vì xếp hàng sau chuỗi 5 tầng healthcheck.
     depends_on:
       web:
-        condition: service_healthy
-      procedure-web:
-        condition: service_healthy
-      maintenance-web:
-        condition: service_healthy
-      inventory-web:
-        condition: service_healthy
-      hrm-web:
-        condition: service_healthy
-      finance-web:
-        condition: service_healthy
+        condition: service_started
       api:
-        condition: service_healthy
-      procedure-api:
-        condition: service_healthy
-      maintenance-api:
-        condition: service_healthy
-      inventory-api:
-        condition: service_healthy
-      hrm-api:
-        condition: service_healthy
-      finance-api:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/']
       interval: 10s

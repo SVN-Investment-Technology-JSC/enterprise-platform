@@ -214,8 +214,8 @@ const OT_GROUPS_SQL = `
   SELECT r.id, r.tenant_id, r.employee_id, r.status, r.reason, r.reason_name, r.created_at, r.approved_by, r.approved_at,
          r.current_assignee_name, r.on_behalf_by_name, r.ot_type, g.start_date, g.end_date, g.windows, g.next_day, g.hours, g.total_hours, g.ids
     FROM hrm_schema.ot_requests r
-   CROSS JOIN LATERAL (
-     SELECT min(x.work_date) AS start_date, max(x.work_date) AS end_date,
+   JOIN (
+     SELECT COALESCE(x.group_id, x.id) AS gid, min(x.work_date) AS start_date, max(x.work_date) AS end_date,
             string_agg('Từ ' || to_char(COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time), 'HH24:MI')
                        || ' đến ' || to_char(COALESCE(x.to_at AT TIME ZONE ${TZ}, x.work_date + x.end_time), 'HH24:MI'),
                        E'\\n' ORDER BY COALESCE(x.from_at AT TIME ZONE ${TZ}, x.work_date + x.start_time), x.id) AS windows,
@@ -229,8 +229,9 @@ const OT_GROUPS_SQL = `
             round(sum((CASE WHEN x.status = 'APPROVED' THEN COALESCE(x.approved_minutes, x.planned_minutes) ELSE x.planned_minutes END)) / 60.0, 2) AS total_hours,
             array_agg(x.id) AS ids
        FROM hrm_schema.ot_requests x
-      WHERE x.tenant_id = r.tenant_id AND COALESCE(x.group_id, x.id) = r.id
-   ) g
+      WHERE x.tenant_id = $1
+      GROUP BY COALESCE(x.group_id, x.id)
+   ) g ON g.gid = r.id
    WHERE r.tenant_id = $1 AND (r.group_id IS NULL OR r.group_id = r.id)`;
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v));
@@ -287,42 +288,54 @@ export async function loadRequestsReport(db: Db, tenant: string, f: HrmReportFil
     parts.push(`
       SELECT 'leave', r.id, r.tenant_id, r.employee_id, r.from_date, r.to_date, r.status, lt.name, r.reason,
              CASE WHEN r.from_at IS NOT NULL THEN to_char(r.from_at AT TIME ZONE ${TZ}, 'HH24:MI DD/MM/YYYY') || ' - ' || to_char(r.to_at AT TIME ZONE ${TZ}, 'HH24:MI DD/MM/YYYY') END,
-             r.current_assignee_name, r.on_behalf_by_name, ${approvalSelect('r')}, ${projectSql('ARRAY[r.id]', 'leave')}
+             r.current_assignee_name, r.on_behalf_by_name, r.approved_by, r.approved_at, r.created_at, ARRAY[r.id], NULL::text
         FROM hrm_schema.leave_requests r
         LEFT JOIN hrm_schema.leave_types lt ON lt.tenant_id = r.tenant_id AND lt.id = r.leave_type_id
        WHERE r.tenant_id = $1 AND r.deleted_at IS NULL`);
   if (kinds.includes('ot'))
     parts.push(`
       SELECT 'ot', r.id, r.tenant_id, r.employee_id, r.start_date, r.end_date, r.status, r.reason_name, r.reason, r.windows,
-             r.current_assignee_name, r.on_behalf_by_name, ${approvalSelect('r')}, ${projectSql('r.ids', 'ot')}
+             r.current_assignee_name, r.on_behalf_by_name, r.approved_by, r.approved_at, r.created_at, r.ids, NULL::text
         FROM (${OT_GROUPS_SQL}) r`);
   if (kinds.includes('business_trip'))
     parts.push(`
       SELECT 'business_trip', r.id, r.tenant_id, r.employee_id, r.from_date, r.to_date, r.status, r.reason_name, r.reason,
              NULLIF(concat_ws(', ', r.destination, r.transport_mode), ''),
-             r.current_assignee_name, r.on_behalf_by_name, ${approvalSelect('r')}, ${projectSql('ARRAY[r.id]', 'business_trip', 'r.project_name')}
+             r.current_assignee_name, r.on_behalf_by_name, r.approved_by, r.approved_at, r.created_at, ARRAY[r.id], r.project_name::text
         FROM hrm_schema.business_trip_requests r WHERE r.tenant_id = $1`);
   if (kinds.includes('shift_change'))
     parts.push(`
       SELECT 'shift_change', r.id, r.tenant_id, r.employee_id, r.from_date, r.to_date, r.status, r.reason_name, r.reason, r.change_type,
-             r.current_assignee_name, NULL, ${approvalSelect('r')}, NULL, NULL
+             r.current_assignee_name, NULL, r.approved_by, r.approved_at, r.created_at, ARRAY[r.id], NULL::text
         FROM hrm_schema.shift_change_requests r WHERE r.tenant_id = $1`);
   if (kinds.includes('correction'))
     parts.push(`
       SELECT 'correction', r.id, r.tenant_id, r.employee_id, r.request_date, r.request_date, r.status, r.reason_name, r.reason, NULL,
-             r.current_assignee_name, r.on_behalf_by_name, ${approvalSelect('r')}, NULL, NULL
+             r.current_assignee_name, r.on_behalf_by_name, r.approved_by, r.approved_at, r.created_at, ARRAY[r.id], NULL::text
         FROM hrm_schema.attendance_corrections r WHERE r.tenant_id = $1`);
   const statusSql = f.statuses?.length ? ` AND u.status = ANY(${p.add(f.statuses)}::text[])` : '';
+  // Lọc theo ngày/trạng thái trước (CTE `u`), rồi mới nối nhân viên và tính người duyệt, dự án cho các dòng còn lại. Để
+  // các truy vấn con theo dòng trong chính nhánh UNION thì chúng chạy lại cho từng nhân viên và cho cả đơn ngoài kỳ.
   const { rows, total } = await withTotal(
     db,
-    `SELECT u.kind, u.id, u.status, u.sub_type, u.description, u.detail, u.current_assignee_name, u.on_behalf_by_name,
-            u.approver, u.approved_on, u.created_on, u.project_code, u.project_name,
-            ${day('u.start_date')} AS start_on, ${day('u.end_date')} AS end_on, ${EMP_COLS}
-       FROM (${parts.join(' UNION ALL ')}) AS u(kind, id, tenant_id, employee_id, start_date, end_date, status, sub_type, description, detail,
-              current_assignee_name, on_behalf_by_name, approver, approved_on, created_on, project_code, project_name)
-       JOIN hrm_schema.employee_directory ed ON ed.tenant_id = u.tenant_id AND ed.employee_id = u.employee_id
-      WHERE u.start_date <= ${to}::date AND u.end_date >= ${from}::date${employeeFilterSql(p, f)}${statusSql}
-      ORDER BY u.start_date DESC, ed.full_name, u.id`,
+    `WITH u AS MATERIALIZED (
+       SELECT * FROM (${parts.join(' UNION ALL ')}) AS u(kind, id, tenant_id, employee_id, start_date, end_date, status, sub_type, description, detail,
+              current_assignee_name, on_behalf_by_name, approved_by, approved_at, created_at, ids, fallback_project)
+        WHERE u.start_date <= ${to}::date AND u.end_date >= ${from}::date${statusSql}
+     ), f AS (
+       SELECT u.*, ${EMP_COLS}
+         FROM u JOIN hrm_schema.employee_directory ed ON ed.tenant_id = u.tenant_id AND ed.employee_id = u.employee_id
+        WHERE TRUE${employeeFilterSql(p, f)}
+     )
+     SELECT r.kind, r.id, r.status, r.sub_type, r.description, r.detail, r.current_assignee_name, r.on_behalf_by_name,
+            ${approvalSelect('r')},
+            (SELECT string_agg(DISTINCT l.project_code, ', ') FROM hrm_schema.request_project_links l
+              WHERE l.tenant_id = r.tenant_id AND l.request_kind = r.kind AND l.request_id = ANY(r.ids) AND l.status IS DISTINCT FROM 'REJECTED') AS project_code,
+            COALESCE((SELECT string_agg(DISTINCT l.project_name, ', ') FROM hrm_schema.request_project_links l
+              WHERE l.tenant_id = r.tenant_id AND l.request_kind = r.kind AND l.request_id = ANY(r.ids) AND l.status IS DISTINCT FROM 'REJECTED'), r.fallback_project) AS project_name,
+            ${day('r.start_date')} AS start_on, ${day('r.end_date')} AS end_on, r.full_name, r.employee_code, r.department_name, r.position_name
+       FROM f r
+      ORDER BY r.start_date DESC, r.full_name, r.id`,
     p.values,
   );
   return finish(

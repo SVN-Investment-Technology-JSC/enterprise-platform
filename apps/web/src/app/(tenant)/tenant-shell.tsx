@@ -133,7 +133,7 @@ export function TenantShell({
     id: page.id,
     label: page.label,
     group: page.group,
-    icon: <AppIcon slot={`nav.${page.id}`} fallback={page.icon} className="size-4" />,
+    icon: <AppIcon slot={`nav.${page.id}`} fallback={page.icon} className="size-6" />,
   }));
 
   const openModule = (module: CatalogModule) => window.location.assign(module.launchUrl);
@@ -173,7 +173,7 @@ export function TenantShell({
     <ModuleShell<TenantView>
       appearance="light"
       moduleKey="tenant-portal"
-      title="Tenant Portal"
+      title="Trang chủ"
       homeHref="/dashboard"
       nav={nav}
       view={view}
@@ -224,7 +224,7 @@ function ModuleBadge({ module }: { module: CatalogModule }) {
   );
   if (!slot) return <AbbrTile />;
   return (
-    <span aria-hidden className="grid h-6 min-w-[34px] place-items-center">
+    <span aria-hidden className="grid h-6 min-w-6 place-items-center">
       <AppIcon slot={slot} fallback={AbbrTile} className="size-6" />
     </span>
   );

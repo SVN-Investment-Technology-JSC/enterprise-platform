@@ -402,7 +402,7 @@ export function WorkspaceScreen() {
       // Tiêu đề của **module**, không phải của trang đang mở: breadcrumb là
       // "SVN DTS / Không gian làm việc / Dự án". Trước đây chỗ này truyền tên
       // trang nên nó lặp lại chính nó — "SVN DTS / Dự án / Dự án".
-      title="Không gian làm việc"
+      title="Dự án & Công việc"
       nav={nav}
       view={view}
       onViewChange={handleViewChange}
@@ -477,7 +477,7 @@ export function WorkspaceScreen() {
       {!labelsReady ? (
         <p className={styles.muted}>Đang tải…</p>
       ) : view === 'my-work' && !provisioning ? (
-        <MyWorkView onOpen={openInProject} onOpenTask={openTask} />
+        <MyWorkView onOpen={openInProject} onOpenTask={openTask} target={sub} />
       ) : view === 'tasks' && !provisioning ? (
         <StandaloneTasksView
           focusTaskId={sub}

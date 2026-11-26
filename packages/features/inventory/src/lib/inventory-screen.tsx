@@ -1029,7 +1029,7 @@ export function InventoryScreen() {
     <ModuleShell<Tab>
       moduleKey="inventory"
       appearance="light"
-      title="Kho & Vật tư"
+      title="Kho & Tài sản"
       subtitle="Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho."
       nav={NAV}
       view={tab}

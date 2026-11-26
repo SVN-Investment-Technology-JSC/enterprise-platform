@@ -1108,13 +1108,13 @@ function moduleLabel(module: NotificationRecord['module']): string {
   return ({
     identity: 'Tài khoản',
     procedure: 'Quy trình',
-    workspace: 'Công việc',
-    hrm: 'Nhân sự',
+    workspace: 'Dự án & Công việc',
+    hrm: 'Nhân sự & Công',
     finance: 'Tài chính',
-    inventory: 'Kho',
+    inventory: 'Kho & Tài sản',
     maintenance: 'Bảo trì',
     social: 'Mạng nội bộ',
-    crm: 'CRM',
+    crm: 'Kinh doanh',
     correspondence: 'Văn thư',
     chat: 'Chat nội bộ',
   } as const)[module];

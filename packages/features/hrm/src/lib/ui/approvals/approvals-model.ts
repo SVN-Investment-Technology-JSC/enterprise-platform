@@ -286,7 +286,7 @@ export function flowSteps(
     label: 'Người gửi',
     person: row.employeeName,
     time: submittedTime,
-    sub: submittedTime ? `Đã gửi (${submittedTime})` : 'Đã gửi',
+    sub: 'Đã gửi',
     state: 'done',
   };
   if (progress?.steps?.length) {
@@ -315,7 +315,7 @@ export function flowSteps(
           label: s.name,
           person,
           time,
-          sub: time ? `${statusLabel} (${time})` : statusLabel,
+          sub: statusLabel,
           state: failed ? 'rejected' : done ? 'done' : current ? 'current' : 'todo',
         };
       }),
@@ -339,7 +339,7 @@ export function flowSteps(
       label: stepName,
       person: approverName,
       time: decidedTime,
-      sub: decidedTime ? `${directStatus} (${decidedTime})` : directStatus,
+      sub: directStatus,
       state: rejected ? 'rejected' : finished ? 'done' : 'current',
     },
   ];

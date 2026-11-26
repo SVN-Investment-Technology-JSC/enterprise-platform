@@ -123,21 +123,30 @@ export function CompOffBalancesPanel() {
             <th className={thRight}>Giữ chỗ</th>
             <th className={thRight}>Còn lại</th>
             <th className={th}>Sắp hết hạn</th>
-            <th className={th}>
-              <span className="sr-only">Thao tác</span>
-            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {rows === null && !error ? <EmptyRow colSpan={8}>Đang tải…</EmptyRow> : null}
-          {rows !== null && shown.length === 0 ? <EmptyRow colSpan={8}>Chưa có nhân viên nào phát sinh quỹ nghỉ bù.</EmptyRow> : null}
+          {rows === null && !error ? <EmptyRow colSpan={7}>Đang tải…</EmptyRow> : null}
+          {rows !== null && shown.length === 0 ? <EmptyRow colSpan={7}>Chưa có nhân viên nào phát sinh quỹ nghỉ bù.</EmptyRow> : null}
           {shown.map((r) => {
             const label = `${r.employeeCode ?? ''} ${r.employeeName ?? ''}`.trim() || r.employeeId;
             return (
-              <tr key={r.employeeId}>
+              <tr
+                key={r.employeeId}
+                tabIndex={0}
+                aria-label={`Xem sổ quỹ nghỉ bù của ${label}`}
+                title="Bấm để xem sổ giao dịch"
+                className="cursor-pointer hover:bg-slate-50 focus-visible:bg-slate-50 focus-visible:outline-none"
+                onClick={() => setLedger({ id: r.employeeId, label })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setLedger({ id: r.employeeId, label });
+                  }
+                }}
+              >
                 <td className={td}>
                   <div className="font-semibold text-slate-900">{r.employeeName ?? r.employeeId}</div>
-                  <div className="text-[11px] text-slate-500">{r.employeeCode}</div>
                 </td>
                 <td className={tdRight}>{formatCompNumber(r.accrued)}</td>
                 <td className={tdRight}>{formatCompNumber(r.adjusted)}</td>
@@ -146,11 +155,6 @@ export function CompOffBalancesPanel() {
                 <td className={`${tdRight} font-bold text-[#021E73]`}>{formatCompNumber(r.available)}</td>
                 <td className={`${td} text-slate-600`}>
                   {r.nextExpiry ? `${formatCompNumber(r.nextExpiry.days)} ngày, hạn ${formatCompDate(r.nextExpiry.on)}` : '—'}
-                </td>
-                <td className={`${td} text-right`}>
-                  <Button size="sm" variant="outline" onClick={() => setLedger({ id: r.employeeId, label })}>
-                    Xem sổ
-                  </Button>
                 </td>
               </tr>
             );

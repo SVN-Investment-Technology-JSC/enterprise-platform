@@ -231,6 +231,35 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
   }),
   directPolicy({
+    // Tin mới trong trao đổi của một công việc (báo người phụ trách và người cùng thực hiện) hoặc trong trao đổi
+    // chung của dự án (báo mọi thành viên dự án). Người nhận do Workspace tính sẵn trong `recipientUserIds`, đã loại
+    // người gửi và người được nhắc tên (họ có thông báo nhắc tên riêng). Nhiều tin liên tiếp trong cùng luồng
+    // gộp thành một thông báo trong 15 phút để chuông không bị ngập.
+    eventType: 'workspace.chat.message.created',
+    module: 'workspace',
+    category: 'comment',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload }) => {
+      const label = text(payload, 'entityLabel', '');
+      return {
+        title:
+          payload.entityType === 'project'
+            ? `Trao đổi chung${label ? ` của dự án ${label}` : ' của dự án'}`
+            : `Trao đổi mới${label ? ` ở ${label}` : ' trong một công việc'}`,
+        body: text(payload, 'excerpt', 'Có tin nhắn mới trong một trao đổi.'),
+        deepLink: text(payload, 'deepLink', '/workspace'),
+        sourceType: text(payload, 'sourceType', 'workspace_chat_message'),
+        sourceId: id(payload, 'messageId'),
+      };
+    },
+    aggregation: {
+      windowMinutes: 15,
+      key: ({ payload }) => `workspace:chat-message:${id(payload, 'threadId')}`,
+    },
+  }),
+  directPolicy({
     // Được nhắc tên trong chat nội bộ của core (không thuộc phân hệ nào). Nhiều lần nhắc trong cùng một cuộc trò
     // chuyện trong 15 phút gộp thành một thông báo.
     eventType: 'core.chat.mention',

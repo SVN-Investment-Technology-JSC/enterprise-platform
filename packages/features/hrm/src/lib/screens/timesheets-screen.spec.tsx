@@ -169,7 +169,7 @@ function serveBoard(board: HrmTimesheetBoard, path: string): HrmTimesheetBoard {
 function mockApi(board: HrmTimesheetBoard, close = closeState()) {
   fetchMock.mockImplementation((async (path: string) => {
     if (path.startsWith('/timesheet-board')) return { data: serveBoard(board, path) };
-    if (path.endsWith('/close-state')) return close;
+    if (path.includes('/close-state')) return close;
     return { data: {} };
   }) as never);
 }
@@ -327,7 +327,7 @@ describe('TimesheetsScreen', () => {
   it('chốt công báo lỗi tiếng Việt nguyên văn', async () => {
     fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
       if (path.startsWith('/timesheet-board')) return { data: makeBoard('REQUESTS_CLOSED', true) };
-      if (path.endsWith('/close-state')) return closeState();
+      if (path.includes('/close-state')) return closeState();
       if (init?.method === 'POST') throw new Error('Tháng chưa kết thúc');
       return {};
     }) as never);
@@ -357,7 +357,7 @@ describe('TimesheetsScreen', () => {
     const mockLock = (autoAccrue: boolean) =>
       fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
         if (path.startsWith('/timesheet-board')) return { data: makeBoard('REQUESTS_CLOSED', true) };
-        if (path.endsWith('/close-state')) return closeState();
+        if (path.includes('/close-state')) return closeState();
         if (path.startsWith('/comp-off/status')) return { data: { fundEnabled: true, formulaEnabled: true, autoAccrue } };
         if (path.startsWith('/comp-off/conversion-preview'))
           return { data: { month, locked: true, enabled: true, rows: [compOffRow] } };

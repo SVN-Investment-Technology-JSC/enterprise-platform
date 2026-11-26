@@ -178,6 +178,8 @@ export interface WorkItemProcedureRequestedPayload {
   /** Tên công việc; tên hồ sơ ghép thêm mã dự án và mã công việc. */
   readonly title: string;
   readonly definitionId: string;
+  /** Định danh riêng của lần yêu cầu này; vắng ở sự kiện cũ. */
+  readonly requestId?: string;
   readonly requestedBy: string;
   readonly requestedByName?: string;
   readonly requestedByIsTenantAdmin: boolean;
@@ -209,8 +211,11 @@ export function workspaceInstanceTitle(projectCode: string, itemCode: string, na
 }
 
 /** Khoá chống trùng của hồ sơ mở cho một công việc Workspace. */
-export function workItemIdempotencyKey(workItemId: string): string {
-  return `workspace-work-item:${workItemId}`;
+export function workItemIdempotencyKey(workItemId: string, requestId?: string): string {
+  // Mỗi lần yêu cầu có `requestId` riêng: gỡ liên kết rồi gắn lại phải mở hồ sơ MỚI, không trả lại hồ sơ cũ
+  // (Workspace sẽ chờ mãi vì hồ sơ cũ không phát lại sự kiện "đã mở"). Sự kiện giao lại cùng `requestId`
+  // vẫn trùng khoá nên không mở thêm. Sự kiện cũ chưa có `requestId` giữ khoá cũ.
+  return requestId ? `workspace-work-item:${workItemId}:${requestId}` : `workspace-work-item:${workItemId}`;
 }
 
 /** Khoá chống trùng của hồ sơ thay thế `oldInstanceId` khi "Đổi quy trình"; gọi lại trả đúng hồ sơ mới. */

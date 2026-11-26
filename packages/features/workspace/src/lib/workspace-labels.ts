@@ -386,3 +386,64 @@ export function standaloneTaskStatusTone(
 ): { bg: string; fg: string } {
   return task.reversal ? { bg: '#fff7ed', fg: '#9a3412' } : WORK_ITEM_STATUS_TONE[task.status];
 }
+
+/** Nhãn trạng thái một bước của hồ sơ quy trình (xem `ProcedureStepViewStatus`). */
+export const PROCEDURE_STEP_STATUS_LABELS: Record<string, string> = {
+  pending: 'Chưa tới',
+  active: 'Đang xử lý',
+  ready: 'Chờ duyệt',
+  completed: 'Đã xong',
+  returned: 'Bị trả lại',
+  rejected: 'Bị từ chối',
+  cancelled: 'Đã huỷ',
+  skipped: 'Nhánh không đi',
+};
+
+export const PROCEDURE_STEP_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
+  pending: { bg: 'rgb(156 163 175 / 18%)', fg: '#4b5563' },
+  active: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
+  ready: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  completed: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
+  returned: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  rejected: { bg: 'rgb(239 68 68 / 15%)', fg: '#b91c1c' },
+  cancelled: { bg: '#f3f4f6', fg: '#6b7280' },
+  skipped: { bg: '#f3f4f6', fg: '#6b7280' },
+};
+
+export function procedureStepStatusLabel(status: string): string {
+  return PROCEDURE_STEP_STATUS_LABELS[status] ?? PROCEDURE_STEP_STATUS_LABELS['pending'];
+}
+
+export function procedureStepStatusTone(status: string): { bg: string; fg: string } {
+  return PROCEDURE_STEP_STATUS_TONE[status] ?? PROCEDURE_STEP_STATUS_TONE['pending'];
+}
+
+/** Pha RACI của bước: S khởi tạo, R thực hiện, E đầu việc, C kiểm tra, A phê duyệt. */
+export const PROCEDURE_ROLE_STAGE_LABELS: Record<string, string> = {
+  S: 'Khởi tạo',
+  R: 'Thực hiện',
+  E: 'Đầu việc',
+  C: 'Kiểm tra',
+  A: 'Phê duyệt',
+};
+
+export function procedureRoleStageLabel(stage?: string | null): string {
+  if (!stage) return '';
+  return PROCEDURE_ROLE_STAGE_LABELS[stage.toUpperCase()] ?? '';
+}
+
+/** Hành động trong nhật ký hồ sơ; hành động lạ hiện nguyên chữ server trả về. */
+export const PROCEDURE_EVENT_ACTION_LABELS: Record<string, string> = {
+  start: 'Khởi tạo hồ sơ',
+  approve: 'Phê duyệt',
+  reject: 'Từ chối',
+  return: 'Trả lại',
+  complete: 'Hoàn tất',
+  cancel: 'Huỷ hồ sơ',
+  reverse: 'Huỷ hiệu lực',
+  relink: 'Đổi quy trình',
+};
+
+export function procedureEventActionLabel(action: string): string {
+  return PROCEDURE_EVENT_ACTION_LABELS[action] ?? action;
+}
