@@ -8,6 +8,8 @@ import {
   CHAT_FEED_PAGE_SIZES,
   CHAT_FEED_SEARCH_MAX_LENGTH,
   CHAT_FEED_THREAD_LIMIT,
+  CHAT_JUMP_CONTEXT_MESSAGES,
+  CHAT_JUMP_MAX_MESSAGES,
   CHAT_PAGE_SIZE,
   CHAT_TIMELINE_PAGE_SIZE,
   MAX_CHAT_ATTACHMENTS,
@@ -26,7 +28,10 @@ function makeStore(options: {
   documents?: Partial<WorkspaceDocument>[];
   messages?: Partial<ChatMessage>[];
   readers?: { userId: string; messageId?: string }[];
+  /** `listMessagesFrom` có dùng được không (tin đích thuộc kênh và trong trần). */
+  jump?: boolean;
 }) {
+  const jumped: { channelId: string; until: string; limit: number; context: number }[] = [];
   const sent: {
     attachmentDocumentId: string | null;
     attachmentDocumentIds?: readonly string[];
@@ -98,7 +103,13 @@ function makeStore(options: {
       },
       listReaders: async () => options.readers ?? [{ userId: 'mate', messageId: 'm1' }],
       findChannel: async () => ({ id: 'c1', projectId: 'p1' }),
-      findChannelById: async () => ({ id: 'c1', projectId: 'p1' }),
+      findChannelById: async () => ({ id: 'c1', projectId: 'p1', entityType: 'project', entityId: 'p1' }),
+      listMessagesFrom: async (_tenant: string, channelId: string, until: string, limit: number, context: number) => {
+        jumped.push({ channelId, until, limit, context });
+        return options.jump
+          ? { messages: [{ id: until }, { id: 'm-newest' }] as ChatMessage[], hasMore: true }
+          : undefined;
+      },
       listMessages: async (_tenant: string, _channel: string, limit: number, before?: string) => {
         listed.push({ limit, before });
         return {
@@ -123,7 +134,7 @@ function makeStore(options: {
       },
     },
   };
-  return { store: store as unknown as WorkspaceStore, sent, edits, listed, marked, recalled, timelineCalls, timelineFilters };
+  return { store: store as unknown as WorkspaceStore, jumped, sent, edits, listed, marked, recalled, timelineCalls, timelineFilters };
 }
 
 const actorOf = (userId: string): WorkspaceActor => ({
@@ -180,6 +191,77 @@ describe('ChatService — gửi tin', () => {
     });
     expect(result.droppedMentions).toEqual(['outsider']);
     expect(sent[0]?.mentions).toEqual(['mate']);
+  });
+});
+
+describe('ChatService — mở luồng từ tin được nhắc (until) và tra vị trí tin', () => {
+  const TARGET = '22222222-2222-4222-8222-222222222222';
+
+  it('until dùng được: một truy vấn từ tin đó tới mới nhất, báo focusFound, vẫn đánh dấu đã đọc tới tin mới nhất', async () => {
+    const { store, jumped, listed, marked } = makeStore({ roles: { me: 'member' }, jump: true });
+    const thread = await serviceFor(store).thread(actorOf('me'), 'project', 'p1', undefined, TARGET);
+    expect(jumped).toEqual([
+      { channelId: 'c1', until: TARGET, limit: CHAT_JUMP_MAX_MESSAGES, context: CHAT_JUMP_CONTEXT_MESSAGES },
+    ]);
+    expect(listed).toEqual([]);
+    expect(thread.focusFound).toBe(true);
+    expect(thread.messages.map((message) => message.id)).toEqual([TARGET, 'm-newest']);
+    expect(thread.hasMore).toBe(true);
+    expect(marked).toEqual([{ channelId: 'c1', upTo: 'm-newest', announce: true }]);
+  });
+
+  it('until không dùng được (khác kênh hoặc quá xa): rơi về trang mới nhất và báo focusFound=false', async () => {
+    const { store, jumped, listed } = makeStore({ roles: { me: 'member' }, jump: false });
+    const thread = await serviceFor(store).thread(actorOf('me'), 'project', 'p1', undefined, TARGET);
+    expect(jumped).toHaveLength(1);
+    expect(listed).toEqual([{ limit: CHAT_PAGE_SIZE, before: undefined }]);
+    expect(thread.focusFound).toBe(false);
+  });
+
+  it('không có until thì không có trường focusFound và không gọi truy vấn nhảy', async () => {
+    const { store, jumped } = makeStore({ roles: { me: 'member' } });
+    const thread = await serviceFor(store).thread(actorOf('me'), 'project', 'p1');
+    expect(jumped).toEqual([]);
+    expect('focusFound' in thread).toBe(false);
+  });
+
+  it('kèm before thì bỏ qua until (đang cuộn lên xem tin cũ)', async () => {
+    const { store, jumped, listed } = makeStore({ roles: { me: 'member' }, jump: true });
+    await serviceFor(store).thread(actorOf('me'), 'project', 'p1', TARGET, TARGET);
+    expect(jumped).toEqual([]);
+    expect(listed).toEqual([{ limit: CHAT_PAGE_SIZE, before: TARGET }]);
+  });
+
+  it('until không phải id thì bị từ chối', async () => {
+    const { store } = makeStore({ roles: { me: 'member' } });
+    await expect(
+      serviceFor(store).thread(actorOf('me'), 'project', 'p1', undefined, 'khong-phai-id'),
+    ).rejects.toMatchObject({ code: 'VALIDATION' });
+  });
+
+  it('locate trả node chứa tin cho thành viên dự án', async () => {
+    const { store } = makeStore({ roles: { me: 'viewer' }, messages: [{ id: TARGET, channelId: 'c1' }] });
+    await expect(serviceFor(store).locate(actorOf('me'), TARGET)).resolves.toEqual({
+      messageId: TARGET,
+      channelId: 'c1',
+      entityType: 'project',
+      entityId: 'p1',
+      projectId: 'p1',
+    });
+  });
+
+  it('locate: người ngoài dự án nhận 403, tin không có hoặc id sai nhận không-tìm-thấy', async () => {
+    const { store } = makeStore({ roles: {}, messages: [{ id: TARGET, channelId: 'c1' }] });
+    await expect(serviceFor(store).locate(actorOf('stranger'), TARGET)).rejects.toMatchObject({
+      code: 'PROJECT_FORBIDDEN',
+    });
+    const other = makeStore({ roles: { me: 'member' } });
+    await expect(serviceFor(other.store).locate(actorOf('me'), TARGET)).rejects.toMatchObject({
+      code: 'CHAT_MESSAGE_NOT_FOUND',
+    });
+    await expect(serviceFor(other.store).locate(actorOf('me'), 'khong-phai-id')).rejects.toMatchObject({
+      code: 'CHAT_MESSAGE_NOT_FOUND',
+    });
   });
 });
 

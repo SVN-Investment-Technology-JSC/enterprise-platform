@@ -11,6 +11,7 @@ export * from './lib/components/choice';
 export * from './lib/components/tab-work';
 export * from './lib/merge-updated';
 export * from './lib/components/tab-chats';
+export * from './lib/components/procedure-steps-panel';
 export * from './lib/components/customers-view';
 export * from './lib/components/project-tree';
 export * from './lib/gantt.model';

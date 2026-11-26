@@ -237,6 +237,13 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Các bước đã lọc của một hồ sơ cho Workspace; Workspace tự kiểm quyền xem công việc. */
+  @Get('internal/instances/:instanceId/step-overview')
+  internalInstanceStepOverview(@Req() request: any, @Param('instanceId') instanceId: string) {
+    const tenantId = this.internalTenant(request);
+    return this.execute(() => this.procedures.getInstanceStepOverviewForService(tenantId, instanceId));
+  }
+
   /**
    * Module nguồn cập nhật thông tin nguồn của hồ sơ (D3-31), kể cả hồ sơ đã kết thúc. Body `{ sourceSummary }`,
    * `null` là xoá. Không ghi lịch sử bước.
