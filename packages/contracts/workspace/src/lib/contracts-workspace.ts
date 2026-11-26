@@ -803,6 +803,84 @@ export interface ChangeWorkItemProcedureRequest {
   readonly definitionId: string;
 }
 
+/** Trạng thái một bước của hồ sơ quy trình (sao chép từ module Quy trình, không import chéo hợp đồng). */
+export type ProcedureStepViewStatus =
+  | 'pending'
+  | 'active'
+  | 'ready'
+  | 'completed'
+  | 'returned'
+  | 'rejected'
+  | 'cancelled'
+  | 'skipped';
+
+/** Một bước của hồ sơ quy trình, đủ để vẽ đường đi; không có bình luận hay giá trị thuộc tính của hồ sơ. */
+export interface ProcedureStepView {
+  readonly id: string;
+  readonly name: string;
+  /** Thứ tự trong định nghĩa quy trình; có rẽ nhánh thì số có thể nhảy cóc. */
+  readonly order: number;
+  readonly status: ProcedureStepViewStatus;
+  /** Pha RACI đang xử lý ở bước này (S, R, E, C, A) nếu có. */
+  readonly roleStage?: string | null;
+  /** Người, chức danh hoặc đơn vị phụ trách; bước đã chốt thì là người đã quyết định thật. */
+  readonly assigneeLabel: string;
+  readonly slaHours?: number;
+  readonly slaDueAt?: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+}
+
+/** Một nhánh của điểm rẽ: nhãn và các bước riêng của nhánh (id bước của hồ sơ, theo thứ tự chạy). */
+export interface ProcedureBranchView {
+  readonly id: string;
+  readonly label: string;
+  readonly isDefault: boolean;
+  readonly stepIds: readonly string[];
+}
+
+/** Điểm rẽ nhánh đứng ngay sau bước `afterStepId` (id bước của hồ sơ). Không kèm giá trị thuộc tính đã dùng để quyết. */
+export interface ProcedureGatewayView {
+  readonly id: string;
+  readonly name: string;
+  readonly afterStepId: string;
+  /** Nhánh đã được chọn; vắng khi hồ sơ chưa tới điểm rẽ này. */
+  readonly chosenBranchId?: string;
+  readonly branches: readonly ProcedureBranchView[];
+}
+
+/** Một dòng nhật ký hồ sơ đã lọc: bỏ bình luận, lý do và mã người dùng. */
+export interface ProcedureStepEvent {
+  readonly id: string;
+  readonly action: string;
+  readonly actorName: string;
+  readonly createdAt: string;
+  readonly stepId?: string;
+}
+
+/**
+ * Các bước hồ sơ quy trình gắn với một công việc. Workspace đọc phía server rồi trả về đây,
+ * nên ai xem được công việc thì xem được các bước, không cần là người tham gia hồ sơ.
+ */
+export interface WorkItemProcedureSteps {
+  /** Công việc có gắn hồ sơ đã mở. */
+  readonly linked: boolean;
+  /** `false` khi đã gắn nhưng không đọc được module Quy trình lúc này (giao diện báo tạm thời). */
+  readonly available: boolean;
+  readonly instanceId?: string;
+  readonly instanceCode?: string;
+  /** running, completed, rejected, cancelled hoặc reversed. */
+  readonly status?: string;
+  readonly currentStepId?: string;
+  readonly completedAt?: string;
+  /** Tiến độ tính trên đường đi thực tế (bỏ nhánh không đi). */
+  readonly progress?: { readonly completed: number; readonly total: number };
+  readonly steps: readonly ProcedureStepView[];
+  /** Các điểm rẽ nhánh của quy trình; rỗng hoặc vắng khi quy trình đi một đường. */
+  readonly gateways?: readonly ProcedureGatewayView[];
+  readonly events: readonly ProcedureStepEvent[];
+}
+
 export interface CreateWorkItemRequest {
   readonly projectId: string;
   readonly parentId?: string;
@@ -1355,6 +1433,26 @@ export const CHAT_UNREAD_POLL_MS = 30_000;
  */
 export const CHAT_PAGE_SIZE = 10;
 
+/**
+ * Trần số tin của một lần mở luồng "từ tin cần xem tới tin mới nhất" (đi từ thông báo nhắc tên).
+ *
+ * Lớn hơn `CHAT_PAGE_SIZE` có chủ đích: tin được nhắc có thể đã nằm dưới vài chục tin mới hơn, và một truy vấn
+ * duy nhất rẻ hơn nhiều lần tải từng trang 10 tin. Vượt trần thì trả trang mới nhất như bình thường.
+ */
+export const CHAT_JUMP_MAX_MESSAGES = 300;
+
+/** Số tin cũ hơn tin đích kèm theo khi mở từ thông báo, để người đọc thấy ngữ cảnh phía trên. */
+export const CHAT_JUMP_CONTEXT_MESSAGES = 5;
+
+/** Chỗ của một tin nhắn: node chứa nó, để mở đúng việc hoặc dự án rồi cuộn tới tin. */
+export interface ChatMessageLocation {
+  readonly messageId: string;
+  readonly channelId: string;
+  readonly entityType: ChatEntityType;
+  readonly entityId: string;
+  readonly projectId: string;
+}
+
 export interface ChatMessage {
   readonly id: string;
   readonly channelId: string;
@@ -1392,6 +1490,11 @@ export interface ChatThread {
   readonly messages: readonly ChatMessage[];
   /** Còn tin cũ hơn tin đầu danh sách; xin trang kế bằng `before` = id tin đầu. */
   readonly hasMore?: boolean;
+  /**
+   * Chỉ có khi xin theo `until`: `true` nếu danh sách bắt đầu đúng từ tin đó (giao diện cuộn tới nó), `false` nếu
+   * không dùng được (tin không thuộc luồng này hoặc quá xa) và đây là trang mới nhất như bình thường.
+   */
+  readonly focusFound?: boolean;
   /**
    * Mỗi người đã đọc tới tin nào (chỉ có ở trang mới nhất). Dùng id tin chứ không
    * dùng thời điểm để so với tin mới nhất không bao giờ sai vì làm tròn mili giây.

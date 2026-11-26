@@ -19,6 +19,7 @@ import {
   type ProcedureDefinition,
   type ProcedureInstance,
   type ProcedureInstanceProgress,
+  type ProcedureInstanceStepOverview,
   type ProcedureInstanceStatusEntry,
   type ProcedureInstanceStep,
   type ProcedureRuntimeAction,
@@ -64,7 +65,12 @@ import {
 } from '../domain/procedure-attributes.js';
 import { resolveGatewayStepReferences } from '../domain/procedure-flow.policy.js';
 import { sanitizeMentions } from '../domain/procedure-mentions.js';
-import { buildInstanceProgress, buildInstanceStatusEntry, instanceSequence } from '../domain/procedure-progress.js';
+import {
+  buildInstanceProgress,
+  buildInstanceStatusEntry,
+  buildInstanceStepOverview,
+  instanceSequence,
+} from '../domain/procedure-progress.js';
 import {
   activateStep,
   ensurePath,
@@ -2304,6 +2310,19 @@ export class ProcedureEngineApplication {
     };
   }
 
+  /** Các bước đã lọc của một hồ sơ cho Workspace (API nội bộ); không kèm bình luận hay thuộc tính. */
+  async getInstanceStepOverviewForService(
+    tenantId: string,
+    instanceId: string,
+  ): Promise<ProcedureInstanceStepOverview> {
+    const state = await this.store.read(tenantId);
+    const instance = state.instances.find((item) => item.id === instanceId);
+    if (!instance || instance.deletion) {
+      throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ quy trình.');
+    }
+    return buildInstanceStepOverview(instance);
+  }
+
   /**
    * Trong các hồ sơ `instanceIds` (tối đa 100), những hồ sơ đang chạy mà người dùng này đang được giao bước hiện tại
    * (có thể duyệt / hoàn thành / từ chối / trả lại). Dùng cùng phép phân quyền với `canAct` nên HRM đưa đúng các đơn
@@ -3962,7 +3981,7 @@ export class ProcedureEngineApplication {
     return this.startForWorkspaceSource(tenantId, request, {
       definitionId: request.definitionId,
       title: workspaceInstanceTitle(request.projectCode, request.workItemCode, request.title),
-      idempotencyKey: workItemIdempotencyKey(request.workItemId),
+      idempotencyKey: workItemIdempotencyKey(request.workItemId, request.requestId),
       sourceType: 'workspace_work_item',
       sourceId: request.workItemId,
     });

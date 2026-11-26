@@ -224,6 +224,11 @@ export interface MyWorkViewProps {
   readonly onOpen?: (projectId: string, target: string) => void;
   /** Mở một việc ở trang "Công việc ngoài dự án". */
   readonly onOpenTask?: (taskId: string) => void;
+  /**
+   * Phần sau `#my-work/` của đường dẫn. `mention/{messageId}` là link của thông báo "Bạn được nhắc đến":
+   * tra tin nhắn trong danh sách nhắc tên rồi mở luôn khung trao đổi của việc hay dự án chứa nó.
+   */
+  readonly target?: string;
 }
 
 /** Bọc store riêng để bộ nhớ đệm và trạng thái xem nằm ngoài vòng đời của trang. */
@@ -247,7 +252,7 @@ export function MyWorkView(props: MyWorkViewProps = {}) {
   );
 }
 
-function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
+function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
   const directory = useDirectory();
   const { ui, setFilter, setSort, clearFilter, setSearch, toggleGroup, toggleStandalone, setPage, setPageSize } =
     useMyWorkUi();
@@ -313,6 +318,29 @@ function MyWorkBody({ onOpen, onOpenTask }: MyWorkViewProps) {
   // `data` giữ bản của lần trước trong lúc đổi bộ lọc nạp lại, nên số liệu và danh sách không nháy trống.
   const overview = overviewQuery.data;
   const overviewError = (overviewQuery.error as MyWorkError | undefined)?.message;
+
+  // Link của thông báo nhắc tên: `#my-work/mention/{messageId}`. Hỏi server tin nằm ở node nào (hai truy vấn khoá
+  // chính, không phụ thuộc danh sách nhắc tên vốn chỉ giữ ít tin mới nhất, cũng không chờ tổng quan tải xong) rồi mở
+  // đúng việc/dự án kèm khung trao đổi, cuộn tới tin. Mỗi đích chỉ áp một lần.
+  const appliedTarget = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!target || !onOpen || appliedTarget.current === target) return;
+    const [kind, messageId] = target.split('/');
+    if (kind !== 'mention' || !messageId) return;
+    appliedTarget.current = target;
+    let id = messageId;
+    try {
+      id = decodeURIComponent(messageId);
+    } catch {
+      // giữ nguyên id thô
+    }
+    void api
+      .getChatMessageLocation(id)
+      .then((place) => onOpen(place.projectId, `chat/${place.entityType}/${place.entityId}/${encodeURIComponent(id)}`))
+      .catch(() =>
+        setError('Không mở được tin nhắn được nhắc: tin đã bị xoá hoặc bạn không còn quyền xem dự án chứa nó.'),
+      );
+  }, [target, onOpen]);
 
   const [isTenantAdmin, setIsTenantAdmin] = useState(false);
   const [error, setError] = useState<string>();

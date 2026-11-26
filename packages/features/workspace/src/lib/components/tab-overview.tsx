@@ -29,7 +29,7 @@ import type { PendingProcedure } from '../procedure-pending';
 import { Confirm } from './confirm-box';
 import { ProgressHistoryPanel } from './progress-history-panel';
 import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
-import { parseStoredTab, resolveOverviewTab, type OverviewTab } from '../overview-tabs';
+import { parseStoredTab, type OverviewTab } from '../overview-tabs';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -72,6 +72,8 @@ export interface TabOverviewProps {
    * Khung vẫn được dựng khi tab khác đang mở để số đếm có ngay.
    */
   readonly renderDocuments?: (onCount: (count: number) => void) => ReactNode;
+  /** Các bước của hồ sơ quy trình, đặt dưới danh sách hồ sơ liên kết trong tab Chi tiết. */
+  readonly procedureSteps?: ReactNode;
 }
 
 const TAB_STORAGE_KEY = 'ep.workspace.itemTab';
@@ -120,6 +122,7 @@ export function TabOverview({
   canEditProgress = false,
   onReportQuantity,
   renderDocuments,
+  procedureSteps,
 }: TabOverviewProps) {
   const directory = useDirectory();
   const projectRoles = useProjectRoles();
@@ -134,7 +137,7 @@ export function TabOverview({
   const detailBody = (
     <>
       <div className={transport ? styles.detailColumns : undefined}>
-        <dl className={styles.definitionList}>
+        <dl className={selected ? `${styles.definitionList} ${styles.definitionGrid}` : styles.definitionList}>
           {selected ? (
             <>
               <Definition label="Loại" value={ITEM_TYPE_LABELS[selected.itemType]} />
@@ -187,50 +190,61 @@ export function TabOverview({
       </div>
     ) : null;
 
+  // Hồ sơ liên kết và các bước quy trình nằm ngay trong tab Chi tiết, dưới phần thông tin của việc.
   const hasLinks = Boolean(selected && (links.length > 0 || procedurePending));
-  const linksBody = selected ? (
-    <>
+  const linksBody = selected && hasLinks ? (
+    <section className={styles.detailLinks} aria-label="Hồ sơ liên kết">
       {/* Chỉ đọc. Muốn thay đổi hồ sơ thì mở thẳng module gốc — Workspace
           không bao giờ ghi ngược sang module khác. */}
+      <h3>Hồ sơ liên kết</h3>
       {procedurePending ? <p className={styles.pendingNote}>{procedurePending.hint}</p> : null}
       {externalDegraded ? (
         <p className={styles.muted}>
           Không đọc được module gốc lúc này; trạng thái bên dưới là bản lưu gần nhất và có thể đã cũ.
         </p>
       ) : null}
-      <ul className={styles.memberList}>
+      <ul className={styles.linkRecordList}>
         {links.map((ref) => (
-          <li key={ref.id}>
-            <span className={styles.memberName}>
+          <li key={ref.id} className={styles.linkRecord}>
+            <div className={styles.linkRecordMain}>
               <a href={ref.launchUrl} target="_blank" rel="noopener noreferrer">
                 {ref.externalCode ?? ref.cachedLabel ?? ref.externalId}
-              </a>{' '}
-              {ref.cachedLabel && ref.externalCode ? `— ${ref.cachedLabel}` : ''}
-            </span>
-            <span className={styles.memberRole}>
-              {externalStatusLabel(ref.cachedStatus) ?? '—'}
-              {ref.syncedAt ? ` · cập nhật ${formatDate(ref.syncedAt.slice(0, 10))}` : ''}
-              {canUnlinkRefs && onUnlinkRef ? (
-                <>
-                  {' · '}
-                  <Confirm
-                    title="Bạn có chắc chắn muốn gỡ liên kết hồ sơ này?"
-                    description="Chỉ bỏ con trỏ ở Workspace. Hồ sơ bên module gốc vẫn giữ nguyên."
-                    okText="Gỡ liên kết"
-                    okType="danger"
-                    onConfirm={() => onUnlinkRef(selected.id, ref.id)}
-                  >
-                    <Button type="button" variant="ghost" size="xs">
-                      Gỡ liên kết
-                    </Button>
-                  </Confirm>
-                </>
+              </a>
+              {ref.cachedLabel && ref.externalCode ? (
+                <span className={styles.linkRecordName} title={ref.cachedLabel}>
+                  {ref.cachedLabel}
+                </span>
               ) : null}
-            </span>
+            </div>
+            <div className={styles.linkRecordMeta}>
+              <span className={`${styles.linkRecordStatus} ${linkStatusTone(ref.cachedStatus)}`}>
+                {externalStatusLabel(ref.cachedStatus) ?? '—'}
+              </span>
+              {ref.syncedAt ? <span>Cập nhật {formatDate(ref.syncedAt.slice(0, 10))}</span> : null}
+            </div>
+            {canUnlinkRefs && onUnlinkRef ? (
+              <Confirm
+                title="Bạn có chắc chắn muốn gỡ liên kết hồ sơ này?"
+                description="Chỉ bỏ con trỏ ở Workspace. Hồ sơ bên module gốc vẫn giữ nguyên."
+                okText="Gỡ liên kết"
+                okType="danger"
+                onConfirm={() => onUnlinkRef(selected.id, ref.id)}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className={`${styles.linkRecordAction} text-destructive hover:bg-destructive/10 hover:text-destructive`}
+                >
+                  Gỡ liên kết
+                </Button>
+              </Confirm>
+            ) : null}
           </li>
         ))}
       </ul>
-    </>
+      {procedureSteps}
+    </section>
   ) : null;
 
   if (selected) {
@@ -244,7 +258,7 @@ export function TabOverview({
     return (
       <Tabs
         className={styles.itemTabs}
-        value={resolveOverviewTab(tab, hasLinks)}
+        value={tab}
         onValueChange={(value) => {
           setTab(value as OverviewTab);
           rememberTab(selected.id, value as OverviewTab);
@@ -255,13 +269,11 @@ export function TabOverview({
           <TabsTrigger value="progress">Lịch sử tiến độ {countBadge(progressCount)}</TabsTrigger>
           <TabsTrigger value="dependencies">Phụ thuộc {countBadge(dependencyCount)}</TabsTrigger>
           <TabsTrigger value="documents">Tài liệu {countBadge(documentCount)}</TabsTrigger>
-          {hasLinks ? (
-            <TabsTrigger value="links">Hồ sơ liên kết {countBadge(links.length)}</TabsTrigger>
-          ) : null}
         </TabsList>
         <TabsContent value="detail" className={styles.itemTabBody}>
           {quantityBlock}
           {detailBody}
+          {linksBody}
         </TabsContent>
         {/* Giữ dựng khi ẩn để số đếm trên tab có ngay mà không phải mở từng tab. */}
         <TabsContent value="progress" keepMounted className={styles.itemTabBody}>
@@ -281,11 +293,6 @@ export function TabOverview({
         <TabsContent value="documents" keepMounted className={styles.itemTabBody}>
           {renderDocuments?.(setDocumentCount)}
         </TabsContent>
-        {hasLinks ? (
-          <TabsContent value="links" className={styles.itemTabBody}>
-            {linksBody}
-          </TabsContent>
-        ) : null}
       </Tabs>
     );
   }
@@ -399,11 +406,20 @@ function timeRange(start?: string | null, end?: string | null): string {
 
 function Definition({ label, value }: { label: string; value: string }) {
   return (
-    <>
+    <div>
       <dt>{label}</dt>
       <dd>{value}</dd>
-    </>
+    </div>
   );
+}
+
+/** Màu chip trạng thái của hồ sơ liên kết: xong là xanh lá, hỏng/huỷ là đỏ, còn lại (đang chạy, đang mở) là xanh dương. */
+function linkStatusTone(status: string | undefined | null): string {
+  if (status === 'completed') return styles.linkStatusOk;
+  if (status === 'rejected' || status === 'cancelled' || status === 'reversed' || status === 'start_rejected') {
+    return styles.linkStatusBad;
+  }
+  return styles.linkStatusRun;
 }
 
 function dateRange(start?: string | null, end?: string | null): string {

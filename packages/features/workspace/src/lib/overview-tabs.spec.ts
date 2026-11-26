@@ -1,4 +1,4 @@
-import { parseStoredTab, resolveOverviewTab } from './overview-tabs';
+import { parseStoredTab } from './overview-tabs';
 
 describe('parseStoredTab', () => {
   it('trả tab đã lưu của đúng công việc', () => {
@@ -10,15 +10,8 @@ describe('parseStoredTab', () => {
     expect(parseStoredTab('a|nope', 'a')).toBe('detail');
     expect(parseStoredTab(null, 'a')).toBe('detail');
   });
-});
 
-describe('resolveOverviewTab', () => {
-  it('tab links không còn thì quy về detail', () => {
-    expect(resolveOverviewTab('links', false)).toBe('detail');
-  });
-
-  it('giữ nguyên tab links khi có hồ sơ liên kết và các tab khác', () => {
-    expect(resolveOverviewTab('links', true)).toBe('links');
-    expect(resolveOverviewTab('progress', false)).toBe('progress');
+  it('tab "Hồ sơ liên kết" đã bỏ (nội dung nằm trong Chi tiết) nên giá trị đã lưu cũ về Chi tiết', () => {
+    expect(parseStoredTab('a|links', 'a')).toBe('detail');
   });
 });

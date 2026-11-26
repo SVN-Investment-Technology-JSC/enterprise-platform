@@ -61,6 +61,70 @@ describe('maintenance notification content', () => {
   });
 });
 
+describe('workspace chat message notifications', () => {
+  const base = {
+    messageId: '20000000-0000-4000-8000-000000000001',
+    threadId: '20000000-0000-4000-8000-000000000002',
+    projectId: 'project-1',
+    entityId: 'item-1',
+    recipientUserIds: ['user-b', 'user-c'],
+    actorUserId: 'user-a',
+    excerpt: 'Anh xem giúp phần thanh toán nhé',
+    deepLink: '/workspace/chat/20000000-0000-4000-8000-000000000002?message=20000000-0000-4000-8000-000000000001',
+  };
+
+  it('tells the people of a work item about a new message, names the item and opens that message', async () => {
+    const resolved = await registry.resolve(
+      event('workspace.chat.message.created', {
+        ...base,
+        entityType: 'work_item',
+        entityLabel: 'CV003 · Thanh toán đợt 1',
+      }),
+      directory(),
+    );
+    expect(resolved?.recipients).toEqual(['user-b', 'user-c']);
+    expect(resolved?.policy).toMatchObject({ module: 'workspace', category: 'comment', priority: 'informational' });
+    expect(resolved?.template.title).toBe('Trao đổi mới ở CV003 · Thanh toán đợt 1');
+    expect(resolved?.template.body).toBe('Anh xem giúp phần thanh toán nhé');
+    expect(resolved?.template.deepLink).toBe(`/modules/workspace#my-work/mention/${base.messageId}`);
+  });
+
+  it('labels the project-wide chat differently from a work item chat', async () => {
+    const resolved = await registry.resolve(
+      event('workspace.chat.message.created', { ...base, entityType: 'project', entityLabel: 'DA-001 · Dự án A' }),
+      directory(),
+    );
+    expect(resolved?.template.title).toBe('Trao đổi chung của dự án DA-001 · Dự án A');
+  });
+
+  it('never notifies the sender, and groups a burst of messages in one thread per recipient', async () => {
+    const first = await registry.resolve(
+      event('workspace.chat.message.created', { ...base, entityType: 'work_item', recipientUserIds: ['user-a', 'user-b'] }),
+      directory(),
+    );
+    expect(first?.recipients).toEqual(['user-b']);
+    const second = await registry.resolve(
+      event('workspace.chat.message.created', {
+        ...base,
+        messageId: '20000000-0000-4000-8000-000000000009',
+        entityType: 'work_item',
+      }),
+      directory(),
+    );
+    expect(second?.aggregationKey).toBe(first?.aggregationKey);
+    expect(first?.aggregationWindowMinutes).toBe(15);
+    expect(second?.template.sourceId).not.toBe(first?.template.sourceId);
+  });
+
+  it('does not notify inactive users', async () => {
+    const resolved = await registry.resolve(
+      event('workspace.chat.message.created', { ...base, entityType: 'work_item' }),
+      directory({ activeUsers: jest.fn(async () => ['user-c']) }),
+    );
+    expect(resolved?.recipients).toEqual(['user-c']);
+  });
+});
+
 describe('workspace project and document notifications', () => {
   it('notifies every project member except the actor when a project is completed', async () => {
     const resolved = await registry.resolve(
