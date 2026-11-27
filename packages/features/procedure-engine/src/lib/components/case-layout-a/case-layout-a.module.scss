@@ -1,0 +1,1278 @@
+@use '../procedure-ui' as ui;
+
+/* ========================================================================= */
+/* GIAO DIỆN MỚI CỦA "HỒ SƠ XỬ LÝ": thanh lọc + bảng hồ sơ đầy đủ chiều rộng  */
+/* (bảng dùng chung với Tổng quan, `case-table/`), bấm hồ sơ mở cửa sổ chi    */
+/* tiết; hàng nút thao tác ghim đáy cửa sổ.                                  */
+/* Biến màu của các khối dùng lại (--ink, --line...) đến từ `.workspace` của  */
+/* workspace-board.module.scss, gắn cùng trên phần tử gốc và trên cửa sổ.    */
+/* ========================================================================= */
+
+.root {
+  min-width: 0;
+  font-size: ui.$fs-body;
+  gap: ui.$space-3;
+}
+
+/* ---- Thanh công cụ: một hàng, xuống hàng gọn khi hẹp ---- */
+.toolbar {
+  @include ui.toolbar;
+  @include ui.card;
+
+  flex: none;
+  padding: ui.$space-2 ui.$space-3;
+}
+
+.segment {
+  @include ui.segmented;
+}
+
+.segmentItem {
+  @include ui.segmented-item;
+}
+
+.segmentItemOn,
+.segmentItemOn:hover {
+  @include ui.segmented-item-on;
+}
+
+.segmentCount {
+  @include ui.segmented-count;
+}
+
+.segmentItemOn .segmentCount {
+  @include ui.segmented-count-on;
+}
+
+.segmentItemUrgent .segmentCount {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.toolbarFilters {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ui.$space-2;
+  min-width: 0;
+}
+
+.search {
+  @include ui.search-box;
+
+  flex: 0 1 240px;
+  min-width: 160px;
+}
+
+.filterSelect {
+  flex: none;
+  width: 150px;
+  font-size: ui.$fs-control;
+}
+
+.reset {
+  height: ui.$control-h;
+  padding: 0 ui.$space-2;
+  border: 0;
+  border-radius: ui.$radius;
+  background: transparent;
+  color: ui.$blue-hover;
+  font: inherit;
+  font-size: ui.$fs-control;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    background: ui.$blue-soft;
+  }
+}
+
+// Thẻ / Bảng, Xuất Excel, Tạo đơn (nút sẵn có của màn) và nút đổi giao diện: cùng cao 32px.
+.toolbarEnd {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ui.$space-2;
+  margin-left: auto;
+
+  > button {
+    height: ui.$control-h;
+    min-height: ui.$control-h;
+    padding: 0 ui.$space-3;
+    font-size: ui.$fs-control;
+  }
+
+  > [aria-label='Kiểu xem'] button {
+    min-height: ui.$control-h - 4px;
+    font-size: ui.$fs-control;
+  }
+}
+
+/* ---- Nút đổi giao diện (hiện ở cả giao diện cũ) ---- */
+.layoutToggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: ui.$control-h;
+  box-sizing: border-box;
+  padding: 2px;
+  border-radius: ui.$radius;
+  background: #f3f4f6;
+
+  button {
+    height: 100%;
+    padding: 0 10px;
+    border: 0;
+    border-radius: ui.$radius-sm;
+    background: transparent;
+    color: ui.$muted;
+    font: inherit;
+    font-size: ui.$fs-small;
+    font-weight: 500;
+    cursor: pointer;
+
+    &:hover {
+      color: ui.$ink;
+    }
+  }
+
+  .layoutToggleOn {
+    @include ui.segmented-item-on;
+  }
+}
+
+.layoutToggleLabel {
+  padding: 0 6px 0 ui.$space-2;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  white-space: nowrap;
+}
+
+.iconBtn {
+  display: inline-grid;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid ui.$line;
+  border-radius: ui.$radius-sm;
+  background: ui.$surface;
+  color: ui.$muted;
+  cursor: pointer;
+
+  &:hover {
+    background: ui.$hover-bg;
+    color: ui.$ink;
+  }
+}
+
+.detailHead {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: ui.$space-2;
+  min-width: 0;
+  // Nằm trong vùng cuộn của cửa sổ (cuộn cùng nội dung, không ghim): vạch dưới chạy hết bề ngang cửa sổ.
+  margin: 0 (-(ui.$space-4));
+  padding: 0 ui.$space-4;
+  border-bottom: 1px solid ui.$line;
+}
+
+// Tên hồ sơ trên thanh đầu cửa sổ: tối đa 2 dòng (đủ tên ở gợi ý), không cuộn mất dưới thanh.
+.title {
+  display: -webkit-box;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: ui.$ink;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+// Thông tin chính của hồ sơ: mỗi mục "nhãn | giá trị", nhãn rộng cố định nên các giá trị thẳng cột. Giá trị dài (tên dự
+// án, bước, người xử lý...) XUỐNG DÒNG, không cắt "…". Dự án luôn là ô rộng nhất: 1 cột khi rất hẹp; 2 cột (Dự án trọn
+// hàng đầu) từ 480px; 3 cột (Dự án 2 cột) từ 768px; 5 cột x 2 hàng (Dự án và Bước 2 cột) từ 1280px.
+.infoGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px ui.$space-3;
+  margin: 0;
+  padding: 6px ui.$space-3;
+  border: 1px solid ui.$line;
+  border-radius: ui.$radius;
+  background: ui.$head-bg;
+}
+
+.infoItem {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: baseline;
+  gap: ui.$space-2;
+  min-width: 0;
+}
+
+.infoItem dt {
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.infoItem dd {
+  min-width: 0;
+  margin: 0;
+  color: ui.$ink;
+  font-size: ui.$fs-control;
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+// Tên dự án còn đang tra: hiện mã dự án mờ.
+.infoItem dd .infoPending {
+  color: ui.$muted;
+}
+
+// Khung chờ khi chưa biết cả mã dự án (hồ sơ cũ chỉ biết công việc).
+.infoSkeleton {
+  display: inline-block;
+  width: 160px;
+  max-width: 100%;
+  height: 12px;
+  border-radius: ui.$radius-sm;
+  background: ui.$line;
+  vertical-align: middle;
+  animation: info-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes info-skeleton {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .infoSkeleton {
+    animation: none;
+  }
+}
+
+@media (min-width: 480px) {
+  .infoGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .infoItemProject {
+    grid-column: span 2;
+  }
+}
+
+@media (min-width: 768px) {
+  .infoGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .infoGrid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .infoItemWide {
+    grid-column: span 2;
+  }
+}
+
+.overdue {
+  color: ui.$danger-ink;
+  font-weight: 600;
+}
+
+// Không tạo được công việc bên Workspace: cảnh báo ngắn một dòng (đủ lý do ở gợi ý).
+.linkWarning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  color: ui.$danger-ink;
+  font-size: ui.$fs-small;
+  line-height: 18px;
+
+  svg {
+    flex: none;
+  }
+}
+
+.linkWarningText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Các bước nằm ngang */
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: ui.$space-3;
+  min-width: 0;
+  padding: ui.$space-1 0;
+}
+
+.stepperProgress {
+  flex: none;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stepperList {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0 6px;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.stepperItem {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  line-height: 20px;
+}
+
+.stepperLine {
+  width: 24px;
+  height: 2px;
+  margin: 0 ui.$space-1;
+  border-radius: 1px;
+  background: ui.$control;
+}
+
+.stepperLineDone {
+  background: ui.$success;
+}
+
+.stepperBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: ui.$radius-sm;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover {
+    background: ui.$hover-bg;
+  }
+
+  &:focus-visible {
+    outline: 2px solid ui.$blue;
+    outline-offset: 0;
+  }
+}
+
+.stepperDot {
+  display: grid;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: ui.$control;
+  color: #4b5563;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepperText {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+// Tên bước dài xuống tối đa 2 dòng (đủ tên ở gợi ý của bước).
+.stepperName {
+  display: -webkit-box;
+  max-width: 140px;
+  overflow: hidden;
+  line-height: 15px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+// Trạng thái của bước, dòng nhỏ dưới tên bước.
+.stepperState {
+  color: ui.$faint;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+}
+
+.step_done .stepperState {
+  color: ui.$success-ink;
+}
+
+.step_rejected .stepperState {
+  color: ui.$danger-ink;
+}
+
+.step_returned .stepperState {
+  color: ui.$accent-ink;
+}
+
+.step_current .stepperState {
+  color: ui.$accent-ink;
+  font-weight: 600;
+}
+
+.step_returned .stepperDot {
+  background: ui.$accent-strong;
+  color: #fff;
+}
+
+.step_done .stepperDot {
+  background: ui.$success;
+  color: #fff;
+}
+
+.step_rejected .stepperDot {
+  background: ui.$danger;
+  color: #fff;
+}
+
+.step_current {
+  color: ui.$ink;
+  font-weight: 600;
+
+  .stepperDot {
+    background: ui.$accent;
+    box-shadow: 0 0 0 3px rgba(255, 201, 10, 0.25);
+    color: #3b2a00;
+  }
+}
+
+/* Tab nội dung */
+.tabs {
+  display: flex;
+  gap: ui.$space-4;
+  margin: 0 (-(ui.$space-4));
+  padding: 0 ui.$space-4;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: ui.$muted;
+  font: inherit;
+  font-size: ui.$fs-body;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    color: ui.$ink;
+  }
+}
+
+.tabOn {
+  box-shadow: inset 0 -2px 0 ui.$accent-strong;
+  color: ui.$ink;
+  font-weight: 600;
+}
+
+.tabCount {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: ui.$line;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+}
+
+/* Tiến trình: mọi bước theo thứ tự; bước đã qua một dòng chia cột, bước đang làm là thẻ đầy đủ, bước sắp tới mờ */
+.flow {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flowItem {
+  position: relative;
+  padding-bottom: ui.$space-2;
+
+  // Vạch nối các nút, cùng vị trí với vạch của thẻ bước (giữa nút 24px).
+  &::before {
+    content: '';
+    position: absolute;
+    top: 26px;
+    bottom: 0;
+    left: 11px;
+    width: 2px;
+    background: ui.$line;
+  }
+
+  &:last-child {
+    padding-bottom: ui.$space-1;
+
+    &::before {
+      display: none;
+    }
+  }
+}
+
+.flowCard {
+  margin: 0;
+}
+
+// Cột của dòng bước: nút | bước | người xử lý | thời gian | kết quả | ý kiến | tệp. Không có dòng tiêu đề cột; mọi dòng
+// bước dùng cùng khuôn nên vẫn thẳng cột.
+.flowGrid {
+  display: grid;
+  grid-template-columns: 24px minmax(150px, 1.3fr) minmax(140px, 1.1fr) 120px 96px minmax(0, 1.6fr) 40px;
+  align-items: center;
+  gap: ui.$space-3;
+  width: 100%;
+  min-width: 0;
+}
+
+// Bước đang làm: khung "Việc cần làm" (xem cuối file).
+.flowItemCurrent {
+  padding-bottom: ui.$space-3;
+}
+
+.flowCollapse {
+  display: inline-flex;
+  align-items: center;
+  gap: ui.$space-1;
+  margin: 0 0 ui.$space-1 36px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: ui.$radius-sm;
+  background: transparent;
+  color: ui.$muted;
+  font: inherit;
+  font-size: ui.$fs-small;
+  cursor: pointer;
+
+  &:hover {
+    background: ui.$hover-bg;
+    color: ui.$ink;
+  }
+}
+
+.flowNode {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  place-items: center;
+  border-radius: 50%;
+  font-size: ui.$fs-small;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.flowNode_done {
+  background: #10b981;
+  color: #fff;
+}
+
+.flowNode_rejected {
+  background: #ef4444;
+  color: #fff;
+}
+
+.flowNode_returned {
+  background: ui.$accent-strong;
+  color: #fff;
+}
+
+.flowNodeUpcoming {
+  border: 2px solid #d1d5db;
+  background: ui.$surface;
+  color: ui.$muted;
+}
+
+// Một bước đã qua: một nút bấm (mở thẻ đầy đủ), các cột trên một dòng.
+.flowRow {
+  min-height: 28px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: ui.$ink;
+  font: inherit;
+  font-size: ui.$fs-control;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover .flowRowName {
+    color: ui.$blue-hover;
+  }
+
+  &:focus-visible {
+    border-radius: ui.$radius-sm;
+    outline: 2px solid ui.$blue;
+    outline-offset: 2px;
+  }
+}
+
+.flowItemUpcoming {
+  color: ui.$muted;
+  font-size: ui.$fs-control;
+}
+
+.flowRowName {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowItemUpcoming .flowRowName {
+  font-weight: 500;
+}
+
+.flowWho {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #374151;
+}
+
+.flowWhoName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flowWhen {
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.flowFiles {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  font-variant-numeric: tabular-nums;
+}
+
+.flowNoteCell {
+  display: grid;
+  min-width: 0;
+}
+
+.flowNote,
+.flowVoucher {
+  overflow: hidden;
+  color: #374151;
+  font-size: ui.$fs-small;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Phiếu của bước Tài chính (mã, trạng thái, số tiền).
+.flowVoucher {
+  color: ui.$ink;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.flowStatus {
+  @include ui.chip;
+
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+// Kết quả của bước.
+.decision {
+  @include ui.chip;
+
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+.decision_ok {
+  background: ui.$success-soft;
+  color: ui.$success-ink;
+}
+
+.decision_warn {
+  background: ui.$accent-soft;
+  color: ui.$accent-ink;
+}
+
+.decision_bad {
+  background: ui.$danger-soft;
+  color: ui.$danger-ink;
+}
+
+.decision_info {
+  background: ui.$blue-soft;
+  color: ui.$blue-hover;
+}
+
+.flowRoles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px ui.$space-3;
+  min-width: 0;
+  font-size: ui.$fs-small;
+}
+
+/* Tiến độ từng người trong bước nhiều vai: mỗi vai một dòng (vai | người | trạng thái, thời gian | ý kiến) */
+.stageList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 ui.$space-1 36px;
+  padding: 0;
+  list-style: none;
+  font-size: ui.$fs-small;
+}
+
+// Trong khung "Việc cần làm" của bước đang làm: không thụt lề, không lồng thêm khung nền.
+.stageListPanel {
+  margin: 0;
+  padding: 0;
+}
+
+.stageLine {
+  display: grid;
+  grid-template-columns: 76px minmax(120px, 220px) auto minmax(0, 1fr);
+  align-items: center;
+  gap: ui.$space-2;
+  min-width: 0;
+  min-height: 20px;
+  color: #374151;
+}
+
+.stageRole {
+  color: ui.$muted;
+  white-space: nowrap;
+}
+
+.stageWho {
+  min-width: 0;
+  overflow: hidden;
+  color: ui.$ink;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stageDelegated {
+  color: ui.$muted;
+  font-weight: 400;
+}
+
+.stageState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.stageLine[data-status='pending'] .stageState {
+  color: ui.$muted;
+}
+
+.stageWhen {
+  color: ui.$muted;
+  font-variant-numeric: tabular-nums;
+}
+
+.stageNote {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Hàng nút thao tác ghim đáy cửa sổ hồ sơ ---- */
+// Khối ý kiến + nút của khung xử lý không tạo hộp riêng: ô ý kiến nằm trong thẻ bước, chỉ hàng nút bám đáy.
+// Ba class để thắng `.actionDock` của workspace-board.module.scss bất kể thứ tự nạp CSS.
+.modalPanel .detailScroll .dock {
+  display: contents;
+}
+
+.detailScroll .stickyActions {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin: 0 -14px -12px;
+  padding: ui.$space-2 14px;
+  border-top: 1px solid ui.$line;
+  border-radius: 0 0 ui.$radius-card ui.$radius-card;
+  background: ui.$surface;
+}
+
+/* ---- Khung "Việc cần làm" của bước đang làm (do `ActionPanel` vẽ khi ở cửa sổ hồ sơ) ---- */
+// Một khung trắng viền mảnh, vạch vàng mỏng bên trái; không lồng khung, không nền vàng. Ba class để thắng `.actionPanel`
+// và `.detailBody > .actionPanel` của workspace-board.module.scss bất kể thứ tự nạp CSS.
+.taskBody {
+  min-width: 0;
+}
+
+.modalPanel .detailScroll .taskPanel {
+  gap: ui.$space-3;
+  margin: 0;
+  padding: ui.$space-3 ui.$space-4;
+  border: 1px solid ui.$line;
+  border-left: 3px solid ui.$accent;
+  border-radius: ui.$radius-card;
+  background: ui.$surface;
+  font-size: ui.$fs-body;
+
+  .stickyActions {
+    margin: 0 (-(ui.$space-4)) (-(ui.$space-3));
+    padding: ui.$space-2 ui.$space-4;
+    border-radius: 0 0 (ui.$radius-card - 1px) ui.$radius-sm;
+  }
+}
+
+.taskHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: ui.$space-2 ui.$space-3;
+  min-width: 0;
+}
+
+.taskTitle {
+  display: flex;
+  flex: 1 1 280px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: ui.$space-1 ui.$space-2;
+  min-width: 0;
+}
+
+// Tên bước đang làm: dài thì xuống dòng, không cắt.
+.taskName {
+  max-width: 100%;
+  margin: 0;
+  color: ui.$ink;
+  font-size: ui.$fs-body;
+  font-weight: 700;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.taskOrder {
+  margin-right: 6px;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  font-weight: 600;
+}
+
+.youChip {
+  @include ui.chip;
+
+  flex: none;
+  background: ui.$accent-soft;
+  box-shadow: inset 0 0 0 1px rgba(217, 171, 0, 0.35);
+  color: ui.$accent-ink;
+}
+
+.taskTag {
+  @include ui.chip;
+
+  flex: none;
+  background: #f3f4f6;
+  color: ui.$muted;
+  font-weight: 500;
+}
+
+.taskWaiting {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  b {
+    color: ui.$ink;
+    font-weight: 600;
+  }
+}
+
+// Ý kiến + tệp: một hàng gọn (ô ý kiến một dòng, nút "Đính kèm tệp" ngay bên phải), tệp đã chọn dạng chip bên dưới.
+.taskComposer {
+  display: flex;
+  flex-direction: column;
+  gap: ui.$space-2;
+  min-width: 0;
+}
+
+.taskCommentRow {
+  display: flex;
+  align-items: flex-start;
+  gap: ui.$space-2;
+  min-width: 0;
+}
+
+// Ô ý kiến: một dòng cao 34px, tự cao theo nội dung khi gõ (tối đa ~7 dòng rồi cuộn). Nhãn chỉ cho trình đọc màn hình.
+// Hai class để thắng `.commentField textarea` của workspace-board.module.scss bất kể thứ tự nạp CSS.
+.taskCommentRow .taskComment {
+  flex: 1 1 auto;
+  min-width: 0;
+
+  textarea {
+    width: 100%;
+    min-height: 34px;
+    max-height: 164px;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    overflow-y: auto;
+    font-size: ui.$fs-body;
+    line-height: 20px;
+    resize: none;
+  }
+}
+
+.attachBtn {
+  @include ui.button;
+
+  flex: none;
+  height: 34px;
+  padding: 0 10px;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+
+  &:hover:not(:disabled) {
+    color: ui.$ink;
+  }
+}
+
+// Pha khởi tạo (S) không có ô ý kiến: nút "Đính kèm tệp" nằm đầu trái hàng nút thao tác ghim đáy.
+.barAttach {
+  display: inline-flex;
+  align-items: center;
+  margin-right: auto;
+
+  .attachBtn {
+    height: 32px;
+  }
+}
+
+// Chữ chỉ dành cho trình đọc màn hình (nhãn ô ý kiến).
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- Bảng hồ sơ ---- */
+.tableArea {
+  display: flex;
+  flex-direction: column;
+  gap: ui.$space-2;
+  min-width: 0;
+}
+
+/* ---- Cửa sổ hồ sơ ---- */
+// Cao hơn khung Tenant Portal (như drawer hồ sơ), dưới các hộp thoại con (9999) để chúng nằm trên cửa sổ.
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+// Hai class để thắng `.workspace` (cùng gắn trên cửa sổ để có biến màu) bất kể thứ tự nạp CSS.
+.modalBackdrop .modalPanel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(1440px, 96vw);
+  height: 92vh;
+  max-height: 92vh;
+  overflow: hidden;
+  border-radius: ui.$radius-card;
+  background: ui.$surface;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  font-size: ui.$fs-body;
+  outline: none;
+}
+
+// Thanh đầu cửa sổ (không cuộn): ‹ n/N › | tên hồ sơ (tối đa 2 dòng) + chip trạng thái / SLA | nút quản trị | Hồ sơ kế
+// tiếp, đóng. Cửa sổ dưới 1024px: nút quản trị xuống hàng thứ hai (canh phải, hộp xác nhận mở xuống vẫn nằm trong cửa sổ);
+// dưới 768px: tên hồ sơ cũng xuống hàng riêng. Nằm trên vùng cuộn để hộp xác nhận của nút quản trị phủ lên nội dung.
+.modalBar {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  flex: none;
+  grid-template-areas: 'nav heading actions end';
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: ui.$space-1 ui.$space-3;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 6px ui.$space-3;
+  border-bottom: 1px solid ui.$line;
+  background: ui.$head-bg;
+
+  .iconBtn:disabled {
+    color: #c4c8cf;
+    cursor: not-allowed;
+  }
+}
+
+.modalNav {
+  display: flex;
+  grid-area: nav;
+  align-items: center;
+  gap: ui.$space-1;
+}
+
+.modalHeading {
+  display: flex;
+  grid-area: heading;
+  align-items: center;
+  gap: ui.$space-2;
+  min-width: 0;
+}
+
+.headingChips {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: ui.$space-1;
+}
+
+.modalActions {
+  display: flex;
+  grid-area: actions;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: ui.$space-2;
+  min-width: 0;
+
+  &:empty {
+    display: none;
+  }
+}
+
+// Nút quản trị trên thanh: thấp bằng các nút khác của thanh (không đụng nút trong hộp xác nhận mở ra).
+.modalActions > button,
+.modalActions > div > button {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: ui.$fs-small;
+}
+
+.modalEnd {
+  display: flex;
+  grid-area: end;
+  align-items: center;
+  gap: ui.$space-2;
+}
+
+@media (max-width: 1023px) {
+  .modalBar {
+    grid-template-areas:
+      'nav heading end'
+      'actions actions actions';
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .modalBar {
+    grid-template-areas:
+      'nav . end'
+      'heading heading heading'
+      'actions actions actions';
+  }
+
+  .modalHeading {
+    flex-wrap: wrap;
+  }
+}
+
+.modalPosition {
+  min-width: 56px;
+  color: ui.$muted;
+  font-size: ui.$fs-control;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.nextCase {
+  @include ui.button;
+
+  height: 28px;
+  padding: 0 10px;
+  border-color: ui.$accent-strong;
+  background: ui.$accent;
+  color: ui.$accent-ink;
+  font-weight: 600;
+
+  &:hover:not(:disabled) {
+    background: ui.$accent-strong;
+  }
+}
+
+.modalBody {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+// Vùng cuộn của chi tiết. Luôn tự cuộn để hàng nút ghim đáy hoạt động.
+.modalPanel .detailScroll {
+  gap: ui.$space-3;
+  overflow: auto;
+  padding: ui.$space-3 ui.$space-4 0;
+}
+
+// Dưới 768px: cửa sổ toàn màn; dòng bước xuống hai dòng.
+@media (max-width: 767px) {
+  .modalBackdrop .modalPanel {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .stageList {
+    margin-left: 0;
+  }
+
+  .stageLine {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px ui.$space-2;
+  }
+
+  .flowGrid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px ui.$space-2;
+
+    > .flowRowName {
+      flex: 1 1 calc(100% - 40px);
+    }
+
+    > .flowNoteCell {
+      flex-basis: 100%;
+      padding-left: 32px;
+    }
+  }
+
+  .flowFiles {
+    justify-content: flex-start;
+  }
+
+  .stepperName {
+    max-width: 120px;
+  }
+}
+
+/* ---- Bề rộng khung: hẹp ---- */
+.mode_narrow {
+  .segment {
+    flex: 1 1 100%;
+  }
+
+  .toolbarFilters {
+    flex-basis: 100%;
+  }
+
+  .search {
+    flex: 1 1 200px;
+  }
+
+  .toolbarEnd {
+    margin-left: 0;
+  }
+}
+
+/* ---- Cách xếp thanh công cụ theo bề rộng khung ---- */
+// Hàng 1: tab trạng thái + các nút; hàng 2: ô tìm và bộ lọc.
+.toolbar_split {
+  .toolbarFilters {
+    flex-basis: 100%;
+    order: 3;
+  }
+}
+
+// Hàng 1: tab trạng thái; hàng 2: ô tìm, bộ lọc, rồi các nút (hết chỗ thì xuống hàng, canh phải).
+.toolbar_stack {
+  .segment {
+    flex: 1 1 100%;
+  }
+}

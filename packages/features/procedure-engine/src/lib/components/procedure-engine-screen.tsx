@@ -5,7 +5,7 @@ import type {
   ProcedureAttributeValue,
   ProcedureDefinition,
   ProcedureInstance,
-  ProcedureRuntimeAction,
+  ProcedureApplyAction,
   ProcedureSettingsSnapshot,
   ProcedureWorkspace,
   ReverseProcedureInstanceRequest,
@@ -14,8 +14,6 @@ import type {
 import { PROCEDURE_ASSISTANT_ACTIONS } from '@enterprise-platform/contracts-procedure-engine';
 import type { TenantOrganizationContext } from '@enterprise-platform/contracts-organization';
 import {
-  DashboardCardPicker,
-  DashboardView,
   ModuleSettingsView,
   ModuleShell,
   useAssistantSaved,
@@ -29,8 +27,8 @@ import {
   returnPathFor,
   type ReturnTarget,
 } from '@enterprise-platform/shared-ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardList, LayoutDashboard, Settings, Table2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ClipboardList, Settings, Table2 } from 'lucide-react';
 import {
   applyProcedureAction,
   cancelProcedureSubtask,
@@ -58,6 +56,7 @@ import {
   uploadProcedureAttachment,
   deleteProcedureInstance,
   relinkProcedureWorkspace,
+  setProcedureDefinitionBulkActions,
   setProcedureDefinitionCategory,
   updateProcedureDefinition,
   validateProcedureDefinition,
@@ -66,11 +65,8 @@ import {
   startProcedureInstance,
 } from '../procedure-api';
 import { loadOrganization } from '../organization-api';
+import { mergeInstances, useProcedureLive } from '../use-procedure-live';
 import { loadWorkItemProjectId, type ProjectWorkItemInput } from '../workspace-api';
-import {
-  PROCEDURE_DASHBOARD_CARDS,
-  type ProcedureDashboardData,
-} from '../procedure-dashboard.cards';
 import { GroupCatalogEditor, type GroupCatalogValue } from './group-catalog-editor';
 import { OrganizationBoard } from './organization-board';
 import { RcsiBoard } from './rcsi-board';
@@ -80,11 +76,11 @@ import styles from './procedure-engine.module.scss';
 import { returnSourceLabel } from './return-source-label';
 
 
-type View = 'dashboard' | 'workspace' | 'raci' | 'org-chart' | 'settings';
+type View = 'workspace' | 'raci' | 'org-chart' | 'settings';
 
 // Biểu tượng là bắt buộc khi rail thu gọn: không có thì rail chỉ còn chữ tắt.
+// "Hồ sơ xử lý" là màn làm việc duy nhất (trang "Tổng quan" đã bỏ) và là màn mở mặc định.
 const NAV: readonly ModuleNavItem<View>[] = [
-  { id: 'dashboard', label: 'Tổng quan', icon: <AppIcon slot="nav.dashboard" fallback={LayoutDashboard} size={16} /> },
   { id: 'workspace', label: 'Hồ sơ xử lý', group: 'Người dùng', icon: <AppIcon slot="sidebar.procedure.workspace" fallback={ClipboardList} size={16} /> },
   { id: 'raci', label: 'Ma trận RCSI', group: 'Thiết kế', icon: <AppIcon slot="sidebar.procedure.raci" fallback={Table2} size={16} /> },
   // { id: 'org-chart', label: 'Sơ đồ tổ chức', group: 'Thiết kế' },
@@ -92,10 +88,40 @@ const NAV: readonly ModuleNavItem<View>[] = [
 ];
 
 const VIEW_IDS = NAV.map((item) => item.id);
+/**
+ * Hash của trang "Tổng quan" cũ (`#dashboard`, kể cả `#overview`): link đã lưu / đã chia sẻ mở "Hồ sơ xử lý" thay vì trang
+ * trống. Hằng ở cấp module để `useHashView` không phân giải lại mỗi lần render.
+ */
+const LEGACY_PROCEDURE_VIEWS: Readonly<Record<string, View>> = { dashboard: 'workspace', overview: 'workspace' };
+
+/**
+ * Đổi hash cũ trên thanh địa chỉ thành hash mới (`#dashboard` -> `#workspace`), thay mục lịch sử đang có (không thêm mục
+ * mới, nút Back không quay lại hash cũ). Cần cho Hồ sơ xử lý: cửa sổ hồ sơ chỉ ghi `#workspace/<id>` khi hash đang là của
+ * màn này.
+ */
+function replaceLegacyHash(): void {
+  const raw = window.location.hash.slice(1);
+  const separator = raw.indexOf('/');
+  const head = separator < 0 ? raw : raw.slice(0, separator);
+  const target = LEGACY_PROCEDURE_VIEWS[head];
+  if (!target) return;
+  const tail = separator < 0 ? '' : raw.slice(separator);
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}#${target}${tail}`);
+}
+
 const START_ACTION_KEYS = [PROCEDURE_ASSISTANT_ACTIONS.startInstance.key];
 
 export function ProcedureEngineScreen() {
-  const { view, sub, navigate } = useHashView<View>({ views: VIEW_IDS, fallback: 'dashboard' });
+  const { view, sub, navigate } = useHashView<View>({
+    views: VIEW_IDS,
+    fallback: 'workspace',
+    legacy: LEGACY_PROCEDURE_VIEWS,
+  });
+  useEffect(() => {
+    replaceLegacyHash();
+    window.addEventListener('hashchange', replaceLegacyHash);
+    return () => window.removeEventListener('hashchange', replaceLegacyHash);
+  }, []);
   const [workspace, setWorkspace] = useState<ProcedureWorkspace>();
   /** Thu rail để nhường chỗ cho sơ đồ tổ chức trên Ma trận RCSI. */
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -107,34 +133,61 @@ export function ProcedureEngineScreen() {
   const [attachments, setAttachments] = useState<ProcedureAttachment[]>([]);
   const [homePath, setHomePath] = useState('/');
   const [settings, setSettings] = useState<ProcedureSettingsSnapshot>();
-  const [cardDraft, setCardDraft] = useState<readonly string[]>([]);
   const [savingCards, setSavingCards] = useState(false);
   const [groupDraft, setGroupDraft] = useState<GroupCatalogValue>();
-  const [settingsSection, setSettingsSection] = useState('dashboard');
+  const [settingsSection, setSettingsSection] = useState('groups');
   const [materialCatalog, setMaterialCatalog] = useState<MaterialCatalogItem[]>([]);
   const [assetCatalog, setAssetCatalog] = useState<AssetCatalogItem[]>([]);
   /** Ô trên dòng đường dẫn; trang đặt nút thao tác của mình vào đây. */
   const [headSlot, setHeadSlot] = useState<HTMLDivElement | null>(null);
+
+  /** Tăng mỗi lần bắt đầu nạp danh sách hồ sơ; kết quả của lần nạp cũ hơn bị bỏ. */
+  const listGeneration = useRef(0);
 
   /**
    * Làm mới ĐÚNG một hồ sơ (khi người khác có trao đổi mới) thay vì nạp lại cả workspace kèm đính kèm của
    * mọi hồ sơ. Lỗi thì bỏ qua: đây chỉ là cập nhật tiện lợi, lần tải lại đầy đủ kế tiếp sẽ kéo về.
    */
   const refreshInstance = useCallback(async (instanceId: string) => {
+    const generation = listGeneration.current;
     try {
       const fresh = await loadProcedureInstance(instanceId);
-      setWorkspace((current) =>
-        current && {
-          ...current,
-          instances: current.instances.map((item) => (item.id === instanceId ? fresh : item)),
-        },
-      );
+      // Một lần nạp danh sách bắt đầu sau lần này đã mang bản mới hơn: đừng ghi đè bằng bản cũ.
+      if (generation !== listGeneration.current) return;
+      setWorkspace((current) => {
+        if (!current) return current;
+        const instances = mergeInstances(
+          current.instances,
+          current.instances.map((item) => (item.id === instanceId ? fresh : item)),
+        );
+        return instances === current.instances ? current : { ...current, instances };
+      });
     } catch {
       // Không còn là người tham gia, hoặc mất mạng: giữ nguyên bản đang hiện.
     }
   }, []);
 
+  /**
+   * Làm mới nhẹ danh sách hồ sơ (dòng, số đếm các tab, chi tiết đang mở): chỉ `/workspace`, không nạp lại sơ đồ tổ
+   * chức, danh mục và đính kèm như `reload`. Dùng khi quay lại tab và theo nhịp; lỗi thì giữ bản đang hiện.
+   */
+  const refreshList = useCallback(async () => {
+    const generation = ++listGeneration.current;
+    try {
+      const fresh = await loadProcedureWorkspace();
+      if (generation !== listGeneration.current) return;
+      setWorkspace((current) => {
+        if (!current) return current;
+        const instances = mergeInstances(current.instances, fresh.instances);
+        return instances === current.instances ? current : { ...current, instances };
+      });
+    } catch {
+      // Mất mạng hay phiên hết hạn: lần tải kế tiếp sẽ thử lại.
+    }
+  }, []);
+
   const reload = useCallback(async () => {
+    ++listGeneration.current;
     try {
       setError(undefined);
       const [procedureData, organizationData, materials, assets] = await Promise.all([
@@ -172,14 +225,31 @@ export function ProcedureEngineScreen() {
   useAssistantSaved(START_ACTION_KEYS, () => void reload());
 
   /**
-   * Cấu hình chỉ nạp khi thật sự cần: dashboard cần biết thẻ nào bật, màn cài
-   * đặt cần cả bản gốc để so sánh thay đổi.
+   * Người khác duyệt, trả về, hoàn duyệt, huỷ hồ sơ: dòng, số đếm và chi tiết đang mở tự cập nhật. Tín hiệu của
+   * hồ sơ có trong danh sách làm mới đúng hồ sơ đó; ngoài ra nạp nhẹ danh sách khi quay lại tab và theo nhịp.
+   * Mở thẳng một hồ sơ (`#workspace/<id>`, ví dụ từ thông báo) thì vào phòng của nó. Hồ sơ chọn trong danh sách do
+   * bảng tự giữ nên khung này không biết để vào phòng; tab Trao đổi của hồ sơ đó vẫn giữ phòng.
+   */
+  const listedIds = useMemo(
+    () => new Set((workspace?.instances ?? []).map((instance) => instance.id)),
+    [workspace?.instances],
+  );
+  useProcedureLive({
+    roomInstanceId: view === 'workspace' ? sub : undefined,
+    watches: (instanceId) => listedIds.has(instanceId),
+    onSignal: refreshInstance,
+    onPoll: refreshList,
+    paused: busy !== undefined || !workspace || view !== 'workspace',
+  });
+
+  /**
+   * Cấu hình chỉ nạp khi thật sự cần: màn cài đặt cần cả bản gốc để so sánh
+   * thay đổi.
    */
   useEffect(() => {
     // Ma trận cần danh mục nhóm; workspace cần quy trình mượn/xuất và mua đã
     // cấu hình, để biết có phải hỏi người bấm chọn quy trình hay không.
     if (
-      view !== 'dashboard' &&
       view !== 'settings' &&
       view !== 'raci' &&
       view !== 'workspace'
@@ -190,7 +260,6 @@ export function ProcedureEngineScreen() {
     void loadProcedureSettings()
       .then((loaded) => {
         setSettings(loaded);
-        setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setGroupDraft(loaded['catalog.group'].value);
       })
       .catch(() => setSettings(undefined));
@@ -407,7 +476,7 @@ export function ProcedureEngineScreen() {
 
   const action = (
     instanceId: string,
-    nextAction: ProcedureRuntimeAction,
+    nextAction: ProcedureApplyAction,
     comment?: string,
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
@@ -423,27 +492,6 @@ export function ProcedureEngineScreen() {
   /** Mở từ trang khác kèm `?returnTo=`: hiện dải "xử lý xong sẽ tự quay về". Đọc sau khi gắn để khớp SSR. */
   const [returnTarget, setReturnTarget] = useState<ReturnTarget>();
   useEffect(() => setReturnTarget(initialReturnTarget()), []);
-
-  const saveCards = async () => {
-    if (!settings) return;
-    setSavingCards(true);
-    try {
-      const saved = await saveProcedureSetting(
-        'dashboard.cards',
-        { cardIds: cardDraft },
-        settings['dashboard.cards'].version,
-      );
-      setSettings({
-        ...settings,
-        'dashboard.cards': saved as ProcedureSettingsSnapshot['dashboard.cards'],
-      });
-      setError(undefined);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không lưu được cấu hình.');
-    } finally {
-      setSavingCards(false);
-    }
-  };
 
   const saveGroups = async () => {
     if (!settings || !groupDraft) return;
@@ -487,13 +535,9 @@ export function ProcedureEngineScreen() {
     [settings],
   );
 
-  const storedCards = settings?.['dashboard.cards'].value.cardIds ?? [];
   const groupsDirty =
     groupDraft !== undefined &&
     JSON.stringify(groupDraft) !== JSON.stringify(settings?.['catalog.group'].value);
-  const cardsDirty =
-    cardDraft.length !== storedCards.length ||
-    cardDraft.some((id, index) => id !== storedCards[index]);
   const canDesign = workspace?.permissions.canManageDefinitions ?? false;
 
   return (
@@ -542,28 +586,10 @@ export function ProcedureEngineScreen() {
           <span />
           <p>Đang nạp module Quy trình…</p>
         </section>
-      ) : view === 'dashboard' ? (
-        <DashboardView<ProcedureDashboardData>
-          catalog={PROCEDURE_DASHBOARD_CARDS}
-          selection={settings?.['dashboard.cards'].value.cardIds ?? []}
-          data={{ workspace }}
-        />
       ) : view === 'settings' ? (
+        // Mục "Thẻ tổng quan" đã bỏ cùng trang Tổng quan; khoá `dashboard.cards` vẫn nằm ở server, giao diện không đọc nữa.
         <ModuleSettingsView
           sections={[
-            {
-              id: 'dashboard',
-              label: 'Thẻ tổng quan',
-              render: () => (
-                <DashboardCardPicker<ProcedureDashboardData>
-                  catalog={PROCEDURE_DASHBOARD_CARDS}
-                  selection={cardDraft}
-                  onChange={setCardDraft}
-                  max={6}
-                  disabled={!canDesign || savingCards}
-                />
-              ),
-            },
             {
               id: 'groups',
               label: 'Nhóm quy trình',
@@ -581,18 +607,21 @@ export function ProcedureEngineScreen() {
           activeSectionId={settingsSection}
           onSectionChange={setSettingsSection}
           readOnly={!canDesign}
-          dirty={settingsSection === 'groups' ? groupsDirty : cardsDirty}
+          dirty={groupsDirty}
           saving={savingCards}
-          onSave={settingsSection === 'groups' ? saveGroups : saveCards}
-          onReset={() =>
-            settingsSection === 'groups'
-              ? setGroupDraft(settings?.['catalog.group'].value)
-              : setCardDraft(storedCards)
-          }
+          onSave={saveGroups}
+          onReset={() => setGroupDraft(settings?.['catalog.group'].value)}
         />
       ) : view === 'workspace' ? (
         <WorkspaceBoard
           onRefreshInstance={refreshInstance}
+          // Bảng của giao diện mới: duyệt / không duyệt hàng loạt xong thì nạp nhẹ danh sách và báo kết quả.
+          onChanged={refreshList}
+          onNotice={(message) => {
+            setError(undefined);
+            setNotice(message);
+          }}
+          onError={setError}
           headSlot={headSlot}
           initialInstanceId={sub}
           canCreateInstances={workspace.permissions.canCreateInstances}
@@ -712,6 +741,9 @@ export function ProcedureEngineScreen() {
           : undefined}
           onChangeGroupDefinition={canDesign ? (id, category) =>
             perform(`group:${id}`, () => setProcedureDefinitionCategory(id, category))
+          : undefined}
+          onChangeBulkActionsDefinition={canDesign ? (id, value) =>
+            perform(`bulk-actions:${id}`, () => setProcedureDefinitionBulkActions(id, value))
           : undefined}
           onUpdateDefinition={canDesign ? (id, steps, flow) =>
             perform(`update:${id}`, () => updateProcedureDefinition(id, steps, flow))

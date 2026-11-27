@@ -68,6 +68,69 @@ describe('deriveProcedureAuthorization', () => {
   });
 });
 
+describe('currentStepPart - phần của người này ở bước hiện tại', () => {
+  const actor = (userId: string) => ({
+    tenantId: 'tenant',
+    userId,
+    displayName: userId,
+    canDesign: false,
+    canPublish: false,
+    canCreateInstances: false,
+    isOverride: false,
+    membershipId: userId,
+    organizationUnitIds: [],
+    positionIds: [],
+  });
+  /** Bước E (người phân việc) rồi A; một đầu việc giao cho `tho`. */
+  function withSubtask(status: 'open' | 'completed'): ProcedureInstance {
+    const base = instance('E');
+    const current = base.steps[0];
+    if (!current) throw new Error('thiếu bước');
+    current.assignments = [
+      { id: 'e', role: 'E', subjectType: 'user', subjectId: 'user-1' },
+      { id: 'a', role: 'A', subjectType: 'user', subjectId: 'duyet' },
+    ];
+    base.subtasks = [
+      {
+        id: 'sub-1',
+        stepInstanceId: 'step',
+        title: 'Lắp đặt',
+        weight: 100,
+        assigneeId: 'tho',
+        status,
+      } as NonNullable<ProcedureInstance['subtasks']>[number],
+    ];
+    return base;
+  }
+
+  it('người nhận đầu việc E(x) còn việc chưa xong là tới lượt, xong rồi là đã xong phần mình', () => {
+    expect(deriveProcedureAuthorization(withSubtask('open'), actor('tho')).currentStepPart).toBe('act');
+    expect(deriveProcedureAuthorization(withSubtask('completed'), actor('tho')).currentStepPart).toBe('done');
+    // Người duyệt ở pha sau của cùng bước: sắp tới lượt.
+    expect(deriveProcedureAuthorization(withSubtask('open'), actor('duyet')).currentStepPart).toBe('upcoming');
+  });
+
+  it('vai được uỷ quyền cho cả hồ sơ mà bước hiện tại không có thì không tính', () => {
+    const base = instance('R');
+    base.delegations = [
+      {
+        id: 'd',
+        delegatedBy: 'x',
+        delegatedTo: 'nhan-uy-quyen',
+        roles: ['A'],
+        createdAt: '2026-08-15T10:00:00.000Z',
+      } as NonNullable<ProcedureInstance['delegations']>[number],
+    ];
+    const authorization = deriveProcedureAuthorization(base, actor('nhan-uy-quyen'));
+    expect(authorization.myRoles).toEqual(['A']);
+    expect(authorization.currentStepPart).toBeUndefined();
+  });
+
+  it('vai I không có phần việc', () => {
+    expect(deriveProcedureAuthorization(instance('I'), actor('user-1')).currentStepPart).toBeUndefined();
+  });
+});
+
 describe('escalation lên đơn vị cha khi đơn vị không có trưởng', () => {
   // to-ky-thuat (không head) → phong-ky-thuat (không head) → khoi-van-hanh (có head)
   const units = new Map([

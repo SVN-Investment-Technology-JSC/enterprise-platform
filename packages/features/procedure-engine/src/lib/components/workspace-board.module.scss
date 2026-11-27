@@ -437,6 +437,22 @@
   white-space: nowrap;
 }
 
+/* Mã dự án của hồ sơ trên thẻ danh sách. */
+.caseRowProject {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 180px;
+  padding: 1px 6px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--blue-light);
+  color: var(--blue-hover);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .caseRowPct {
   width: 32px;
   color: var(--faint);
@@ -745,6 +761,52 @@
 .headerCancelBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+// Hoàn duyệt rút lại lần duyệt của chính mình, không phải thao tác phá huỷ: màu trung tính, không đỏ.
+.headerWithdrawBtn {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.headerWithdrawBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.headerWithdrawBtn:hover:not(:disabled) {
+  border-color: var(--line);
+  background: #f1f5f9;
+}
+
+/* Lời mời hoàn duyệt trên dòng bước vừa xong / trong khung xử lý của bước hiện tại. */
+.withdrawCallout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  cursor: default;
+}
+
+.withdrawCalloutText {
+  flex: 1 1 220px;
+  min-width: 0;
+  color: var(--accent-ink);
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .detailTitle {
@@ -3359,12 +3421,13 @@
 
 /* ---- Redesigned Create Form (Nhóm 1 - Thông tin chung) ---- */
 .createFormBody {
+  container: create-form / inline-size;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 0;
   overflow-y: auto;
-  max-height: min(65vh, 600px);
+  max-height: min(78vh, 760px);
   background: transparent;
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
@@ -3457,6 +3520,28 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+// Form tạo đơn hai cột (trái: đơn, quy trình, dự án, công việc cha, mô tả; phải: người submit, loại, ưu tiên, người phụ
+// trách, giờ, thời gian). Theo bề rộng của chính form (container query) nên trong card Trợ lý hẹp vẫn tự về một cột.
+.createColumns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px 28px;
+  align-items: start;
+}
+
+.createColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@container create-form (max-width: 760px) {
+  .createColumns {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 40rem) {

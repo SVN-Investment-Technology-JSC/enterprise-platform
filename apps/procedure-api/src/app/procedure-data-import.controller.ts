@@ -210,12 +210,17 @@ export class ProcedureDataImportController {
           `Không tìm thấy quy trình ${instance.definitionCode} để mở hồ sơ.`,
         );
       }
-      await this.app.startInstance(actor, {
-        definitionId,
-        title: instance.title,
-        assetCode: instance.assetCode,
-        idempotencyKey: instance.idempotencyKey,
-      });
+      // Nhập dữ liệu mẫu là lời gọi nội bộ, không phải người dùng tự mở hồ sơ: miễn luật bắt buộc chọn dự án.
+      await this.app.startInstance(
+        actor,
+        {
+          definitionId,
+          title: instance.title,
+          assetCode: instance.assetCode,
+          idempotencyKey: instance.idempotencyKey,
+        },
+        { projectOptional: true },
+      );
     }
 
     return { status: 'completed', definitionIds };

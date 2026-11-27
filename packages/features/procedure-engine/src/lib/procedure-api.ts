@@ -10,8 +10,12 @@ import type {
   ProcedureDefinition,
   ProcedureAttachment,
   ProcedureInstance,
-  ProcedureRuntimeAction,
+  ProcedureApplyAction,
   PostProcedureCommentRequest,
+  ProcedureBulkAction,
+  ProcedureBulkActionRequest,
+  ProcedureBulkActionResponse,
+  ProcedureDefinitionBulkActions,
   ProcedureSettingsEntry,
   ProcedureSettingsKey,
   ProcedureSettingsSnapshot,
@@ -168,6 +172,20 @@ export function setProcedureDefinitionCategory(
   });
 }
 
+/**
+ * Bật / tắt duyệt và không duyệt hàng loạt của quy trình. Route riêng như đổi nhóm, nên chạy được cả trên quy trình
+ * đã công bố.
+ */
+export function setProcedureDefinitionBulkActions(
+  definitionId: string,
+  bulkActions: ProcedureDefinitionBulkActions,
+): Promise<ProcedureDefinition> {
+  return request<ProcedureDefinition>(`/definitions/${definitionId}/bulk-actions`, {
+    method: 'PATCH',
+    body: JSON.stringify({ bulkActions }),
+  });
+}
+
 export function reviseProcedureDefinition(
   definitionId: string,
 ): Promise<ProcedureDefinition> {
@@ -231,7 +249,7 @@ export function startProcedureInstance(
 
 export function applyProcedureAction(
   instanceId: string,
-  action: ProcedureRuntimeAction,
+  action: ProcedureApplyAction,
   comment?: string,
   returnToStepId?: string,
   attributeValues?: Record<string, ProcedureAttributeValue>,
@@ -245,6 +263,28 @@ export function applyProcedureAction(
     idempotencyKey: newIdempotencyKey(),
   };
   return request<ProcedureInstance>(`/instances/${instanceId}/actions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Duyệt / không duyệt nhiều hồ sơ một lần. Server xử lý từng hồ sơ riêng và trả hồ sơ đã xong cùng hồ sơ bị bỏ qua
+ * (kèm lý do). Một khoá cho cả lần bấm: gửi lại đúng yêu cầu này (cùng `idempotencyKey`) không xử lý hai lần.
+ */
+export function bulkProcedureAction(
+  action: ProcedureBulkAction,
+  instanceIds: readonly string[],
+  comment?: string,
+  idempotencyKey: string = newIdempotencyKey(),
+): Promise<ProcedureBulkActionResponse> {
+  const input: ProcedureBulkActionRequest = {
+    action,
+    instanceIds,
+    ...(comment?.trim() ? { comment: comment.trim() } : {}),
+    idempotencyKey,
+  };
+  return request<ProcedureBulkActionResponse>('/instances/bulk-action', {
     method: 'POST',
     body: JSON.stringify(input),
   });

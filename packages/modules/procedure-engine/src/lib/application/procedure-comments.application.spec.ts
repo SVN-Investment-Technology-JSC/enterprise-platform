@@ -4,6 +4,9 @@ import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-st
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 const TENANT = 'tenant-chat';
 
 class FixedClock implements ProcedureClock {
@@ -71,6 +74,7 @@ async function running() {
   const draft = await application.createDefinition(admin, definition);
   const published = await application.publishDefinition(admin, draft.id);
   const instance = await application.startInstance(employee, {
+    workspaceLink: TEST_WORKSPACE_LINK,
     definitionId: published.id,
     title: 'Đề nghị mua máy',
     idempotencyKey: 'start-1',

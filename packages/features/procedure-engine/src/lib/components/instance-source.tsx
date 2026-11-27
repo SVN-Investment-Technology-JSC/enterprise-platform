@@ -23,6 +23,77 @@ export function sourceSummaryHref(summary: ProcedureSourceSummary | null | undef
   return url && isInternalPath(url) ? url : undefined;
 }
 
+/** Dự án Workspace của hồ sơ, đủ để hiện mã, tên và mở thẳng dự án / công việc bên Workspace. */
+export interface InstanceWorkspaceProject {
+  readonly projectId: string;
+  readonly projectCode: string;
+  readonly projectName?: string;
+  readonly workItemId?: string;
+  readonly workItemCode?: string;
+}
+
+/**
+ * Hồ sơ thuộc dự án nào, đọc từ chính hồ sơ (không gọi Workspace):
+ *  - gắn dự án từ phía Quy trình: `workspaceLink` (bỏ qua khi Workspace đã từ chối tạo công việc);
+ *  - mở từ công việc "Theo quy trình" bên Workspace: `workspaceProject`, chụp lúc mở hồ sơ.
+ * Hồ sơ cũ mở từ công việc trước khi có `workspaceProject` thì không biết dự án, trả `undefined`.
+ */
+export function instanceWorkspaceProject(
+  instance: Pick<ProcedureInstance, 'workspaceLink' | 'workspaceProject' | 'sourceType' | 'sourceId'>,
+): InstanceWorkspaceProject | undefined {
+  const link = instance.workspaceLink;
+  if (link && link.status !== 'rejected' && link.projectId) {
+    return {
+      projectId: link.projectId,
+      projectCode: link.projectCode,
+      ...(link.projectName ? { projectName: link.projectName } : {}),
+      ...(link.status === 'linked' && link.workItemId
+        ? { workItemId: link.workItemId, workItemCode: link.workItemCode }
+        : {}),
+    };
+  }
+  const project = instance.workspaceProject;
+  if (!project?.projectId) return undefined;
+  return {
+    projectId: project.projectId,
+    projectCode: project.projectCode,
+    ...(project.projectName ? { projectName: project.projectName } : {}),
+    ...(instance.sourceType === 'workspace_work_item' && instance.sourceId ? { workItemId: instance.sourceId } : {}),
+  };
+}
+
+/** Đường mở dự án (hoặc thẳng công việc của hồ sơ) trong Workspace, cùng khuôn với link thông báo của Workspace. */
+export function workspaceProjectHref(project: Pick<InstanceWorkspaceProject, 'projectId' | 'workItemId'>): string {
+  const id = encodeURIComponent(project.projectId);
+  return project.workItemId
+    ? `/modules/workspace?project=${id}#projects/work-item/${encodeURIComponent(project.workItemId)}`
+    : `/modules/workspace?project=${id}#projects/project/${id}`;
+}
+
+/** Giá trị hàng "Dự án" trên màn hồ sơ: TÊN dự án (mã ít ai nhớ, chỉ hiện khi rê chuột), bấm mở dự án bên Workspace. */
+export function InstanceProjectValue({ project }: { project: InstanceWorkspaceProject }) {
+  const label = project.projectName || project.projectCode;
+  return (
+    <>
+      <a
+        className="text-blue-600 underline"
+        href={workspaceProjectHref({ projectId: project.projectId })}
+        title={`Mã dự án ${project.projectCode} · bấm để mở dự án trong Workspace`}
+      >
+        {label}
+      </a>
+      {project.workItemId ? (
+        <>
+          {' · '}
+          <a className="text-blue-600 underline" href={workspaceProjectHref(project)} title="Mở công việc trong Workspace">
+            {project.workItemCode ? `Công việc ${project.workItemCode}` : 'Công việc'}
+          </a>
+        </>
+      ) : null}
+    </>
+  );
+}
+
 /** Giá trị hàng "Nguồn" trên màn hồ sơ. */
 export function InstanceSourceValue({ instance }: { instance: ProcedureInstance }) {
   if (instance.sourceType === 'hrm_request') {

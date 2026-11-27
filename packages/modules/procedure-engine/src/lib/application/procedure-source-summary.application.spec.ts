@@ -3,6 +3,9 @@ import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
 import { AUTO_COMPLETE_SOURCE_TYPES, ProcedureEngineApplication } from './procedure-engine.application.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 const TENANT = 'tenant-source';
 
 const person = (userId: string, overrides: Partial<ProcedureActor> = {}): ProcedureActor => ({
@@ -95,6 +98,7 @@ describe('Thông tin nguồn của hồ sơ (D3-31)', () => {
   it('TC-TSK-03: hồ sơ không có thông tin nguồn trả sourceSummary null', async () => {
     const { application, definitionId } = await setup();
     const started = await application.startInstance(seller, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId,
       title: 'Hồ sơ thủ công',
       idempotencyKey: 'manual-1',
@@ -106,6 +110,7 @@ describe('Thông tin nguồn của hồ sơ (D3-31)', () => {
   it('TC-TSK-03: người dùng tự mở hồ sơ cũng gửi kèm được thông tin nguồn', async () => {
     const { application, definitionId } = await setup();
     const started = await application.startInstance(seller, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId,
       title: 'Hồ sơ có nguồn',
       idempotencyKey: 'manual-2',
@@ -137,6 +142,7 @@ describe('Thông tin nguồn của hồ sơ (D3-31)', () => {
   it('TC-TSK-03: PUT cập nhật, cập nhật cả khi hồ sơ đã kết thúc, null là xoá; không ghi nhật ký bước', async () => {
     const { application, store, definitionId } = await setup();
     const started = await application.startInstance(seller, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId,
       title: 'Duyệt báo giá',
       idempotencyKey: 'run-1',
@@ -171,7 +177,7 @@ describe('Thông tin nguồn của hồ sơ (D3-31)', () => {
     await expect(application.updateSourceSummaryForService(TENANT, 'khong-co', SUMMARY)).rejects.toMatchObject({
       code: 'not_found',
     });
-    const started = await application.startInstance(seller, { definitionId, title: 'Hồ sơ', idempotencyKey: 'k' });
+    const started = await application.startInstance(seller, { workspaceLink: TEST_WORKSPACE_LINK, definitionId, title: 'Hồ sơ', idempotencyKey: 'k' });
     await expect(
       application.updateSourceSummaryForService(TENANT, started.id, { items: [], url: 'javascript:alert(1)' }),
     ).rejects.toMatchObject({ code: 'validation' });

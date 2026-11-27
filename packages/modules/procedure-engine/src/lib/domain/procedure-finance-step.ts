@@ -427,13 +427,14 @@ export function buildFinanceVoucherRequestedPayload(
   const start = [...instance.activity].reverse().find((entry) => entry.action === 'start');
   // Hồ sơ sinh từ một công việc Workspace thì phiếu hạch toán cho công việc đó. Hồ sơ mở thủ công kèm dự án thì Workspace tự
   // tạo công việc rồi báo về: khi đã liên kết xong, phiếu cũng hạch toán cho công việc ấy (chi phí thực tế của công việc), không
-  // chỉ dừng ở dự án. Chưa liên kết xong thì chỉ có dự án.
+  // chỉ dừng ở dự án. Chưa liên kết xong thì chỉ có dự án. Liên kết đã xong đứng trước công việc nguồn: hồ sơ mở từ công
+  // việc rồi được đổi dự án / công việc thì công việc nguồn đã bị xoá.
   const link = instance.workspaceLink;
   const workItemId =
-    instance.sourceType === 'workspace_work_item'
-      ? instance.sourceId
-      : link?.status === 'linked' && link.workItemId
-        ? link.workItemId
+    link?.status === 'linked' && link.workItemId
+      ? link.workItemId
+      : instance.sourceType === 'workspace_work_item'
+        ? instance.sourceId
         : undefined;
   return {
     instanceId: instance.id,

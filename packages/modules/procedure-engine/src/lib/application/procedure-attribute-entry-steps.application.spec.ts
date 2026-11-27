@@ -9,6 +9,9 @@ import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-st
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 class FixedClock implements ProcedureClock {
   now(): Date {
     return new Date('2026-10-22T08:00:00.000Z');
@@ -108,6 +111,7 @@ describe('Thuộc tính quy trình nhập ở bước được chọn', () => {
     const { application } = setup();
     const definition = await publish(application);
     const started = await application.startInstance(staff, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Mua văn phòng phẩm',
       idempotencyKey: 'start-1',
@@ -139,6 +143,7 @@ describe('Thuộc tính quy trình nhập ở bước được chọn', () => {
     const { application } = setup();
     const definition = await publish(application);
     const started = await application.startInstance(staff, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Mua máy in',
       idempotencyKey: 'start-2',
@@ -198,6 +203,7 @@ describe('Thuộc tính quy trình nhập ở bước được chọn', () => {
     const definition = await publish(application);
     await expect(
       application.startInstance(staff, {
+        workspaceLink: TEST_WORKSPACE_LINK,
         definitionId: definition.id,
         title: 'Mở kèm ý kiến duyệt',
         idempotencyKey: 'start-3',

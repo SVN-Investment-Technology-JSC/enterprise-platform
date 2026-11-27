@@ -22,7 +22,7 @@ import {
   type ProcedureInstanceStepOverview,
   type ProcedureInstanceStatusEntry,
   type ProcedureInstanceStep,
-  type ProcedureRuntimeAction,
+  type ProcedureApplyAction,
   type ProcedureStartableDefinition,
   type ProcedureWorkspace,
   type PostProcedureCommentRequest,
@@ -33,6 +33,16 @@ import {
   type StartProcedureInstanceRequest,
   type UpdateProcedureDefinitionRequest,
   type ProcedureSourceSummary,
+  type ProcedureWorkspaceProjectRef,
+  type ProcedureDefinitionBulkActions,
+  type ProcedureBulkActionRequest,
+  type ProcedureBulkActionResponse,
+  type ProcedureBulkActionDone,
+  type ProcedureBulkActionSkipped,
+  PROCEDURE_BULK_ACTION_MAX,
+  PROCEDURE_BULK_DISABLED_MESSAGE,
+  definitionAllowsBulkAction,
+  procedureBulkPlan,
   isAttributeEnterableAt,
   validateProcedureSourceSummary,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -74,6 +84,7 @@ import {
 import {
   activateStep,
   ensurePath,
+  findWithdrawPlan,
   firstInstanceStep,
   instanceAttributeSlots,
   moveToNextStep,
@@ -82,6 +93,7 @@ import {
   returnTargetStepIds,
   returnToStep,
   stepByDefinitionId,
+  withdrawApproval,
   type ProcedureFlowContext,
   type ProcedureManagerContext,
 } from '../domain/procedure-runtime-flow.js';
@@ -137,10 +149,13 @@ import {
 /** Lý do mặc định khi cài đặt `engineReasonRequired = optional` và người dùng để trống. */
 const NO_REASON_GIVEN = 'Không ghi lý do.';
 import {
+  currentWorkspaceProject,
   standaloneTaskIdempotencyKey,
   workItemIdempotencyKey,
   workItemReplaceIdempotencyKey,
+  workspaceInstanceBaseTitle,
   workspaceInstanceTitle,
+  workspaceProjectRef,
   type ReplaceWorkItemInstanceOutcome,
   type ReplaceWorkItemInstanceRequest,
   type StandaloneTaskProcedureRequestedPayload,
@@ -152,6 +167,20 @@ import type {
   ProcedureStore,
   ProcedureTenantState,
 } from './procedure-store.port.js';
+
+/**
+ * Chuẩn hoá cài đặt thao tác hàng loạt của quy trình: chỉ giữ cờ đang bật; không bật gì thì bỏ hẳn trường (vắng =
+ * không cho, mặc định an toàn).
+ */
+function normalizeBulkActions(
+  value: ProcedureDefinitionBulkActions | null | undefined,
+): ProcedureDefinitionBulkActions | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const approve = value.approve === true;
+  const reject = value.reject === true;
+  if (!approve && !reject) return undefined;
+  return { ...(approve ? { approve: true } : {}), ...(reject ? { reject: true } : {}) };
+}
 
 function replaceSummary(
   instance: ProcedureInstance,
@@ -223,6 +252,32 @@ export const AUTO_COMPLETE_SOURCE_TYPES: readonly string[] = [
   'crm_tender_plan',
   'crm_business_plan',
 ];
+/** Lỗi khi người dùng tự mở hồ sơ mà chưa chọn dự án. */
+export const PROJECT_REQUIRED_MESSAGE = 'Hãy chọn dự án cho hồ sơ.';
+
+/** Tuỳ chọn chỉ code phía server truyền khi mở hồ sơ (không đi qua body HTTP). */
+export interface ProcedureStartInternalOptions {
+  /** Dự án Workspace của công việc mà hồ sơ được mở cho, lấy từ sự kiện của Workspace. */
+  readonly workspaceProject?: ProcedureWorkspaceProjectRef;
+  /** Miễn luật bắt buộc chọn dự án (lời gọi nội bộ, vd nhập dữ liệu mẫu). */
+  readonly projectOptional?: boolean;
+}
+
+/**
+ * Hồ sơ người dùng tự mở (nguồn `manual` hoặc không ghi nguồn) phải gắn một dự án. Miễn: actor hệ thống (module khác
+ * mở qua API nội bộ: HRM, Tài chính, Bán hàng, Bảo trì…), mọi nguồn khác `manual` (đơn HRM, phiếu tài chính, báo giá…,
+ * hồ sơ xin vật tư `auto_from_parent`, công việc Workspace vốn đã thuộc một dự án) và lời gọi nội bộ phía server tự
+ * đánh dấu `projectOptional`.
+ */
+function requiresWorkspaceProject(
+  actor: Pick<ProcedureActor, 'userId'>,
+  sourceType: ProcedureInstanceSourceType | undefined,
+  internal: ProcedureStartInternalOptions | undefined,
+): boolean {
+  if (actor.userId === PROCEDURE_SYSTEM_ACTOR_ID || internal?.projectOptional) return false;
+  return !sourceType || sourceType === 'manual';
+}
+
 /** Nguồn phải được hỏi trước khi huỷ hiệu lực hồ sơ: module nguồn có thể đã ghi sổ/áp dụng kết quả. */
 export const REVERSAL_GUARDED_SOURCE_TYPES: readonly string[] = [
   'hrm_request',
@@ -738,6 +793,8 @@ export class ProcedureEngineApplication {
         createdAt: now,
         updatedAt: now,
       };
+      const bulkActions = normalizeBulkActions(input.bulkActions);
+      if (bulkActions) definition.bulkActions = bulkActions;
       definition.attributes = normalizeAttributeDefinitions(
         input.attributes,
         () => this.ids.next(),
@@ -783,6 +840,27 @@ export class ProcedureEngineApplication {
     return this.store.transaction(actor.tenantId, (state) => {
       const definition = this.requireDefinition(state.definitions, definitionId);
       definition.category = value;
+      return definition;
+    });
+  }
+
+  /**
+   * Bật / tắt duyệt và không duyệt hàng loạt của quy trình — chạy được cả khi ĐÃ CÔNG BỐ, cùng lý do với đổi nhóm:
+   * chỉ đổi cách người duyệt bấm (từng hồ sơ hay nhiều hồ sơ một lần), không đổi ai được làm gì hay luồng đi. Luật
+   * từng hồ sơ (lượt, thông tin bắt buộc, vật tư…) vẫn kiểm đủ ở mỗi hồ sơ. Áp ngay cho cả hồ sơ đang chạy.
+   */
+  async setDefinitionBulkActions(
+    actor: ProcedureActor,
+    definitionId: string,
+    value: ProcedureDefinitionBulkActions | null | undefined,
+  ): Promise<ProcedureDefinition> {
+    this.requireDesigner(actor);
+    const bulkActions = normalizeBulkActions(value);
+    return this.store.transaction(actor.tenantId, (state) => {
+      const definition = this.requireDefinition(state.definitions, definitionId);
+      if (bulkActions) definition.bulkActions = bulkActions;
+      else delete definition.bulkActions;
+      definition.updatedAt = this.clock.now().toISOString();
       return definition;
     });
   }
@@ -842,6 +920,12 @@ export class ProcedureEngineApplication {
       definition.kind = kind;
       if (input.category !== undefined) {
         definition.category = input.category.trim() || undefined;
+      }
+      // Bỏ trống = giữ nguyên, như `attributes`/`gateways`: client cũ không biết trường này thì không làm mất nó.
+      if (input.bulkActions !== undefined) {
+        const bulkActions = normalizeBulkActions(input.bulkActions);
+        if (bulkActions) definition.bulkActions = bulkActions;
+        else delete definition.bulkActions;
       }
       // Giữ nguyên id của bước cũ theo mã bước: fixedRollbackStepId mà client
       // gửi lên trỏ tới id đang có, cấp id mới sẽ làm đứt tham chiếu quay-về.
@@ -1294,6 +1378,11 @@ export class ProcedureEngineApplication {
    * `procedure.instance.workspace_relink_requested`. Workspace tự kiểm quyền, tạo công việc mới, chuyển
    * tài liệu, xoá công việc cũ trong một transaction rồi trả `procedure_linked`; từ chối thì liên kết cũ
    * được khôi phục nguyên vẹn (`applyWorkspaceLinkResult`).
+   *
+   * Hồ sơ mở từ công việc "Theo quy trình" bên Workspace (chưa có `workspaceLink`) đi cùng đường: công việc
+   * bị thay là công việc nguồn (`sourceId`); xong thì hồ sơ mang `workspaceLink` trỏ công việc mới.
+   *
+   * Ai được đổi: `canRelinkProcedureWorkspace` (người tham gia đơn trừ người chỉ xem).
    */
   async relinkWorkspace(
     actor: ProcedureActor,
@@ -1316,7 +1405,11 @@ export class ProcedureEngineApplication {
           'forbidden',
           target.workspaceLink?.status === 'pending'
             ? 'Đơn đang chờ Workspace xử lý liên kết; thử lại sau ít giây.'
-            : 'Chỉ người phê duyệt (vai A) của đơn hoặc quản trị mới đổi được công việc liên kết.',
+            : target.status === 'reversed'
+              ? 'Đơn đã bị huỷ hiệu lực, không đổi được dự án / công việc liên kết.'
+              : !linkedWorkItemId(target)
+                ? 'Đơn chưa gắn công việc nào bên Workspace để đổi.'
+                : 'Người chỉ theo dõi đơn (vai I) không đổi được dự án / công việc liên kết; cần là người tạo đơn, người được giao xử lý, người được uỷ quyền hoặc quản trị.',
         );
       }
       const oldWorkItemId = linkedWorkItemId(target) as string;
@@ -1331,7 +1424,8 @@ export class ProcedureEngineApplication {
         status: 'pending',
         projectId,
         projectCode,
-        baseTitle: target.workspaceLink?.baseTitle ?? target.title,
+        // Hồ sơ mở từ công việc Workspace: tên đã ghép mã dự án / công việc cũ, bỏ đi để ghép mã mới.
+        baseTitle: target.workspaceLink?.baseTitle ?? workspaceInstanceBaseTitle(target),
         workItem: { ...(target.workspaceLink?.workItem ?? {}), parentId },
         requestedBy: actor.userId,
         requestedByIsTenantAdmin: actor.isOverride,
@@ -1846,18 +1940,26 @@ export class ProcedureEngineApplication {
   async startInstance(
     actor: ProcedureActor,
     input: StartProcedureInstanceInput,
+    internal?: ProcedureStartInternalOptions,
   ): Promise<ProcedureInstance> {
-    return (await this.startInstanceDetailed(actor, input)).instance;
+    return (await this.startInstanceDetailed(actor, input, internal)).instance;
   }
 
   /**
    * Như `startInstance` nhưng trả thêm kết quả tự hoàn thành bước S. Cờ
    * `autoCompleteInitiatorStep` chỉ dành cho dịch vụ nội bộ (actor hệ thống,
    * `sourceType = 'hrm_request'`); người dùng thường gửi cờ này bị từ chối.
+   *
+   * `internal` chỉ do code phía server truyền (không đi qua body HTTP): dự án Workspace của công việc mà hồ sơ được mở
+   * cho, lấy từ sự kiện của Workspace; `projectOptional` miễn luật bắt buộc chọn dự án.
+   *
+   * Người dùng tự mở hồ sơ (nguồn `manual` hoặc không ghi nguồn) phải gắn dự án (`workspaceLink`); các nguồn được miễn
+   * xem `requiresWorkspaceProject`.
    */
   async startInstanceDetailed(
     actor: ProcedureActor,
     input: StartProcedureInstanceInput,
+    internal?: ProcedureStartInternalOptions,
   ): Promise<{ instance: ProcedureInstance; autoComplete?: ProcedureAutoCompleteOutcome }> {
     if (!actor.canCreateInstances) {
       throw new ProcedureEngineError('forbidden', 'Bạn không có quyền khởi tạo hồ sơ quy trình.');
@@ -1887,6 +1989,9 @@ export class ProcedureEngineApplication {
     const workspaceLink = input.workspaceLink
       ? this.validateWorkspaceLinkRequest(input.workspaceLink, input.sourceType)
       : undefined;
+    if (!workspaceLink && requiresWorkspaceProject(actor, input.sourceType, internal)) {
+      throw new ProcedureEngineError('validation', PROJECT_REQUIRED_MESSAGE);
+    }
     const startDueAt = input.startDueAt ? Date.parse(input.startDueAt) : undefined;
     const endDueAt = input.endDueAt ? Date.parse(input.endDueAt) : undefined;
     if (
@@ -2091,6 +2196,7 @@ export class ProcedureEngineApplication {
       // Values and the instance commit together. The next action sees the
       // submitted values; no bridge may patch runtime snapshots after creation.
       this.applyAttributeValues(instance, {...actor,userId:initiatedBy}, input.attributeValues, now);
+      if (internal?.workspaceProject) instance.workspaceProject = { ...internal.workspaceProject };
       if (submitter && onBehalfOf) {
         // Người tạo hộ điền và hoàn tất bước đầu thay người submit: uỷ quyền vai S cho đúng bước đó,
         // nhờ vậy họ cũng có mặt trong hồ sơ để theo dõi.
@@ -3572,6 +3678,107 @@ export class ProcedureEngineApplication {
   }
 
   /**
+   * Duyệt / không duyệt hàng loạt (trang Tổng quan). Mỗi hồ sơ chạy qua đúng `applyAction` trong transaction riêng
+   * (cùng luật, cùng sự kiện / thông báo như bấm từng hồ sơ), với khoá chống trùng `bulk:<khoá lần bấm>:<id hồ sơ>`
+   * nên gọi lại cùng khoá không xử lý hai lần. Hồ sơ không xử lý được thì bỏ qua kèm lý do, không chặn các hồ sơ khác:
+   * quy trình không bật thao tác này, chưa tới lượt / pha không có thao tác, bước cần nhập hay làm thêm
+   * (`procedureBulkPlan`), hoặc `applyAction` từ chối. Hồ sơ người gọi không xem được trả `code: null`.
+   */
+  async bulkApplyAction(
+    actor: ProcedureActor,
+    input: ProcedureBulkActionRequest,
+  ): Promise<ProcedureBulkActionResponse> {
+    const action = input?.action;
+    if (action !== 'approve' && action !== 'reject') {
+      throw new ProcedureEngineError('validation', 'Thao tác hàng loạt chỉ nhận duyệt hoặc không duyệt.');
+    }
+    const requestKey = typeof input.idempotencyKey === 'string' ? input.idempotencyKey.trim() : '';
+    if (!requestKey) {
+      throw new ProcedureEngineError('validation', 'Cần idempotency key khi xử lý hàng loạt.');
+    }
+    if (!Array.isArray(input.instanceIds)) {
+      throw new ProcedureEngineError('validation', 'Danh sách hồ sơ không hợp lệ.');
+    }
+    const ids = [
+      ...new Set(
+        input.instanceIds
+          .filter((id): id is string => typeof id === 'string')
+          .map((id) => id.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (!ids.length) throw new ProcedureEngineError('validation', 'Chưa chọn hồ sơ nào.');
+    if (ids.length > PROCEDURE_BULK_ACTION_MAX) {
+      throw new ProcedureEngineError(
+        'validation',
+        `Mỗi lần chỉ xử lý được tối đa ${PROCEDURE_BULK_ACTION_MAX} hồ sơ.`,
+      );
+    }
+    const comment = typeof input.comment === 'string' ? input.comment.trim() : '';
+    if (action === 'reject' && !comment) {
+      throw new ProcedureEngineError('validation', 'Cần nhập lý do không duyệt.');
+    }
+
+    // Đọc một lần để chọn hồ sơ; `applyAction` vẫn kiểm lại đầy đủ trong transaction của từng hồ sơ.
+    const state = await this.store.read(actor.tenantId);
+    if (state.instances.some((instance) => isWorkspaceLinkedInstance(instance))) {
+      await this.getProcedureLinkSettings(actor.tenantId);
+    }
+    const done: ProcedureBulkActionDone[] = [];
+    const skipped: ProcedureBulkActionSkipped[] = [];
+    for (const id of ids) {
+      const instance = state.instances.find((candidate) => candidate.id === id);
+      if (!instance || instance.deletion || !isProcedureParticipant(instance, actor)) {
+        skipped.push({ id, code: null, reason: 'not_found', message: 'Không tìm thấy hồ sơ.' });
+        continue;
+      }
+      const itemKey = `bulk:${requestKey}:${id}`;
+      // Gọi lại cùng khoá: hồ sơ đã xử lý ở lần trước thì báo xong, không xét lại (lúc này đã sang pha khác).
+      if (state.idempotency[`action:${itemKey}`] === id) {
+        done.push({ id, code: instance.code });
+        continue;
+      }
+      const definition = state.definitions.find((candidate) => candidate.id === instance.definitionId);
+      if (!definitionAllowsBulkAction(definition, action)) {
+        skipped.push({
+          id,
+          code: instance.code,
+          reason: 'bulk_disabled',
+          message: PROCEDURE_BULK_DISABLED_MESSAGE[action],
+        });
+        continue;
+      }
+      const plan = procedureBulkPlan(instance, this.withAuthorization(instance, actor).authorization, action);
+      if (!plan.ok) {
+        skipped.push({ id, code: instance.code, reason: plan.reason, message: plan.message });
+        continue;
+      }
+      try {
+        await this.applyAction(actor, id, {
+          action: plan.runtimeAction,
+          ...(comment ? { comment } : {}),
+          idempotencyKey: itemKey,
+        });
+        done.push({ id, code: instance.code });
+      } catch (error) {
+        if (!(error instanceof ProcedureEngineError)) {
+          console.warn(`[procedure-engine] Xử lý hàng loạt hồ sơ ${instance.code} lỗi hệ thống`, error);
+        }
+        skipped.push({
+          id,
+          code: instance.code,
+          reason: 'failed',
+          message:
+            error instanceof ProcedureEngineError
+              ? error.message
+              : 'Không xử lý được do lỗi hệ thống; hãy thử lại.',
+        });
+      }
+    }
+    return { done, skipped };
+  }
+
+  /**
    * Thân của `applyAction`, chạy trong một transaction do bên gọi mở. Tách ra để
    * `startInstance` tự hoàn thành bước S ngay trong giao dịch tạo hồ sơ mà vẫn
    * dùng đúng một logic (phân quyền, thuộc tính bắt buộc, rẽ nhánh, phân công động).
@@ -3603,7 +3810,15 @@ export class ProcedureEngineApplication {
       );
     }
     const authorization = deriveProcedureAuthorization(instance, actor);
-    if (!authorization.availableActions.includes(input.action)) {
+    // Hoàn duyệt không đi qua `availableActions`: người hoàn duyệt không còn giữ pha hiện tại (xem `findWithdrawPlan`).
+    if (input.action === 'withdraw') {
+      if (!authorization.canWithdraw) {
+        throw new ProcedureEngineError(
+          'conflict',
+          'Không hoàn duyệt được: bạn không phải người vừa duyệt, hoặc bước kế tiếp đã được xử lý.',
+        );
+      }
+    } else if (!authorization.availableActions.includes(input.action)) {
       throw new ProcedureEngineError(
         'forbidden',
         'Vai trò RCSI hiện tại không cho phép thực hiện thao tác này.',
@@ -3618,6 +3833,9 @@ export class ProcedureEngineApplication {
 
     const current = instance.steps.find((step) => step.id === instance.currentStepId);
     const now = this.clock.now().toISOString();
+    // Bước ghi vào nhật ký: mặc định là bước đang xử lý; hoàn duyệt ghi vào bước được mở lại.
+    let activityStepId = current?.id;
+    let activitySummary = summaryOverride;
     // Hồ sơ mở trước khi có rẽ nhánh chưa có đường đi: dựng một lần ở đây.
     ensurePath(instance);
     // Nhập thuộc tính cùng lúc với hành động: ghi trước để rẽ nhánh phía dưới
@@ -3646,6 +3864,20 @@ export class ProcedureEngineApplication {
         if (!current) this.noCurrentStep();
         this.returnToPreviousStep(instance, current, now, input.returnToStepId, managers);
         break;
+      case 'withdraw': {
+        const plan = findWithdrawPlan(instance, actor.userId);
+        if (!plan) this.noCurrentStep();
+        withdrawApproval(
+          instance,
+          plan,
+          this.flowContext(now, managers),
+          (step) => this.resetStepWork(instance, step),
+          (step) => this.stopStepClock(step),
+        );
+        activityStepId = plan.stepId;
+        activitySummary = `Đã hoàn duyệt, quay lại xử lý bước “${plan.stepName}”.`;
+        break;
+      }
       case 'complete':
       case 'approve':
         if (!current) this.noCurrentStep();
@@ -3673,10 +3905,10 @@ export class ProcedureEngineApplication {
       action: input.action,
       actorId: actor.userId,
       actorName: actor.displayName,
-      summary: summaryOverride ?? this.actionSummary(input.action),
+      summary: activitySummary ?? this.actionSummary(input.action),
       comment: input.comment?.trim() || undefined,
       createdAt: now,
-      stepInstanceId: current?.id,
+      stepInstanceId: activityStepId,
       idempotencyKey,
     });
     state.idempotency[idempotencyKey] = instance.id;
@@ -3990,6 +4222,7 @@ export class ProcedureEngineApplication {
       idempotencyKey: workItemIdempotencyKey(request.workItemId, request.requestId),
       sourceType: 'workspace_work_item',
       sourceId: request.workItemId,
+      workspaceProject: workspaceProjectRef(request),
     });
   }
 
@@ -4032,20 +4265,25 @@ export class ProcedureEngineApplication {
       readonly idempotencyKey: string;
       readonly sourceType: 'workspace_work_item' | 'workspace_standalone_task';
       readonly sourceId: string;
+      readonly workspaceProject?: ProcedureWorkspaceProjectRef;
     },
   ): Promise<{ ok: true; instance: ProcedureInstance } | { ok: false; reason: string }> {
     const requesterActor = await this.workspaceRequesterActor(tenantId, requester);
     if ('reason' in requesterActor) return { ok: false, reason: requesterActor.reason };
     const actor = requesterActor.actor;
     try {
-      const { instance } = await this.startInstanceDetailed(actor, {
-        definitionId: start.definitionId,
-        title: start.title,
-        idempotencyKey: start.idempotencyKey,
-        sourceType: start.sourceType,
-        sourceId: start.sourceId,
-        initiatedByName: requester.requestedByName,
-      });
+      const { instance } = await this.startInstanceDetailed(
+        actor,
+        {
+          definitionId: start.definitionId,
+          title: start.title,
+          idempotencyKey: start.idempotencyKey,
+          sourceType: start.sourceType,
+          sourceId: start.sourceId,
+          initiatedByName: requester.requestedByName,
+        },
+        start.workspaceProject ? { workspaceProject: start.workspaceProject } : undefined,
+      );
       return { ok: true, instance };
     } catch (error) {
       if (error instanceof ProcedureEngineError) return { ok: false, reason: error.message };
@@ -4168,13 +4406,21 @@ export class ProcedureEngineApplication {
         }
 
         if (!old) throw new ProcedureEngineError('not_found', 'Không tìm thấy hồ sơ hiện tại của công việc.');
-        if (old.sourceType !== 'workspace_work_item' || old.sourceId !== workItemId) {
+        // Đối chiếu với công việc ĐANG gắn hồ sơ (sau "Đổi công việc liên kết" hoặc hồ sơ mở tay gắn dự án), không
+        // phải công việc gốc lúc mở hồ sơ: id công việc cũ đã bị thay thì bị từ chối.
+        if (old.workspaceLink?.status === 'pending') {
+          throw new ProcedureEngineError(
+            'conflict',
+            'Hồ sơ đang chờ Workspace đổi công việc liên kết; hãy tải lại sau khi đổi xong rồi thử lại.',
+          );
+        }
+        if (linkedWorkItemId(old) !== workItemId) {
           throw new ProcedureEngineError('conflict', 'Hồ sơ này không thuộc công việc đang đổi quy trình.');
         }
         if (old.deletion || old.status !== 'running' || old.reversal) {
           throw new ProcedureEngineError(
             'conflict',
-            replaceableInstanceReason(old, settings.engineChangeEligibility) ?? REPLACE_REASON_ENDED,
+            replaceableInstanceReason(old, settings.engineChangeEligibility, workItemId) ?? REPLACE_REASON_ENDED,
           );
         }
         if (old.definitionId === definitionId) {
@@ -4195,7 +4441,7 @@ export class ProcedureEngineApplication {
                 : 'Chỉ người tạo hồ sơ, người phê duyệt (vai A) hoặc quản trị mới đổi được quy trình.',
           );
         }
-        const untouched = replaceableInstanceReason(old, settings.engineChangeEligibility);
+        const untouched = replaceableInstanceReason(old, settings.engineChangeEligibility, workItemId);
         if (untouched) throw new ProcedureEngineError('conflict', untouched);
         if (attachmentCount > 0) throw new ProcedureEngineError('conflict', REPLACE_REASON_ATTACHMENTS);
 
@@ -4225,6 +4471,10 @@ export class ProcedureEngineApplication {
         });
         const firstStep = instance.steps.find((step) => step.id === instance.currentStepId);
         if (firstStep && startCheck) firstStep.materialCheck = startCheck;
+        // Cùng công việc nên cùng dự án: hồ sơ mới giữ dự án của hồ sơ cũ. Liên kết đã gắn (đổi công việc / mở tay
+        // gắn dự án) là dự án hiện tại của công việc, nên được ưu tiên hơn dự án chụp lúc mở hồ sơ.
+        const project = currentWorkspaceProject(old);
+        if (project) instance.workspaceProject = project;
         state.instances.push(instance);
         state.idempotency[key] = instance.id;
 
@@ -4284,7 +4534,10 @@ export class ProcedureEngineApplication {
   async applyWorkspaceLinkResult(
     tenantId: string,
     result:
-      | { instanceId: string; linked: { workItemId: string; workItemCode: string; projectCode: string } }
+      | {
+          instanceId: string;
+          linked: { workItemId: string; workItemCode: string; projectCode: string; projectName?: string };
+        }
       | { instanceId: string; rejected: string },
   ): Promise<void> {
     const now = this.clock.now().toISOString();
@@ -4302,6 +4555,8 @@ export class ProcedureEngineApplication {
           status: 'linked',
           workItemId: result.linked.workItemId,
           workItemCode: result.linked.workItemCode,
+          // Tên dự án Workspace báo kèm, để màn hồ sơ hiện hồ sơ thuộc dự án nào; sự kiện cũ không có thì giữ tên đã có.
+          ...(result.linked.projectName?.trim() ? { projectName: result.linked.projectName.trim() } : {}),
           error: undefined,
           resolvedAt: now,
         };
@@ -4561,8 +4816,9 @@ export class ProcedureEngineApplication {
     return `PR-${now.slice(0, 10).replaceAll('-', '')}-${id.slice(0, 6).toUpperCase()}`;
   }
 
-  private actionSummary(action: ProcedureRuntimeAction): string {
-    const labels: Record<ProcedureRuntimeAction, string> = {
+  private actionSummary(action: ProcedureApplyAction): string {
+    const labels: Record<ProcedureApplyAction, string> = {
+      withdraw: 'Đã hoàn duyệt, quay lại xử lý bước vừa duyệt.',
       approve: 'Đã phê duyệt pha xử lý hiện tại.',
       reject: 'Đã từ chối phiên quy trình.',
       return: 'Đã trả hồ sơ về bước trước.',

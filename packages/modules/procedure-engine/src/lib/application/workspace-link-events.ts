@@ -97,6 +97,7 @@ export class ProcedureWorkspaceEvents {
           workItemId: linked.workItemId,
           workItemCode: linked.workItemCode,
           projectCode: linked.projectCode,
+          ...(linked.projectName ? { projectName: linked.projectName } : {}),
         },
       });
     } else if (type === WORK_ITEM_REVERSED) {

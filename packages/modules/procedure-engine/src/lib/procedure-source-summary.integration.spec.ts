@@ -20,6 +20,9 @@ import { ProcedureEngineApplication } from './application/procedure-engine.appli
 import type { ProcedureActor } from './domain/procedure-authorization.js';
 import { PostgresProcedureStore } from './infrastructure/postgres-procedure-store.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 const ADMIN_URL_ENV = 'PROCEDURE_TEST_ADMIN_URL';
 const integration = process.env[ADMIN_URL_ENV] ? describe : describe.skip;
 
@@ -134,7 +137,7 @@ integration('Thông tin nguồn của hồ sơ (PostgreSQL)', () => {
     );
     expect(info.rows).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }]);
 
-    const plain = await application.startInstance(seller, { definitionId, title: 'Hồ sơ thường', idempotencyKey: randomUUID() });
+    const plain = await application.startInstance(seller, { workspaceLink: TEST_WORKSPACE_LINK, definitionId, title: 'Hồ sơ thường', idempotencyKey: randomUUID() });
     const withSource = await application.createInstance(TENANT, {
       definitionId,
       title: 'Có nguồn',
