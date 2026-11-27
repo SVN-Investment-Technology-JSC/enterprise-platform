@@ -384,6 +384,35 @@ describe('workspace work item completion', () => {
   });
 });
 
+describe('workspace work item reopened', () => {
+  const payload = {
+    workItemId: 'item-1',
+    projectId: 'project-1',
+    code: 'CV001',
+    title: 'Lập báo cáo',
+    reason: 'Chủ nhiệm đã chuyển công việc CV002 vào làm việc con của công việc này.',
+    recipientUserIds: ['creator', 'assignee', 'actor'],
+    actorUserId: 'actor',
+  };
+
+  it('báo người giao và người thực hiện, không báo người vừa thao tác, kèm lý do', async () => {
+    const resolved = await registry.resolve(event('workspace.work-item.reopened', payload), directory());
+    expect(resolved?.recipients).toEqual(['creator', 'assignee']);
+    expect(resolved?.template.title).toBe('Công việc được mở lại');
+    expect(resolved?.template.body).toContain('CV001');
+    expect(resolved?.template.body).toContain('Chủ nhiệm đã chuyển công việc CV002');
+    expect(resolved?.template.deepLink).toContain('work-item/item-1');
+  });
+
+  it('mỗi lần mở lại là một thông báo riêng', async () => {
+    const make = (eventId: string) =>
+      registry.resolve({ ...event('workspace.work-item.reopened', payload), id: eventId }, directory());
+    const first = await make('10000000-0000-4000-8000-0000000000c1');
+    const second = await make('10000000-0000-4000-8000-0000000000c2');
+    expect(first?.template.sourceId).not.toBe(second?.template.sourceId);
+  });
+});
+
 describe('hrm request status changes', () => {
   const resolve = (eventId: string, status: string) =>
     registry.resolve(

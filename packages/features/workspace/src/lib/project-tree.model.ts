@@ -214,3 +214,22 @@ export function moveTargets(items: readonly WorkItem[], itemId: string): WorkIte
       item.depth + 1 + height <= MAX_WORK_ITEM_DEPTH - 1,
   );
 }
+
+/**
+ * Các công việc đã hoàn thành sẽ bị mở lại (về "Đang làm") khi chuyển `moving` vào dưới `targetId`: cha đích và mọi cha
+ * đã xong phía trên nó, từ trong ra ngoài. Rỗng khi không cần mở lại — chuyển lên gốc, đích chưa xong, hoặc chính việc
+ * chuyển đã xong/huỷ. Cùng luật với `move` ở server; server vẫn kiểm lại.
+ */
+export function reopenChainForMove(
+  items: readonly WorkItem[],
+  moving: Pick<WorkItem, 'status'>,
+  targetId: string | null | undefined,
+): WorkItem[] {
+  if (!targetId || moving.status === 'done' || moving.status === 'cancelled') return [];
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const chain: WorkItem[] = [];
+  for (let current = byId.get(targetId); current?.status === 'done'; current = current.parentId ? byId.get(current.parentId) : undefined) {
+    chain.push(current);
+  }
+  return chain;
+}
