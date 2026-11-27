@@ -40,15 +40,20 @@ const renderOverview = (props: Partial<Parameters<typeof TabOverview>[0]> = {}) 
 };
 
 describe('TabOverview: tab Trao đổi', () => {
-  it('đứng ngay sau Chi tiết, có số tin chưa đọc, chỉ dựng khung trao đổi khi mở tab', () => {
+  it('đứng đầu và mở sẵn khi mở công việc, có số tin chưa đọc', () => {
     renderOverview({ chatUnread: 3 });
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
-    expect(tabs[0]).toBe('Chi tiết');
-    expect(tabs[1]).toBe('Trao đổi 3');
-    // Chưa mở tab thì khung trao đổi chưa có trên trang (chưa tải luồng, chưa đánh dấu đã đọc).
-    expect(screen.queryByText('Khung trao đổi')).toBeNull();
-    fireEvent.click(screen.getByRole('tab', { name: /Trao đổi/ }));
+    expect(tabs[0]).toBe('Trao đổi 3');
+    expect(tabs[1]).toBe('Chi tiết');
     expect(screen.getByText('Khung trao đổi')).toBeTruthy();
+    // Chuyển sang Chi tiết thì khung trao đổi rời trang (chỉ dựng khi tab đang mở).
+    fireEvent.click(screen.getByRole('tab', { name: 'Chi tiết' }));
+    expect(screen.queryByText('Khung trao đổi')).toBeNull();
+  });
+
+  it('không có trao đổi thì mở sẵn Chi tiết', () => {
+    renderOverview({ renderChat: undefined });
+    expect(screen.getByRole('tab', { name: 'Chi tiết' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('nơi gọi yêu cầu mở thẳng tab Trao đổi rồi được báo đã xong', async () => {

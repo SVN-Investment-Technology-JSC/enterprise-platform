@@ -14,7 +14,7 @@ const STORAGE_KEY = 'workspace.projects-list.v1';
 /** Dấu "vừa xem" chỉ còn giá trị chừng này (ms) sau lúc mở dự án: quay lại muộn hơn thì không còn là "vừa". */
 export const RETURN_MARK_TTL_MS = 30 * 60 * 1000;
 
-export type ProjectListScope = 'active' | 'archived';
+export type ProjectListScope = 'active' | 'archived' | 'all';
 
 export interface ProjectListMemory {
   readonly scope: ProjectListScope;
@@ -56,7 +56,7 @@ function parse(raw: string | null): Stored {
     const list: Partial<ProjectListMemory> = value.list ?? {};
     return {
       list: {
-        scope: list.scope === 'archived' ? 'archived' : 'active',
+        scope: list.scope === 'archived' || list.scope === 'all' ? list.scope : 'active',
         expanded: Array.isArray(list.expanded) ? list.expanded.filter((entry) => typeof entry === 'string') : [],
         statusFilter: text(list.statusFilter),
         typeFilter: text(list.typeFilter),

@@ -308,12 +308,13 @@ export class WorkItemService {
         ? {
             definitionId: procedureDefinitionId,
             projectCode: access.project.code,
+            projectName: access.project.name,
             requestedByName: actor.displayName,
             requestedByIsTenantAdmin: actor.isTenantAdmin,
           }
         : undefined,
       linkedInstance: linkedInstance
-        ? { ...linkedInstance, projectCode: access.project.code }
+        ? { ...linkedInstance, projectCode: access.project.code, projectName: access.project.name }
         : undefined,
     });
 
@@ -377,6 +378,7 @@ export class WorkItemService {
       title: item.title,
       definitionId: requireUuid(definitionId, 'Quy trình'),
       projectCode: access.project.code,
+      projectName: access.project.name,
       requestedByName: actor.displayName,
       requestedByIsTenantAdmin: actor.isTenantAdmin,
     });

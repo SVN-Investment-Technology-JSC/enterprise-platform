@@ -1191,12 +1191,13 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
           contractValue,
           members?: ReadonlyArray<{ userId: string; role: ProjectRole }>,
           relatedObjects?: readonly PendingRelatedObject[],
+          reportGroupId?: string,
         ) => {
           const created = await api.createProject(input);
           const warning = initialTasksWarning(created);
           if (warning) setError(warning);
           // Số tiền, thành viên (PUT .../members, cần đúng một chủ nhiệm) và đối tượng liên quan đi đường riêng.
-          const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects });
+          const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects, reportGroupId });
           for (const text of warnings) toast.warning(text);
           invalidateMyWork();
           onOpen?.(created.id, `project/${created.id}`);

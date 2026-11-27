@@ -163,7 +163,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
         <div className={styles.finKpis}>
           <Tooltip content={formatVnd(contract)}>
             <div className={styles.finKpi}>
-              <span className={styles.finKpiLabel}>Giá trị hợp đồng</span>
+              <span className={styles.finKpiLabel}>Giá trị hợp đồng (trước VAT)</span>
               <span className={styles.finKpiValue}>{formatVndCompact(contract)}</span>
               <span className={styles.finKpiSub}>{contract == null ? 'Chưa nhập hợp đồng' : formatVnd(contract)}</span>
               <button type="button" className={styles.finKpiEdit} onClick={() => setEditing(true)}>
@@ -228,7 +228,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
             )}
             <Tooltip content="Gồm phiếu chờ duyệt và phiếu từ hồ sơ Quy trình đã duyệt đang chờ kế toán ghi sổ. Chưa ghi sổ nên chưa tính vào số liệu trên">
               <span className={styles.finPending}>
-                Chờ duyệt/ghi sổ: thu <b>{formatVnd(data.totals.pendingReceived)}</b> · chi <b>{formatVnd(data.totals.pendingPaid)}</b>
+                Nháp (chưa ghi sổ): thu <b>{formatVnd(data.totals.pendingReceived)}</b> · chi <b>{formatVnd(data.totals.pendingPaid)}</b>
               </span>
             </Tooltip>
           </div>
@@ -320,7 +320,6 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                         options={[
                           { value: 'all', label: 'Mọi trạng thái' },
                           { value: 'APPROVED', label: PROJECT_VOUCHER_STATUS_LABELS.APPROVED },
-                          { value: 'PENDING', label: PROJECT_VOUCHER_STATUS_LABELS.PENDING },
                           { value: 'DRAFT', label: PROJECT_VOUCHER_STATUS_LABELS.DRAFT },
                         ]}
                         onChange={(value) => setFilter((current) => ({ ...current, status: value as ProjectVoucherFilter['status'] }))}
@@ -550,14 +549,14 @@ function ContractDialog({
     <Dialog
       open={open}
       title="Giá trị hợp đồng"
-      subtitle="Đơn vị VND. Gõ 25.500.000.000 hoặc 25500000000 đều được."
+      subtitle="Đơn vị VND, chưa gồm VAT. Gõ 25.500.000.000 hoặc 25500000000 đều được."
       submitLabel="Lưu"
       submitting={submitting}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Giá trị hợp đồng" hint="Để trống nếu chưa ký hợp đồng.">
+      <Field label="Giá trị hợp đồng (trước VAT)" hint="Để trống nếu chưa ký hợp đồng.">
         <input inputMode="decimal" value={contract} onChange={(event) => setContract(event.target.value)} />
       </Field>
     </Dialog>

@@ -148,6 +148,8 @@ export interface ProcedureWorkItemStartRejectedPayload {
 export interface WorkItemProcedureRequestDraft {
   readonly definitionId: string;
   readonly projectCode: string;
+  /** Tên dự án gửi kèm sự kiện, để màn hồ sơ bên Quy trình hiện hồ sơ thuộc dự án nào. */
+  readonly projectName?: string;
   readonly requestedByName?: string;
   readonly requestedByIsTenantAdmin: boolean;
 }
@@ -158,6 +160,8 @@ export interface WorkItemLinkedInstanceDraft {
   readonly instanceCode: string;
   readonly instanceStatus: string;
   readonly projectCode: string;
+  /** Tên dự án gửi kèm `procedure_linked`. */
+  readonly projectName?: string;
 }
 
 /* -------------------------------------------- Công việc ngoài dự án ↔ Quy trình */

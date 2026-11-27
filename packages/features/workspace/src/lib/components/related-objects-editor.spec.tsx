@@ -5,14 +5,18 @@ import {
 } from '@enterprise-platform/contracts-workspace';
 import { useState } from 'react';
 import { pendingRelatedRow, type PendingRelatedObject } from '../related-objects.model';
-import { searchRelatedObjects } from '../workspace-api';
+import { createRelatedObjectRecord, getRelatedObjectCreateForm, searchRelatedObjects } from '../workspace-api';
 import { RelatedObjectsEditor } from './related-objects-editor';
 
 jest.mock('../workspace-api', () => ({
   searchRelatedObjects: jest.fn(),
+  getRelatedObjectCreateForm: jest.fn(),
+  createRelatedObjectRecord: jest.fn(),
 }));
 
 const search = searchRelatedObjects as jest.Mock;
+const loadCreateForm = getRelatedObjectCreateForm as jest.Mock;
+const createRecord = createRelatedObjectRecord as jest.Mock;
 
 const CONTRACT: RelatedObjectKind = {
   key: 'crm.contract',
@@ -177,6 +181,46 @@ describe('RelatedObjectsEditor', () => {
     expect(screen.queryByRole('group', { name: 'Đối tượng liên quan 1: hồ sơ' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Bỏ đối tượng liên quan 1' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Thêm dòng đối tượng liên quan' })).toBeNull();
+  });
+
+  it('loại không tạo nhanh được thì không có nút tạo mới', () => {
+    render(<Harness kinds={[CONTRACT]} initial={[pendingRelatedRow({ kind: 'crm.contract' })]} />);
+    fireEvent.click(screen.getByRole('button', { name: /Đối tượng liên quan/ }));
+    expect(screen.queryByRole('button', { name: 'Tạo mới đối tượng liên quan 1' })).toBeNull();
+  });
+
+  it('loại tạo nhanh được: tạo ngay tại dòng, hồ sơ mới thành hồ sơ đã chọn của dòng (chưa gắn)', async () => {
+    loadCreateForm.mockResolvedValue({
+      kind: 'crm.contract',
+      title: 'Lập hợp đồng',
+      fields: [{ key: 'title', label: 'Tên hợp đồng', type: 'text', required: true }],
+    });
+    createRecord.mockResolvedValue({
+      kind: 'crm.contract',
+      id: 'c-new',
+      code: 'HĐ-009',
+      label: 'Hợp đồng giấy',
+      launchUrl: '/modules/crm#contracts/c-new',
+      fields: [],
+      upstream: [],
+    });
+    const changes = jest.fn();
+    render(
+      <Harness kinds={[{ ...CONTRACT, create: true }]} initial={[pendingRelatedRow({ kind: 'crm.contract' })]} onChange={changes} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Đối tượng liên quan/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo mới đối tượng liên quan 1' }));
+    expect(loadCreateForm).toHaveBeenCalledWith('crm.contract');
+    fireEvent.change(await screen.findByLabelText('Tên hợp đồng'), { target: { value: 'Hợp đồng giấy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo' }));
+    await waitFor(() =>
+      expect(changes).toHaveBeenLastCalledWith([
+        expect.objectContaining({ kind: 'crm.contract', objectId: 'c-new', label: 'HĐ-009 — Hợp đồng giấy' }),
+      ]),
+    );
+    // Đã có hồ sơ: dòng không còn nút tạo mới, hộp thoại đã đóng.
+    expect(screen.queryByRole('button', { name: 'Tạo mới đối tượng liên quan 1' })).toBeNull();
+    expect(screen.queryByLabelText('Tên hợp đồng')).toBeNull();
   });
 
   it('đủ số dòng tối đa thì khoá nút "+"', () => {

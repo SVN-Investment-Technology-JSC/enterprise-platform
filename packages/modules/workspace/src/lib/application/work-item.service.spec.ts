@@ -754,6 +754,7 @@ describe('WorkItemService.requestProcedure', () => {
 
   function storeFor(items: WorkItem[], refs: { moduleKey: string }[] = []) {
     const requested: { workItemId: string; definitionId: string }[] = [];
+    const projects: { projectCode?: string; projectName?: string }[] = [];
     const { store } = makeStore({ items, roles: { u1: 'member' } });
     Object.assign(store, {
       externalRef: { listByEntity: async () => refs },
@@ -762,20 +763,23 @@ describe('WorkItemService.requestProcedure', () => {
         request: async (
           _tenant: string,
           _actor: string,
-          input: { workItemId: string; definitionId: string },
+          input: { workItemId: string; definitionId: string; projectCode?: string; projectName?: string },
         ) => {
           requested.push({ workItemId: input.workItemId, definitionId: input.definitionId });
+          projects.push({ projectCode: input.projectCode, projectName: input.projectName });
           return { workItemId: input.workItemId, status: 'pending' } as never;
         },
       },
     });
-    return { store, requested };
+    return { store, requested, projects };
   }
 
   it('việc tạo ở dạng thủ công vẫn mở được quy trình từ nút "Quy trình"', async () => {
-    const { store, requested } = storeFor([item({ id: 'w1', executionType: 'manual' })]);
+    const { store, requested, projects } = storeFor([item({ id: 'w1', executionType: 'manual' })]);
     await serviceFor(store).requestProcedure(actorOf('u1'), 'w1', DEFINITION);
     expect(requested).toEqual([{ workItemId: 'w1', definitionId: DEFINITION }]);
+    // Mã và tên dự án đi kèm yêu cầu để hồ sơ bên Quy trình biết mình thuộc dự án nào.
+    expect(projects).toEqual([{ projectCode: 'DA-1', projectName: 'Dự án' }]);
   });
 
   it('việc đã hoàn thành vẫn mở được quy trình (ví dụ đề nghị thanh toán)', async () => {

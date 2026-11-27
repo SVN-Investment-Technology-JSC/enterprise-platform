@@ -1,5 +1,8 @@
 import type {
   LinkableCandidate,
+  LinkableCreateForm,
+  LinkableCreatePreview,
+  LinkableCreateRequest,
   LinkableKind,
   LinkableObject,
 } from '@enterprise-platform/contracts-integration';
@@ -83,6 +86,11 @@ export interface LinkableViewer {
   readonly tenantId: string;
   readonly userId: string;
   readonly accessToken: string;
+  /**
+   * CSRF của chính phiên người dùng (đã được guard của Workspace đối chiếu với cookie `ep_csrf`), chỉ cần cho lệnh ghi
+   * (tạo nhanh): module gốc đòi CSRF cho mọi request ghi như khi trình duyệt gọi thẳng.
+   */
+  readonly csrfToken?: string;
 }
 
 /**
@@ -103,12 +111,42 @@ export class LinkableProviderError extends Error {
   }
 }
 
+/**
+ * Module gốc từ chối dữ liệu tạo nhanh: thiếu ô, sai định dạng, người dùng không có quyền tạo, hay cần xác nhận
+ * (`LINKABLE_CONFIRM_REQUIRED` kèm `warnings`). Câu chữ là của module gốc, đã lọc, hiện thẳng trong hộp thoại.
+ */
+export class LinkableCreateRejectedError extends Error {
+  constructor(
+    readonly statusCode: number,
+    readonly code: string,
+    message: string,
+    readonly warnings: readonly string[] = [],
+    readonly field?: string,
+  ) {
+    super(message);
+    Object.setPrototypeOf(this, LinkableCreateRejectedError.prototype);
+  }
+}
+
 /** Một module công bố đối tượng liên kết được. Cài đặt ném `LinkableProviderError` khi không đọc được. */
 export interface LinkableProvider {
   readonly moduleKey: string;
   kinds(viewer: LinkableViewer): Promise<readonly LinkableKind[]>;
-  search(viewer: LinkableViewer, kind: string, q: string, limit: number): Promise<readonly LinkableCandidate[]>;
+  /** `filters`: tham số lọc của ô tham chiếu trong form tạo nhanh (đã lọc hình dạng); module gốc bỏ qua tham số lạ. */
+  search(
+    viewer: LinkableViewer,
+    kind: string,
+    q: string,
+    limit: number,
+    filters?: Readonly<Record<string, string>>,
+  ): Promise<readonly LinkableCandidate[]>;
   resolve(viewer: LinkableViewer, kind: string, ids: readonly string[]): Promise<readonly LinkableObject[]>;
+  /** Form tạo nhanh (tuỳ chọn); module không hỗ trợ thì ném `LinkableProviderError('module_unavailable')`. */
+  createForm?(viewer: LinkableViewer, kind: string): Promise<LinkableCreateForm>;
+  /** Tạo hồ sơ ở module gốc; dữ liệu bị từ chối thì ném `LinkableCreateRejectedError`. */
+  create?(viewer: LinkableViewer, kind: string, request: LinkableCreateRequest): Promise<LinkableObject>;
+  /** Xem trước theo giá trị một ô có `preview`; giá trị bị từ chối thì ném `LinkableCreateRejectedError`. */
+  createPreview?(viewer: LinkableViewer, kind: string, field: string, value: string): Promise<LinkableCreatePreview>;
 }
 
 /** Các module Workspace biết hỏi; thứ tự là thứ tự hiện trong menu. */

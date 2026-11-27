@@ -8,6 +8,7 @@ import {
   DEFAULT_PROJECT_PROGRESS_METHOD,
   type Project,
   type ProjectProgressMethod,
+  type ProjectReportGroup,
   type ProjectRole,
   type ProjectSummary,
   type ProjectTypeOption,
@@ -27,10 +28,12 @@ import {
   linkCrmCustomer,
   listCustomers,
   listProjectGroups,
+  listProjectReportGroups,
   listProjectTypes,
   loadProjectArchiveSettings,
   previewProjectCode,
   searchCrmCustomers,
+  setProjectReportGroup,
 } from '../workspace-api';
 import { createProjectGroupNamed } from '../project-group-create';
 import { PROGRESS_METHOD_INFO, PROGRESS_METHOD_ORDER } from '../project-progress-methods';
@@ -40,12 +43,17 @@ import { ErrorToast } from './error-toast';
 import { Choice } from './choice';
 import { Dialog, Field } from './dialog';
 import { PeoplePicker } from './people-picker';
+import { RelatedObjectCreateDialog } from './related-object-create-dialog';
 import { RelatedObjectsEditor } from './related-objects-editor';
 import { TagPicker } from './tag-picker';
 import { TaskTitleListEditor } from './task-title-list-editor';
+import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 import { roleOptions, useProjectRoles } from './use-project-roles';
 import { useRelatedObjectKinds } from './use-related-object-kinds';
+
+/** Loại "khách hàng" của Bán hàng trong giao thức đối tượng liên kết: tạo nhanh khách đi qua đúng loại này. */
+const CRM_CUSTOMER_KIND = 'crm.customer';
 
 export interface ProjectFormProps {
   readonly open: boolean;
@@ -71,6 +79,8 @@ export interface ProjectFormProps {
     contractValue?: number | null,
     members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>,
     relatedObjects?: readonly PendingRelatedObject[],
+    /** Nhóm báo cáo chọn lúc tạo; nơi gọi gán sau khi dự án đã có (xem `finishProjectCreate`), lỗi chỉ cảnh báo. */
+    reportGroupId?: string,
   ) => Promise<void>;
   readonly onUpdate: (
     input: UpdateProjectRequest,
@@ -98,6 +108,8 @@ interface FormState {
   endDate: string;
   /** Chuỗi người dùng gõ, có dấu chấm ngăn nghìn; đọc bằng `parseVndInput`. */
   contractValue: string;
+  /** Nhóm báo cáo (id trong danh mục Cài đặt > Nhóm báo cáo); rỗng là chưa phân nhóm. */
+  reportGroupId: string;
 }
 
 /** Hôm nay theo múi giờ máy người dùng, dạng `YYYY-MM-DD` cho ô `type="date"`. */
@@ -128,6 +140,7 @@ const emptyForm = (): FormState => ({
   startDate: today(),
   endDate: today(),
   contractValue: '',
+  reportGroupId: '',
 });
 
 export function ProjectForm({
@@ -148,6 +161,8 @@ export function ProjectForm({
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
   /** Chỉ quản trị tenant được thêm nhóm; người khác không thấy ô thêm nhóm trong danh sách. */
   const [canCreateGroup, setCanCreateGroup] = useState(false);
+  /** Danh mục nhóm báo cáo; rỗng (tenant chưa lập) thì không hiện ô "Nhóm báo cáo". */
+  const [reportGroups, setReportGroups] = useState<readonly ProjectReportGroup[]>([]);
   /** Khách hàng để chọn làm chủ quản của dự án. */
   const [customers, setCustomers] = useState<readonly CustomerSummary[]>([]);
   /** Mở phần tạo nhanh khách hàng mới ngay trong hộp dự án. */
@@ -163,6 +178,8 @@ export function ProjectForm({
   const [crmOptions, setCrmOptions] = useState<readonly CrmCustomerOption[]>([]);
   const [crmSearch, setCrmSearch] = useState('');
   const [linkingCustomer, setLinkingCustomer] = useState(false);
+  /** Đang mở hộp thoại tạo khách ngay tại đây; khách được tạo ở Bán hàng (form và quyền của Bán hàng) rồi gắn như chọn. */
+  const [creatingCrmCustomer, setCreatingCrmCustomer] = useState(false);
   /** "Thêm người" lúc tạo: bật mục rồi chọn người, mỗi người đặt vai trò riêng. */
   const [addPeople, setAddPeople] = useState(false);
   /** Mã dự kiến theo quy tắc ở Cài đặt (chỉ khi tạo); đổi nhóm dự án thì tính lại. */
@@ -176,7 +193,9 @@ export function ProjectForm({
   const tasksTouched = useRef(false);
   const methodTouched = useRef(false);
   /** Loại hồ sơ gắn được; rỗng thì không có khối "Đối tượng liên quan" (form sửa vẫn hiện liên kết đã lưu). */
-  const { kinds: relatedKinds } = useRelatedObjectKinds(open);
+  const { kinds: relatedKinds, loaded: relatedKindsLoaded } = useRelatedObjectKinds(open);
+  /** Bán hàng cho người này tạo khách ngay trong form (bản Bán hàng có tạo nhanh và họ có quyền tạo khách). */
+  const crmCustomerCreatable = relatedKinds.some((kind) => kind.key === CRM_CUSTOMER_KIND && kind.create);
   /** Danh sách đang sửa của khối "Đối tượng liên quan" (dòng mới và liên kết đã lưu). */
   const [related, setRelated] = useState<PendingRelatedObject[]>([]);
   /**
@@ -193,6 +212,9 @@ export function ProjectForm({
     listProjectGroups()
       .then((result) => setCanCreateGroup(result.canEdit))
       .catch(() => setCanCreateGroup(false));
+    listProjectReportGroups()
+      .then((result) => setReportGroups(result.items))
+      .catch(() => setReportGroups([]));
     listCustomers()
       .then((items) => setCustomers(items))
       .catch(() => setCustomers([]));
@@ -282,6 +304,7 @@ export function ProjectForm({
             startDate: project.startDate ?? '',
             endDate: project.endDate ?? '',
             contractValue: toVndInput(project.finance?.contractValue),
+            reportGroupId: project.reportGroupId ?? '',
           }
         : emptyForm(),
     );
@@ -295,6 +318,7 @@ export function ProjectForm({
     setSavingCustomer(false);
     setCrmSearch('');
     setLinkingCustomer(false);
+    setCreatingCrmCustomer(false);
     setRelated([]);
     setRelatedBase(project ? undefined : { rows: [], canAdd: true });
   }, [open, project]);
@@ -392,6 +416,11 @@ export function ProjectForm({
 
   const submit = async () => {
     setError(undefined);
+    // Khách hàng bắt buộc cả lúc tạo lẫn lúc sửa (dự án cũ chưa có khách phải chọn khi sửa).
+    if (!form.customerId) {
+      setError('Chọn khách hàng cho dự án.');
+      return;
+    }
 
     /*
      * Đọc ô giá trị hợp đồng.
@@ -416,6 +445,17 @@ export function ProjectForm({
     setSubmitting(true);
     try {
       if (project) {
+        // Nhóm báo cáo đi endpoint riêng, chỉ khi đổi, và TRƯỚC khi lưu dự án: nơi gọi tải lại chi tiết sau `onUpdate`,
+        // nên chip "Nhóm báo cáo" hiện ngay nhóm mới. Lỗi chỉ cảnh báo, không chặn lưu các trường khác.
+        const nextReportGroup = form.reportGroupId || null;
+        if (nextReportGroup !== (project.reportGroupId ?? null)) {
+          try {
+            await setProjectReportGroup(project.id, { reportGroupId: nextReportGroup });
+          } catch (cause) {
+            const reason = ((cause as { message?: string })?.message ?? '').replace(/[.\s]+$/, '');
+            toast.warning(`Chưa đổi được nhóm báo cáo${reason ? ` (${reason})` : ''}.`);
+          }
+        }
         await onUpdate({
           name: form.name,
           description: form.description || undefined,
@@ -460,7 +500,7 @@ export function ProjectForm({
             templateLoaded || tasksTouched.current
               ? initialTasks.map((title) => title.trim()).filter(Boolean)
               : undefined,
-        }, contractValue, members, completedRelated(related));
+        }, contractValue, members, completedRelated(related), form.reportGroupId || undefined);
       }
       onClose();
     } catch (cause) {
@@ -573,32 +613,55 @@ export function ProjectForm({
           />
         </Field>
         {crmMode ? (
-          <Field
-            label="Khách hàng"
-          >
-            <input
-              value={crmSearch}
-              placeholder="Tìm ở CRM theo mã, tên hoặc mã số thuế…"
-              aria-label="Tìm khách hàng ở CRM"
-              maxLength={100}
-              onChange={(event) => setCrmSearch(event.target.value)}
-            />
-            <SearchableSelect
-              options={crmSelectOptions}
-              value={crmSelectValue}
-              placeholder="Chọn khách hàng từ CRM…"
-              emptyText="Không có khách hàng nào khớp ở CRM."
-              disabled={linkingCustomer}
-              clearable
-              onChange={(value) => void chooseCrmCustomer(value)}
-            />
+          <Field label="Khách hàng" required>
+            <div className={styles.selectWithAction}>
+              <SearchableSelect
+                options={crmSelectOptions}
+                value={crmSelectValue}
+                placeholder="Chọn khách hàng từ CRM (gõ mã, tên hoặc mã số thuế để tìm)…"
+                emptyText="Không có khách hàng nào khớp ở CRM."
+                disabled={linkingCustomer}
+                clearable
+                onSearchChange={setCrmSearch}
+                onChange={(value) => void chooseCrmCustomer(value)}
+              />
+              {/* Nút luôn có; người không được tạo khách ở CRM thấy nút mờ kèm lý do, thay vì một lối đi khác dễ nhầm. */}
+              <Tooltip
+                content={
+                  crmCustomerCreatable
+                    ? 'Thêm khách hàng mới'
+                    : relatedKindsLoaded
+                      ? 'Bạn chưa có quyền tạo khách hàng ở CRM (cần quyền ghi cơ hội / khách hàng).'
+                      : 'Đang kiểm tra quyền tạo khách hàng…'
+                }
+              >
+                <span>
+                  <button
+                    type="button"
+                    className={styles.draftIconButton}
+                    aria-label="Thêm khách hàng mới"
+                    disabled={linkingCustomer || !crmCustomerCreatable}
+                    onClick={() => setCreatingCrmCustomer(true)}
+                  >
+                    <Plus size={15} />
+                  </button>
+                </span>
+              </Tooltip>
+            </div>
             <ErrorToast message={customerError} />
-            <a className={styles.linkButton} href="/modules/crm">
-              <Plus size={13} /> Tạo khách hàng ở CRM
-            </a>
+            <RelatedObjectCreateDialog
+              kind={creatingCrmCustomer ? CRM_CUSTOMER_KIND : undefined}
+              kindLabel="Khách hàng"
+              onClose={() => setCreatingCrmCustomer(false)}
+              onCreated={(created) => {
+                setCreatingCrmCustomer(false);
+                // Khách đã có ở Bán hàng: gắn bản sao vào Workspace và chọn luôn, đúng như chọn từ danh sách.
+                void chooseCrmCustomer(`crm:${created.id}`);
+              }}
+            />
           </Field>
         ) : (
-        <Field label="Khách hàng">
+        <Field label="Khách hàng" required>
           <SearchableSelect
             options={customers.map((customer) => ({
               value: customer.id,
@@ -724,7 +787,7 @@ export function ProjectForm({
           chính — server cũng chỉ nhận lệnh ghi từ chủ nhiệm và quản lý.
         */}
         {financeEnabled ? (
-          <Field label="Giá trị hợp đồng (VND)">
+          <Field label="Giá trị hợp đồng (VND, trước VAT)" hint="Chưa gồm thuế GTGT.">
             <input
               inputMode="decimal"
               value={form.contractValue}
@@ -732,6 +795,18 @@ export function ProjectForm({
               onChange={(event) =>
                 set({ contractValue: formatVndWhileTyping(event.target.value) })
               }
+            />
+          </Field>
+        ) : null}
+        {/* Nhóm báo cáo chỉ hiện khi tenant đã lập danh mục (Cài đặt > Nhóm báo cáo). */}
+        {reportGroups.length > 0 ? (
+          <Field label="Nhóm báo cáo" hint="Lĩnh vực khi xuất báo cáo doanh thu; không bắt buộc.">
+            <Choice
+              label="Nhóm báo cáo"
+              value={reportGroups.some((group) => group.id === form.reportGroupId) ? form.reportGroupId : ''}
+              emptyOption="Chưa có nhóm báo cáo"
+              options={reportGroups.map((group) => ({ value: group.id, label: group.name }))}
+              onChange={(value) => set({ reportGroupId: value })}
             />
           </Field>
         ) : null}

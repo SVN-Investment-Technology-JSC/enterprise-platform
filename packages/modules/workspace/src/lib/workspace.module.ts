@@ -34,6 +34,7 @@ import { WorkdayRuleService } from './application/workday-rule.service.js';
 import { ProjectCodeService } from './application/project-code.service.js';
 import { WorkspaceLabelService } from './application/workspace-label.service.js';
 import { ProjectGroupService } from './application/project-group.service.js';
+import { ProjectReportGroupService } from './application/project-report-group.service.js';
 import { ProjectRoleService } from './application/project-role.service.js';
 import { MyWorkService } from './application/my-work.service.js';
 import {
@@ -55,6 +56,8 @@ import { HttpOrganizationDirectory } from './infrastructure/http-organization-di
 import { PostgresWorkspaceStore } from './infrastructure/postgres-workspace-store.js';
 import { WorkspaceController } from './presentation/workspace.controller.js';
 import { RelatedObjectsController } from './presentation/related-objects.controller.js';
+import { ProjectReportGroupsController } from './presentation/project-report-groups.controller.js';
+import { ProjectRefsController } from './presentation/project-refs.controller.js';
 import { RelatedObjectService } from './application/related-object.service.js';
 import {
   LINKABLE_PROVIDERS,
@@ -77,7 +80,7 @@ import { PostgresRelatedObjectStore } from './infrastructure/postgres-related-ob
  * guard đăng ký `TenantDatabaseReference` sau mỗi access-decision.
  */
 @Module({
-  controllers: [WorkspaceController, RelatedObjectsController],
+  controllers: [WorkspaceController, RelatedObjectsController, ProjectReportGroupsController, ProjectRefsController],
   providers: [
     TenantDatabaseRegistry,
     PostgresPoolRegistry,
@@ -129,6 +132,11 @@ import { PostgresRelatedObjectStore } from './infrastructure/postgres-related-ob
     {
       provide: ProjectGroupService,
       useFactory: (store: WorkspaceStore) => new ProjectGroupService(store),
+      inject: [WORKSPACE_STORE],
+    },
+    {
+      provide: ProjectReportGroupService,
+      useFactory: (store: WorkspaceStore) => new ProjectReportGroupService(store),
       inject: [WORKSPACE_STORE],
     },
     {
@@ -333,6 +341,7 @@ import { PostgresRelatedObjectStore } from './infrastructure/postgres-related-ob
     WorkdayRuleService,
     ProjectRoleService,
     ProjectGroupService,
+    ProjectReportGroupService,
     ProjectCodeService,
     CatalogService,
     CustomerService,

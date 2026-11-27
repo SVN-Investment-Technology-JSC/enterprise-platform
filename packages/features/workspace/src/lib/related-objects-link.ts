@@ -94,11 +94,13 @@ export interface ProjectCreateFollowUp {
   /** Người được thêm ngay lúc tạo (ngoài người tạo, đã là chủ nhiệm). */
   readonly members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>;
   readonly relatedObjects?: readonly PendingRelatedObject[];
+  /** Nhóm báo cáo chọn lúc tạo; rỗng là không gán. */
+  readonly reportGroupId?: string;
 }
 
 /**
  * Việc kèm theo khi vừa tạo dự án. Giá trị hợp đồng và thành viên giữ y như trước (cùng thứ tự, lỗi thì ném ra).
- * Đối tượng liên quan là bước mới, chạy SAU CÙNG và không bao giờ chặn: dự án đã có, liên kết nào hỏng chỉ thành lời
+ * Đối tượng liên quan rồi nhóm báo cáo chạy SAU CÙNG và không bao giờ chặn: dự án đã có, bước nào hỏng chỉ thành lời
  * cảnh báo trả về để nơi gọi báo.
  */
 export async function finishProjectCreate(created: Project, followUp: ProjectCreateFollowUp): Promise<string[]> {
@@ -113,5 +115,17 @@ export async function finishProjectCreate(created: Project, followUp: ProjectCre
     });
   }
   const failures = await linkRelatedObjects({ type: 'project', id: created.id }, followUp.relatedObjects ?? []);
-  return failures.length > 0 ? [relatedLinkWarning(failures, `dự án ${created.code}`)] : [];
+  const warnings = failures.length > 0 ? [relatedLinkWarning(failures, `dự án ${created.code}`)] : [];
+  // Nhóm báo cáo cũng không chặn: dự án đã có, gán hỏng thì nhắc gán lại ở chip "Nhóm báo cáo" trong trang dự án.
+  if (followUp.reportGroupId) {
+    try {
+      await api.setProjectReportGroup(created.id, { reportGroupId: followUp.reportGroupId });
+    } catch (cause) {
+      const reason = messageOf(cause).replace(/[.\s]+$/, '');
+      warnings.push(
+        `Dự án ${created.code} đã tạo nhưng chưa gán được nhóm báo cáo${reason ? ` (${reason})` : ''}. Gán lại trong trang dự án.`,
+      );
+    }
+  }
+  return warnings;
 }

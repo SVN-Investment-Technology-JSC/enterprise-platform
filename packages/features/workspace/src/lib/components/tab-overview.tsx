@@ -29,7 +29,7 @@ import type { PendingProcedure } from '../procedure-pending';
 import { Confirm } from './confirm-box';
 import { ProgressHistoryPanel } from './progress-history-panel';
 import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
-import { parseStoredTab, type OverviewTab } from '../overview-tabs';
+import { DEFAULT_OVERVIEW_TAB, parseStoredTab, type OverviewTab } from '../overview-tabs';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -97,7 +97,7 @@ function restoreTab(itemId: string): OverviewTab {
   } catch {
     // Trình duyệt chặn bộ nhớ phiên: dùng tab mặc định.
   }
-  return 'detail';
+  return DEFAULT_OVERVIEW_TAB;
 }
 
 function rememberTab(itemId: string, tab: OverviewTab) {
@@ -147,7 +147,7 @@ export function TabOverview({
     ? externalRefs.filter((ref) => ref.entityType === 'work_item' && ref.entityId === selected.id)
     : [];
   const transport = useTransportSummary('WORK_ITEM', selected?.id, selected?.updatedAt);
-  const [tab, setTab] = useState<OverviewTab>(() => (selected ? restoreTab(selected.id) : 'detail'));
+  const [tab, setTab] = useState<OverviewTab>(() => (selected ? restoreTab(selected.id) : DEFAULT_OVERVIEW_TAB));
   const [progressCount, setProgressCount] = useState<number>();
   const [documentCount, setDocumentCount] = useState<number>();
   const [relatedCount, setRelatedCount] = useState<number>();
@@ -284,19 +284,28 @@ export function TabOverview({
     return (
       <Tabs
         className={styles.itemTabs}
-        // Tab đã lưu mà nơi gọi không có (vd Liên quan khi công ty không có loại hồ sơ nào) thì về Chi tiết.
-        value={(tab === 'related' && !renderRelated) || (tab === 'chat' && !renderChat) ? 'detail' : tab}
+        // Tab đã lưu mà nơi gọi không có (vd Liên quan khi công ty không có loại hồ sơ nào): về Trao đổi nếu có, không
+        // thì Chi tiết.
+        value={
+          tab === 'chat' && !renderChat
+            ? 'detail'
+            : tab === 'related' && !renderRelated
+              ? renderChat
+                ? 'chat'
+                : 'detail'
+              : tab
+        }
         onValueChange={(value) => {
           setTab(value as OverviewTab);
           rememberTab(selected.id, value as OverviewTab);
         }}
       >
         <TabsList aria-label="Thông tin phụ của công việc">
-          <TabsTrigger value="detail">Chi tiết</TabsTrigger>
-          {/* Ngay sau Chi tiết: trao đổi là việc làm hằng ngày trên một công việc, các tab sau là tra cứu. */}
+          {/* Trao đổi đứng đầu và mở sẵn: đó là việc làm hằng ngày trên một công việc, các tab sau là tra cứu. */}
           {renderChat ? (
             <TabsTrigger value="chat">Trao đổi {chatUnread > 0 ? countBadge(chatUnread) : null}</TabsTrigger>
           ) : null}
+          <TabsTrigger value="detail">Chi tiết</TabsTrigger>
           <TabsTrigger value="progress">Lịch sử tiến độ {countBadge(progressCount)}</TabsTrigger>
           <TabsTrigger value="dependencies">Phụ thuộc {countBadge(dependencyCount)}</TabsTrigger>
           <TabsTrigger value="documents">Tài liệu {countBadge(documentCount)}</TabsTrigger>

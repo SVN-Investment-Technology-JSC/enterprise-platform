@@ -281,10 +281,18 @@ function mapProject(row: Row): Project {
       todayKey(timezoneOf('')),
     ),
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
+    reportGroupId: reportGroupIdOf(row.metadata),
     createdBy: str(row.created_by),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
+}
+
+/** Nhóm báo cáo của dự án, lưu trong `metadata.reportGroupId`; vắng hay sai kiểu là chưa phân nhóm. */
+export function reportGroupIdOf(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const value = (metadata as Record<string, unknown>)['reportGroupId'];
+  return typeof value === 'string' && value ? value : null;
 }
 
 const STANDALONE_REPORT_COLUMNS = `id, task_id, to_char(reported_on, 'YYYY-MM-DD') AS reported_on, reported_by,
@@ -1116,6 +1124,90 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       return project as Project;
     },
 
+    setReportGroup: async (
+      tenantId: string,
+      projectId: string,
+      reportGroupId: string | null,
+    ): Promise<Project> => {
+      const pool = await this.poolFor(tenantId);
+      // Chỉ chạm đúng khoá `reportGroupId`; metadata không phải object (dữ liệu cũ hỏng) thì coi như rỗng.
+      const result = await pool.query<Row>(
+        `UPDATE workspace_schema.projects
+            SET metadata = CASE
+                  WHEN $2::text IS NULL THEN
+                    (CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) - 'reportGroupId'
+                  ELSE jsonb_set(
+                    CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END,
+                    '{reportGroupId}',
+                    to_jsonb($2::text)
+                  )
+                END,
+                updated_at = now()
+          WHERE id = $1
+          RETURNING ${PROJECT_COLUMNS}`,
+        [projectId, reportGroupId],
+      );
+      if (!result.rows[0]) throw new ProjectNotFoundError(projectId);
+      const [project] = await withProjectTags(pool, [mapProject(result.rows[0])]);
+      return project as Project;
+    },
+
+    clearReportGroups: async (tenantId: string, reportGroupIds: readonly string[]) => {
+      if (reportGroupIds.length === 0) return;
+      const pool = await this.poolFor(tenantId);
+      await pool.query(
+        `UPDATE workspace_schema.projects
+            SET metadata = metadata - 'reportGroupId', updated_at = now()
+          WHERE jsonb_typeof(metadata) = 'object'
+            AND metadata->>'reportGroupId' = ANY($1::text[])`,
+        [reportGroupIds],
+      );
+    },
+
+    openOptions: async (tenantId: string, userId: string, memberOnly: boolean) => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT p.id, p.code, p.name, m.role
+           FROM workspace_schema.projects p
+           LEFT JOIN workspace_schema.project_members m ON m.project_id = p.id AND m.user_id = $1
+          WHERE p.archived_at IS NULL
+            AND p.status NOT IN ('completed', 'cancelled')
+            AND ($2::boolean = false OR m.user_id IS NOT NULL)
+          ORDER BY p.code`,
+        [userId, memberOnly],
+      );
+      return result.rows.map((row) => ({
+        id: str(row.id),
+        code: str(row.code),
+        name: str(row.name),
+        ...(row.role ? { role: row.role as ProjectRole } : {}),
+      }));
+    },
+
+    refs: async (tenantId: string, projectIds: readonly string[], workItemIds: readonly string[]) => {
+      const pool = await this.poolFor(tenantId);
+      const workItems =
+        workItemIds.length === 0
+          ? []
+          : (
+              await pool.query<Row>(
+                `SELECT id, project_id FROM workspace_schema.work_items WHERE id = ANY($1::uuid[])`,
+                [workItemIds],
+              )
+            ).rows.map((row) => ({ id: str(row.id), projectId: str(row.project_id) }));
+      const wanted = [...new Set([...projectIds, ...workItems.map((item) => item.projectId)])];
+      const projects =
+        wanted.length === 0
+          ? []
+          : (
+              await pool.query<Row>(
+                `SELECT id, code, name FROM workspace_schema.projects WHERE id = ANY($1::uuid[])`,
+                [wanted],
+              )
+            ).rows.map((row) => ({ id: str(row.id), code: str(row.code), name: str(row.name) }));
+      return { projects, workItems };
+    },
+
     updateProgress: async (tenantId: string, projectId: string, percent: number) => {
       const pool = await this.poolFor(tenantId);
       await pool.query(
@@ -1751,6 +1843,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
               workItemCode: item.code,
               projectId: item.projectId,
               projectCode: linked.projectCode,
+              ...(linked.projectName ? { projectName: linked.projectName } : {}),
             },
           });
         }
@@ -4948,6 +5041,18 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
   };
 
   readonly finance = {
+    contractValues: async (
+      tenantId: string,
+      projectIds: readonly string[],
+    ): Promise<Map<string, number | null>> => {
+      if (projectIds.length === 0) return new Map();
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, contract_value FROM workspace_schema.projects WHERE id = ANY($1::uuid[])`,
+        [projectIds],
+      );
+      return new Map(result.rows.map((row) => [str(row.id), optNum(row.contract_value) ?? null]));
+    },
     inputs: async (
       tenantId: string,
       projectIds: readonly string[],
@@ -6085,6 +6190,7 @@ async function writeProcedureRequest(
       workItemCode: input.workItemCode,
       projectId: input.projectId,
       projectCode: input.projectCode,
+      ...(input.projectName ? { projectName: input.projectName } : {}),
       title: input.title,
       definitionId: input.definitionId,
       // Mỗi lần yêu cầu một khoá riêng bên Quy trình: gỡ liên kết rồi gắn lại không bị trả hồ sơ cũ.

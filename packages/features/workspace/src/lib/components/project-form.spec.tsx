@@ -12,6 +12,8 @@ import { ProjectForm } from './project-form';
 jest.mock('../workspace-api', () => ({
   listProjectTypes: jest.fn().mockResolvedValue({ items: [] }),
   listProjectGroups: jest.fn().mockResolvedValue({ items: [], canEdit: false }),
+  listProjectReportGroups: jest.fn().mockResolvedValue({ items: [], canEdit: false }),
+  setProjectReportGroup: jest.fn(),
   listCustomers: jest.fn().mockResolvedValue([]),
   loadProjectArchiveSettings: jest.fn().mockResolvedValue({
     autoArchive: false,
@@ -31,6 +33,8 @@ jest.mock('../workspace-api', () => ({
   removeRelatedObject: jest.fn(),
   linkCrmCustomer: jest.fn(),
   createCustomer: jest.fn(),
+  getRelatedObjectCreateForm: jest.fn(),
+  createRelatedObjectRecord: jest.fn(),
 }));
 
 jest.mock('@enterprise-platform/shared-ui', () => ({
@@ -55,6 +59,7 @@ const PROJECT = {
   status: 'planning',
   progressMethod: 'manual',
   tagIds: [],
+  customerId: 'k1',
 } as unknown as ProjectSummary;
 
 const link = (patch: Partial<RelatedObject>): RelatedObject => ({
@@ -97,6 +102,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  mocked.listCustomers.mockResolvedValue([{ id: 'k1', code: 'KH01', name: 'Công ty A' } as never]);
   mocked.listRelatedObjectKinds.mockResolvedValue({ kinds: [CONTRACT] });
   mocked.searchRelatedObjects.mockResolvedValue({
     items: [
@@ -123,6 +129,41 @@ async function pickRecord(index: number, label: RegExp) {
   fireEvent.click(await screen.findByRole('option', { name: label }));
 }
 
+/** Chọn khách hàng đầu tiên trong ô "Khách hàng". */
+async function pickCustomer() {
+  fireEvent.click(await screen.findByPlaceholderText(/Chọn khách hàng/));
+  fireEvent.click(await screen.findByRole('option', { name: /KH01 · Công ty A/ }));
+}
+
+describe('ProjectForm: khách hàng bắt buộc', () => {
+  it('tạo dự án mà chưa chọn khách hàng thì báo lỗi và không gửi', async () => {
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    render(<ProjectForm open onClose={jest.fn()} onCreate={onCreate} onUpdate={jest.fn()} />);
+    await screen.findByPlaceholderText(/Chọn khách hàng/);
+    fireEvent.change(nameInput(), { target: { value: 'Dự án mới' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo dự án' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Chọn khách hàng cho dự án.'));
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it('sửa dự án cũ chưa có khách hàng cũng phải chọn khách hàng mới lưu được', async () => {
+    const onUpdate = jest.fn().mockResolvedValue(undefined);
+    render(
+      <ProjectForm
+        open
+        project={{ ...PROJECT, customerId: undefined }}
+        onClose={jest.fn()}
+        onCreate={jest.fn()}
+        onUpdate={onUpdate}
+      />,
+    );
+    await screen.findByPlaceholderText(/Chọn khách hàng/);
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Chọn khách hàng cho dự án.'));
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+});
+
 describe('ProjectForm: đối tượng liên quan', () => {
   it('form tạo không có ô "Tạo từ"; hồ sơ chọn trong khối được gửi kèm khi tạo', async () => {
     const onCreate = jest.fn().mockResolvedValue(undefined);
@@ -132,6 +173,7 @@ describe('ProjectForm: đối tượng liên quan', () => {
     await pickRecord(1, /HĐ-001 — Công trình A/);
 
     fireEvent.change(nameInput(), { target: { value: 'Dự án mới' } });
+    await pickCustomer();
     fireEvent.click(screen.getByRole('button', { name: 'Tạo dự án' }));
     await waitFor(() => expect(onCreate).toHaveBeenCalled());
     expect(onCreate.mock.calls[0][3]).toEqual([expect.objectContaining({ kind: 'crm.contract', objectId: 'c1' })]);
@@ -219,5 +261,169 @@ describe('ProjectForm: đối tượng liên quan', () => {
     } finally {
       clock.mockRestore();
     }
+  });
+});
+
+describe('ProjectForm: tạo nhanh khách hàng ở Bán hàng', () => {
+  const CUSTOMER_KIND: RelatedObjectKind = {
+    key: 'crm.customer',
+    moduleKey: 'crm',
+    moduleLabel: 'Bán hàng',
+    label: 'Khách hàng',
+    prefill: true,
+    create: true,
+  };
+
+  /** Danh sách loại được giữ một phút cho cả trang; mỗi ca cho đồng hồ qua xa mốc đó để form hỏi lại server. */
+  function withFreshKinds(offsetMs: number) {
+    const realNow = Date.now();
+    return jest.spyOn(Date, 'now').mockReturnValue(realNow + offsetMs);
+  }
+
+  it('nút "+" cạnh ô khách mở form của Bán hàng; tạo xong thì gắn bản sao và chọn luôn', async () => {
+    const clock = withFreshKinds(10 * 60_000);
+    try {
+      mocked.searchCrmCustomers.mockResolvedValue({ enabled: true, items: [] });
+      mocked.listRelatedObjectKinds.mockResolvedValue({ kinds: [CONTRACT, CUSTOMER_KIND] });
+      mocked.getRelatedObjectCreateForm.mockResolvedValue({
+        kind: 'crm.customer',
+        title: 'Thêm khách hàng',
+        fields: [{ key: 'name', label: 'Tên khách hàng', type: 'text', required: true }],
+      });
+      mocked.createRelatedObjectRecord.mockResolvedValue({
+        kind: 'crm.customer',
+        id: 'crm-9',
+        code: 'KH009',
+        label: 'KH009 — Công ty B',
+        launchUrl: '/modules/crm#customers/crm-9',
+        fields: [],
+        upstream: [],
+      });
+      mocked.linkCrmCustomer.mockResolvedValue({ id: 'k9', code: 'KH009', name: 'Công ty B', crmCustomerId: 'crm-9' } as never);
+      render(<ProjectForm open onClose={jest.fn()} onCreate={jest.fn()} onUpdate={jest.fn()} />);
+
+      await screen.findByPlaceholderText(/Chọn khách hàng từ CRM/);
+      fireEvent.click(await screen.findByRole('button', { name: 'Thêm khách hàng mới' }));
+      expect(screen.queryByText('Tạo khách hàng ở CRM')).toBeNull();
+      await waitFor(() => expect(mocked.getRelatedObjectCreateForm).toHaveBeenCalledWith('crm.customer'));
+      fireEvent.change(await screen.findByLabelText('Tên khách hàng'), { target: { value: 'Công ty B' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Tạo' }));
+
+      await waitFor(() => expect(mocked.linkCrmCustomer).toHaveBeenCalledWith('crm-9'));
+      expect(mocked.createRelatedObjectRecord).toHaveBeenCalledWith('crm.customer', { values: { name: 'Công ty B' } });
+      await waitFor(() =>
+        expect((screen.getByPlaceholderText(/Chọn khách hàng/) as HTMLInputElement).value).toBe('KH009 · Công ty B'),
+      );
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('không có quyền tạo khách ở CRM thì nút + vẫn có nhưng bị khoá', async () => {
+    const clock = withFreshKinds(20 * 60_000);
+    try {
+      mocked.searchCrmCustomers.mockResolvedValue({ enabled: true, items: [] });
+      mocked.listRelatedObjectKinds.mockResolvedValue({ kinds: [{ ...CUSTOMER_KIND, create: undefined }] });
+      render(<ProjectForm open onClose={jest.fn()} onCreate={jest.fn()} onUpdate={jest.fn()} />);
+      await waitFor(() => expect(mocked.listRelatedObjectKinds).toHaveBeenCalled());
+      await waitFor(() =>
+        expect((screen.getByRole('button', { name: 'Thêm khách hàng mới' }) as HTMLButtonElement).disabled).toBe(true),
+      );
+      expect(screen.queryByText('Tạo khách hàng ở CRM')).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});
+
+describe('ProjectForm: nhóm báo cáo', () => {
+  const CATALOG = {
+    items: [
+      { id: 'g-dv', name: 'Dịch vụ', sortOrder: 0 },
+      { id: 'g-tn', name: 'Thí nghiệm', sortOrder: 1 },
+    ],
+    canEdit: false,
+  };
+
+  // Khối "tạo nhanh khách hàng ở Bán hàng" bật chế độ Bán hàng cho các test sau; ở đây cần danh mục khách của Workspace.
+  beforeEach(() => {
+    mocked.searchCrmCustomers.mockResolvedValue({ enabled: false, items: [] });
+  });
+
+  it('tenant chưa lập danh mục thì không có ô "Nhóm báo cáo"', async () => {
+    render(<ProjectForm open onClose={jest.fn()} onCreate={jest.fn()} onUpdate={jest.fn()} />);
+    await screen.findByPlaceholderText(/Chọn khách hàng/);
+    expect(screen.queryByRole('group', { name: 'Nhóm báo cáo' })).toBeNull();
+  });
+
+  it('form tạo: nhóm chọn được gửi kèm cho nơi gọi (tham số thứ năm)', async () => {
+    mocked.listProjectReportGroups.mockResolvedValueOnce(CATALOG);
+    const onCreate = jest.fn().mockResolvedValue(undefined);
+    render(<ProjectForm open onClose={jest.fn()} onCreate={onCreate} onUpdate={jest.fn()} />);
+    fireEvent.change(nameInput(), { target: { value: 'Dự án mới' } });
+    await pickCustomer();
+    const group = await screen.findByRole('group', { name: 'Nhóm báo cáo' });
+    fireEvent.click(within(group).getByRole('textbox'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Thí nghiệm' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo dự án' }));
+    await waitFor(() => expect(onCreate).toHaveBeenCalled());
+    expect(onCreate.mock.calls[0][4]).toBe('g-tn');
+    expect(mocked.setProjectReportGroup).not.toHaveBeenCalled();
+  });
+
+  it('form sửa: chỉ gọi API nhóm báo cáo khi đổi, và trước khi lưu dự án', async () => {
+    mocked.listProjectReportGroups.mockResolvedValueOnce(CATALOG);
+    mocked.listProjectRelatedObjects.mockResolvedValue({ canAdd: false, degraded: false, items: [] });
+    const order: string[] = [];
+    mocked.setProjectReportGroup.mockImplementation(async () => {
+      order.push('report-group');
+      return PROJECT;
+    });
+    const onUpdate = jest.fn(async () => {
+      order.push('update');
+    });
+    render(
+      <ProjectForm
+        open
+        project={{ ...PROJECT, reportGroupId: 'g-dv' }}
+        onClose={jest.fn()}
+        onCreate={jest.fn()}
+        onUpdate={onUpdate}
+      />,
+    );
+    const group = await screen.findByRole('group', { name: 'Nhóm báo cáo' });
+    await within(group).findByDisplayValue('Dịch vụ');
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect(mocked.setProjectReportGroup).not.toHaveBeenCalled();
+  });
+
+  it('form sửa: bỏ nhóm thì gửi null trước khi lưu dự án', async () => {
+    mocked.listProjectReportGroups.mockResolvedValueOnce(CATALOG);
+    mocked.listProjectRelatedObjects.mockResolvedValue({ canAdd: false, degraded: false, items: [] });
+    const order: string[] = [];
+    mocked.setProjectReportGroup.mockImplementation(async () => {
+      order.push('report-group');
+      return PROJECT;
+    });
+    const onUpdate = jest.fn(async () => {
+      order.push('update');
+    });
+    render(
+      <ProjectForm
+        open
+        project={{ ...PROJECT, reportGroupId: 'g-dv' }}
+        onClose={jest.fn()}
+        onCreate={jest.fn()}
+        onUpdate={onUpdate}
+      />,
+    );
+    const group = await screen.findByRole('group', { name: 'Nhóm báo cáo' });
+    fireEvent.click(await within(group).findByDisplayValue('Dịch vụ'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Chưa có nhóm báo cáo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    expect(mocked.setProjectReportGroup).toHaveBeenCalledWith('p1', { reportGroupId: null });
+    expect(order).toEqual(['report-group', 'update']);
   });
 });
