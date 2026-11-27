@@ -35,7 +35,7 @@ const actorOf = (userId: string): WorkspaceActor => ({
 });
 
 function makeStore(items: WorkItem[], roles: Record<string, ProjectRole>) {
-  const statusChanges: { id: string; next: WorkItemStatus }[] = [];
+  const statusChanges: { id: string; next: WorkItemStatus; notice?: Record<string, unknown> }[] = [];
   const moves: { id: string; parentId: string | null }[] = [];
   const created: Record<string, unknown>[] = [];
   const store = {
@@ -54,8 +54,17 @@ function makeStore(items: WorkItem[], roles: Record<string, ProjectRole>) {
       applyProgress: async () => undefined,
       openChildCount: async () => 0,
       listProgressReports: async () => [],
-      changeStatus: async (_t: string, id: string, _a: string, next: WorkItemStatus) => {
-        statusChanges.push({ id, next });
+      changeStatus: async (
+        _t: string,
+        id: string,
+        _a: string,
+        next: WorkItemStatus,
+        _note?: string,
+        _today?: string,
+        _evidence?: unknown,
+        notice?: Record<string, unknown>,
+      ) => {
+        statusChanges.push(notice ? { id, next, notice } : { id, next });
         return { ...(items.find((entry) => entry.id === id) as WorkItem), status: next };
       },
       move: async (_t: string, id: string, parentId: string | null) => {
@@ -122,6 +131,66 @@ describe('Di chuyển công việc vào cha đã hoàn thành', () => {
       code: 'PARENT_ITEM_DONE',
     });
     expect(moves).toEqual([]);
+  });
+
+  it('đồng ý mở lại: chuyển việc rồi đưa cha về Đang làm kèm thông báo nói rõ ai làm, vì sao', async () => {
+    const { store, moves, statusChanges } = makeStore(items(), { mgr: 'manager' });
+    await serviceFor(store).move(actorOf('mgr'), 'open', { parentId: 'parent', reopenParent: true });
+    expect(moves).toEqual([{ id: 'open', parentId: 'parent' }]);
+    expect(statusChanges).toEqual([
+      {
+        id: 'parent',
+        next: 'in_progress',
+        notice: expect.objectContaining({
+          trigger: 'child-moved',
+          childCode: 'CV002',
+          reason: expect.stringContaining('mgr'),
+        }),
+      },
+    ]);
+  });
+
+  it('chuỗi cha đã xong: mở từ ngoài vào trong, cha ngoài cùng cấm hoàn tác thì từ chối trước khi ghi', async () => {
+    const chain = (policy?: 'none') => [
+      item({ id: 'top', code: 'CV010', status: 'done', reopenPolicy: policy }),
+      item({ id: 'mid', code: 'CV011', parentId: 'top', depth: 1, status: 'done' }),
+      item({ id: 'open', code: 'CV012', status: 'todo' }),
+    ];
+    const ok = makeStore(chain(), { mgr: 'manager' });
+    await serviceFor(ok.store).move(actorOf('mgr'), 'open', { parentId: 'mid', reopenParent: true });
+    expect(ok.statusChanges.map((change) => change.id)).toEqual(['top', 'mid']);
+
+    const blocked = makeStore(chain('none'), { mgr: 'manager' });
+    await expect(
+      serviceFor(blocked.store).move(actorOf('mgr'), 'open', { parentId: 'mid', reopenParent: true }),
+    ).rejects.toMatchObject({ code: 'REOPEN_NOT_ALLOWED' });
+    expect(blocked.moves).toEqual([]);
+    expect(blocked.statusChanges).toEqual([]);
+  });
+
+  it('việc huỷ, đích chưa xong hoặc đưa lên gốc: không mở lại gì dù gửi reopenParent', async () => {
+    const all = [
+      item({ id: 'parent', code: 'CV001', status: 'done' }),
+      item({ id: 'cancelled', code: 'CV004', status: 'cancelled' }),
+      item({ id: 'live', code: 'CV005', status: 'in_progress' }),
+      item({ id: 'open', code: 'CV002', status: 'todo' }),
+    ];
+    const { store, statusChanges, moves } = makeStore(all, { mgr: 'manager' });
+    const service = serviceFor(store);
+    await service.move(actorOf('mgr'), 'cancelled', { parentId: 'parent', reopenParent: true });
+    await service.move(actorOf('mgr'), 'open', { parentId: 'live', reopenParent: true });
+    await service.move(actorOf('mgr'), 'open', { parentId: null, reopenParent: true });
+    expect(moves).toHaveLength(3);
+    expect(statusChanges).toEqual([]);
+  });
+
+  it('thành viên thường không chuyển được dù đồng ý mở lại', async () => {
+    const { store, moves, statusChanges } = makeStore(items(), { u1: 'member' });
+    await expect(
+      serviceFor(store).move(actorOf('u1'), 'open', { parentId: 'parent', reopenParent: true }),
+    ).rejects.toBeDefined();
+    expect(moves).toEqual([]);
+    expect(statusChanges).toEqual([]);
   });
 
   it('việc đã xong chuyển vào cha đã xong thì được', async () => {
