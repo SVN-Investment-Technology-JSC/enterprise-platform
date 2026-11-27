@@ -81,7 +81,7 @@ function mapVehicle(row: Record<string, unknown>): HrmFleetVehicle {
 export async function listVehicles(db: Reader, tenantId: string): Promise<HrmFleetVehicle[]> {
   const { rows } = await db.query(
     `SELECT id, plate_no, name, seats, status, note FROM hrm_schema.fleet_vehicles
-      WHERE tenant_id = $1 ORDER BY status, plate_no`,
+      WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY status, plate_no`,
     [tenantId],
   );
   return rows.map(mapVehicle);
@@ -113,7 +113,7 @@ export async function saveVehicle(
       `UPDATE hrm_schema.fleet_vehicles SET
          plate_no = COALESCE($3, plate_no), name = COALESCE($4, name), seats = COALESCE($5, seats),
          status = COALESCE($6, status), note = CASE WHEN $7::boolean THEN $8 ELSE note END, updated_at = now()
-       WHERE tenant_id = $1 AND id = $2 RETURNING *`,
+       WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL RETURNING *`,
       [tenantId, id, plateNo ?? null, name ?? null, seats ?? null, status ?? null, note !== undefined, note ?? null],
     );
     if (!rows[0]) throw new NotFoundException({ code: 'HRM_FLEET_VEHICLE_NOT_FOUND', message: 'Không tìm thấy xe' });
@@ -124,6 +124,33 @@ export async function saveVehicle(
     }
     throw error;
   }
+}
+
+/**
+ * Xóa mềm xe. Chặn khi xe còn lịch chưa kết thúc (chờ duyệt hoặc đã xác nhận) để không làm hỏng lịch đã giữ chỗ;
+ * lịch cũ giữ nguyên và vẫn tra được biển số.
+ */
+export async function deleteVehicle(db: Db, tenantId: string, id: string): Promise<void> {
+  const { rows } = await db.query(
+    'SELECT plate_no FROM hrm_schema.fleet_vehicles WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL FOR UPDATE',
+    [tenantId, id],
+  );
+  if (!rows[0]) throw new NotFoundException({ code: 'HRM_FLEET_VEHICLE_NOT_FOUND', message: 'Không tìm thấy xe' });
+  const { rows: open } = await db.query(
+    `SELECT 1 FROM hrm_schema.fleet_bookings
+      WHERE tenant_id = $1 AND vehicle_id = $2 AND status <> 'CANCELLED' AND end_at > now() LIMIT 1`,
+    [tenantId, id],
+  );
+  if (open[0]) {
+    throw new ConflictException({
+      code: 'HRM_FLEET_VEHICLE_HAS_BOOKINGS',
+      message: `Xe ${rows[0].plate_no as string} còn lịch chưa kết thúc. Hãy ngừng sử dụng xe hoặc đợi lịch xong rồi xóa.`,
+    });
+  }
+  await db.query(
+    'UPDATE hrm_schema.fleet_vehicles SET deleted_at = now(), updated_at = now() WHERE tenant_id = $1 AND id = $2',
+    [tenantId, id],
+  );
 }
 
 // ---- Tài xế ----
@@ -144,7 +171,7 @@ function mapDriver(row: Record<string, unknown>): HrmFleetDriver {
 }
 
 export async function listDrivers(db: Reader, tenantId: string): Promise<HrmFleetDriver[]> {
-  const { rows } = await db.query(`${DRIVER_SELECT} WHERE d.tenant_id = $1 ORDER BY d.status, ed.full_name`, [tenantId]);
+  const { rows } = await db.query(`${DRIVER_SELECT} WHERE d.tenant_id = $1 AND d.deleted_at IS NULL ORDER BY d.status, ed.full_name`, [tenantId]);
   return rows.map(mapDriver);
 }
 
@@ -177,7 +204,7 @@ export async function saveDriver(
         `UPDATE hrm_schema.fleet_drivers SET
            license_no = CASE WHEN $3::boolean THEN $4 ELSE license_no END,
            status = COALESCE($5, status), updated_at = now()
-         WHERE tenant_id = $1 AND id = $2 RETURNING id`,
+         WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL RETURNING id`,
         [tenantId, id, licenseNo !== undefined, licenseNo ?? null, status ?? null],
       );
       if (!rows[0]) throw new NotFoundException({ code: 'HRM_FLEET_DRIVER_NOT_FOUND', message: 'Không tìm thấy tài xế' });
@@ -191,6 +218,30 @@ export async function saveDriver(
   }
   const { rows } = await db.query(`${DRIVER_SELECT} WHERE d.tenant_id = $1 AND d.id = $2`, [tenantId, savedId]);
   return mapDriver(rows[0]);
+}
+
+/** Xóa mềm tài xế; chặn khi tài xế còn lịch chưa kết thúc, giống xe. */
+export async function deleteDriver(db: Db, tenantId: string, id: string): Promise<void> {
+  const { rows } = await db.query(
+    'SELECT 1 FROM hrm_schema.fleet_drivers WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL FOR UPDATE',
+    [tenantId, id],
+  );
+  if (!rows[0]) throw new NotFoundException({ code: 'HRM_FLEET_DRIVER_NOT_FOUND', message: 'Không tìm thấy tài xế' });
+  const { rows: open } = await db.query(
+    `SELECT 1 FROM hrm_schema.fleet_bookings
+      WHERE tenant_id = $1 AND driver_id = $2 AND status <> 'CANCELLED' AND end_at > now() LIMIT 1`,
+    [tenantId, id],
+  );
+  if (open[0]) {
+    throw new ConflictException({
+      code: 'HRM_FLEET_DRIVER_HAS_BOOKINGS',
+      message: 'Tài xế còn lịch chưa kết thúc. Hãy ngừng hoạt động tài xế hoặc đợi lịch xong rồi xóa.',
+    });
+  }
+  await db.query(
+    'UPDATE hrm_schema.fleet_drivers SET deleted_at = now(), updated_at = now() WHERE tenant_id = $1 AND id = $2',
+    [tenantId, id],
+  );
 }
 
 // ---- Lịch xe ----
@@ -270,10 +321,10 @@ export async function findAvailability(
   const [vehicles, drivers, busy] = await Promise.all([
     db.query(
       `SELECT id, plate_no, name, seats, status, note FROM hrm_schema.fleet_vehicles
-        WHERE tenant_id = $1 AND status = 'ACTIVE' ORDER BY plate_no`,
+        WHERE tenant_id = $1 AND status = 'ACTIVE' AND deleted_at IS NULL ORDER BY plate_no`,
       [tenantId],
     ),
-    db.query(`${DRIVER_SELECT} WHERE d.tenant_id = $1 AND d.status = 'ACTIVE' ORDER BY ed.full_name`, [tenantId]),
+    db.query(`${DRIVER_SELECT} WHERE d.tenant_id = $1 AND d.status = 'ACTIVE' AND d.deleted_at IS NULL ORDER BY ed.full_name`, [tenantId]),
     db.query(
       `SELECT vehicle_id, driver_id, start_at, end_at, status, source_label FROM hrm_schema.fleet_bookings
         WHERE tenant_id = $1 AND status <> 'CANCELLED' AND start_at < $3 AND end_at > $2 ${excludeSql}`,
@@ -335,7 +386,7 @@ export async function upsertFleetBooking(
 
   // Khoá xe rồi tài xế theo thứ tự cố định để hai giao dịch đặt cùng lúc không khoá chéo nhau.
   const { rows: vehicle } = await db.query(
-    'SELECT plate_no, status FROM hrm_schema.fleet_vehicles WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+    'SELECT plate_no, status FROM hrm_schema.fleet_vehicles WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL FOR UPDATE',
     [tenantId, vehicleId],
   );
   if (!vehicle[0]) throw new NotFoundException({ code: 'HRM_FLEET_VEHICLE_NOT_FOUND', message: 'Không tìm thấy xe' });
@@ -345,7 +396,7 @@ export async function upsertFleetBooking(
   const { rows: driver } = await db.query(
     `SELECT d.status, ed.full_name FROM hrm_schema.fleet_drivers d
        LEFT JOIN hrm_schema.employee_directory ed ON ed.employee_id = d.employee_id AND ed.tenant_id = d.tenant_id
-      WHERE d.tenant_id = $1 AND d.id = $2 FOR UPDATE OF d`,
+      WHERE d.tenant_id = $1 AND d.id = $2 AND d.deleted_at IS NULL FOR UPDATE OF d`,
     [tenantId, driverId],
   );
   if (!driver[0]) throw new NotFoundException({ code: 'HRM_FLEET_DRIVER_NOT_FOUND', message: 'Không tìm thấy tài xế' });

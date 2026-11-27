@@ -341,7 +341,10 @@ describe('EmployeesScreen', () => {
     withEmployees([person(1), person(2), person(3), person(4, { employmentStatus: 'RESIGNED' })]);
     render(<EmployeesScreen />);
     await screen.findAllByRole('button', { name: 'Xem chi tiết' });
-    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(4);
+    // Mặc định chỉ hiện người đang làm việc (thẻ "Đang làm việc" được chọn); thẻ tổng vẫn đếm đủ 4 hồ sơ.
+    expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(3);
+    expect(screen.queryByRole('checkbox', { name: 'Chọn Nhân viên 4' })).toBeNull();
+    expect(screen.getByTestId('employee-stat-total').textContent).toContain('4');
     fireEvent.click(screen.getByDisplayValue('Phòng ban: Tất cả'));
     fireEvent.click(await screen.findByRole('option', { name: 'Phòng Kỹ thuật', hidden: true }));
     expect(screen.getAllByRole('button', { name: 'Xem chi tiết' })).toHaveLength(2);

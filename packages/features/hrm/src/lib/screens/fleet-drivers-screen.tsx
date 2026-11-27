@@ -1,6 +1,6 @@
 'use client';
 
-import { Pencil, Plus, UserRound } from 'lucide-react';
+import { Pencil, Plus, Trash2, UserRound } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type { HrmFleetDriver } from '@enterprise-platform/contracts-hrm';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
@@ -98,6 +98,16 @@ export default function FleetDriversScreen() {
     }
   }
 
+  async function remove(driver: HrmFleetDriver) {
+    try {
+      await hrmFetch(`/fleet/drivers/${driver.id}`, { method: 'DELETE' });
+      toast.success('Đã xóa tài xế.');
+      await load();
+    } catch (error) {
+      toast.error(errorText(error));
+    }
+  }
+
   const taken = new Set(drivers.map((d) => d.employeeId));
 
   return (
@@ -172,6 +182,20 @@ export default function FleetDriversScreen() {
                       Kích hoạt lại
                     </Button>
                   )}
+                  <Popconfirm
+                    title="Xóa tài xế này?"
+                    description="Tài xế bị ẩn khỏi danh sách. Lịch đã chạy giữ nguyên để tra cứu. Không xóa được khi tài xế còn lịch chưa kết thúc."
+                    okText="Xóa"
+                    cancelText="Không"
+                    okType="danger"
+                    placement="top-end"
+                    onConfirm={() => remove(driver)}
+                  >
+                    <Button variant="outline" permission="hrm.fleet.manage" className="h-9 gap-1.5 border-red-200 px-3 text-xs text-red-600 hover:bg-red-50">
+                      <Trash2 className="size-3.5" aria-hidden />
+                      Xóa
+                    </Button>
+                  </Popconfirm>
                 </div>
               </li>
             ))}

@@ -27,6 +27,7 @@ import type {
   HrmLeaveRequest,
   HrmLeaveTransaction,
   HrmLeaveType,
+  ImportHrmLeaveRequest,
   UpdateLeaveTypeRequest,
 } from '@enterprise-platform/contracts-hrm';
 import {
@@ -73,6 +74,7 @@ import {
   findSimilarLeaveTypes,
   mergeLeaveTypes,
 } from '../infrastructure/hrm-leave-merge.js';
+import { applyLeaveAdjustment, importLeaveAdjustments as importLeaveAdjustmentRows } from '../infrastructure/hrm-leave-adjust.js';
 import { hrmTransaction } from '../infrastructure/hrm-transaction.js';
 import { isoDate, lockEmployee } from '../infrastructure/hrm-time.js';
 import {
@@ -964,71 +966,26 @@ export class HrmLeaveController {
           return previous;
         }
       }
-      await lockEmployee(db, tenantId, body.employeeId);
-      const type = await db.query(
-        `SELECT CASE WHEN is_annual THEN 0 ELSE negative_limit END AS negative_limit FROM hrm_schema.leave_types WHERE tenant_id=$1 AND id=$2`,
-        [tenantId, body.leaveTypeId],
-      );
-      if (!type.rows[0])
-        throw new NotFoundException('Không tìm thấy loại nghỉ');
-      const balance = await ensureLeaveBalance(
-        db,
-        tenantId,
-        body.employeeId,
-        body.leaveTypeId,
+      return applyLeaveAdjustment(db, tenantId, principal.userId, {
+        employeeId: body.employeeId,
+        leaveTypeId: body.leaveTypeId,
+        daysAdjusted: body.daysAdjusted,
+        reason: body.reason,
         year,
-      );
-      // Kiểm tra theo đúng số "Còn lại" đang hiển thị: số dư ghi sổ + phần đến hạn/ứng chưa ghi sổ - đơn chờ duyệt.
-      // Nếu chỉ xét số dư ghi sổ thì không thể trừ phần ứng phép (số dư ghi sổ tụt xuống âm rồi tự về 0 khi cộng phép tháng).
-      const usable = await unpostedUsableEntitlement(
-        db,
-        tenantId,
-        body.employeeId,
-        body.leaveTypeId,
-        year,
-        Number(balance.accrued),
-        isoDate((await db.query('SELECT CURRENT_DATE AS today')).rows[0].today),
-      );
-      const reserved = await pendingReservedDays(
-        db,
-        tenantId,
-        body.employeeId,
-        body.leaveTypeId,
-        year,
-      );
-      if (
-        Number(balance.remaining) +
-          usable.extra +
-          body.daysAdjusted -
-          reserved <
-        -Number(type.rows[0].negative_limit) - 0.005
-      )
-        throw new BadRequestException('Điều chỉnh vượt hạn mức âm phép');
-      const updated = {
-        rows: [
-          await applyLeaveDelta(db, tenantId, balance.id, {
-            adjusted: body.daysAdjusted,
-            remaining: body.daysAdjusted,
-          }),
-        ],
-      };
-      const tx = await db.query(
-        `INSERT INTO hrm_schema.leave_transactions (tenant_id,employee_id,leave_type_id,transaction_type,days_changed,balance_after,note,balance_year,actor_id,operation_key) VALUES ($1,$2,$3,'ADJUSTMENT',$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [
-          tenantId,
-          body.employeeId,
-          body.leaveTypeId,
-          body.daysAdjusted,
-          updated.rows[0].remaining,
-          body.reason,
-          year,
-          principal.userId,
-          operationKey,
-        ],
-      );
-      return tx.rows[0];
+        operationKey,
+      });
     });
     return { data: this.mapTransaction(row) };
+  }
+
+  /** Import điều chỉnh quỹ phép năm hàng loạt từ Excel; mỗi dòng ghi một giao dịch ADJUSTMENT có tài khoản thực hiện. */
+  @Post('leave-adjustments/import')
+  async importLeaveAdjustments(@Req() req: Request, @Body() body: ImportHrmLeaveRequest) {
+    const { pool, tenantId, principal } = await this.ctx.getContext(req, 'hrm.leave.manage');
+    return {
+      data: await hrmTransaction(pool, (db) => importLeaveAdjustmentRows(db, tenantId, principal.userId, body)),
+      meta: { requestId: req.headers['x-request-id'] as string },
+    };
   }
 
   @Post('leave-transactions/:id/reverse')

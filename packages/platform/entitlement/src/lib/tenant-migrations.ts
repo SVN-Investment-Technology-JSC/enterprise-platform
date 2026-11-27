@@ -564,6 +564,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0086-hrm-attendance-site-soft-delete',
       path: 'tenant/hrm/0086-hrm-attendance-site-soft-delete.sql',
     },
+    {
+      version: '0087-hrm-fleet-soft-delete',
+      path: 'tenant/hrm/0087-hrm-fleet-soft-delete.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },

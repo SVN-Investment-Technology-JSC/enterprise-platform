@@ -90,4 +90,15 @@ describe('FleetVehiclesScreen (danh mục xe)', () => {
     expect(writes()[0].path).toBe('/fleet/vehicles/v2');
     expect(JSON.parse(String(writes()[0].init?.body))).toEqual({ status: 'ACTIVE' });
   });
+
+  it('xóa xe: xác nhận rồi gọi DELETE', async () => {
+    render(<FleetVehiclesScreen />);
+    await screen.findByText('51A-222.22');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Xóa' })[1]);
+    await screen.findByText('Xóa xe 51A-222.22?');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Xóa' }).at(-1) as HTMLElement);
+    await waitFor(() => expect(writes()).toHaveLength(1));
+    expect(writes()[0].path).toBe('/fleet/vehicles/v2');
+    expect(writes()[0].init?.method).toBe('DELETE');
+  });
 });
