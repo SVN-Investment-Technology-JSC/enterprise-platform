@@ -5,10 +5,13 @@ import {
   CONTRACT_STATUS_LABELS,
   CONTRACT_TYPE_LABELS,
   type ContractDetail,
+  type ContractLine,
+  type ContractQuotePreview,
   type ContractStatus,
   type ContractSummary,
   type ContractType,
   type CustomerSummary,
+  type QuoteSummary,
   type SaveContractRequest,
 } from '@enterprise-platform/contracts-crm';
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
@@ -16,15 +19,15 @@ import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { Plus } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CrmDialog, Field, ListPager, rowOpener, StatusPill } from '../components/crm-ui';
 import { useDebounced } from '../components/use-debounced';
 import { usePagedList } from '../components/use-paged-list';
 import { WarehouseSelect } from '../components/warehouse-select';
-import { createContract, errorMessage, listContracts, listCustomers, updateContract } from '../crm-api';
+import { createContract, errorMessage, getContractQuotePreview, listContracts, listCustomers, listQuotes, updateContract } from '../crm-api';
 import { labelOptions, peopleOptions, useCrm } from '../crm-context';
-import { CONTRACT_STATUS_TONE, formatDay } from '../fulfillment.model';
-import { parseNumber } from '../pricing/pricing.model';
+import { CONTRACT_STATUS_TONE, formatDay, formatQuantity } from '../fulfillment.model';
+import { formatPercent, parseNumber } from '../pricing/pricing.model';
 import { formatMoney, personName } from '../sales.model';
 import styles from '../sales.module.scss';
 
@@ -135,7 +138,29 @@ export function ContractsPage({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-/** Lập hợp đồng (phần đầu; dòng giá khung, đợt thanh toán thêm ở màn chi tiết) hoặc sửa phần đầu hợp đồng Nháp. */
+/** Dòng hợp đồng sẽ lấy từ báo giá (chỉ xem). */
+const QUOTE_LINE_COLUMNS: ColumnsType<ContractLine> = [
+  { title: '#', dataIndex: 'lineNo', width: 44, align: 'right' },
+  {
+    title: 'Mặt hàng',
+    key: 'material',
+    render: (_: unknown, row) => (
+      <span>
+        <span className={styles.mono}>{row.materialCode}</span> {row.materialName}
+      </span>
+    ),
+  },
+  { title: 'SL', key: 'quantity', width: 110, align: 'right', render: (_: unknown, row) => `${formatQuantity(row.quantity)} ${row.unit}` },
+  { title: 'Đơn giá', dataIndex: 'unitPrice', width: 130, align: 'right', render: (value: number) => formatMoney(value) },
+  { title: 'VAT', dataIndex: 'vatRate', width: 70, align: 'right', render: (value: number) => formatPercent(value) },
+  { title: 'Thành tiền', dataIndex: 'lineAmount', width: 140, align: 'right', render: (value: number | null) => (value === null ? '' : formatMoney(value)) },
+];
+
+/**
+ * Lập hợp đồng (phần đầu; dòng giá khung, đợt thanh toán thêm ở màn chi tiết) hoặc sửa phần đầu hợp đồng Nháp. Khi lập
+ * mới có thể gắn một báo giá khách đã chấp nhận: dòng hàng lấy từ báo giá như khi chuyển báo giá (xem trước ngay trong
+ * form), giá trị bỏ trống thì lấy tổng báo giá.
+ */
 export function ContractFormDialog({
   contract,
   draft,
@@ -163,6 +188,15 @@ export function ContractFormDialog({
   const [note, setNote] = useState(contract?.note ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
+  // Báo giá gắn khi lập mới (không bắt buộc); sửa hợp đồng không gắn được báo giá.
+  const [quoteId, setQuoteId] = useState('');
+  const [quotePreview, setQuotePreview] = useState<ContractQuotePreview>();
+  const [quoteSearch, setQuoteSearch] = useState('');
+  const [quoteResults, setQuoteResults] = useState<readonly QuoteSummary[]>([]);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const quoteQuery = useDebounced(quoteSearch.trim(), 300);
+  /** Báo giá vừa chọn sau cùng: kết quả xem trước của lần chọn cũ về muộn thì bỏ. */
+  const pickedQuote = useRef('');
 
   useEffect(() => {
     listCustomers({ limit: 100 })
@@ -170,13 +204,80 @@ export function ContractFormDialog({
       .catch(() => undefined);
   }, []);
 
+  // Tìm ở máy chủ: chỉ báo giá gắn được (khách đã chấp nhận, chưa chuyển hay gắn hợp đồng), theo khách đang chọn.
+  useEffect(() => {
+    if (contract) return;
+    let alive = true;
+    setQuoteLoading(true);
+    listQuotes({ contractLinkable: true, customerId: customerId || undefined, q: quoteQuery || undefined, limit: 20 })
+      .then((page) => alive && setQuoteResults(page.items))
+      .catch(() => alive && setQuoteResults([]))
+      .finally(() => alive && setQuoteLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [contract, customerId, quoteQuery]);
+
   const customerOptions = useMemo(() => {
     const options = customers.map((item) => ({ value: item.id, label: item.name, badge: item.code }));
     if (contract && !options.some((option) => option.value === contract.customerId)) {
       options.unshift({ value: contract.customerId, label: contract.customerName, badge: contract.customerCode });
     }
+    if (quotePreview && !options.some((option) => option.value === quotePreview.customerId)) {
+      options.unshift({ value: quotePreview.customerId, label: quotePreview.customerName, badge: quotePreview.customerCode });
+    }
     return options;
-  }, [customers, contract]);
+  }, [customers, contract, quotePreview]);
+
+  const quoteOptions = useMemo(() => {
+    const options = quoteResults.map((item) => ({
+      value: item.id,
+      label: item.quoteName || `Báo giá ${item.code}`,
+      badge: item.code,
+      description: `${item.customerName} - ${formatMoney(item.totalAmount)}`,
+    }));
+    if (quotePreview && !options.some((option) => option.value === quotePreview.quoteId)) {
+      options.unshift({
+        value: quotePreview.quoteId,
+        label: quotePreview.quoteName || `Báo giá ${quotePreview.quoteCode}`,
+        badge: quotePreview.quoteCode,
+        description: `${quotePreview.customerName} - ${formatMoney(quotePreview.totalAmount)}`,
+      });
+    }
+    return options;
+  }, [quoteResults, quotePreview]);
+
+  /** Chọn báo giá: đọc dòng sẽ gắn; chưa chọn khách thì lấy khách của báo giá, chưa có tên thì đặt tên theo báo giá. */
+  async function chooseQuote(next: string) {
+    pickedQuote.current = next;
+    setQuoteId(next);
+    // Bỏ chọn: bỏ gắn báo giá; hợp đồng lập không có dòng như trước.
+    if (!next) return setQuotePreview(undefined);
+    setError(undefined);
+    try {
+      const preview = await getContractQuotePreview(next);
+      if (pickedQuote.current !== next) return;
+      setQuotePreview(preview);
+      if (!customerId) setCustomerId(preview.customerId);
+      if (!title.trim()) setTitle(`Hợp đồng theo báo giá ${preview.quoteCode}`);
+    } catch (cause) {
+      if (pickedQuote.current !== next) return;
+      pickedQuote.current = '';
+      setQuoteId('');
+      setQuotePreview(undefined);
+      setError(errorMessage(cause, 'Không đọc được báo giá.'));
+    }
+  }
+
+  function chooseCustomer(next: string) {
+    setCustomerId(next);
+    // Báo giá phải cùng khách với hợp đồng: đổi sang khách khác thì bỏ gắn báo giá.
+    if (quoteId && quotePreview && next !== quotePreview.customerId) {
+      pickedQuote.current = '';
+      setQuoteId('');
+      setQuotePreview(undefined);
+    }
+  }
 
   async function save() {
     if (!customerId) return setError('Vui lòng chọn khách hàng.');
@@ -196,6 +297,8 @@ export function ContractFormDialog({
       warehouseCode: warehouseCode.trim() || null,
       ownerUserId: ownerUserId || null,
       note: note.trim() || null,
+      // Chỉ khi lập mới; dòng do máy chủ lấy từ phiên bản khách chấp nhận.
+      ...(contract ? {} : { quoteId: quoteId || null }),
     };
     setSaving(true);
     setError(undefined);
@@ -215,7 +318,9 @@ export function ContractFormDialog({
       open
       wide
       title={contract ? `Sửa hợp đồng ${contract.code}` : 'Lập hợp đồng'}
-      subtitle="Dòng giá khung và đợt thanh toán nhập ở màn chi tiết"
+      subtitle={
+        quotePreview ? 'Dòng hàng lấy từ báo giá đã chọn; đợt thanh toán nhập ở màn chi tiết' : 'Dòng giá khung và đợt thanh toán nhập ở màn chi tiết'
+      }
       submitLabel={contract ? 'Lưu' : 'Lập hợp đồng'}
       submitting={saving}
       error={error}
@@ -227,8 +332,22 @@ export function ContractFormDialog({
           <SearchableSelect options={labelOptions(CONTRACT_TYPE_LABELS)} value={type} onChange={setType} />
         </Field>
         <Field label="Khách hàng" required>
-          <SearchableSelect options={customerOptions} value={customerId} placeholder="Chọn khách hàng" onChange={setCustomerId} />
+          <SearchableSelect options={customerOptions} value={customerId} placeholder="Chọn khách hàng" onChange={chooseCustomer} />
         </Field>
+        {contract ? null : (
+          <Field label="Báo giá" wide hint="Không bắt buộc. Chọn báo giá khách đã chấp nhận để lấy dòng hàng của báo giá vào hợp đồng.">
+            <SearchableSelect
+              options={quoteOptions}
+              value={quoteId}
+              placeholder="Không gắn báo giá"
+              searchPlaceholder="Tìm theo mã báo giá, tên khách…"
+              emptyText={quoteLoading ? 'Đang tìm…' : customerId ? 'Khách này chưa có báo giá đã chấp nhận nào gắn được.' : 'Không có báo giá đã chấp nhận nào gắn được.'}
+              clearable
+              onSearchChange={setQuoteSearch}
+              onChange={(next) => void chooseQuote(next)}
+            />
+          </Field>
+        )}
         <Field label="Tên hợp đồng" required wide>
           <input className={styles.input} maxLength={300} value={title} onChange={(event) => setTitle(event.target.value)} />
         </Field>
@@ -241,7 +360,14 @@ export function ContractFormDialog({
         <Field label="Hiệu lực đến" hint="Bỏ trống: không thời hạn">
           <DatePickerInput value={validTo || undefined} onChange={setValidTo} height={38} aria-label="Hiệu lực đến" />
         </Field>
-        <Field label="Giá trị hợp đồng (VND)" hint="Bỏ trống: cộng thành tiền gồm VAT của các dòng có số lượng">
+        <Field
+          label="Giá trị hợp đồng (VND)"
+          hint={
+            quotePreview
+              ? `Bỏ trống: lấy tổng báo giá ${formatMoney(quotePreview.totalAmount)}`
+              : 'Bỏ trống: cộng thành tiền gồm VAT của các dòng có số lượng'
+          }
+        >
           <input className={styles.input} inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} />
         </Field>
         <Field label="Bảo hành (tháng)">
@@ -257,6 +383,23 @@ export function ContractFormDialog({
           <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
         </Field>
       </div>
+      {quotePreview ? (
+        <section aria-label="Dòng hàng từ báo giá">
+          <h3 className={styles.sectionTitle}>Dòng hàng từ báo giá {quotePreview.quoteCode}</h3>
+          <p className={styles.muted}>
+            Hợp đồng nhận {quotePreview.lines.length} dòng của phiên bản {quotePreview.versionNo} khách đã chấp nhận (dòng trùng mặt hàng được gộp),
+            tổng báo giá {formatMoney(quotePreview.totalAmount)}. Bỏ chọn báo giá để lập hợp đồng không gắn báo giá.
+          </p>
+          <Table<ContractLine>
+            size="small"
+            rowKey="id"
+            columns={QUOTE_LINE_COLUMNS}
+            dataSource={[...quotePreview.lines]}
+            pagination={false}
+            scroll={{ x: 640 }}
+          />
+        </section>
+      ) : null}
     </CrmDialog>
   );
 }

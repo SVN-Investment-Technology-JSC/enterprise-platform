@@ -49,6 +49,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     reasonId: receiptReason,
     accountId: accountA,
     counterpartyGroupId: group,
+    counterpartyName: 'Công ty Khách A',
     lines: [line('Hàng A', 2, 150_000)],
     ...over,
   });
@@ -60,6 +61,10 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     reasonId: paymentReason,
     accountId: accountA,
     counterpartyGroupId: group,
+    // Tài khoản chi mặc định là tài khoản ngân hàng: phiếu chi chuyển khoản cần số tài khoản và ngân hàng người nhận.
+    counterpartyName: 'Cửa hàng VPP',
+    counterpartyAccountNo: '0123456789',
+    counterpartyBank: 'ACB',
     lines: [line('Giấy in', 1, amount)],
     ...over,
   });
@@ -194,7 +199,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
       (e: { code: string; details: string[] }) => e,
     );
     expect(error?.code).toBe('FINANCE_SUBMIT_INVALID');
-    expect(error?.details).toEqual(expect.arrayContaining(['Chọn lý do thu.', 'Chọn đối tượng thu.', 'Chọn tài khoản thu.']));
+    expect(error?.details[0]).toBe('Còn thiếu: Lý do thu, Tài khoản thu, Đối tượng thu, Số tiền (lớn hơn 0).');
     expect((await app.voucher(accountant, draft.id)).status).toBe('DRAFT');
     await app.deleteVoucher(accountant, draft.id);
     await rejects(app.voucher(accountant, draft.id), 'FINANCE_NOT_FOUND');
@@ -252,8 +257,9 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const tooBig = await app.createVoucher(accountant, transfer(99_000_000, accountA, cash));
     await app.submit(accountant, tooBig.id);
     await rejects(app.approve(approver, tooBig.id), 'FINANCE_INSUFFICIENT_BALANCE');
-    await app.cancel(approver, session, tooBig.id, 'Không đủ số dư');
-    expect((await app.voucher(approver, tooBig.id)).status).toBe('CANCELLED');
+    // Huỷ phiếu chưa ghi sổ là xoá hẳn phiếu.
+    expect(await app.cancel(approver, session, tooBig.id, 'Không đủ số dư')).toMatchObject({ id: tooBig.id, deleted: true });
+    await rejects(app.voucher(approver, tooBig.id), 'FINANCE_NOT_FOUND');
   });
 
   it('từ chối cần lý do; sửa phiếu bị từ chối gửi duyệt lại ngay (không còn qua nháp)', async () => {
@@ -262,7 +268,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     await rejects(app.reject(approver, created.id, ' '), 'FINANCE_INVALID', /lý do/);
     const rejected = await app.reject(approver, created.id, 'Thiếu chứng từ');
     expect(rejected).toMatchObject({ status: 'REJECTED', decisionNote: 'Thiếu chứng từ' });
-    expect(rejected.permissions).toMatchObject({ canEdit: false, canApprove: false });
+    // Chỉ còn hai trạng thái hiển thị (bị từ chối là "Nháp"): người duyệt vẫn duyệt ghi sổ thẳng được nếu đủ thông tin.
+    expect(rejected.permissions).toMatchObject({ canEdit: false, canApprove: true, canReject: false });
     expect((await app.voucher(accountant, created.id)).permissions).toMatchObject({ canEdit: true, canSubmit: true });
 
     const edited = await app.updateVoucher(accountant, created.id, receipt({ content: 'Thu lần 2 (đã bổ sung chứng từ)', revision: rejected.revision }));
@@ -326,7 +333,8 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
   it('đảo phiếu đã ghi sổ: bút toán đảo giữ nguyên số liệu; đảo phiếu thu đã tiêu hết tiền bị chặn', async () => {
     const paid = await post(payment(500_000));
     const after = await balance(accountA);
-    await rejects(app.cancel(accountant, session, paid.id, 'x'), 'FINANCE_VOUCHER_STATE');
+    // Huỷ phiếu đã ghi sổ (đảo bút toán) chỉ dành cho người có quyền duyệt.
+    await rejects(app.cancel(accountant, session, paid.id, 'x'), 'FINANCE_FORBIDDEN');
     await rejects(app.reverse(approver, paid.id, undefined), 'FINANCE_INVALID', /lý do/);
     await rejects(app.reverse(accountant, paid.id, 'Nhầm'), 'FINANCE_FORBIDDEN');
     const reversed = await app.reverse(approver, paid.id, 'Chi nhầm đối tượng');
@@ -734,9 +742,10 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect(await balance(fund)).toBe(-700_000);
   });
 
-  it('người nộp/nhận tiền, số tài khoản, ngân hàng: chữ tự do, không bắt buộc, lưu và sửa được', async () => {
-    const plain = await app.createVoucher(accountant, payment(10_000));
+  it('người nộp/nhận tiền, số tài khoản, ngân hàng: chữ tự do, có thể để trống, kể cả phiếu chi chuyển khoản', async () => {
+    const plain = await app.createVoucher(accountant, payment(10_000, { counterpartyName: null, counterpartyAccountNo: null, counterpartyBank: null }));
     expect(plain).toMatchObject({ counterpartyName: null, counterpartyAccountNo: null, counterpartyBank: null });
+    expect(plain.missingFields).toEqual([]);
     await app.submit(accountant, plain.id);
     const filled = await app.createVoucher(
       accountant,
@@ -748,9 +757,81 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
       revision: filled.revision,
     });
     expect(edited).toMatchObject({ counterpartyName: 'Trần Thị B', counterpartyAccountNo: null, counterpartyBank: null });
+    // Phiếu chi chuyển khoản không có số tài khoản, ngân hàng người nhận vẫn không bị chặn duyệt.
+    expect((await app.voucher(approver, filled.id)).permissions.approveBlockedReason).toBeNull();
     expect((await app.listVouchers(approver, { kind: 'PAYMENT', search: 'Trần Thị B' })).items.map((v) => v.id)).toEqual([filled.id]);
     await app.cancel(accountant, session, plain.id, 'Dọn kiểm thử');
     await app.deleteVoucher(accountant, filled.id);
+  });
+
+  it('hai trạng thái: người duyệt "Duyệt ghi sổ" thẳng phiếu nháp đủ thông tin; thiếu thông tin thì báo trước lý do và chặn', async () => {
+    const before = await balance(accountA);
+    const draft = await app.createVoucher(accountant, receipt({ content: 'Thu nháp duyệt thẳng', lines: [line('E', 1, 40_000)] }));
+    expect(draft.status).toBe('DRAFT');
+    const seen = await app.voucher(approver, draft.id);
+    expect(seen.permissions).toMatchObject({ canApprove: true, approveBlockedReason: null });
+    const posted = await app.approve(approver, draft.id);
+    expect(posted).toMatchObject({ status: 'APPROVED', approvalMode: 'DIRECT', posted: true });
+    expect(posted.code).toMatch(/^PT-/);
+    expect(await balance(accountA)).toBe((before ?? 0) + 40_000);
+
+    const incomplete = await app.createVoucher(accountant, receipt({ content: 'Thu thiếu tài khoản', accountId: null }));
+    const blocked = await app.voucher(approver, incomplete.id);
+    expect(blocked.permissions.canApprove).toBe(false);
+    expect(blocked.permissions.approveBlockedReason).toBe('Chưa đủ thông tin để duyệt ghi sổ. Còn thiếu: Tài khoản thu.');
+    expect(blocked.missingFields).toEqual(['account']);
+    await expect(app.approve(approver, incomplete.id)).rejects.toMatchObject({ code: 'FINANCE_SUBMIT_INVALID' });
+    // Người lập (không có quyền duyệt) không thấy lý do duyệt.
+    expect((await app.voucher(accountant, incomplete.id)).permissions.approveBlockedReason).toBeNull();
+    // Phiếu của chính mình khi tenant không cho tự duyệt: báo lý do tự duyệt.
+    const mine = await app.createVoucher(maker, receipt({ content: 'Tự lập nháp' }));
+    expect((await app.voucher(maker, mine.id)).permissions.approveBlockedReason).toMatch(/tự duyệt/);
+    await app.cancel(accountant, session, incomplete.id);
+    await app.cancel(maker, session, mine.id);
+  });
+
+  it('Huỷ: phiếu chưa ghi sổ bị xoá hẳn (dấu vết ở sự kiện status-changed); phiếu đã ghi sổ được đảo bút toán rồi ẩn khỏi danh sách', async () => {
+    const draft = await app.createVoucher(accountant, payment(7_000, { content: 'Chi để huỷ' }));
+    await app.submit(accountant, draft.id);
+    expect(await app.cancel(accountant, session, draft.id)).toEqual({ id: draft.id, code: draft.code, deleted: true });
+    await rejects(app.voucher(approver, draft.id), 'FINANCE_NOT_FOUND');
+    expect((await pool.query(`SELECT 1 FROM finance_schema.vouchers WHERE id=$1`, [draft.id])).rows).toHaveLength(0);
+    const trace = (
+      await pool.query(
+        `SELECT payload->'payload' AS p FROM integration_schema.outbox_events WHERE event_type='finance.voucher.status-changed' AND payload->'payload'->>'voucherId'=$1`,
+        [draft.id],
+      )
+    ).rows as { p: Record<string, unknown> }[];
+    expect(trace.at(-1)?.p).toMatchObject({ status: 'CANCELLED', actorUserId: accountant.userId });
+    expect(String(trace.at(-1)?.p['summary'])).toContain('đã xoá phiếu');
+
+    const before = await balance(accountA);
+    const paid = await post(payment(9_000, { content: 'Chi rồi huỷ' }));
+    expect(await balance(accountA)).toBe((before ?? 0) - 9_000);
+    const result = await app.cancel(approver, session, paid.id);
+    expect(result).toMatchObject({ id: paid.id, deleted: false });
+    expect(await balance(accountA)).toBe(before);
+    // Sổ cái chỉ thêm: còn bút toán gốc và bút toán đảo; phiếu ẩn khỏi danh sách, không tính vào số đếm theo trạng thái.
+    expect((await pool.query(`SELECT count(*)::int AS n FROM finance_schema.ledger_entries WHERE voucher_id=$1`, [paid.id])).rows[0].n).toBe(2);
+    const list = await app.listVouchers(approver, { kind: 'PAYMENT', search: 'Chi rồi huỷ' });
+    expect(list.items).toEqual([]);
+    expect(list.statusCounts.CANCELLED).toBe(0);
+    expect((await app.listVouchers(approver, { kind: 'PAYMENT', status: 'CANCELLED' })).items).toEqual([]);
+    expect((await app.voucher(approver, paid.id)).status).toBe('CANCELLED'); // vẫn mở được từ sổ tài khoản
+    await rejects(app.cancel(approver, session, paid.id), 'FINANCE_VOUCHER_STATE');
+  });
+
+  it('lọc "Nháp" gồm cả phiếu chờ duyệt và bị từ chối', async () => {
+    const pending = await app.createVoucher(accountant, payment(3_000, { content: 'Lọc nháp chờ' }));
+    await app.submit(accountant, pending.id);
+    const rejected = await app.createVoucher(accountant, payment(3_000, { content: 'Lọc nháp từ chối' }));
+    await app.submit(accountant, rejected.id);
+    await app.reject(approver, rejected.id, 'Sai');
+    const draft = await app.createVoucher(accountant, payment(3_000, { content: 'Lọc nháp thật' }));
+    const drafts = await app.listVouchers(approver, { kind: 'PAYMENT', status: 'DRAFT', search: 'Lọc nháp' });
+    expect(drafts.items.map((v) => v.id).sort()).toEqual([pending.id, rejected.id, draft.id].sort());
+    expect(drafts.total).toBe(3);
+    for (const id of [pending.id, rejected.id, draft.id]) await app.cancel(accountant, session, id);
   });
 
   it('duyệt hàng loạt: duyệt được phiếu nào thì ghi sổ phiếu đó, phiếu không duyệt được trả về kèm lý do', async () => {
@@ -759,27 +840,57 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     const b = await app.createVoucher(accountant, receipt({ content: 'Thu loạt 2', lines: [line('B', 1, 200_000)] }));
     await app.submit(accountant, a.id);
     await app.submit(accountant, b.id);
-    // Phiếu do chính người duyệt lập: không được tự duyệt; phiếu nháp: không ở trạng thái chờ duyệt.
+    // Phiếu do chính người duyệt lập: không được tự duyệt; phiếu nháp thiếu tài khoản: chưa đủ điều kiện duyệt ghi sổ.
     const own = await app.createVoucher(maker, receipt({ content: 'Tự lập', lines: [line('C', 1, 5_000)] }));
     await app.submit(maker, own.id);
-    const draft = await app.createVoucher(accountant, receipt({ content: 'Còn nháp', lines: [line('D', 1, 5_000)] }));
+    const draft = await app.createVoucher(accountant, receipt({ content: 'Còn nháp', accountId: null, lines: [line('D', 1, 5_000)] }));
+    // Phiếu nháp đủ thông tin cũng duyệt thẳng được (người nộp tiền không bắt buộc); phiếu nháp thiếu đối tượng thì bị bỏ qua
+    // kèm danh sách trường thiếu.
+    const ready = await app.createVoucher(accountant, receipt({ content: 'Nháp đủ thông tin', counterpartyName: null, lines: [line('E', 1, 50_000)] }));
+    const noPayer = await app.createVoucher(accountant, receipt({ content: 'Thiếu đối tượng', counterpartyGroupId: null, lines: [line('F', 1, 7_000)] }));
 
-    const result = await app.bulkApprove(maker, { ids: [a.id, b.id, own.id, draft.id] });
-    expect(result.approved.map((r) => r.id)).toEqual([a.id, b.id]);
+    const result = await app.bulkApprove(maker, { ids: [a.id, b.id, own.id, draft.id, ready.id, noPayer.id] });
+    expect(result.approved.map((r) => r.id)).toEqual([a.id, b.id, ready.id]);
     expect(result.approved.every((r) => /^PT-/.test(r.code))).toBe(true);
-    expect(result.failed.map((r) => r.id)).toEqual([own.id, draft.id]);
-    expect(result.failed[0].message).toMatch(/tự duyệt/);
-    expect(await balance(accountA)).toBe(before! + 300_000);
+    expect(result.failed).toEqual([
+      { id: own.id, code: own.code, reason: 'FORBIDDEN', message: expect.stringMatching(/tự duyệt/) },
+      { id: draft.id, code: draft.code, reason: 'INCOMPLETE', message: 'Còn thiếu: Tài khoản thu.' },
+      { id: noPayer.id, code: noPayer.code, reason: 'INCOMPLETE', message: 'Còn thiếu: Đối tượng thu.' },
+    ]);
+    expect(await balance(accountA)).toBe(before! + 350_000);
     expect((await app.voucher(approver, a.id)).status).toBe('APPROVED');
+    expect((await app.voucher(approver, noPayer.id)).status).toBe('DRAFT');
+    // Danh sách báo trước trường thiếu của từng phiếu (giao diện không cho chọn phiếu đó để duyệt hàng loạt).
+    const listed = await app.listVouchers(approver, { kind: 'RECEIPT', search: 'Thiếu đối tượng' });
+    expect(listed.items.map((v) => v.missingFields)).toEqual([['counterpartyGroup']]);
 
-    // Không có quyền duyệt: không ghi sổ phiếu nào.
+    // Không có quyền duyệt: không ghi sổ phiếu nào, không lộ mã phiếu không xem được.
     const denied = await app.bulkApprove(outsider, { ids: [own.id] });
     expect(denied.approved).toEqual([]);
+    expect(denied.failed[0]).toMatchObject({ code: null, reason: 'FORBIDDEN' });
     expect(denied.failed[0].message).toMatch(/không tìm thấy|không có quyền/i);
     await rejects(app.bulkApprove(maker, { ids: [] }), 'FINANCE_INVALID');
     await rejects(app.bulkApprove(maker, { ids: ['khong-phai-uuid'] }), 'FINANCE_INVALID');
     await app.cancel(maker, session, own.id, 'Dọn kiểm thử');
     await app.deleteVoucher(accountant, draft.id);
+    await app.deleteVoucher(accountant, noPayer.id);
+  });
+
+  it('sắp xếp danh sách theo cột ở máy chủ: đúng thứ tự trên mọi trang, mã cột lạ bị từ chối', async () => {
+    const tag = 'Sắp xếp kiểm thử';
+    const made = [];
+    for (const [name, amount] of [['Bình', 30_000], ['An', 10_000], ['Cường', 20_000]] as const)
+      made.push(await app.createVoucher(accountant, receipt({ content: `${tag} ${name}`, counterpartyName: name, lines: [line(name, 1, amount)] })));
+    const ids = (query: Partial<Parameters<typeof app.listVouchers>[1]>) =>
+      app.listVouchers(approver, { kind: 'RECEIPT', search: tag, ...query }).then((r) => r.items.map((v) => v.counterpartyName));
+    expect(await ids({ sort: 'amount', direction: 'asc' })).toEqual(['An', 'Cường', 'Bình']);
+    expect(await ids({ sort: 'amount', direction: 'desc' })).toEqual(['Bình', 'Cường', 'An']);
+    expect(await ids({ sort: 'person', direction: 'asc', pageSize: 10 })).toEqual(['An', 'Bình', 'Cường']);
+    expect(await ids({ sort: 'created-by', direction: 'asc' })).toHaveLength(3);
+    for (const key of ['code', 'voucher-date', 'content', 'reason', 'account', 'counterparty', 'allocation', 'status'] as const)
+      expect(await ids({ sort: key, direction: 'desc' })).toHaveLength(3);
+    await rejects(app.listVouchers(approver, { kind: 'RECEIPT', sort: 'v.id; --' as never }), 'FINANCE_INVALID', /sắp xếp/);
+    for (const voucher of made) await app.deleteVoucher(accountant, voucher.id);
   });
 
   it('cột hiển thị danh sách phiếu: mỗi người một bộ riêng theo loại phiếu, xoá thì về mặc định', async () => {

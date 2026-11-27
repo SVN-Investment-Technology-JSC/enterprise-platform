@@ -7,6 +7,9 @@ import type {
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 class FixedClock implements ProcedureClock {
   now(): Date {
     return new Date('2026-08-15T10:00:00.000Z');
@@ -85,6 +88,7 @@ describe('ProcedureEngineApplication', () => {
     const draft = await application.createDefinition(actor, definitionInput());
     const published = await application.publishDefinition(actor, draft.id);
     const started = await application.startInstance(actor, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Đề nghị thử nghiệm',
       idempotencyKey: 'start-001',
@@ -121,9 +125,9 @@ describe('ProcedureEngineApplication', () => {
     const publisher = { ...employee, canPublish: true, canCreateInstances: false };
     expect((await application.getWorkspace(publisher)).definitions).toEqual(expect.arrayContaining([expect.objectContaining({ id: draft.id })]));
     await application.publishDefinition(publisher, draft.id);
-    await expect(application.startInstance(publisher, { definitionId: draft.id, title: 'Test', idempotencyKey: 'denied' })).rejects.toMatchObject({ code: 'forbidden' });
-    await expect(application.startInstance({ ...employee, userId: 'unassigned', membershipId: 'unassigned' }, { definitionId: draft.id, title: 'Test', idempotencyKey: 'unassigned' })).rejects.toMatchObject({ code: 'forbidden' });
-    const started = await application.startInstance(employee, { definitionId: draft.id, title: 'Test', idempotencyKey: 'allowed' });
+    await expect(application.startInstance(publisher, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: draft.id, title: 'Test', idempotencyKey: 'denied' })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(application.startInstance({ ...employee, userId: 'unassigned', membershipId: 'unassigned' }, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: draft.id, title: 'Test', idempotencyKey: 'unassigned' })).rejects.toMatchObject({ code: 'forbidden' });
+    const started = await application.startInstance(employee, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: draft.id, title: 'Test', idempotencyKey: 'allowed' });
     expect(started.status).toBe('running');
     expect((await application.getWorkspace(employee)).permissions).toEqual({ canManageDefinitions: false, canPublishDefinitions: false, canCreateInstances: true, canOverrideActions: false });
     // Không cần quyền quản trị: người giữ vai A của đơn (ở đây chính là nhân viên này) được xoá đơn.
@@ -172,7 +176,7 @@ describe('ProcedureEngineApplication', () => {
   it('chỉ lưu trữ khi mọi hồ sơ của quy trình đã kết thúc', async () => {
     const application = setup();
     const published = await application.publishDefinition(actor, (await application.createDefinition(actor, definitionInput())).id);
-    const started = await application.startInstance(actor, { definitionId: published.id, title: 'Đang chạy', idempotencyKey: 'archive-run' });
+    const started = await application.startInstance(actor, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: published.id, title: 'Đang chạy', idempotencyKey: 'archive-run' });
     await expect(application.archiveDefinition(actor, published.id)).rejects.toMatchObject({
       code: 'conflict',
       message: expect.stringContaining(started.code),
@@ -185,7 +189,7 @@ describe('ProcedureEngineApplication', () => {
   it('xoá quy trình đã lưu trữ là xoá mềm: ẩn khỏi giao diện, hồ sơ cũ vẫn giữ', async () => {
     const application = setup();
     const published = await application.publishDefinition(actor, (await application.createDefinition(actor, definitionInput())).id);
-    const started = await application.startInstance(actor, { definitionId: published.id, title: 'Hồ sơ cũ', idempotencyKey: 'del-run' });
+    const started = await application.startInstance(actor, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: published.id, title: 'Hồ sơ cũ', idempotencyKey: 'del-run' });
     await application.applyAction(actor, started.id, { action: 'complete', idempotencyKey: 'del-a1' });
     await application.applyAction(actor, started.id, { action: 'approve', idempotencyKey: 'del-a2' });
     await application.archiveDefinition(actor, published.id);
@@ -243,6 +247,7 @@ describe('ProcedureEngineApplication', () => {
     const draft = await application.createDefinition(actor, definitionInput());
     const published = await application.publishDefinition(actor, draft.id);
     const started = await application.startInstance(actor, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ tuần tự',
       idempotencyKey: 'start-seq',
@@ -273,6 +278,7 @@ describe('ProcedureEngineApplication', () => {
     const draft = await application.createDefinition(actor, definitionInput());
     const published = await application.publishDefinition(actor, draft.id);
     const started = await application.startInstance(actor, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ song song',
       idempotencyKey: 'start-par',
@@ -344,6 +350,7 @@ describe('ProcedureEngineApplication', () => {
     );
     expect(published).toBeDefined();
     await application.startInstance(actor, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published?.id ?? '',
       title: 'Chỉ thuộc tenant A',
       idempotencyKey: 'tenant-a-start',
@@ -366,6 +373,7 @@ describe('ProcedureEngineApplication', () => {
       definitionId: published?.id ?? '',
       title: 'Yêu cầu idempotent',
       idempotencyKey: 'same-command',
+      workspaceLink: TEST_WORKSPACE_LINK,
     };
 
     const first = await application.startInstance(actor, request);

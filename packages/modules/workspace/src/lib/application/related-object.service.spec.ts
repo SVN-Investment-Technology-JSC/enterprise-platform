@@ -1,6 +1,7 @@
 import type { LinkableObject } from '@enterprise-platform/contracts-integration';
 import type { ProjectAccess, ProjectService } from './project.service.js';
 import {
+  LinkableCreateRejectedError,
   LinkableProviderError,
   type LinkableProvider,
   type LinkableProviderRegistry,
@@ -316,5 +317,113 @@ describe('RelatedObjectService', () => {
     expect(preview.upstream).toEqual([{ kind: 'crm.quote', id: 'q-1', label: 'BG-010', kindLabel: undefined }]);
     expect(preview.prefill).toEqual({ title: 'Hợp đồng', contractValue: 100 });
     expect(preview.kindLabel).toBe('Hợp đồng bán');
+  });
+
+  it('danh sách loại giữ cờ create của module gốc', async () => {
+    const { service } = setup({
+      provider: {
+        kinds: async () => [{ key: 'crm.contract', label: 'Hợp đồng bán', moduleLabel: 'Bán hàng', prefill: true, create: true }],
+      },
+    });
+    expect((await service.kinds(actor, TOKEN)).kinds[0]).toMatchObject({ key: 'crm.contract', create: true });
+  });
+
+  it('tạo nhanh: chuyển tiếp tới module gốc dưới token và CSRF của người dùng, chưa gắn vào đâu', async () => {
+    const create = jest.fn(async () => contract('c-9', { upstream: [] }));
+    const { service, store } = setup({ provider: { create } });
+    const created = await service.createRecord(actor, TOKEN, 'csrf-1', 'crm.contract', {
+      values: { title: ' Hợp đồng giấy ', bad: { a: 1 } },
+      confirm: true,
+    });
+    expect(create).toHaveBeenCalledWith(
+      { tenantId: 't-1', userId: 'u-1', accessToken: TOKEN, csrfToken: 'csrf-1' },
+      'crm.contract',
+      { values: { title: 'Hợp đồng giấy' }, confirm: true },
+    );
+    expect(created).toMatchObject({ kind: 'crm.contract', id: 'c-9', kindLabel: 'Hợp đồng bán', launchUrl: '/modules/crm#contracts/c-9' });
+    expect(store.rows).toHaveLength(0);
+  });
+
+  it('tạo nhanh: module từ chối thì giữ mã, mã HTTP, câu chữ và cảnh báo của module', async () => {
+    const { service } = setup({
+      provider: {
+        create: async () => {
+          throw new LinkableCreateRejectedError(409, 'LINKABLE_CONFIRM_REQUIRED', 'Mã số thuế đã có.', ['KH001 - Công ty A'], 'taxCode');
+        },
+      },
+    });
+    await expect(service.createRecord(actor, TOKEN, 'csrf-1', 'crm.customer', { values: {} })).rejects.toMatchObject({
+      code: 'LINKABLE_CONFIRM_REQUIRED',
+      statusCode: 409,
+      message: 'Mã số thuế đã có.',
+      warnings: ['KH001 - Công ty A'],
+      field: 'taxCode',
+    });
+  });
+
+  it('tạo nhanh: module không hỗ trợ, thiếu token, loại lạ đều bị chặn trước khi gọi', async () => {
+    expect(await errorCode(setup().service.createForm(actor, TOKEN, 'crm.contract'))).toBe('RELATED_MODULE_UNAVAILABLE');
+    expect(await errorCode(setup().service.createRecord(actor, TOKEN, undefined, 'crm.contract', {}))).toBe('RELATED_MODULE_UNAVAILABLE');
+    const create = jest.fn();
+    expect(await errorCode(setup({ provider: { create } }).service.createRecord(actor, undefined, 'c', 'crm.contract', {}))).toBe(
+      'RELATED_MODULE_FORBIDDEN',
+    );
+    expect(await errorCode(setup({ provider: { create } }).service.createRecord(actor, TOKEN, 'c', 'finance.x', {}))).toBe(
+      'RELATED_MODULE_UNAVAILABLE',
+    );
+    expect(await errorCode(setup({ provider: { create } }).service.createRecord(actor, TOKEN, 'c', 'kho', {}))).toBe('VALIDATION');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('form tạo nhanh: trả nguyên form của module gốc', async () => {
+    const form = { kind: 'crm.contract', title: 'Lập hợp đồng', fields: [{ key: 'title', label: 'Tên', type: 'text' as const }] };
+    const { service } = setup({ provider: { createForm: async () => form } });
+    expect(await service.createForm(actor, TOKEN, 'crm.contract')).toEqual(form);
+  });
+
+  it('tìm có lọc của ô tham chiếu: chỉ chuyển tham số đúng hình dạng; không có lọc thì gọi như cũ', async () => {
+    const { service, crm } = setup();
+    await service.search(actor, TOKEN, 'crm.quote', 'BG', undefined, {
+      contractLinkable: 'true',
+      customerId: 'k-1',
+      kind: 'finance.voucher',
+      'bad key': 'x',
+      empty: ' ',
+    });
+    expect(crm.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({ accessToken: TOKEN }),
+      'crm.quote',
+      'BG',
+      20,
+      { contractLinkable: 'true', customerId: 'k-1' },
+    );
+    await service.search(actor, TOKEN, 'crm.quote', '', undefined, { kind: 'x' });
+    expect(crm.search).toHaveBeenLastCalledWith(expect.objectContaining({ accessToken: TOKEN }), 'crm.quote', '', 20);
+  });
+
+  it('xem trước theo ô: chuyển dưới danh nghĩa người dùng; ô, giá trị sai hay module không hỗ trợ bị chặn trước khi gọi', async () => {
+    const preview = { field: 'quoteId', value: 'q-1', columns: [{ key: 'name', label: 'Mặt hàng', type: 'text' as const }], rows: [{ name: 'Tủ' }] };
+    const createPreview = jest.fn(async () => preview);
+    const { service } = setup({ provider: { createPreview } });
+    expect(await service.createPreview(actor, TOKEN, 'crm.contract', 'quoteId', ' q-1 ')).toEqual(preview);
+    expect(createPreview).toHaveBeenCalledWith(expect.objectContaining({ accessToken: TOKEN, userId: actor.userId }), 'crm.contract', 'quoteId', 'q-1');
+    expect(await errorCode(service.createPreview(actor, TOKEN, 'crm.contract', 'bad key', 'q-1'))).toBe('VALIDATION');
+    expect(await errorCode(service.createPreview(actor, TOKEN, 'crm.contract', 'quoteId', ''))).toBe('VALIDATION');
+    expect(await errorCode(service.createPreview(actor, TOKEN, 'crm.contract', 'quoteId', 'x'.repeat(200)))).toBe('VALIDATION');
+    expect(await errorCode(service.createPreview(actor, undefined, 'crm.contract', 'quoteId', 'q-1'))).toBe('RELATED_MODULE_FORBIDDEN');
+    expect(createPreview).toHaveBeenCalledTimes(1);
+    expect(await errorCode(setup().service.createPreview(actor, TOKEN, 'crm.contract', 'quoteId', 'q-1'))).toBe('RELATED_MODULE_UNAVAILABLE');
+  });
+
+  it('xem trước bị module gốc từ chối (báo giá đã chuyển): giữ mã, câu chữ, mã HTTP', async () => {
+    const createPreview = jest.fn(async () => {
+      throw new LinkableCreateRejectedError(409, 'QUOTE_CONVERTED', 'Báo giá đã chuyển thành hợp đồng.');
+    });
+    const { service } = setup({ provider: { createPreview } });
+    await expect(service.createPreview(actor, TOKEN, 'crm.contract', 'quoteId', 'q-1')).rejects.toMatchObject({
+      code: 'QUOTE_CONVERTED',
+      statusCode: 409,
+      message: 'Báo giá đã chuyển thành hợp đồng.',
+    });
   });
 });

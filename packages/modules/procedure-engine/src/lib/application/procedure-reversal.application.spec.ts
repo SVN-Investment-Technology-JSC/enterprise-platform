@@ -9,6 +9,9 @@ import type { InstanceReversalGuard } from './instance-reversal-guard.port.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 const TENANT = 'tenant-reverse';
 
 class FixedClock implements ProcedureClock {
@@ -85,6 +88,7 @@ async function completed(application: ProcedureEngineApplication): Promise<Proce
   const draft = await application.createDefinition(admin, input);
   const definition = await application.publishDefinition(admin, draft.id);
   const started = await application.startInstance(employee, {
+    workspaceLink: TEST_WORKSPACE_LINK,
     definitionId: definition.id,
     title: 'Đề nghị mua máy',
     idempotencyKey: 'start-1',
@@ -135,6 +139,7 @@ describe('Huỷ hiệu lực hồ sơ', () => {
     ).rejects.toMatchObject({ code: 'validation' });
 
     const running = await application.startInstance(employee, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: done.definitionId,
       title: 'Đang chạy',
       idempotencyKey: 'start-2',
@@ -149,6 +154,7 @@ describe('Huỷ hiệu lực hồ sơ', () => {
     const done = await completed(application);
     await expect(
       application.startInstance(employee, {
+        workspaceLink: TEST_WORKSPACE_LINK,
         definitionId: done.definitionId,
         title: 'Điều chỉnh sớm',
         idempotencyKey: 'adjust-0',
@@ -158,6 +164,7 @@ describe('Huỷ hiệu lực hồ sơ', () => {
 
     await application.reverseInstance(admin, done.id, { reason: 'Sai số tiền', createAdjustment: true });
     const adjustment = await application.startInstance(employee, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: done.definitionId,
       title: `Điều chỉnh ${done.code}`,
       idempotencyKey: 'adjust-1',
@@ -167,6 +174,7 @@ describe('Huỷ hiệu lực hồ sơ', () => {
 
     await expect(
       application.startInstance(employee, {
+        workspaceLink: TEST_WORKSPACE_LINK,
         definitionId: done.definitionId,
         title: 'Điều chỉnh lần hai',
         idempotencyKey: 'adjust-2',

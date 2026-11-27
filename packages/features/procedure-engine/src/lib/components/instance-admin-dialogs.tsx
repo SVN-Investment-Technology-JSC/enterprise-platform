@@ -12,6 +12,7 @@ import {
   type ProjectWorkItemOption,
   type RelatedProject,
 } from '../workspace-api';
+import { WorkItemTreePicker } from './work-item-tree-picker';
 import styles from './workspace-board.module.scss';
 
 const errorText = (cause: unknown, fallback: string) =>
@@ -108,9 +109,10 @@ export function DeleteInstanceDialog({
 }
 
 /**
- * Đổi công việc liên kết: chọn dự án mới (dự án người dùng tham gia và còn ghi được) và công việc cha.
+ * Đổi dự án / công việc: chọn dự án mới (dự án người dùng tham gia và còn ghi được) và công việc cha trên cây WBS.
  * Workspace tạo công việc mới, chuyển tài liệu của công việc cũ sang rồi xoá công việc cũ; hồ sơ hiện
- * "đang chờ" cho tới khi Workspace trả lời.
+ * "đang chờ" cho tới khi Workspace trả lời. Hồ sơ mở từ công việc "Theo quy trình" cũng đổi được: công việc cũ là
+ * công việc nguồn của hồ sơ.
  */
 export function RelinkWorkspaceDialog({
   instance,
@@ -124,6 +126,7 @@ export function RelinkWorkspaceDialog({
   const [projects, setProjects] = useState<readonly RelatedProject[]>();
   const [projectId, setProjectId] = useState('');
   const [items, setItems] = useState<readonly ProjectWorkItemOption[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
   const [parentId, setParentId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -140,27 +143,31 @@ export function RelinkWorkspaceDialog({
 
   useEffect(() => {
     setParentId('');
+    setItems([]);
     if (!projectId) {
-      setItems([]);
+      setItemsLoading(false);
       return;
     }
     let alive = true;
-    void loadProjectWorkItems(projectId).then((loaded) => {
-      // Công việc đang liên kết sẽ bị xoá nên không làm công việc cha được.
-      if (alive) setItems(loaded.filter((item) => item.id !== currentId));
-    });
+    setItemsLoading(true);
+    void loadProjectWorkItems(projectId)
+      .then((loaded) => {
+        if (alive) setItems(loaded);
+      })
+      .finally(() => {
+        if (alive) setItemsLoading(false);
+      });
     return () => {
       alive = false;
     };
-  }, [projectId, currentId]);
+  }, [projectId]);
 
   const project = projects?.find((entry) => entry.id === projectId);
-  const link = instance.workspaceLink;
 
   return (
     <MinimalPopupForm
       isOpen
-      title="Đổi công việc liên kết"
+      title="Đổi dự án / công việc"
       subtitle={`${instance.code} · ${instance.title}`}
       onClose={onClose}
       maxWidth={600}
@@ -179,19 +186,11 @@ export function RelinkWorkspaceDialog({
           })
             .then(onClose)
             .catch((cause: unknown) =>
-              setError(errorText(cause, 'Không đổi được công việc liên kết.')),
+              setError(errorText(cause, 'Không đổi được dự án / công việc liên kết.')),
             )
             .finally(() => setBusy(false));
         }}
       >
-        <p className={styles.reversalNote}>
-          {link?.status === 'linked' && link.workItemCode
-            ? `Đang liên kết công việc ${link.workItemCode} của dự án ${link.projectCode}. `
-            : ''}
-          Hệ thống tạo công việc mới ở dự án đã chọn, chuyển toàn bộ tài liệu của công việc cũ sang rồi
-          xoá công việc cũ. Bạn phải là thành viên của dự án mới.
-        </p>
-
         <div className={styles.createFieldGroup}>
           <label className={styles.createFieldLabel}>
             Dự án mới <span className={styles.createRequiredStar}>*</span>
@@ -210,17 +209,15 @@ export function RelinkWorkspaceDialog({
 
         <div className={styles.createFieldGroup}>
           <label className={styles.createFieldLabel}>Công việc cha</label>
-          <SearchableSelect
-            options={[
-              { value: '', label: 'Gốc dự án' },
-              ...items.map((item) => ({
-                value: item.id,
-                label: `${'  '.repeat(item.depth)}${item.code} · ${item.title}`,
-              })),
-            ]}
+          {/* Công việc đang liên kết (cùng nhánh con) sẽ bị xoá nên không làm công việc cha được. */}
+          <WorkItemTreePicker
+            label="Công việc cha"
+            items={items}
             value={parentId}
+            loading={itemsLoading}
             disabled={!projectId}
-            placeholder="Gốc dự án"
+            disabledText="Chọn dự án mới trước, rồi chọn công việc cha (bỏ trống là gốc dự án)."
+            excludeId={currentId}
             onChange={setParentId}
           />
         </div>
@@ -236,7 +233,7 @@ export function RelinkWorkspaceDialog({
             Đóng
           </button>
           <button type="submit" className={styles.createSubmitBtn} disabled={busy || !project}>
-            {busy ? 'Đang gửi…' : 'Đổi công việc liên kết'}
+            {busy ? 'Đang gửi…' : 'Đổi dự án / công việc'}
           </button>
         </div>
       </form>

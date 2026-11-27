@@ -41,6 +41,7 @@ import { MyWorkView } from './components/my-work-view';
 import { QuickSearch, type QuickSearchTarget } from './components/quick-search';
 import { ReportsView } from './components/reports-view';
 import { ProjectGroupSettings } from './components/project-group-settings';
+import { ProjectReportGroupSettings } from './components/project-report-group-settings';
 import { ProjectCodeSettings } from './components/project-code-settings';
 import { LabelSettings } from './components/label-settings';
 import { GeneralSettings } from './components/general-settings';
@@ -154,6 +155,13 @@ const SETTINGS_SECTIONS = [
     description:
       'Danh mục nhóm để phân loại dự án, chọn khi tạo dự án và lọc trên trang Dự án. Đổi tên nhóm thì các dự án của nhóm đổi theo.',
     render: () => <ProjectGroupSettings />,
+  },
+  {
+    id: 'project-report-groups',
+    label: 'Nhóm báo cáo',
+    description:
+      'Lĩnh vực dùng khi xuất báo cáo doanh thu (ví dụ Dịch vụ, Thí nghiệm, Bán hàng, O&M), ít hơn và độc lập với nhóm dự án. Mỗi dự án gán tối đa một nhóm ngay trong trang dự án.',
+    render: () => <ProjectReportGroupSettings />,
   },
   {
     id: 'project-code',

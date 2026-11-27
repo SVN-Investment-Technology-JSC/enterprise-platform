@@ -8,3 +8,4 @@ export * from './lib/procedure-host-attributes.js';
 export * from './lib/procedure-finance-step.js';
 export * from './lib/assistant-actions.js';
 export * from './lib/procedure-material-orders.js';
+export * from './lib/procedure-bulk-action.js';

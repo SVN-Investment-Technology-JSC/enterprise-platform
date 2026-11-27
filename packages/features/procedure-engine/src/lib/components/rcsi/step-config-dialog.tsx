@@ -224,7 +224,8 @@ export function StepConfigDialog({
                 <div className={styles.mappingTable}>
                   {FINANCE_VOUCHER_SOURCE_FIELDS.map((field) => {
                     const auto = autoMatchedCandidate(field, financeCandidates);
-                    const codes = FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES[field].join(', ');
+                    const allCodes = FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES[field];
+                    const codes = allCodes.length > 4 ? `${allCodes.slice(0, 4).join(', ')}, …` : allCodes.join(', ');
                     const autoLabel = auto
                       ? `Tự khớp theo mã chuẩn: ${auto.attribute.name} (${auto.attribute.code})`
                       : `Tự khớp theo mã chuẩn (${codes}): chưa có thuộc tính khớp`;

@@ -63,15 +63,15 @@ export const PROJECT_VOUCHER_KIND_LABELS: Readonly<Record<ProjectVoucherKind, st
 };
 
 export const PROJECT_VOUCHER_STATUS_LABELS: Readonly<Record<ProjectVoucherStatus, string>> = {
-  // DRAFT ở đây là phiếu từ hồ sơ Quy trình đã duyệt, đang chờ kế toán ghi sổ.
-  DRAFT: 'Chờ ghi sổ',
-  PENDING: 'Chờ duyệt',
+  // Tài chính chỉ còn hai trạng thái hiển thị: chưa ghi sổ (nháp, kể cả đang chờ duyệt) và đã duyệt ghi sổ.
+  DRAFT: 'Nháp',
+  PENDING: 'Nháp',
   APPROVED: 'Đã duyệt',
 };
 
 export const PROJECT_VOUCHER_STATUS_TONE: Readonly<Record<ProjectVoucherStatus, { bg: string; fg: string }>> = {
   DRAFT: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
-  PENDING: { bg: 'rgb(245 158 11 / 18%)', fg: '#92400e' },
+  PENDING: { bg: 'rgb(59 130 246 / 15%)', fg: '#1d4ed8' },
   APPROVED: { bg: 'rgb(16 185 129 / 15%)', fg: '#047857' },
 };
 
@@ -98,7 +98,10 @@ export function filterProjectVouchers(items: readonly ProjectVoucher[], filter: 
     (item) =>
       (filter.kind === 'all' || item.kind === filter.kind) &&
       (filter.link === 'all' || item.link === filter.link) &&
-      (filter.status === 'all' || item.status === filter.status),
+      // Lọc Nháp gồm cả phiếu đang chờ duyệt (cùng là chưa ghi sổ).
+      (filter.status === 'all' ||
+        item.status === filter.status ||
+        (filter.status === 'DRAFT' && item.status === 'PENDING')),
   );
 }
 

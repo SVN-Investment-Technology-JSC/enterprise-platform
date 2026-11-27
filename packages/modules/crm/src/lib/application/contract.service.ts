@@ -8,6 +8,7 @@ import {
   type ContractActionRequest,
   type ContractDetail,
   type ContractListQuery,
+  type ContractQuotePreview,
   type ContractSummary,
   type ContractType,
   type CrmPage,
@@ -39,7 +40,8 @@ import { assertPaymentTermsBalanced, normalizePaymentTerms } from '../domain/pay
 import { contractReservationExpiry, reservationIdempotencyKey } from '../domain/sales-order.js';
 import { assertOwnerInScope } from './crm-access.js';
 import type { CrmActor } from './crm-actor.js';
-import type { CrmDataScopeService } from './data-scope.js';
+import type { CrmDataScope, CrmDataScopeService } from './data-scope.js';
+import type { QuoteStore } from './quote-store.port.js';
 import type { ContractLineRecord, ContractRecord, ContractStore, SalesSettingsStore } from './contract-store.port.js';
 import {
   CRM_CONTRACT_SOURCE_TYPE,
@@ -118,6 +120,8 @@ export class ContractService {
     private readonly settings: Pick<SalesSettingsStore, 'reservationHoldDays'>,
     private readonly dispatcher: IntegrationDispatcher,
     private readonly now: () => Date = () => new Date(),
+    /** Đọc báo giá trong phạm vi dữ liệu khi lập hợp đồng gắn báo giá. */
+    private readonly quotes?: Pick<QuoteStore, 'getQuote'>,
   ) {}
 
   private today(): string {
@@ -152,16 +156,46 @@ export class ContractService {
   async create(actor: CrmActor, request: SaveContractRequest): Promise<ContractDetail> {
     requireContractWriter(actor);
     const scope = await this.scopes.resolve(actor);
-    const customerId = optionalId(request?.customerId, 'khách hàng');
+    const quoteId = optionalId(request?.quoteId, 'báo giá');
+    // Gắn báo giá: người lập phải xem được báo giá trong phạm vi dữ liệu; chưa chọn khách thì lấy khách của báo giá.
+    const quote = quoteId ? await this.readableQuote(actor, scope, quoteId) : undefined;
+    const customerId = optionalId(request?.customerId, 'khách hàng') ?? quote?.customerId ?? null;
     if (!customerId) throw new CrmValidationError('CUSTOMER_REQUIRED', 'Vui lòng chọn khách hàng.');
     const customer = await this.customers.getCustomer(actor.tenantId, scope, customerId);
     if (!customer) throw new CrmNotFoundError('Không tìm thấy khách hàng.');
     const type = contractType(request?.type);
+    if (quote) {
+      // Dòng luôn lấy từ phiên bản khách chấp nhận (bỏ qua `lines` gửi kèm) để hợp đồng khớp đúng báo giá; store khoá
+      // báo giá rồi kiểm lại điều kiện gắn trong cùng transaction.
+      const record = this.record(request, type, customerId, [], actor.userId);
+      assertOwnerInScope(scope, record.ownerUserId);
+      const value = optionalMoney(request?.value, 'giá trị hợp đồng');
+      const id = await this.contracts.createContractFromQuote(actor.tenantId, quote.id, { ...record, value }, actor.userId);
+      return this.get(actor, id);
+    }
     const lines = await this.buildLines(actor.tenantId, type, request?.lines ?? []);
     const record = this.record(request, type, customerId, lines, actor.userId);
     assertOwnerInScope(scope, record.ownerUserId);
     const id = await this.contracts.createContract(actor.tenantId, record, lines, actor.userId);
     return this.get(actor, id);
+  }
+
+  /**
+   * Xem trước dòng, giá trị hợp đồng sẽ lấy từ báo giá (form "Lập hợp đồng"). Cùng quyền với lập hợp đồng và báo giá
+   * phải trong phạm vi dữ liệu; báo giá không gắn được thì 409 kèm lý do.
+   */
+  async quotePreview(actor: CrmActor, quoteId: string): Promise<ContractQuotePreview> {
+    requireContractWriter(actor);
+    const scope = await this.scopes.resolve(actor);
+    const quote = await this.readableQuote(actor, scope, quoteId);
+    return this.contracts.quoteContractPreview(actor.tenantId, quote.id);
+  }
+
+  /** Báo giá người lập xem được (phạm vi dữ liệu như màn Báo giá); ngoài phạm vi coi như không có. */
+  private async readableQuote(actor: CrmActor, scope: CrmDataScope, quoteId: string): Promise<{ id: string; customerId: string }> {
+    const quote = isUuid(quoteId) && this.quotes ? await this.quotes.getQuote(actor.tenantId, scope, quoteId.toLowerCase()) : undefined;
+    if (!quote) throw new CrmNotFoundError('Không tìm thấy báo giá.');
+    return { id: quote.id, customerId: quote.customerId };
   }
 
   async update(actor: CrmActor, id: string, request: Partial<SaveContractRequest>): Promise<ContractDetail> {
@@ -170,6 +204,10 @@ export class ContractService {
     const revision = this.expect(current, request?.revision);
     if (current.status !== 'DRAFT') {
       throw new CrmConflictError('CONTRACT_NOT_EDITABLE', 'Chỉ sửa được hợp đồng ở trạng thái Nháp.');
+    }
+    const quoteId = optionalId(request?.quoteId, 'báo giá');
+    if (quoteId && quoteId !== current.quoteId?.toLowerCase()) {
+      throw new CrmValidationError('QUOTE_LINK_CREATE_ONLY', 'Chỉ gắn được báo giá khi lập hợp đồng mới.');
     }
     const scope = await this.scopes.resolve(actor);
     const customerId = optionalId(request?.customerId, 'khách hàng') ?? current.customerId;

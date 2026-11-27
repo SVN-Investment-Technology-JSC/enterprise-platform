@@ -89,11 +89,11 @@ export const FINANCE_KIND_CONFIG: Readonly<Record<FinanceVoucherKind, FinanceKin
 export const kindOfPath = (path: string): FinanceVoucherKind | null =>
   (Object.values(FINANCE_KIND_CONFIG).find((config) => path === config.path)?.kind) ?? null;
 
-/** Màu nhãn trạng thái (Tailwind), tương phản đủ trên nền trắng. */
+/** Màu nhãn trạng thái (Tailwind), tương phản đủ trên nền trắng. Chờ duyệt / bị từ chối hiện như "Nháp" (cùng nhãn, cùng màu). */
 export const FINANCE_STATUS_STYLE: Readonly<Record<FinanceVoucherStatus, string>> = {
   DRAFT: 'bg-slate-100 text-slate-700 border-slate-200',
-  PENDING: 'bg-amber-50 text-amber-800 border-amber-200',
+  PENDING: 'bg-slate-100 text-slate-700 border-slate-200',
   APPROVED: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  REJECTED: 'bg-red-50 text-red-700 border-red-200',
+  REJECTED: 'bg-slate-100 text-slate-700 border-slate-200',
   CANCELLED: 'bg-slate-100 text-slate-500 border-slate-200 line-through',
 };

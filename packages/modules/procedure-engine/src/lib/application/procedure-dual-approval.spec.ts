@@ -10,6 +10,9 @@ import { procedureNotificationEvents } from '../infrastructure/procedure-notific
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 class FixedClock implements ProcedureClock {
   now(): Date {
     return new Date('2026-10-14T08:00:00.000Z');
@@ -119,6 +122,7 @@ describe('Kiểm thử quy trình duyệt PE với 2 người nhận (Quản lý
     const { application } = setup(managers);
     const definition = await publish(application, leaveProcedureInput());
     const started = await application.startInstance(employee, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Đơn xin nghỉ phép - Nguyễn Văn A',
       idempotencyKey: `start-${Date.now()}`,

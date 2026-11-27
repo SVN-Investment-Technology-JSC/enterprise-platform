@@ -5,6 +5,7 @@ import type {
   ProcedureInstance,
 } from '@enterprise-platform/contracts-procedure-engine';
 import {
+  retainProcedureRoom,
   sendRealtime,
   useRealtimeEvent,
   useRealtimeStatus,
@@ -149,22 +150,22 @@ export function ChatPanel({
 
   /* ---------------------------------------------------------- thời gian thực */
 
-  /** Vào phòng của hồ sơ: máy chủ kiểm quyền rồi mới cho vào; tín hiệu chỉ đến người đang mở hồ sơ. */
-  const joinRoom = useCallback(() => {
-    sendRealtime('procedure.subscribe', { instanceId });
-  }, [instanceId]);
-
+  /**
+   * Vào phòng của hồ sơ: máy chủ kiểm quyền rồi mới cho vào; tín hiệu chỉ đến người đang mở hồ sơ. Giữ chỗ có đếm
+   * vì khung chi tiết hồ sơ cũng giữ phòng này: đóng tab Trao đổi không được kéo cả khung ra khỏi phòng. Nối lại
+   * thì bus tự xin vào lại.
+   */
   useEffect(() => {
-    joinRoom();
+    const release = retainProcedureRoom(instanceId);
     return () => {
       // Báo ngừng gõ TRƯỚC khi rời phòng (rời rồi thì máy chủ không nhận nữa).
       if (typingState.current.typing) {
         sendRealtime('procedure.typing', { instanceId, typing: false });
         typingState.current = { typing: false, at: 0 };
       }
-      sendRealtime('procedure.unsubscribe', { instanceId });
+      release();
     };
-  }, [instanceId, joinRoom]);
+  }, [instanceId]);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Tín hiệu đến lúc tab ở nền: tải khi tab hiện lại.
@@ -194,11 +195,8 @@ export function ChatPanel({
       requestRefresh();
     },
     (connected) => {
-      // Nối lại: phòng đã mất (hoặc chưa từng vào) nên phải xin vào lại, và có thể đã lỡ tin trong lúc mất mạng.
-      if (connected) {
-        joinRoom();
-        requestRefresh();
-      }
+      // Nối lại: bus đã xin vào lại phòng; có thể đã lỡ tin trong lúc mất mạng.
+      if (connected) requestRefresh();
     },
   );
 

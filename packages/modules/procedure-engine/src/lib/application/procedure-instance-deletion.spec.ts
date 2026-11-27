@@ -82,9 +82,7 @@ async function setup(options: { linked?: boolean; consult?: boolean } = {}) {
     definitionId: published.id,
     title: 'Đề nghị mua cáp',
     idempotencyKey: 'start-del',
-    ...(options.linked
-      ? { workspaceLink: { projectId: PROJECT_A, projectCode: 'EVN', workItem: {} } }
-      : {}),
+    workspaceLink: { projectId: PROJECT_A, projectCode: 'EVN', workItem: {} },
   });
   if (options.linked) {
     await application.applyWorkspaceLinkResult('tenant-a', {
@@ -160,10 +158,10 @@ describe('Quyền theo đơn', () => {
 });
 
 describe('Đổi công việc liên kết', () => {
-  it('người giữ vai A đổi được; Workspace từ chối thì giữ nguyên liên kết cũ', async () => {
+  it('người giữ vai A đổi được, người chỉ xem (vai I) thì không; Workspace từ chối thì giữ nguyên liên kết cũ', async () => {
     const { application, store, instanceId } = await setup({ linked: true });
     await expect(
-      application.relinkWorkspace(initiator, instanceId, { projectId: PROJECT_B, projectCode: 'HN' }),
+      application.relinkWorkspace(viewer, instanceId, { projectId: PROJECT_B, projectCode: 'HN' }),
     ).rejects.toMatchObject({ code: 'forbidden' });
 
     const before = (await store.read('tenant-a')).instances;

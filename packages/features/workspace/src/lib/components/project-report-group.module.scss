@@ -1,0 +1,79 @@
+/* Chip "Nhóm báo cáo" ở hàng thông tin của khối đầu dự án (xem project-report-group-chip.tsx). */
+
+.anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+
+  svg {
+    flex: none;
+    color: var(--ep-text-muted);
+  }
+}
+
+.empty {
+  color: var(--ep-text-muted);
+}
+
+.chipButton {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--ep-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled),
+  &[aria-expanded='true'] {
+    background: var(--ep-accent-soft);
+  }
+
+  &:disabled {
+    cursor: progress;
+    opacity: 0.7;
+  }
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  width: 260px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-md);
+  background: var(--ep-surface);
+  box-shadow: var(--ep-shadow-pop);
+  color: var(--ep-text);
+  font-size: 13px;
+  white-space: normal;
+}
+
+.popoverTitle {
+  margin: 0;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  color: var(--ep-danger);
+  font-size: 12px;
+}

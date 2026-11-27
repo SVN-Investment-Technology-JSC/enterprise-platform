@@ -694,6 +694,39 @@ export class HrmEmployeeController {
     };
   }
 
+  /**
+   * Thông tin nhận tiền của một người theo tài khoản (tên, số tài khoản, ngân hàng), dùng khi chọn người nhận ở hồ sơ
+   * thanh toán. Chỉ đọc. Cùng luật che dữ liệu nhạy cảm như hồ sơ nhân viên: chính chủ hoặc người có
+   * hrm.employee.sensitive (hay quản trị HRM) mới thấy STK và ngân hàng; người khác nhận null.
+   */
+  @Get('employees/by-user/:userId/payee')
+  async getPayeeByUser(@Req() req: Request, @Param('userId') userId: string) {
+    const context = await this.ctx.getContext(req, 'hrm.read');
+    const { pool, tenantId } = context;
+    requireUuid(userId, 'Tài khoản');
+    const res = await pool.query(
+      `SELECT full_name, bank_account_number, bank_name FROM hrm_schema.employee_directory
+      WHERE tenant_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
+      [tenantId, userId],
+    );
+    const row = res.rows[0] as Record<string, string | null> | undefined;
+    if (!row) {
+      throw new NotFoundException({
+        code: 'HRM_EMPLOYEE_NOT_FOUND',
+        message: 'Tài khoản chưa được liên kết hồ sơ nhân viên',
+      });
+    }
+    const payee = {
+      fullName: row.full_name ?? null,
+      bankAccountNumber: row.bank_account_number ?? null,
+      bankName: row.bank_name ?? null,
+    };
+    const isSelf = userId === context.principal.userId;
+    return {
+      data: isSelf || this.ctx.has(context, 'hrm.employee.sensitive') ? payee : redactSensitiveProfile(payee),
+    };
+  }
+
   @Get('employees/:employeeId/profile')
   async getEmployeeProfile(
     @Req() req: Request,

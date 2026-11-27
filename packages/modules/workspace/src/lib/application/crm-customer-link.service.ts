@@ -26,7 +26,7 @@ import type { WorkspaceActor } from './workspace.application.js';
 export const WORKSPACE_CRM_SYNC_ACTOR_ID = '00000000-0000-4000-8000-000000000004';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SEARCH_LIMIT = 50;
+const SEARCH_LIMIT = 100;
 const SEARCH_MAX_LENGTH = 100;
 
 /**

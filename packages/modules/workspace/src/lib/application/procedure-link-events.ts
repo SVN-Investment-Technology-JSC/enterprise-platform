@@ -296,6 +296,7 @@ export class WorkspaceProcedureEvents {
             workItemCode: item.code,
             projectId: project.id,
             projectCode: project.code,
+            projectName: project.name,
           },
         });
       }
@@ -480,6 +481,9 @@ export class WorkspaceProcedureEvents {
    * dự án mới. Sau đó tài liệu của công việc cũ chuyển sang, công việc cũ bị xoá, rồi báo mã mới về Quy
    * trình. Lỗi nghiệp vụ trước khi tạo công việc mới → báo từ chối (Quy trình giữ liên kết cũ); lỗi sau
    * đó ném ra để worker chạy lại — các bước sau đều chạy lại được.
+   *
+   * Công việc cũ có thể là công việc "Theo quy trình" đã mở ra hồ sơ (hồ sơ nguồn `workspace_work_item`): đi cùng
+   * đường, yêu cầu mở quy trình của nó bị xoá theo công việc, con trỏ hồ sơ chuyển sang công việc mới.
    */
   private async onRelinkRequested(
     tenantId: string,
@@ -536,6 +540,18 @@ export class WorkspaceProcedureEvents {
       }
     }
     const old = await this.store.workItem.findById(tenantId, request.replacesWorkItemId);
+    if (old) {
+      // Đổi liên kết xoá công việc cũ kèm cả nhánh con: còn việc con thì từ chối, để không mất việc con (người dùng tự chuyển
+      // hay xoá việc con trước). Từ chối thì Quy trình khôi phục liên kết cũ nguyên vẹn.
+      const children = (await this.store.workItem.listByProject(tenantId, old.projectId)).filter(
+        (node) => node.parentId === old.id,
+      );
+      if (children.length > 0) {
+        throw new WorkspaceValidationError(
+          `Công việc ${old.code} đang có ${children.length} việc con; hãy chuyển hoặc xoá các việc con trước rồi mới đổi dự án / công việc cho hồ sơ.`,
+        );
+      }
+    }
     const parentId = request.workItem?.parentId;
     if (old && parentId && old.projectId === project.id) {
       // Không đặt công việc mới dưới chính công việc cũ hay nhánh con của nó (nhánh đó sẽ bị xoá).
@@ -641,6 +657,7 @@ export class WorkspaceProcedureEvents {
         workItemCode: created.code,
         projectId: project.id,
         projectCode: project.code,
+        projectName: project.name,
       },
     });
   }

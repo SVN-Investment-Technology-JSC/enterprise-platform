@@ -1,3 +1,4 @@
+import type { FinanceAccountType } from '@enterprise-platform/contracts-finance';
 import { invalidMany } from '../domain/finance.error.js';
 import { validateForSubmit, type NormalizedVoucher, type SubmitReferences } from '../domain/voucher.rules.js';
 import { loadSettings } from './catalogs.store.js';
@@ -13,10 +14,12 @@ type Row = QueryResultRow & Record<string, unknown>;
  */
 async function accountRef(db: Db, tenantId: string, id: string | null) {
   if (!id) return null;
-  const row = (await db.query(`SELECT name, is_active, opening_date FROM finance_schema.accounts WHERE tenant_id=$1 AND id=$2`, [tenantId, id])).rows[0] as
-    | Row
-    | undefined;
-  return row ? { name: String(row.name), isActive: Boolean(row.is_active), openingDate: dateOnly(row.opening_date) } : null;
+  const row = (
+    await db.query(`SELECT name, is_active, opening_date, account_type FROM finance_schema.accounts WHERE tenant_id=$1 AND id=$2`, [tenantId, id])
+  ).rows[0] as Row | undefined;
+  return row
+    ? { name: String(row.name), isActive: Boolean(row.is_active), openingDate: dateOnly(row.opening_date), accountType: row.account_type as FinanceAccountType }
+    : null;
 }
 
 export async function buildSubmitReferences(db: Db, tenantId: string, voucher: NormalizedVoucher): Promise<SubmitReferences> {

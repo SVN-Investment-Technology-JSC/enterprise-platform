@@ -485,6 +485,118 @@ export function returnToStep(
   recomputeProgress(instance);
 }
 
+// ------------------------------------------------------------------ Hoàn duyệt
+
+/** Kế hoạch hoàn duyệt: mở lại pha `stage` của bước `stepId`. */
+export interface ProcedureWithdrawPlan {
+  /** `stage`: chỉ lùi một pha trong cùng bước; `step`: bước vừa xong được mở lại, bước kế quay về chưa bắt đầu. */
+  readonly kind: 'stage' | 'step';
+  readonly stepId: string;
+  readonly stepName: string;
+  readonly stage: ProcedureRaciRole | null;
+  /** Bước kế tiếp đang chờ (chỉ có khi `kind = 'step'`): bị đưa về chưa bắt đầu. */
+  readonly nextStepId?: string;
+}
+
+/**
+ * Người này có hoàn duyệt được không, và nếu được thì mở lại chỗ nào.
+ *
+ * Điều kiện, tất cả cùng đúng:
+ * - Hồ sơ đang chạy.
+ * - Thao tác xử lý gần nhất của hồ sơ (bỏ qua trao đổi) là CHÍNH NGƯỜI NÀY hoàn tất hay duyệt một pha. Nghĩa là sau họ
+ *   chưa ai duyệt, trả lại, từ chối hay hoàn duyệt gì thêm.
+ * - Nếu pha đó vừa đóng cả bước: bước kế tiếp phải còn nguyên chưa ai đụng tới (đang ở pha đầu, không có đầu việc,
+ *   không phải bước liên kết ra hệ thống khác). Nếu pha đó chỉ chuyển sang pha sau của cùng bước thì pha sau chưa ai làm.
+ * - Bước vừa xong không có tác dụng phụ không rút lại được: mở quy trình nối tiếp, phiếu Tài chính, xuất kho.
+ */
+export function findWithdrawPlan(instance: ProcedureInstance, userId: string): ProcedureWithdrawPlan | undefined {
+  if (instance.status !== 'running' || !instance.currentStepId) return undefined;
+  const current = instance.steps.find((step) => step.id === instance.currentStepId);
+  if (!current || (current.status !== 'active' && current.status !== 'ready')) return undefined;
+
+  // Thao tác xử lý gần nhất, mới nhất ở đầu. Trao đổi (kể cả dòng hệ thống ghi quyết định rẽ nhánh) không đổi trạng thái.
+  // Đổi công việc liên kết (`relink`) cũng không đổi trạng thái các bước.
+  const last = instance.activity.find((entry) => entry.action !== 'comment' && entry.action !== 'relink');
+  if (!last || (last.action !== 'complete' && last.action !== 'approve')) return undefined;
+  if (last.actorId !== userId || !last.stepInstanceId) return undefined;
+  const done = instance.steps.find((step) => step.id === last.stepInstanceId);
+  if (!done) return undefined;
+  // Bước liên kết ra module khác (Tài chính, Kho) hay mở quy trình nối tiếp: hoàn tất đã kéo theo việc bên ngoài.
+  if (done.integration || done.linkedDefinitionId) return undefined;
+
+  if (done.id === current.id) {
+    // Người này xong một pha và hồ sơ chuyển sang pha sau của cùng bước: chỉ cần lùi một pha.
+    const stages = runtimeStages(current.assignments);
+    const index = current.currentRoleStage ? stages.indexOf(current.currentRoleStage) : -1;
+    const previous = index > 0 ? stages[index - 1] : undefined;
+    if (!previous) return undefined;
+    return { kind: 'stage', stepId: current.id, stepName: current.name, stage: previous };
+  }
+
+  if (done.status !== 'completed') return undefined;
+  // Bước kế phải là bước ngay sau bước vừa xong trên đường đã đi, và chưa ai đụng tới.
+  const path = livePath(instance);
+  const position = path.map((entry) => entry.stepInstanceId).lastIndexOf(current.id);
+  if (position < 1 || path[position - 1]?.stepInstanceId !== done.id) return undefined;
+  if (current.integration || current.linkedDefinitionId || current.financeVoucher) return undefined;
+  const firstStage = runtimeStages(current.assignments)[0] ?? null;
+  if ((current.currentRoleStage ?? null) !== firstStage) return undefined;
+  if ((instance.subtasks ?? []).some((subtask) => subtask.stepInstanceId === current.id)) return undefined;
+  const lastStage = runtimeStages(done.assignments).at(-1) ?? null;
+  return { kind: 'step', stepId: done.id, stepName: done.name, stage: lastStage, nextStepId: current.id };
+}
+
+/**
+ * Hoàn duyệt: đưa hồ sơ về đúng chỗ người duyệt vừa rời. Không xoá dấu vết — đoạn đường đi tới bước kế và quyết định rẽ
+ * nhánh sau bước này được đánh dấu `supersededAt`, như khi trả về.
+ */
+export function withdrawApproval(
+  instance: ProcedureInstance,
+  plan: ProcedureWithdrawPlan,
+  context: ProcedureFlowContext,
+  resetStepWork: (step: ProcedureInstanceStep) => void,
+  stopClock: (step: ProcedureInstanceStep) => void,
+): void {
+  const target = instance.steps.find((step) => step.id === plan.stepId);
+  if (!target) throw new ProcedureEngineError('not_found', 'Không tìm thấy bước muốn hoàn duyệt.');
+
+  if (plan.kind === 'step') {
+    const next = instance.steps.find((step) => step.id === plan.nextStepId);
+    if (!next) throw new ProcedureEngineError('conflict', 'Không còn bước kế tiếp để hoàn duyệt.');
+    const entry = [...ensurePath(instance)]
+      .reverse()
+      .find((item) => item.stepInstanceId === next.id && !item.supersededAt);
+    if (entry) entry.supersededAt = context.now;
+    next.status = 'pending';
+    next.startedAt = undefined;
+    next.completedAt = undefined;
+    stopClock(next);
+    restoreDynamicAssignments(next);
+    next.currentRoleStage = runtimeStages(next.assignments)[0] ?? null;
+    resetStepWork(next);
+
+    // Quyết định rẽ nhánh đưa ra sau bước này hết hiệu lực: làm lại sẽ đánh giá lại trên giá trị mới.
+    const index = instanceFlowIndex(instance);
+    for (const decision of instance.decisions ?? []) {
+      if (decision.supersededAt || decision.afterStepInstanceId !== target.id) continue;
+      decision.supersededAt = context.now;
+      const gateway = index.gateways.find((item) => item.id === decision.gatewayId);
+      if (gateway) markBranchSteps(instance, gateway, undefined, 'pending');
+    }
+    target.completedAt = undefined;
+    // Bước vừa xong làm lại từ pha cuối, và nhận khung SLA mới như khi bị trả về.
+    context.onStepStarted?.(target);
+    // Đầu việc đã làm xong giữ nguyên (người duyệt chỉ rút lại lần duyệt); kết quả kiểm tồn thì kiểm lại.
+    target.materialCheck = undefined;
+    target.materialReservations = undefined;
+    instance.currentStepId = target.id;
+  }
+
+  target.currentRoleStage = plan.stage;
+  target.status = stageStatus(plan.stage);
+  recomputeProgress(instance);
+}
+
 // ------------------------------------------------------------------ Tiến độ
 
 export function recomputeProgress(instance: ProcedureInstance): void {

@@ -880,6 +880,9 @@ export function ProjectsView({
   const canDeleteItem = Boolean(role) && permissions.has('work_item.delete');
   const canChangeProjectStatus = permissions.has('project.update_status');
   const canManageMembers = permissions.has('project.manage_members');
+  // Nhóm báo cáo: mọi thành viên (vai nào cũng được), người tạo và quản trị đều đổi được, kể cả dự án đã lưu trữ. Ai mở
+  // được chi tiết dự án đều thuộc một trong các diện đó (người ngoài đã nhận 403), server vẫn kiểm lại.
+  const canChangeReportGroup = Boolean(detail);
 
   /**
    * Kéo tiến độ của hồ sơ quy trình về công việc, mỗi lần mở công việc đó.
@@ -1361,6 +1364,14 @@ export function ProjectsView({
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
             canChangeStatus={canChangeProjectStatus}
+            canChangeReportGroup={canChangeReportGroup}
+            onChangeReportGroup={async (reportGroupId) => {
+              await attempt(
+                () => api.setProjectReportGroup(detail.project.id, { reportGroupId }),
+                'Không đổi được nhóm báo cáo.',
+                true,
+              );
+            }}
             viewSwitch={viewSwitch}
             onChangeStatus={async (status) => {
               const changed = await attempt(
@@ -1783,12 +1794,12 @@ export function ProjectsView({
         onRelatedChanged={() => setRelatedToken((token) => token + 1)}
         // Người tạo tự thành chủ nhiệm, nên luôn được đặt giá trị hợp đồng.
         financeEnabled={projectForm.edit ? Boolean(detail?.project.finance) : true}
-        onCreate={async (input: CreateProjectRequest, contractValue, members, relatedObjects) => {
+        onCreate={async (input: CreateProjectRequest, contractValue, members, relatedObjects, reportGroupId) => {
           const created = await api.createProject(input);
           const warning = initialTasksWarning(created);
           if (warning) setError(warning);
           // Số tiền, thành viên và đối tượng liên quan đi đường riêng; liên kết hỏng chỉ cảnh báo, dự án vẫn giữ.
-          const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects });
+          const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects, reportGroupId });
           for (const text of warnings) toast.warning(text);
           await refreshList();
           onProjectsChanged?.();

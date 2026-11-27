@@ -8,6 +8,8 @@ import type {
   CreateProcedureDelegationRequest,
   CreateProcedureInstanceRequest,
   PostProcedureCommentRequest,
+  ProcedureBulkActionRequest,
+  ProcedureDefinitionBulkActions,
   ProcedureFinanceStepCanActRequest,
   ProcedureSettingsKey,
   RequestProcedureMaterialsRequest,
@@ -41,6 +43,18 @@ import type { ReplaceWorkItemInstanceRequest } from '../domain/procedure-workspa
 
 interface ProcedureRequest {
   procedureActor?: ProcedureActor;
+}
+
+/**
+ * Đầu vào mở hồ sơ từ người dùng (`POST v1/instances`). Hồ sơ người dùng tự mở luôn là nguồn `manual`: nguồn khác (đơn HRM, Bán
+ * hàng, bảo trì, công việc Workspace...) chỉ do module đó mở qua `internal/instances`. Bỏ `sourceType`/`sourceId` client gửi lên
+ * để không ai lách luật bắt buộc chọn dự án bằng cách tự khai một nguồn khác.
+ */
+export function userStartInput(input: StartProcedureInstanceInput): StartProcedureInstanceInput {
+  if (!input || typeof input !== 'object') return input;
+  const { sourceType, sourceId, ...rest } = input as StartProcedureInstanceInput & { sourceType?: string; sourceId?: string };
+  void sourceId;
+  return (sourceType === undefined || sourceType === 'manual' ? { ...rest, ...(sourceType ? { sourceType } : {}) } : rest) as StartProcedureInstanceInput;
 }
 
 @Controller('v1')
@@ -121,6 +135,18 @@ export class ProcedureEngineController {
     );
   }
 
+  /** Bật / tắt duyệt và không duyệt hàng loạt. Chạy được cả trên bản đã công bố — xem application. */
+  @Patch('definitions/:definitionId/bulk-actions')
+  setDefinitionBulkActions(
+    @Req() request: ProcedureRequest,
+    @Param('definitionId') definitionId: string,
+    @Body() input: { bulkActions?: ProcedureDefinitionBulkActions | null },
+  ) {
+    return this.execute(() =>
+      this.procedures.setDefinitionBulkActions(this.actor(request), definitionId, input?.bulkActions),
+    );
+  }
+
   @Post('definitions/:definitionId/revise')
   @HttpCode(200)
   reviseDefinition(
@@ -183,7 +209,7 @@ export class ProcedureEngineController {
     @Body() input: StartProcedureInstanceInput,
   ) {
     return this.execute(() =>
-      this.procedures.startInstance(this.actor(request), input),
+      this.procedures.startInstance(this.actor(request), userStartInput(input)),
     );
   }
 
@@ -376,6 +402,16 @@ export class ProcedureEngineController {
         input?.ids ?? [],
       ),
     }));
+  }
+
+  /**
+   * Duyệt / không duyệt hàng loạt (tối đa 50 hồ sơ). Luôn 200 khi yêu cầu hợp lệ: `{ done, skipped }`, mỗi hồ sơ bỏ
+   * qua có lý do; yêu cầu sai (thiếu lý do khi không duyệt, quá 50 hồ sơ…) là 400.
+   */
+  @Post('instances/bulk-action')
+  @HttpCode(200)
+  bulkAction(@Req() request: ProcedureRequest, @Body() input: ProcedureBulkActionRequest) {
+    return this.execute(() => this.procedures.bulkApplyAction(this.actor(request), input));
   }
 
   @Post('instances/:instanceId/actions')

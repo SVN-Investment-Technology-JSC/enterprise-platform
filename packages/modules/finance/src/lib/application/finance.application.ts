@@ -7,6 +7,8 @@ import {
   type FinanceAccount,
   type FinanceBulkApproveRequest,
   type FinanceBulkApproveResult,
+  type FinanceBulkSkipReason,
+  type FinanceCancelVoucherResult,
   type FinanceListColumns,
   type FinanceInstanceReversalCheck,
   type FinanceIntegrationCapabilities,
@@ -81,6 +83,7 @@ import {
 } from '../infrastructure/procedure-api.js';
 import {
   activeHandler,
+  cancelSourcedVoucher,
   loadSourceRow,
   mapSource,
   openSourceCandidates,
@@ -88,6 +91,7 @@ import {
   retrySourceReversal,
   returnSourcedVoucher,
   sourceReversalCheck,
+  sourcedAllocationProblem,
   takeOverSourcedVoucher,
   updateSourcedVoucher,
 } from '../infrastructure/voucher-sources.store.js';
@@ -109,11 +113,14 @@ import { loadListColumns, saveListColumns } from '../infrastructure/user-prefere
 import { fetchWorkspaceWorkItem, listWorkspaceProjects, listWorkspaceWorkItems, projectFinanceAccess } from '../infrastructure/workspace-api.js';
 import { resolveWorkspaceLinks } from '../infrastructure/workspace-links.js';
 import {
+  DEFAULT_CANCEL_NOTE,
+  PROCEDURE_BOUND_REASON,
   approveVoucher,
   cancelVoucher,
   isProcedureSource,
   rejectVoucher,
   reverseVoucher,
+  submitErrors,
   submitVoucher,
 } from '../infrastructure/voucher-workflow.js';
 import {
@@ -141,6 +148,7 @@ import {
   peekNextCode,
   taxAmountOf,
   updateVoucher,
+  voucherMissingFields,
 } from '../infrastructure/vouchers.store.js';
 
 function requirePermission(actor: FinanceActor, action: string, message: string): void {
@@ -153,6 +161,9 @@ function requireKindAccess(actor: FinanceActor, kind: FinanceVoucherKind): void 
   if (!canCreate(actor, kind) && !canApprove(actor, kind) && !canReadAll(actor)) throw forbidden('Bạn không có quyền với loại phiếu này.');
 }
 
+/** Lý do người duyệt không "Duyệt ghi sổ" được phiếu do chính mình lập. */
+const SELF_APPROVAL_REASON = 'Không được tự duyệt phiếu do mình lập (cài đặt Tài chính chưa cho phép tự duyệt).';
+
 /** Số phiếu đang chờ tối đa được hỏi Procedure cho bộ lọc "Chờ tôi ghi sổ" (mới nhất trước). */
 const TO_POST_CANDIDATE_LIMIT = 50;
 
@@ -163,6 +174,29 @@ const AVAILABILITY_TTL_MS = 10_000;
 
 type BulkRow = QueryResultRow & { id?: unknown; code?: unknown };
 const BULK_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Lý do bỏ qua phiếu có nguồn khi duyệt hàng loạt. */
+
+/** Nhóm lý do bỏ qua của duyệt hàng loạt, suy từ mã lỗi nghiệp vụ của lần duyệt một phiếu. */
+export function bulkSkipReason(error: unknown): FinanceBulkSkipReason {
+  if (!(error instanceof FinanceError)) return 'OTHER';
+  switch (error.code) {
+    case 'FINANCE_SUBMIT_INVALID':
+    case 'FINANCE_POST_INVALID':
+      return 'INCOMPLETE';
+    case 'FINANCE_FORBIDDEN':
+    case 'FINANCE_NOT_FOUND':
+      return 'FORBIDDEN';
+    case 'FINANCE_PROCEDURE_MANAGED':
+      return 'PROCEDURE';
+    case 'FINANCE_SOURCE_MANAGED':
+      return 'SOURCED';
+    case 'FINANCE_VOUCHER_STATE':
+      return 'STATE';
+    default:
+      return 'OTHER';
+  }
+}
 
 @Injectable()
 export class FinanceApplication {
@@ -308,7 +342,7 @@ export class FinanceApplication {
     const pool = await this.database.pool(actor.tenantId);
     const settings = await loadSettings(pool, actor.tenantId);
     const restrictIds = query.scope === 'to-post' ? await this.vouchersAwaitingMe(pool, actor, query.kind) : undefined;
-    return listVouchers(pool, actor.tenantId, actor, query, settings.allowSelfApproval, restrictIds);
+    return listVouchers(pool, actor.tenantId, actor, query, settings.allowSelfApproval, restrictIds, settings.requireAllocation);
   }
 
   /**
@@ -357,18 +391,35 @@ export class FinanceApplication {
     const kind = row.kind as FinanceVoucherKind;
     if (!canViewVoucher(actor, row)) throw notFound('phiếu');
     const settings = await loadSettings(db, actor.tenantId);
-    const summary = mapSummary(row);
+    const summary = { ...mapSummary(row), missingFields: voucherMissingFields(row, settings.requireAllocation) };
     const procedure = summary.approvalMode === 'PROCEDURE' ? await procedureView(db, actor.tenantId, id, actor.userId) : null;
+    const approver = canApprove(actor, kind);
+    const unposted = summary.status === 'DRAFT' || summary.status === 'PENDING' || summary.status === 'REJECTED';
+    const bindingMode =
+      summary.approvalMode !== 'INHERITED' && unposted && !(await this.directBinding(db, actor.tenantId, kind)) ? 'PROCEDURE' : 'DIRECT';
     const permissions = computeVoucherPermissions({
       status: summary.status,
       createdBy: summary.createdBy,
       actorId: actor.userId,
       canCreate: canCreate(actor, kind),
-      canApprove: canApprove(actor, kind),
+      canApprove: approver,
       allowSelfApproval: settings.allowSelfApproval,
       approvalMode: summary.approvalMode,
       procedureCanAct: procedure?.canAct ?? null,
+      bindingMode,
     });
+    permissions.approveBlockedReason = null;
+    // Người duyệt thấy trước vì sao chưa "Duyệt ghi sổ" ngay được (menu chuột phải hiện nút mờ kèm lý do). Phiếu đang chạy quy
+    // trình duyệt thì Procedure quyết định, không tính ở đây.
+    if (approver && unposted && summary.approvalMode !== 'INHERITED' && !(summary.status === 'PENDING' && summary.approvalMode === 'PROCEDURE')) {
+      if (summary.status !== 'PENDING' && bindingMode === 'PROCEDURE') permissions.approveBlockedReason = PROCEDURE_BOUND_REASON;
+      else if (summary.createdBy === actor.userId && !settings.allowSelfApproval) permissions.approveBlockedReason = SELF_APPROVAL_REASON;
+      else {
+        const errors = await submitErrors(db, actor.tenantId, record);
+        if (errors.length) permissions.approveBlockedReason = `Chưa đủ thông tin để duyệt ghi sổ. ${errors.join(' ')}`;
+      }
+      if (permissions.approveBlockedReason) permissions.canApprove = false;
+    }
     // Phiếu kẹt (chưa tạo được hồ sơ, hoặc quy trình đã duyệt nhưng chưa ghi sổ được): người lập và người duyệt được thử lại.
     if (procedure && ['START_PENDING', 'FAILED', 'CONFLICT'].includes(procedure.syncStatus))
       permissions.canRetryProcedure = (summary.createdBy === actor.userId && canCreate(actor, kind)) || canApprove(actor, kind);
@@ -402,6 +453,24 @@ export class FinanceApplication {
         };
         // Phiếu nguồn Bán hàng đã ghi sổ: người có quyền duyệt đảo thủ công như phiếu thường (nguồn Quy trình chỉ đảo theo hồ sơ).
         if (!procedureSource) permissions.canReverse = summary.status === 'APPROVED' && canApprove(actor, kind);
+        // Huỷ (xoá phiếu, báo bên nguồn trả về): phiếu đang chờ thì như Trả hồ sơ; phiếu đã trả hồ sơ thì người duyệt loại phiếu.
+        // Phiếu nguồn Bán hàng đã ghi sổ: Huỷ là đảo bút toán. Nguồn Quy trình đã ghi sổ: chỉ huỷ hiệu lực hồ sơ.
+        const draft = summary.status === 'DRAFT';
+        permissions.canCancel =
+          (draft && sourceRow.status === 'OPEN' && act && !heldByOther) ||
+          (draft && sourceRow.status === 'RETURNED' && approver) ||
+          (!procedureSource && summary.status === 'APPROVED' && approver);
+        if (waiting) {
+          if (!act) permissions.approveBlockedReason = decision.reason ?? 'Bạn không được giao bước Tài chính của hồ sơ này.';
+          else if (heldByOther) permissions.approveBlockedReason = `${handler?.name ?? 'Người khác'} đang xử lý phiếu này; dùng "Nhận xử lý thay" nếu cần.`;
+          else if (selfBlocked) permissions.approveBlockedReason = SELF_APPROVAL_REASON;
+          else {
+            const errors = await submitErrors(db, actor.tenantId, record);
+            const allocation = sourcedAllocationProblem(row, sourceRow);
+            if (allocation) errors.push(allocation);
+            if (errors.length) permissions.approveBlockedReason = `Chưa đủ thông tin để ghi sổ. ${errors.join(' ')}`;
+          }
+        }
       }
     }
     return {
@@ -531,15 +600,34 @@ export class FinanceApplication {
     return this.voucher(actor, id);
   }
 
+  /** Loại phiếu đang duyệt trực tiếp (không gán quy trình): phiếu nháp được "Duyệt ghi sổ" thẳng. */
+  private async directBinding(pool: Pg, tenantId: string, kind: FinanceVoucherKind): Promise<boolean> {
+    const binding = await bindingFor(pool, tenantId, kind);
+    return !(binding.mode === 'PROCEDURE' && binding.procedureDefinitionId);
+  }
+
+  private async kindOf(pool: Pg, tenantId: string, id: string): Promise<FinanceVoucherKind | null> {
+    if (!BULK_UUID.test(id)) return null;
+    const row = (await pool.query(`SELECT kind FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, id])).rows[0] as
+      | { kind: FinanceVoucherKind }
+      | undefined;
+    return row?.kind ?? null;
+  }
+
   async approve(actor: FinanceActor, id: string, note?: string): Promise<FinanceVoucher> {
     this.capabilities(actor);
-    await this.database.transaction(actor.tenantId, (db) => approveVoucher(db, actor.tenantId, actor, id, note));
+    const pool = await this.database.pool(actor.tenantId);
+    const kind = await this.kindOf(pool, actor.tenantId, id);
+    const directBinding = kind ? await this.directBinding(pool, actor.tenantId, kind) : false;
+    await this.database.transaction(actor.tenantId, (db) => approveVoucher(db, actor.tenantId, actor, id, note, { directBinding }));
     return this.voucher(actor, id);
   }
 
   /**
-   * Duyệt nhiều phiếu chờ duyệt trực tiếp một lượt. Từng phiếu chạy đúng luật của duyệt một phiếu (quyền, tự duyệt,
-   * khoá sổ, số dư...) trong giao dịch riêng, lần lượt theo thứ tự gửi lên; phiếu không duyệt được trả về kèm lý do.
+   * Duyệt nhiều phiếu một lượt. Từng phiếu chạy đúng luật của duyệt một phiếu (quyền, tự duyệt, đủ trường bắt buộc, khoá sổ, số
+   * dư...) trong giao dịch riêng, lần lượt theo thứ tự gửi lên. Phiếu không đủ điều kiện bị BỎ QUA và trả về kèm lý do (nhóm lý do
+   * `reason` và câu báo cụ thể, ví dụ "Còn thiếu: Tài khoản chi, Người nhận tiền."); các phiếu khác vẫn được ghi sổ.
+   * Phiếu có nguồn (hồ sơ Quy trình) được ghi sổ qua đường của phiếu có nguồn, đúng như bấm "Ghi sổ" trong phiếu.
    */
   async bulkApprove(actor: FinanceActor, input: FinanceBulkApproveRequest): Promise<FinanceBulkApproveResult> {
     this.capabilities(actor);
@@ -548,23 +636,43 @@ export class FinanceApplication {
     if (ids.length > FINANCE_BULK_APPROVE_MAX) throw invalid(`Mỗi lần duyệt tối đa ${FINANCE_BULK_APPROVE_MAX} phiếu.`);
     if (ids.some((id) => !BULK_UUID.test(id))) throw invalid('Mã phiếu không hợp lệ.');
     const pool = await this.database.pool(actor.tenantId);
-    const codes = new Map(
-      ((await pool.query(`SELECT id, code FROM finance_schema.vouchers WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [actor.tenantId, ids])).rows as BulkRow[]).map(
-        (row) => [String(row.id), String(row.code)],
-      ),
+    const found = new Map(
+      (
+        (
+          await pool.query(`SELECT id, code, kind, approval_mode, created_by FROM finance_schema.vouchers WHERE tenant_id=$1 AND id = ANY($2::uuid[])`, [
+            actor.tenantId,
+            ids,
+          ])
+        ).rows as BulkRow[]
+      ).map((row) => [String(row.id), row]),
     );
     const result: FinanceBulkApproveResult = { approved: [], failed: [] };
+    const direct = new Map<FinanceVoucherKind, boolean>();
+    for (const kind of FINANCE_VOUCHER_KINDS) direct.set(kind, await this.directBinding(pool, actor.tenantId, kind));
     for (const id of ids) {
+      const row = found.get(id);
+      // Người không xem được phiếu chỉ nhận "không tìm thấy", không lộ mã phiếu.
+      const visible = Boolean(row && canViewVoucher(actor, row));
+      const code = row && visible ? String(row.code) : null;
       try {
-        await this.database.transaction(actor.tenantId, (db) => approveVoucher(db, actor.tenantId, actor, id, input.note));
-        const code = (
+        if (row && visible && row.approval_mode === 'INHERITED') {
+          // Phiếu từ hồ sơ quy trình: đi đúng đường "Ghi sổ" của phiếu có nguồn (chỉ người phụ trách bước Tài chính, đủ trường,
+          // báo Quy trình đóng bước), không qua duyệt thường.
+          const posted = await this.postSourced(actor, id, {});
+          result.approved.push({ id, code: String(posted.code ?? code ?? '') });
+          continue;
+        }
+        const directBinding = row ? (direct.get(row.kind as FinanceVoucherKind) ?? false) : false;
+        await this.database.transaction(actor.tenantId, (db) => approveVoucher(db, actor.tenantId, actor, id, input.note, { directBinding }));
+        const posted = (
           (await pool.query(`SELECT code FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as BulkRow | undefined
         )?.code;
-        result.approved.push({ id, code: String(code ?? codes.get(id) ?? '') });
+        result.approved.push({ id, code: String(posted ?? code ?? '') });
       } catch (error) {
         result.failed.push({
           id,
-          code: codes.get(id) ?? null,
+          code,
+          reason: bulkSkipReason(error),
           message: error instanceof FinanceError ? error.message : 'Không duyệt được phiếu này.',
         });
       }
@@ -590,16 +698,19 @@ export class FinanceApplication {
   }
 
   /**
-   * Huỷ phiếu chưa ghi sổ. Phiếu đang chạy trong quy trình thì huỷ hồ sơ bên Procedure trước (bằng phiên của người dùng:
-   * Procedure quyết định có cho huỷ không), rồi mới huỷ phiếu; lần gửi bị đóng nên sự kiện đến muộn không áp lại.
+   * Huỷ phiếu (không hỏi xác nhận): phiếu chưa ghi sổ bị XOÁ hẳn; phiếu đã ghi sổ được đảo bút toán rồi ẩn khỏi danh sách (sổ cái
+   * chỉ thêm nên dòng phiếu còn giữ). Phiếu đang chạy trong quy trình duyệt thì huỷ hồ sơ bên Procedure trước (bằng phiên của người
+   * dùng: Procedure quyết định có cho huỷ không). Phiếu có nguồn (hồ sơ Quy trình, Bán hàng) xem `cancelSourced`.
    */
-  async cancel(actor: FinanceActor, session: ForwardedSession, id: string, note?: string): Promise<FinanceVoucher> {
+  async cancel(actor: FinanceActor, session: ForwardedSession, id: string, note?: string): Promise<FinanceCancelVoucherResult> {
     this.capabilities(actor);
     const pool = await this.database.pool(actor.tenantId);
     const row = (await pool.query(`SELECT status, approval_mode FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as
       | { status: string; approval_mode: string }
       | undefined;
-    if (row?.status === 'PENDING' && row.approval_mode === 'PROCEDURE') {
+    if (!row) throw notFound('phiếu');
+    if (row.approval_mode === 'INHERITED') return this.cancelSourced(actor, id, note);
+    if (row.status === 'PENDING' && row.approval_mode === 'PROCEDURE') {
       const link = await currentLink(pool, actor.tenantId, id);
       if (link?.instanceId && link.syncStatus === 'RUNNING')
         await applyProcedureAction(session, link.instanceId, {
@@ -608,11 +719,38 @@ export class FinanceApplication {
           idempotencyKey: `finance:${link.id}:cancel`,
         });
     }
-    await this.database.transaction(actor.tenantId, async (db) => {
-      await cancelVoucher(db, actor.tenantId, actor, id, note);
-      await db.query(`UPDATE finance_schema.procedure_links SET sync_status='CLOSED', updated_at=now() WHERE voucher_id=$1 AND sync_status NOT IN ('APPLIED','CLOSED')`, [id]);
+    return this.database.transaction(actor.tenantId, async (db) => {
+      const result = await cancelVoucher(db, actor.tenantId, actor, id, note);
+      // Phiếu đã ghi sổ bị đảo vẫn còn dòng: đóng lần gửi còn mở để sự kiện muộn không áp lại. Phiếu bị xoá thì lần gửi xoá theo.
+      if (!result.deleted)
+        await db.query(`UPDATE finance_schema.procedure_links SET sync_status='CLOSED', updated_at=now() WHERE voucher_id=$1 AND sync_status NOT IN ('APPLIED','CLOSED')`, [id]);
+      return result;
     });
-    return this.voucher(actor, id);
+  }
+
+  /**
+   * Huỷ phiếu có nguồn. Chưa ghi sổ: xoá phiếu và báo bên nguồn "trả về" để bên đó không bị kẹt (`cancelSourcedVoucher`); nguồn Quy
+   * trình đang chờ thì phải đúng người được giao bước Tài chính (như Trả hồ sơ). Đã ghi sổ: nguồn Bán hàng thì đảo bút toán như phiếu
+   * thường (Bán hàng nhận sự kiện REVERSED); nguồn Quy trình chỉ đảo theo hồ sơ (huỷ hiệu lực hồ sơ), không huỷ được ở đây.
+   */
+  private async cancelSourced(actor: FinanceActor, id: string, note?: string): Promise<FinanceCancelVoucherResult> {
+    const pool = await this.database.pool(actor.tenantId);
+    const source = await loadSourceRow(pool, actor.tenantId, id);
+    const row = (await pool.query(`SELECT status, code FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [actor.tenantId, id])).rows[0] as
+      | { status: string; code: string }
+      | undefined;
+    if (!source || !row) throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu không tạo từ hồ sơ quy trình.');
+    const procedureSource = isProcedureSource(source);
+    if (row.status === 'APPROVED') {
+      if (procedureSource)
+        throw conflict('FINANCE_SOURCE_MANAGED', `Phiếu thuộc hồ sơ ${String(source.instance_code)} đã ghi sổ; huỷ hiệu lực hồ sơ để đảo phiếu.`);
+      await this.database.transaction(actor.tenantId, (db) => reverseVoucher(db, actor.tenantId, actor, id, note?.trim() || DEFAULT_CANCEL_NOTE));
+      return { id, code: row.code, deleted: false };
+    }
+    const activation = procedureSource && source.status === 'OPEN' && row.status === 'DRAFT' ? await this.confirmStep(actor, id) : null;
+    return this.database.transaction(actor.tenantId, (db) =>
+      cancelSourcedVoucher(db, actor.tenantId, actor, id, activation === null ? null : { activation }, note),
+    );
   }
 
   async reverse(actor: FinanceActor, id: string, note?: string): Promise<FinanceVoucher> {
@@ -661,28 +799,37 @@ export class FinanceApplication {
     return num(source.activation);
   }
 
-  /** Kế toán lưu phần được nhập của phiếu có nguồn; trường lấy từ hồ sơ giữ nguyên. */
+  /**
+   * Kế toán lưu phiếu có nguồn. Nguồn hồ sơ Quy trình: mọi trường lấy từ hồ sơ (nội dung, số tiền/dòng chi tiết, người nhận, ngày,
+   * hạch toán dự án) đều sửa được; chỉ loại phiếu và mã phiếu giữ nguyên. Nguồn khác (lần thu của Bán hàng) vẫn giữ nguyên các trường
+   * lấy từ nguồn vì số tiền đã phân bổ vào công nợ bên đó.
+   */
   private async updateSourced(actor: FinanceActor, id: string, input: SaveFinanceVoucherRequest): Promise<FinanceVoucher> {
     const activation = await this.confirmStep(actor, id);
     const pool = await this.database.pool(actor.tenantId);
     const source = await loadSourceRow(pool, actor.tenantId, id);
     const record = await loadVoucherRecord(pool, actor.tenantId, id);
     const current = record.row;
-    // Dòng chi tiết và nội dung thuộc hồ sơ: chuẩn hoá phần còn lại với đúng dòng đang lưu để không bị chặn bởi dữ liệu client.
+    const external = Boolean(source && !isProcedureSource(source));
+    // Nguồn ngoài Quy trình: dòng chi tiết và nội dung thuộc nguồn, chuẩn hoá phần còn lại với đúng dòng đang lưu.
     const voucher = normalizeVoucherInput({
       ...input,
       kind: current.kind as FinanceVoucherKind,
-      content: String(current.content),
-      lines: record.lines.map((line) => ({
-        lineNo: num(line.line_no),
-        description: String(line.description),
-        quantity: num(line.quantity),
-        unitAmount: num(line.unit_amount),
-        total: num(line.total),
-      })),
+      ...(external
+        ? {
+            content: String(current.content),
+            lines: record.lines.map((line) => ({
+              lineNo: num(line.line_no),
+              description: String(line.description),
+              quantity: num(line.quantity),
+              unitAmount: num(line.unit_amount),
+              total: num(line.total),
+            })),
+          }
+        : {}),
       relatedProjectIds: input.relatedProjectIds ?? [],
     });
-    const lockedAllocation = ((source?.locked_fields as string[] | null) ?? []).includes('allocation');
+    const lockedAllocation = external && ((source?.locked_fields as string[] | null) ?? []).includes('allocation');
     const stored = await loadStoredLinks(pool, actor.tenantId, id);
     if (lockedAllocation && stored?.allocation)
       voucher.allocation = { type: stored.allocation.type, projectId: stored.allocation.projectId, workItemId: stored.allocation.workItemId };

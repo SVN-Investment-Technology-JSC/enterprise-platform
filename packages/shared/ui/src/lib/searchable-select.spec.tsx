@@ -355,3 +355,19 @@ describe('SearchableSelect tìm theo badge', () => {
     expect(filtered[0].textContent).toContain('HD2600015');
   });
 });
+
+describe('SearchableSelect tìm phía máy chủ (onSearchChange)', () => {
+  it('báo chữ đang gõ, không tự lọc options, và báo chuỗi rỗng khi đóng', () => {
+    Element.prototype.scrollIntoView = jest.fn();
+    const onSearchChange = jest.fn();
+    render(<SearchableSelect options={options} value="" onSearchChange={onSearchChange} />);
+    const input = screen.getByRole('textbox');
+    fireEvent.click(input);
+    fireEvent.change(input, { target: { value: 'zzz' } });
+    expect(onSearchChange).toHaveBeenLastCalledWith('zzz');
+    // Kết quả do nơi dùng nạp lại: ô không tự lọc bỏ các mục có sẵn.
+    expect(screen.getAllByRole('option')).toHaveLength(2);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(onSearchChange).toHaveBeenLastCalledWith('');
+  });
+});

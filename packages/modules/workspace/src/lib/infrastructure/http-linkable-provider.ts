@@ -1,6 +1,12 @@
 import {
   LINKABLE_RESOLVE_MAX_IDS,
+  sanitizeLinkableCreateForm,
+  sanitizeLinkableCreatePreview,
+  sanitizeLinkableSearchFilters,
   type LinkableCandidate,
+  type LinkableCreateForm,
+  type LinkableCreatePreview,
+  type LinkableCreateRequest,
   type LinkableField,
   type LinkableKind,
   type LinkableObject,
@@ -9,6 +15,7 @@ import {
 } from '@enterprise-platform/contracts-integration';
 import { EXTERNAL_TIMEOUT_SECONDS } from '@enterprise-platform/contracts-workspace';
 import {
+  LinkableCreateRejectedError,
   LinkableProviderError,
   type LinkableProvider,
   type LinkableProviderRegistry,
@@ -20,6 +27,24 @@ type Fetcher = typeof fetch;
 /** Danh sách loại ít đổi: giữ 60 giây cho mỗi người xem, khoá có `userId` vì mỗi người thấy khác nhau. */
 const KINDS_CACHE_MS = 60_000;
 const MAX_CACHE_ENTRIES = 500;
+/**
+ * Tạo nhanh được chờ lâu hơn đọc (module gốc sinh mã, đọc danh mục, ghi sổ). Vẫn có trần để Workspace không treo theo;
+ * hết giờ thì báo "chưa phản hồi" (hồ sơ có thể đã được tạo, người dùng tìm lại được trong ô chọn).
+ */
+const CREATE_TIMEOUT_MS = 10_000;
+/** Lỗi của module gốc được chuyển nguyên câu chữ cho người dùng khi tạo nhanh (không phải lỗi hạ tầng). */
+const CREATE_REJECTION_STATUSES = new Set([400, 403, 404, 409, 422]);
+const ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** Chỉ chuyển tiếp CSRF có hình dạng token, để không bao giờ chèn được gì khác vào header hay cookie. */
+const CSRF_PATTERN = /^[A-Za-z0-9._~+/=-]{8,256}$/;
+
+interface CallOptions {
+  readonly method?: 'GET' | 'POST';
+  readonly body?: unknown;
+  readonly timeoutMs?: number;
+  /** Lỗi nghiệp vụ của module gốc (400, 403, 404 có `code`, 409, 422) thành `LinkableCreateRejectedError`. */
+  readonly passRejections?: boolean;
+}
 
 /**
  * Gọi `/v1/linkable/*` của một module qua API công khai của chính module đó, dưới danh nghĩa người xem.
@@ -54,8 +79,18 @@ export class HttpLinkableProvider implements LinkableProvider {
     return kinds;
   }
 
-  async search(viewer: LinkableViewer, kind: string, q: string, limit: number): Promise<readonly LinkableCandidate[]> {
-    const params = new URLSearchParams({ kind, q, limit: String(limit) });
+  async search(
+    viewer: LinkableViewer,
+    kind: string,
+    q: string,
+    limit: number,
+    filters?: Readonly<Record<string, string>>,
+  ): Promise<readonly LinkableCandidate[]> {
+    // Tham số lọc đi trước, tham số chung ghi sau cùng: không lọc nào đè được `kind`, `q`, `limit`.
+    const params = new URLSearchParams(sanitizeLinkableSearchFilters(filters));
+    params.set('kind', kind);
+    params.set('q', q);
+    params.set('limit', String(limit));
     const body = await this.get(viewer, `/v1/linkable/search?${params.toString()}`);
     return arrayOf(body, 'items').flatMap((entry) => {
       const item = sanitizeCandidate(entry, kind);
@@ -78,17 +113,79 @@ export class HttpLinkableProvider implements LinkableProvider {
     return results;
   }
 
-  private async get(viewer: LinkableViewer, path: string): Promise<unknown> {
+  /**
+   * Form tạo nhanh của module gốc, đã lọc hình dạng. Người dùng không được tạo loại này thì module gốc trả 403 kèm câu
+   * của nó (`LinkableCreateRejectedError`), hộp thoại hiện đúng câu đó.
+   */
+  async createForm(viewer: LinkableViewer, kind: string): Promise<LinkableCreateForm> {
+    const params = new URLSearchParams({ kind });
+    const body = await this.call(viewer, `/v1/linkable/create-form?${params.toString()}`, {
+      timeoutMs: CREATE_TIMEOUT_MS,
+      passRejections: true,
+    });
+    const form = sanitizeLinkableCreateForm(body, kind);
+    if (!form) throw new LinkableProviderError('unreachable', `${this.moduleKey} trả form không đọc được.`);
+    return form;
+  }
+
+  /**
+   * Tạo hồ sơ ở module gốc bằng chính phiên của người dùng (Bearer, CSRF): module gốc kiểm dữ liệu và quyền như khi họ
+   * tạo ở màn của nó. Không bao giờ dùng service token.
+   */
+  async create(viewer: LinkableViewer, kind: string, request: LinkableCreateRequest): Promise<LinkableObject> {
+    const params = new URLSearchParams({ kind });
+    const body = await this.call(viewer, `/v1/linkable/create?${params.toString()}`, {
+      method: 'POST',
+      body: request,
+      timeoutMs: CREATE_TIMEOUT_MS,
+      passRejections: true,
+    });
+    const object = sanitizeObject(body, kind);
+    if (!object) throw new LinkableProviderError('unreachable', `${this.moduleKey} trả hồ sơ không đọc được.`);
+    return object;
+  }
+
+  /**
+   * Xem trước theo giá trị một ô của form tạo nhanh (ví dụ dòng hàng sẽ nhận từ báo giá), đã lọc hình dạng. Giá trị
+   * không dùng được thì module gốc trả 4xx kèm câu của nó (`LinkableCreateRejectedError`).
+   */
+  async createPreview(viewer: LinkableViewer, kind: string, field: string, value: string): Promise<LinkableCreatePreview> {
+    const params = new URLSearchParams({ kind, field, value });
+    const body = await this.call(viewer, `/v1/linkable/create-preview?${params.toString()}`, {
+      timeoutMs: CREATE_TIMEOUT_MS,
+      passRejections: true,
+    });
+    const preview = sanitizeLinkableCreatePreview(body, field, value);
+    if (!preview) throw new LinkableProviderError('unreachable', `${this.moduleKey} trả bản xem trước không đọc được.`);
+    return preview;
+  }
+
+  private get(viewer: LinkableViewer, path: string): Promise<unknown> {
+    return this.call(viewer, path);
+  }
+
+  private async call(viewer: LinkableViewer, path: string, options: CallOptions = {}): Promise<unknown> {
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${viewer.accessToken}`,
+      'x-tenant-id': viewer.tenantId,
+      accept: 'application/json',
+    };
+    if (options.method === 'POST') {
+      headers['content-type'] = 'application/json';
+      // Module gốc đòi CSRF cho lệnh ghi (đối chiếu header với cookie `ep_csrf`): chuyển đúng token phiên của người dùng.
+      if (viewer.csrfToken && CSRF_PATTERN.test(viewer.csrfToken)) {
+        headers['x-csrf-token'] = viewer.csrfToken;
+        headers['cookie'] = `ep_csrf=${viewer.csrfToken}`;
+      }
+    }
     let response: Response;
     try {
       response = await this.fetcher(`${this.baseUrl}${path}`, {
-        headers: {
-          authorization: `Bearer ${viewer.accessToken}`,
-          'x-tenant-id': viewer.tenantId,
-          accept: 'application/json',
-        },
+        method: options.method ?? 'GET',
+        headers,
+        body: options.method === 'POST' ? JSON.stringify(options.body ?? {}) : undefined,
         redirect: 'error',
-        signal: AbortSignal.timeout(EXTERNAL_TIMEOUT_SECONDS * 1000),
+        signal: AbortSignal.timeout(options.timeoutMs ?? EXTERNAL_TIMEOUT_SECONDS * 1000),
       });
     } catch {
       throw new LinkableProviderError('unreachable', `${this.moduleKey} không trả lời.`);
@@ -101,11 +198,20 @@ export class HttpLinkableProvider implements LinkableProvider {
         throw new LinkableProviderError('unreachable', `${this.moduleKey} trả dữ liệu không đọc được.`);
       }
     }
+    // Thân lỗi chỉ đọc được một lần.
+    const errorBody =
+      response.status === 401 || response.status === 403 || (options.passRejections && CREATE_REJECTION_STATUSES.has(response.status))
+        ? ((await response.json().catch(() => undefined)) as unknown)
+        : undefined;
+    if (options.passRejections && CREATE_REJECTION_STATUSES.has(response.status)) {
+      const rejection = rejectionOf(response.status, errorBody);
+      if (rejection) throw rejection;
+    }
     // Module chưa có route này (bản cũ, hoặc module không công bố đối tượng nào): coi như không dùng được.
     if (response.status === 404) throw new LinkableProviderError('module_unavailable');
     if (response.status === 401 || response.status === 403) {
-      const body = (await response.json().catch(() => undefined)) as { code?: unknown } | undefined;
-      throw new LinkableProviderError(body?.code === 'MODULE_NOT_ENTITLED' ? 'module_unavailable' : 'forbidden');
+      const code = record(errorBody)?.['code'];
+      throw new LinkableProviderError(code === 'MODULE_NOT_ENTITLED' ? 'module_unavailable' : 'forbidden');
     }
     throw new LinkableProviderError('unreachable', `${this.moduleKey} trả về ${response.status}.`);
   }
@@ -183,7 +289,28 @@ function sanitizeKind(entry: unknown, moduleKey: string): LinkableKind | undefin
     label,
     moduleLabel: text(item['moduleLabel'], 100) ?? moduleKey,
     prefill: item['prefill'] === true,
+    ...(item['create'] === true ? { create: true } : {}),
   };
+}
+
+/**
+ * Lỗi nghiệp vụ của module gốc khi tạo nhanh: có `code` dạng mã máy và `message` thì chuyển tiếp (đã cắt độ dài); thiếu
+ * thì không phải lỗi của module (vd route chưa có) và để nơi gọi xử lý như lỗi hạ tầng. Thẻ ngành kiểu
+ * `MODULE_NOT_ENTITLED` (công ty không dùng module) không phải lời từ chối dữ liệu.
+ */
+export function rejectionOf(status: number, body: unknown): LinkableCreateRejectedError | undefined {
+  const item = record(body);
+  const code = typeof item?.['code'] === 'string' ? (item['code'] as string) : undefined;
+  const message = text(item?.['message'], 500);
+  if (!item || !code || !ERROR_CODE_PATTERN.test(code) || code === 'MODULE_NOT_ENTITLED' || !message) return undefined;
+  const warnings = (Array.isArray(item['warnings']) ? item['warnings'] : [])
+    .slice(0, 20)
+    .flatMap((warning) => {
+      const line = text(warning, 255);
+      return line ? [line] : [];
+    });
+  const field = text(item['field'], 64);
+  return new LinkableCreateRejectedError(status, code, message, warnings, field);
 }
 
 function sanitizeCandidate(entry: unknown, kind: string): LinkableCandidate | undefined {

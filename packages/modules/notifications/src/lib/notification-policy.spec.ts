@@ -79,6 +79,51 @@ describe('NotificationPolicyRegistry', () => {
       expect(next?.template.sourceId).not.toBe(first?.template.sourceId);
     }
   });
+  it('báo người tạo hồ sơ mỗi lần được xử lý: pha, bước, trả lại, hoàn duyệt; không báo chính người thao tác', async () => {
+    const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
+    const resolve = (payload: Record<string, unknown>) =>
+      registry.resolve(
+        {
+          ...event({ instanceId: 'i1', instanceCode: 'PR-1', stepInstanceId: 's1', stepName: 'Kế toán kiểm tra', actorName: 'Nga', recipientUserIds: ['creator', 'actor'], actorUserId: 'actor', ...payload }),
+          type: 'procedure.step.processed',
+        },
+        directory,
+      );
+    const stage = await resolve({ kind: 'stage', waiting: 'duyệt' });
+    expect(stage?.template.title).toBe('Hồ sơ của bạn vừa được xử lý');
+    expect(stage?.template.body).toBe('PR-1 · Nga đã xử lý “Kế toán kiểm tra”, đang chờ duyệt.');
+    expect(stage?.recipients).toEqual(['creator']);
+    expect((await resolve({ kind: 'step', currentStepName: 'Lãnh đạo duyệt' }))?.template.body).toBe(
+      'PR-1 · Nga đã hoàn thành “Kế toán kiểm tra”, chuyển sang “Lãnh đạo duyệt”.',
+    );
+    expect((await resolve({ kind: 'return', currentStepName: 'Tạo đơn' }))?.template.title).toBe('Hồ sơ của bạn bị trả lại');
+    expect((await resolve({ kind: 'withdraw' }))?.template.body).toBe(
+      'PR-1 · Nga đã hoàn duyệt, quay lại xử lý “Kế toán kiểm tra”.',
+    );
+  });
+  it('báo người tạo hồ sơ khi hồ sơ được đổi dự án / công việc; không báo chính người đổi', async () => {
+    const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
+    const resolved = await registry.resolve(
+      {
+        ...event({
+          instanceId: 'i1',
+          instanceCode: 'PR-1',
+          projectCode: 'HN',
+          projectName: 'Trạm Hà Nội',
+          workItemCode: 'CV009',
+          actorName: 'Nga',
+          recipientUserIds: ['creator', 'actor'],
+          actorUserId: 'actor',
+        }),
+        type: 'procedure.instance.relinked',
+      },
+      directory,
+    );
+    expect(resolved?.template.title).toBe('Hồ sơ của bạn được đổi dự án');
+    expect(resolved?.template.body).toBe('PR-1 · Nga đã chuyển hồ sơ sang dự án Trạm Hà Nội, công việc CV009.');
+    expect(resolved?.template.deepLink).toBe('/modules/procedure#workspace/i1');
+    expect(resolved?.recipients).toEqual(['creator']);
+  });
   it('keeps recurring reminders for the same event distinct by occurrence', async () => {
     const registry = new NotificationPolicyRegistry(DEFAULT_NOTIFICATION_POLICIES);
     const make = (startAt: string) => registry.resolve({ ...event({ eventId: 'event-a', participantUserIds: ['user-a'], startAt }), type: 'workspace.calendar-event.reminder' }, directory);

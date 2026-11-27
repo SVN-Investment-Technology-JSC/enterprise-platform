@@ -426,10 +426,13 @@ describe('engineReasonRequired: lý do xoá / huỷ hiệu lực', () => {
       admin,
       (await application.createDefinition(admin, definition('PLAIN'))).id,
     );
-    const started = await application.startInstance(initiator, {
+    // Hồ sơ không gắn Workspace giờ chỉ đến từ module khác (người dùng tự mở thì bắt buộc chọn dự án).
+    const started = await application.createInstance(TENANT, {
       definitionId: published.id,
       title: 'Hồ sơ thường',
       idempotencyKey: 'plain-1',
+      sourceType: 'maintenance_occurrence',
+      sourceId: 'occ-1',
     });
     await expect(application.deleteInstance(admin, started.id, { reason: '' })).rejects.toMatchObject({
       code: 'validation',

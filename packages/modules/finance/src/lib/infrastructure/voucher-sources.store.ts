@@ -28,6 +28,7 @@ import { dateOnly, iso, num, optStr, todayVn, type Db } from './finance.database
 import { loadSettings } from './catalogs.store.js';
 import {
   closeWithoutPosting,
+  deleteVoucherRow,
   isProcedureSource,
   postApproval,
   postReversal,
@@ -50,7 +51,8 @@ import {
 /**
  * Phiếu tạo từ bước Tài chính của một hồ sơ quy trình (`approval_mode = 'INHERITED'`).
  *
- * - Hồ sơ sở hữu dữ liệu đề nghị (số tiền, nội dung, người nhận...): các trường này bị khoá trên phiếu, muốn sửa thì trả hồ sơ về.
+ * - Hồ sơ đề nghị dữ liệu ban đầu (số tiền, nội dung, người nhận...): phiếu điền sẵn các trường này nhưng kế toán vẫn sửa được hết,
+ *   kể cả số tiền (chi một phần, phần còn lại nhân bản sang phiếu khác); chỉ mã phiếu không đổi.
  * - Phiếu sở hữu dữ liệu kế toán (tài khoản, lý do, ngày hạch toán, hoá đơn...).
  * - Một hồ sơ = một phiếu. Hồ sơ quay lại bước Tài chính thì cập nhật đúng phiếu nháp đó.
  * - Kết quả (ghi sổ / trả hồ sơ) báo cho Procedure bằng sự kiện ghi vào outbox CÙNG giao dịch với thay đổi của phiếu.
@@ -487,8 +489,10 @@ async function markHandling(db: Db, tenantId: string, voucherId: string, actor: 
 }
 
 /**
- * Kế toán lưu phần được nhập. Các trường lấy từ hồ sơ (và dòng chi tiết, tổng tiền) luôn giữ nguyên như đang lưu, dù client gửi
- * gì. Lưu cũng là nhận xử lý phiếu (khoá mềm).
+ * Kế toán lưu phiếu có nguồn. Nguồn hồ sơ Quy trình: mọi trường đều sửa được, kể cả các trường lấy từ hồ sơ và số tiền (dòng chi
+ * tiết): hồ sơ đề nghị 5.000.000 mà kế toán chi 3.000.000 từ tài khoản này, phần còn lại nhân bản sang phiếu khác cùng dự án. Chỉ mã
+ * phiếu và loại phiếu không đổi; hồ sơ được báo lại `linked` để hiện đúng số tiền đang chờ ghi sổ. Nguồn khác (Bán hàng) vẫn giữ các
+ * trường lấy từ nguồn. Lưu cũng là nhận xử lý phiếu (khoá mềm).
  */
 export async function updateSourcedVoucher(
   db: Db,
@@ -501,9 +505,49 @@ export async function updateSourcedVoucher(
 ): Promise<void> {
   const { row, source, kind } = await lockSourced(db, tenantId, actor, voucherId, action, true);
   if (input.kind !== kind) throw invalid('Không đổi được loại phiếu.');
+  const procedureSource = isProcedureSource(source);
+  // Nguồn ngoài Quy trình (Bán hàng): các trường lấy từ nguồn (và dòng chi tiết, tổng tiền) giữ nguyên như đang lưu, dù client gửi
+  // gì, vì số tiền đã được phân bổ vào công nợ bên nguồn.
+  if (!procedureSource) input = await keepExternalSourceFields(db, tenantId, row, source, input);
+  const changes: string[] = [];
+  if (num(row.total_amount) !== input.totalAmount)
+    changes.push(`số tiền ${num(row.total_amount).toLocaleString('vi-VN')} → ${input.totalAmount.toLocaleString('vi-VN')}`);
+  const updated = (
+    await db.query(
+      `UPDATE finance_schema.vouchers SET voucher_date=$3, posting_date=$4, reason_id=$5, account_id=$6, counterparty_group_id=$7,
+              counterparty_name=$8, counterparty_account_no=$9, counterparty_bank=$10, tax_included=$11, tax_rate=$12, note=$13,
+              alloc_type=$14, alloc_project_id=$15, alloc_project_code=$16, alloc_project_name=$17,
+              alloc_work_item_id=$18, alloc_work_item_code=$19, alloc_work_item_title=$20,
+              content=$21, total_amount=$22, revision=revision+1, updated_at=now()
+        WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+      [
+        tenantId, voucherId, input.voucherDate, input.postingDate, input.reasonId, input.accountId, input.counterpartyGroupId,
+        input.counterpartyName ?? null, input.counterpartyAccountNo ?? null, input.counterpartyBank ?? null, input.taxIncluded, input.taxRate, input.note,
+        ...allocationColumns(links),
+        input.content, input.totalAmount,
+      ],
+    )
+  ).rows[0] as Row;
+  await replaceChildren(db, tenantId, voucherId, input, links);
+  await markHandling(db, tenantId, voucherId, actor);
+  await addEvent(db, tenantId, voucherId, 'UPDATED', actor, changes.length ? `Sửa ${changes.join(', ')} (hồ sơ đề nghị khác)` : null);
+  if (procedureSource)
+    await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_LINKED, voucherId, {
+      instanceId: String(source.instance_id),
+      stepInstanceId: String(source.step_instance_id),
+      activation: num(source.activation),
+      voucherId,
+      code: String(updated.code),
+      status: String(updated.status),
+      amount: num(updated.total_amount),
+    });
+}
+
+/** Giữ nguyên các trường lấy từ nguồn ngoài Quy trình (nội dung, số tiền/dòng chi tiết và các trường trong `locked_fields`). */
+async function keepExternalSourceFields(db: Db, tenantId: string, row: Row, source: Row, input: NormalizedVoucher): Promise<NormalizedVoucher> {
   const locked = new Set(((source.locked_fields as string[] | null) ?? []) as FinanceSourceLockedField[]);
-  const record = await loadVoucherRecord(db, tenantId, voucherId);
-  const merged: NormalizedVoucher = {
+  const record = await loadVoucherRecord(db, tenantId, String(row.id));
+  return {
     ...input,
     content: String(row.content),
     voucherDate: locked.has('voucherDate') ? dateOnly(row.voucher_date) : input.voucherDate,
@@ -519,22 +563,53 @@ export async function updateSourcedVoucher(
       total: num(line.total),
     })),
   };
-  await db.query(
-    `UPDATE finance_schema.vouchers SET voucher_date=$3, posting_date=$4, reason_id=$5, account_id=$6, counterparty_group_id=$7,
-            counterparty_name=$8, counterparty_account_no=$9, counterparty_bank=$10, tax_included=$11, tax_rate=$12, note=$13,
-            alloc_type=$14, alloc_project_id=$15, alloc_project_code=$16, alloc_project_name=$17,
-            alloc_work_item_id=$18, alloc_work_item_code=$19, alloc_work_item_title=$20,
-            revision=revision+1, updated_at=now()
-      WHERE tenant_id=$1 AND id=$2`,
-    [
-      tenantId, voucherId, merged.voucherDate, merged.postingDate, merged.reasonId, merged.accountId, merged.counterpartyGroupId,
-      merged.counterpartyName, merged.counterpartyAccountNo, merged.counterpartyBank, merged.taxIncluded, merged.taxRate, merged.note,
-      ...allocationColumns(links),
-    ],
-  );
-  await replaceChildren(db, tenantId, voucherId, merged, links);
-  await markHandling(db, tenantId, voucherId, actor);
-  await addEvent(db, tenantId, voucherId, 'UPDATED', actor);
+}
+
+/**
+ * Huỷ phiếu có nguồn (chưa ghi sổ): XOÁ hẳn phiếu và nguồn, không hỏi xác nhận. Phiếu đang chờ ghi sổ (nguồn OPEN) thì báo nguồn
+ * `finance.voucher.returned` trong cùng giao dịch để bên nguồn không bị kẹt: Quy trình trả hồ sơ về bước đã cấu hình (như "Trả hồ
+ * sơ"), khi hồ sơ tới lại bước Tài chính sẽ có phiếu mới; Bán hàng chuyển lần thu sang "Bị trả lại" để gửi lại. Phiếu đã trả hồ sơ
+ * (nguồn RETURNED) thì bên nguồn đã được báo, chỉ còn xoá. Nguồn Quy trình đang chờ phải được Procedure xác nhận người huỷ đang được
+ * giao bước (`action`, kiểm ngoài giao dịch như Trả hồ sơ).
+ */
+export async function cancelSourcedVoucher(
+  db: Db,
+  tenantId: string,
+  actor: FinanceActor,
+  voucherId: string,
+  action: SourcedAction | null,
+  note: string | undefined,
+): Promise<{ id: string; code: string; deleted: boolean }> {
+  const row = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, [tenantId, voucherId])).rows[0] as
+    | Row
+    | undefined;
+  if (!row || !canViewVoucher(actor, row)) throw notFound('phiếu');
+  const kind = row.kind as FinanceVoucherKind;
+  const source = await loadSourceRow(db, tenantId, voucherId, true);
+  if (row.approval_mode !== 'INHERITED' || !source) throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu không tạo từ hồ sơ quy trình.');
+  if (!canApprove(actor, kind)) throw forbidden('Bạn không có quyền huỷ loại phiếu này.');
+  if (row.status !== 'DRAFT' || (source.status !== 'OPEN' && source.status !== 'RETURNED'))
+    throw conflict('FINANCE_SOURCE_STATE', row.status === 'CANCELLED' ? 'Phiếu đã huỷ.' : 'Phiếu không còn chờ ghi sổ.');
+  const reason = `Kế toán huỷ phiếu ${String(row.code)}${note?.trim() ? `: ${note.trim()}` : ''}`.slice(0, 2000);
+  if (source.status === 'OPEN') {
+    if (isProcedureSource(source)) {
+      if (!action || num(source.activation) !== action.activation)
+        throw conflict('FINANCE_SOURCE_STALE', 'Hồ sơ đã chuyển sang lần xử lý khác; tải lại phiếu.');
+      const handler = activeHandler(source);
+      if (handler && handler.userId !== actor.userId)
+        throw conflict('FINANCE_SOURCE_HANDLED', `${handler.name ?? 'Người khác'} đang xử lý phiếu này; dùng "Nhận xử lý thay" nếu cần.`);
+    }
+    await emitSourceEvent(db, tenantId, FINANCE_VOUCHER_RETURNED, voucherId, {
+      ...procedureStepOf(source),
+      voucherId,
+      reason,
+      actorId: actor.userId,
+      actorName: actor.displayName,
+      ...sourceEventFields(source),
+    });
+  }
+  await deleteVoucherRow(db, tenantId, row, actor, reason);
+  return { id: voucherId, code: String(row.code), deleted: true };
 }
 
 /** Người khác đang giữ khoá mềm: nhận xử lý thay, ghi vào nhật ký phiếu. */
@@ -544,6 +619,17 @@ export async function takeOverSourcedVoucher(db: Db, tenantId: string, actor: Fi
   await markHandling(db, tenantId, voucherId, actor);
   if (handler && handler.userId !== actor.userId)
     await addEvent(db, tenantId, voucherId, 'TAKEN_OVER', actor, `Nhận xử lý thay ${handler.name ?? 'người đang xử lý'}`);
+}
+
+/**
+ * Hồ sơ Quy trình gắn với dự án/công việc mà phiếu chưa hạch toán (Workspace không trả lời lúc tạo phiếu, hoặc kế toán chưa chọn,
+ * hoặc đã bỏ chọn): ghi sổ lúc này thì khoản chi không bao giờ hiện ở dự án. Bắt chọn hạch toán trước, thay vì để mất số liệu.
+ */
+export function sourcedAllocationProblem(row: Row, source: Row): string | null {
+  const requested = (source.snapshot ?? {}) as { projectId?: string; workItemId?: string };
+  if (isProcedureSource(source) && (requested.projectId || requested.workItemId) && !row.alloc_project_id)
+    return 'Hồ sơ Quy trình này gắn với một dự án nhưng phiếu chưa hạch toán nội bộ cho dự án. Hãy chọn hạch toán cho phiếu rồi ghi sổ, nếu không khoản chi sẽ không hiện ở tab Tài chính của dự án.';
+  return null;
 }
 
 /**
@@ -566,14 +652,8 @@ export async function postSourcedVoucher(
   const errors = await submitErrors(db, tenantId, await loadVoucherRecord(db, tenantId, voucherId));
   if (errors.length) throw invalidMany('FINANCE_POST_INVALID', errors);
   const fields = sourceEventFields(source);
-  // Hồ sơ gắn với dự án/công việc mà phiếu chưa hạch toán (Workspace không trả lời lúc tạo phiếu, hoặc kế toán chưa chọn): ghi
-  // sổ lúc này thì khoản chi không bao giờ hiện ở dự án. Bắt chọn hạch toán trước, thay vì để mất số liệu mà không ai biết.
-  const requested = (source.snapshot ?? {}) as { projectId?: string; workItemId?: string };
-  if (procedureSource && (requested.projectId || requested.workItemId) && !row.alloc_project_id) {
-    throw invalid(
-      'Hồ sơ Quy trình này gắn với một dự án nhưng phiếu chưa hạch toán nội bộ cho dự án. Hãy chọn hạch toán cho phiếu rồi ghi sổ, nếu không khoản chi sẽ không hiện ở tab Tài chính của dự án.',
-    );
-  }
+  const allocationProblem = sourcedAllocationProblem(row, source);
+  if (allocationProblem) throw invalid(allocationProblem);
   await postApproval(db, tenantId, row, actor, note, procedureSource ? undefined : fields);
   const posted = (await db.query(`SELECT * FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, voucherId])).rows[0] as Row;
   await db.query(

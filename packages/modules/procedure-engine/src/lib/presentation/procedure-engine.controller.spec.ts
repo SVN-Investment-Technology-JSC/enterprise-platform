@@ -53,3 +53,27 @@ describe('PUT internal/instances/:id/source-summary', () => {
     expect(() => controller.internalUpdateSourceSummary({ headers: {} }, 'i-1', { sourceSummary: null })).toThrow(HttpException);
   });
 });
+
+describe('POST instances/bulk-action', () => {
+  const bulk = jest.fn();
+  const controller = new ProcedureEngineController(
+    { bulkApplyAction: bulk } as unknown as ProcedureEngineApplication,
+    {} as ProcedureAttachmentService,
+  );
+  const actor = { userId: 'u-1', tenantId: 't-1' };
+  const request = { procedureActor: actor } as unknown as Parameters<ProcedureEngineController['bulkAction']>[0];
+
+  it('chuyển yêu cầu cho application theo người gọi, trả nguyên kết quả', async () => {
+    bulk.mockResolvedValueOnce({ done: [{ id: 'i-1', code: 'HS-1' }], skipped: [] });
+    const input = { action: 'approve' as const, instanceIds: ['i-1'], idempotencyKey: 'k' };
+    await expect(controller.bulkAction(request, input)).resolves.toEqual({ done: [{ id: 'i-1', code: 'HS-1' }], skipped: [] });
+    expect(bulk).toHaveBeenCalledWith(actor, input);
+  });
+
+  it('không duyệt thiếu lý do trả 400', async () => {
+    bulk.mockRejectedValueOnce(new ProcedureEngineError('validation', 'Cần nhập lý do không duyệt.'));
+    await expect(
+      controller.bulkAction(request, { action: 'reject', instanceIds: ['i-1'], idempotencyKey: 'k' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+});

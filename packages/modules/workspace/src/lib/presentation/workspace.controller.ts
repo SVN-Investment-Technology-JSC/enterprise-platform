@@ -208,7 +208,7 @@ export class WorkspaceController {
     @Query('archived') archived?: string,
   ) {
     return this.execute(() =>
-      this.projects.list(this.actor(request), {
+      this.finance.listWithContractValue(this.actor(request), {
         search,
         status,
         projectType,

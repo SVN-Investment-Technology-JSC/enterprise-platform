@@ -44,9 +44,36 @@ export const FINANCE_VOUCHER_SOURCE_FIELD_LABELS: Readonly<Record<FinanceVoucher
 export const FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES: Readonly<Record<FinanceVoucherSourceField, readonly string[]>> = {
   amount: ['so_tien', 'amount', 'tong_tien'],
   content: ['noi_dung', 'content'],
-  counterpartyName: ['nguoi_nop_nhan', 'counterparty'],
-  counterpartyAccountNo: ['so_tai_khoan', 'account_no'],
-  counterpartyBank: ['ngan_hang', 'bank'],
+  // Thêm cả mã sinh ra từ nhãn hay đặt ở form thanh toán ("Người nhận", "STK người nhận", "Ngân hàng người nhận").
+  counterpartyName: [
+    'nguoi_nop_nhan',
+    'counterparty',
+    'nguoi_nhan',
+    'nguoi_nhan_tien',
+    'ten_nguoi_nhan',
+    'nguoi_thu_huong',
+    'nguoi_nop',
+    'nguoi_nop_tien',
+  ],
+  counterpartyAccountNo: [
+    'so_tai_khoan',
+    'account_no',
+    'stk',
+    'stk_nguoi_nhan',
+    'stk_nhan',
+    'so_tai_khoan_nhan',
+    'so_tai_khoan_nguoi_nhan',
+    'stk_nguoi_nop',
+    'so_tai_khoan_nguoi_nop',
+  ],
+  counterpartyBank: [
+    'ngan_hang',
+    'bank',
+    'ngan_hang_nguoi_nhan',
+    'ngan_hang_nhan',
+    'ngan_hang_nhan_tien',
+    'ngan_hang_nguoi_nop',
+  ],
   voucherDate: ['ngay_lap', 'voucher_date'],
 };
 

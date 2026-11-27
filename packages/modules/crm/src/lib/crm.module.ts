@@ -605,7 +605,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         inventory: InventoryClient,
         settings: SalesSettingsStore,
         dispatcher: IntegrationDispatcher,
-      ) => new ContractService(contracts, customers, catalog, scopes, inventory, settings, dispatcher),
+        quotes: QuoteStore,
+      ) => new ContractService(contracts, customers, catalog, scopes, inventory, settings, dispatcher, undefined, quotes),
       inject: [
         CRM_CONTRACT_STORE,
         CRM_CUSTOMER_STORE,
@@ -614,6 +615,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         CRM_INVENTORY_CLIENT,
         CRM_SALES_SETTINGS_STORE,
         CRM_INTEGRATION_DISPATCHER,
+        CRM_QUOTE_STORE,
       ],
     },
     {

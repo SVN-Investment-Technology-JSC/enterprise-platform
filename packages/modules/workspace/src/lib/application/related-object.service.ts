@@ -1,6 +1,10 @@
 import {
+  LINKABLE_FILTER_VALUE_MAX_LENGTH,
   clampLinkableLimit,
+  isLinkableFormKey,
   linkableModuleOf,
+  parseLinkableCreateRequest,
+  sanitizeLinkableSearchFilters,
   type LinkableKind,
   type LinkableObject,
 } from '@enterprise-platform/contracts-integration';
@@ -9,6 +13,8 @@ import {
   type CreateRelatedObjectRequest,
   type RelatedObject,
   type RelatedObjectCandidateList,
+  type RelatedObjectCreateForm,
+  type RelatedObjectCreatePreview,
   type RelatedObjectKind,
   type RelatedObjectKindList,
   type RelatedObjectList,
@@ -28,6 +34,7 @@ import {
   type ProjectService,
 } from './project.service.js';
 import {
+  LinkableCreateRejectedError,
   LinkableProviderError,
   type LinkableFailure,
   type LinkableProvider,
@@ -60,6 +67,23 @@ export class RelatedObjectNotFoundError extends WorkspaceError {
   constructor() {
     super('RELATED_OBJECT_NOT_FOUND', 'Không tìm thấy hồ sơ, hoặc bạn không có quyền xem hồ sơ này.', 404);
     Object.setPrototypeOf(this, RelatedObjectNotFoundError.prototype);
+  }
+}
+
+/**
+ * Module gốc từ chối tạo nhanh (thiếu ô, sai định dạng, không có quyền, cần xác nhận): giữ nguyên mã, mã HTTP và câu
+ * chữ của module gốc, cộng `warnings` (cần xác nhận) và `field` (ô sai) để hộp thoại hiện đúng chỗ.
+ */
+export class RelatedObjectCreateRejectedError extends WorkspaceError {
+  constructor(
+    code: string,
+    message: string,
+    statusCode: number,
+    readonly warnings: readonly string[],
+    readonly field?: string,
+  ) {
+    super(code, message, statusCode);
+    Object.setPrototypeOf(this, RelatedObjectCreateRejectedError.prototype);
   }
 }
 
@@ -100,14 +124,43 @@ export class RelatedObjectService {
     kindRaw: unknown,
     qRaw: unknown,
     limitRaw?: unknown,
+    filtersRaw?: unknown,
   ): Promise<RelatedObjectCandidateList> {
     const kind = parseKind(kindRaw);
     const provider = this.providerOf(kind);
     const q = typeof qRaw === 'string' ? qRaw.trim().slice(0, 100) : '';
+    // Lọc của ô tham chiếu trong form tạo nhanh: chỉ chuyển tham số đúng hình dạng; module gốc chỉ đọc tham số nó biết.
+    const filters = sanitizeLinkableSearchFilters(filtersRaw);
+    const viewer = viewerOf(actor, requireToken(accessToken));
+    const limit = clampLinkableLimit(limitRaw);
     const items = await this.call(() =>
-      provider.search(viewerOf(actor, requireToken(accessToken)), kind, q, clampLinkableLimit(limitRaw)),
+      Object.keys(filters).length > 0 ? provider.search(viewer, kind, q, limit, filters) : provider.search(viewer, kind, q, limit),
     );
     return { items: items.map((item) => ({ ...item })) };
+  }
+
+  /**
+   * Xem trước theo giá trị một ô có `preview` của form tạo nhanh (ví dụ dòng hàng sẽ nhận từ báo giá). Workspace không
+   * hiểu nội dung: chỉ chuyển lời hỏi dưới danh nghĩa người dùng và trả bảng đã lọc hình dạng.
+   */
+  async createPreview(
+    actor: WorkspaceActor,
+    accessToken: string | undefined,
+    kindRaw: unknown,
+    fieldRaw: unknown,
+    valueRaw: unknown,
+  ): Promise<RelatedObjectCreatePreview> {
+    const kind = parseKind(kindRaw);
+    const field = typeof fieldRaw === 'string' ? fieldRaw.trim() : '';
+    const value = typeof valueRaw === 'string' ? valueRaw.trim() : '';
+    if (!isLinkableFormKey(field) || !value || value.length > LINKABLE_FILTER_VALUE_MAX_LENGTH) {
+      throw new WorkspaceValidationError('Ô xem trước không hợp lệ.');
+    }
+    const provider = this.providerOf(kind);
+    const read = provider.createPreview?.bind(provider);
+    if (!read) throw new RelatedModuleError('module_unavailable');
+    const preview = await this.call(() => read(viewerOf(actor, requireToken(accessToken)), kind, field, value));
+    return { ...preview, columns: preview.columns.map((column) => ({ ...column })) };
   }
 
   /** Xem trước một hồ sơ: thông tin đầy đủ, chuỗi phía trước và gợi ý điền sẵn. */
@@ -125,6 +178,57 @@ export class RelatedObjectService {
       this.resolveOne(provider, viewer, kind, id),
       this.kindLabels(provider, viewer),
     ]);
+    return {
+      kind,
+      id: object.id,
+      code: object.code,
+      label: object.label,
+      status: object.status,
+      launchUrl: object.launchUrl,
+      kindLabel: labels.get(kind)?.label,
+      moduleLabel: labels.get(kind)?.moduleLabel,
+      fields: object.fields,
+      upstream: object.upstream.map((ref) => ({ ...ref, kindLabel: labels.get(ref.kind)?.label })),
+      prefill: object.prefill,
+    };
+  }
+
+  /**
+   * Form tạo nhanh của module gốc. Workspace không thêm hay bớt ô nào: module gốc giữ quy tắc form của nó, và tự trả
+   * 403 nếu người dùng không được tạo loại này.
+   */
+  async createForm(
+    actor: WorkspaceActor,
+    accessToken: string | undefined,
+    kindRaw: unknown,
+  ): Promise<RelatedObjectCreateForm> {
+    const kind = parseKind(kindRaw);
+    const provider = this.providerOf(kind);
+    const read = provider.createForm?.bind(provider);
+    if (!read) throw new RelatedModuleError('module_unavailable');
+    const form = await this.call(() => read(viewerOf(actor, requireToken(accessToken)), kind));
+    return { ...form, fields: form.fields.map((field) => ({ ...field })) };
+  }
+
+  /**
+   * Tạo hồ sơ ở module gốc dưới phiên của người dùng (token và CSRF của chính họ), rồi trả hồ sơ vừa tạo như "xem
+   * trước". Chưa gắn vào đâu: giao diện đưa nó thành một dòng chờ gắn, và lúc gắn server hỏi lại module gốc như mọi
+   * dòng khác.
+   */
+  async createRecord(
+    actor: WorkspaceActor,
+    accessToken: string | undefined,
+    csrfToken: string | undefined,
+    kindRaw: unknown,
+    body: unknown,
+  ): Promise<RelatedObjectPreview> {
+    const kind = parseKind(kindRaw);
+    const provider = this.providerOf(kind);
+    const create = provider.create?.bind(provider);
+    if (!create) throw new RelatedModuleError('module_unavailable');
+    const viewer: LinkableViewer = { ...viewerOf(actor, requireToken(accessToken)), csrfToken };
+    const object = await this.call(() => create(viewer, kind, parseLinkableCreateRequest(body)));
+    const labels = await this.kindLabels(provider, viewer);
     return {
       kind,
       id: object.id,
@@ -357,6 +461,9 @@ export class RelatedObjectService {
       return await operation();
     } catch (error) {
       if (error instanceof LinkableProviderError) throw new RelatedModuleError(error.reason);
+      if (error instanceof LinkableCreateRejectedError) {
+        throw new RelatedObjectCreateRejectedError(error.code, error.message, error.statusCode, error.warnings, error.field);
+      }
       throw error;
     }
   }
@@ -395,7 +502,14 @@ function canRemove(actor: WorkspaceActor, access: ProjectAccess, row: StoredRela
 }
 
 function toKind(moduleKey: string, kind: LinkableKind): RelatedObjectKind {
-  return { key: kind.key, moduleKey, moduleLabel: kind.moduleLabel, label: kind.label, prefill: kind.prefill };
+  return {
+    key: kind.key,
+    moduleKey,
+    moduleLabel: kind.moduleLabel,
+    label: kind.label,
+    prefill: kind.prefill,
+    ...(kind.create ? { create: true } : {}),
+  };
 }
 
 function toRelatedObject(row: StoredRelatedObject, removable: boolean): RelatedObject {

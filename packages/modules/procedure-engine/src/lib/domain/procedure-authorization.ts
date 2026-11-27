@@ -7,7 +7,7 @@ import {
   type ProcedureRuntimeAuthorization,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { isFinanceStepWaiting } from './procedure-finance-step.js';
-import { editableAttributeKeys, returnTargetStepIds } from './procedure-runtime-flow.js';
+import { editableAttributeKeys, findWithdrawPlan, returnTargetStepIds } from './procedure-runtime-flow.js';
 
 export interface ProcedureActor {
   tenantId: string;
@@ -199,7 +199,7 @@ export function isProcedureParticipant(
 /**
  * Người này giữ `role` ở BẤT KỲ bước nào của đơn — trực tiếp qua phân công (chức danh, đơn vị qua
  * trưởng đơn vị, leo thang) hoặc được uỷ quyền vai đó. Khác `myRoles` (chỉ bước hiện tại): quyền gắn
- * với cả đơn như xoá đơn, đổi công việc liên kết.
+ * với cả đơn như xoá đơn.
  *
  * Phân công "quản lý của người khởi tạo" chỉ thành chức danh cụ thể khi bước đó đã tới, nên trước đó
  * chưa khớp ai.
@@ -284,29 +284,16 @@ export function canDeleteProcedureInstance(
 }
 
 /**
- * Đổi công việc liên kết: cùng người được xoá đơn; đơn phải đang gắn một công việc (không đang chờ
- * Workspace trả lời) và chưa bị huỷ hiệu lực.
+ * Người tham gia đơn trừ người xem. "Người xem" là người chỉ có mặt nhờ vai I (hoặc chỉ thuộc tập được
+ * phép khởi tạo S); ai giữ vai khác ở bất kỳ bước nào, là người khởi tạo / người tạo hộ, được uỷ quyền,
+ * được giao đầu việc hay là quản trị thì tính. Dùng chung cho bổ sung tài liệu và đổi dự án / công việc.
  */
-export function canRelinkProcedureWorkspace(
+export function isProcedureContributor(
   instance: ProcedureInstance,
   actor: ProcedureActor,
 ): boolean {
-  if (instance.deletion || instance.status === 'reversed') return false;
-  if (instance.workspaceLink?.status === 'pending' || !linkedWorkItemId(instance)) return false;
-  return actor.isOverride || holdsProcedureRole(instance, actor, 'A');
-}
-
-/**
- * Bổ sung tài liệu: người tham gia đơn trừ người xem. "Người xem" là người chỉ có mặt nhờ vai I (hoặc
- * chỉ thuộc tập được phép khởi tạo S); ai có vai khác, là người khởi tạo, được uỷ quyền, được giao đầu
- * việc hay là quản trị thì bổ sung được.
- */
-export function canSupplementProcedureInstance(
-  instance: ProcedureInstance,
-  actor: ProcedureActor,
-): boolean {
-  if (instance.deletion || !SUPPLEMENTABLE_STATUSES.includes(instance.status)) return false;
   if (actor.isOverride || instance.initiatedBy === actor.userId) return true;
+  if (instance.createdOnBehalfBy?.userId === actor.userId) return true;
   if (
     instance.steps.some((step) =>
       step.assignments.some(
@@ -321,6 +308,65 @@ export function canSupplementProcedureInstance(
   }
   if ((instance.delegations ?? []).some((item) => item.delegatedTo === actor.userId)) return true;
   return (instance.subtasks ?? []).some((subtask) => subtask.assigneeId === actor.userId);
+}
+
+/**
+ * Đổi dự án / công việc liên kết: mọi người tham gia đơn trừ người chỉ xem (`isProcedureContributor`). Đơn
+ * phải đang gắn một công việc — gắn dự án từ Quy trình, hoặc mở từ công việc "Theo quy trình" bên Workspace —
+ * không đang chờ Workspace trả lời, chưa bị xoá và chưa bị huỷ hiệu lực. Workspace vẫn kiểm người yêu cầu là
+ * thành viên dự án mới.
+ */
+export function canRelinkProcedureWorkspace(
+  instance: ProcedureInstance,
+  actor: ProcedureActor,
+): boolean {
+  if (instance.deletion || instance.status === 'reversed') return false;
+  if (instance.workspaceLink?.status === 'pending' || !linkedWorkItemId(instance)) return false;
+  return isProcedureContributor(instance, actor);
+}
+
+/** Bổ sung tài liệu: người tham gia đơn trừ người xem (`isProcedureContributor`), khi đơn còn nhận tài liệu. */
+export function canSupplementProcedureInstance(
+  instance: ProcedureInstance,
+  actor: ProcedureActor,
+): boolean {
+  if (instance.deletion || !SUPPLEMENTABLE_STATUSES.includes(instance.status)) return false;
+  return isProcedureContributor(instance, actor);
+}
+
+/** Vai làm việc trong một bước: S là người nộp đơn (đơn của chính họ), I chỉ theo dõi, nên không tính. */
+const STEP_WORK_ROLES: readonly ProcedureRaciRole[] = ['R', 'E', 'C', 'A'];
+
+/**
+ * Phần của người này ở bước hiện tại (`currentStepPart`), chỉ để hiển thị danh sách "Hồ sơ cần bạn xử lý".
+ *
+ * Cả bước là một nhóm cùng làm: người R làm xong vẫn thấy hồ sơ (đã xong phần mình, chờ A), người A thấy trước khi tới
+ * lượt. Không đổi quyền thao tác. Người chỉ có đầu việc E(x) tính là tới lượt khi còn đầu việc chưa xong.
+ */
+function currentStepPartOf(
+  instance: ProcedureInstance,
+  current: ProcedureInstance['steps'][number] | undefined,
+  myRoles: readonly ProcedureRaciRole[],
+  userId: string,
+): Pick<ProcedureRuntimeAuthorization, 'currentStepPart'> {
+  if (instance.status !== 'running' || !current) return {};
+  if (current.status !== 'active' && current.status !== 'ready') return {};
+  const stage = current.currentRoleStage ?? null;
+  const stages = runtimeStages(current.assignments);
+  // Vai được uỷ quyền cho cả hồ sơ mà bước này không có thì không phải phần việc ở bước này.
+  const workRoles = myRoles.filter((role) => STEP_WORK_ROLES.includes(role) && stages.includes(role));
+  const mySubtasks = (instance.subtasks ?? []).filter(
+    (subtask) => subtask.stepInstanceId === current.id && subtask.assigneeId === userId,
+  );
+  if (!workRoles.length && !mySubtasks.length) return {};
+  const openSubtask = mySubtasks.some(
+    (subtask) => subtask.status !== 'completed' && subtask.status !== 'cancelled',
+  );
+  if ((stage && workRoles.includes(stage)) || openSubtask) return { currentStepPart: 'act' };
+  // Vai của người này đứng sau pha hiện tại trong bước thì chưa tới lượt; đứng trước thì phần của họ đã xong.
+  const stageIndex = stage ? stages.indexOf(stage) : -1;
+  const upcoming = workRoles.some((role) => stages.indexOf(role) > stageIndex);
+  return { currentStepPart: upcoming ? 'upcoming' : 'done' };
 }
 
 export function deriveProcedureAuthorization(
@@ -419,6 +465,7 @@ export function deriveProcedureAuthorization(
   // Đầu việc của chính người này ở bước hiện tại. Người được vai trò E phân công
   // không giữ vai trò RACI nào, nên đây là đường duy nhất để họ thấy phần việc
   // của mình và được phép đánh dấu xong.
+  const withdrawPlan = findWithdrawPlan(instance, actor.userId);
   const mySubtaskIds = (instance.subtasks ?? [])
     .filter(
       (subtask) =>
@@ -444,6 +491,11 @@ export function deriveProcedureAuthorization(
     editableAttributeKeys:
       actions.has('complete') || actions.has('approve') ? editableAttributeKeys(instance) : [],
     returnTargetStepIds: actions.has('return') ? returnTargets : [],
+    // Hoàn duyệt không phụ thuộc vai ở pha hiện tại: người vừa duyệt đã rời pha đó.
+    ...(withdrawPlan
+      ? { canWithdraw: true, withdrawStepName: withdrawPlan.stepName, withdrawStepId: withdrawPlan.stepId }
+      : {}),
+    ...currentStepPartOf(instance, current, myRoles, actor.userId),
     canDelete: canDeleteProcedureInstance(instance, actor, deleteLinkedMode),
     canRelinkWorkspace: canRelinkProcedureWorkspace(instance, actor),
     canSupplement: canSupplementProcedureInstance(instance, actor),

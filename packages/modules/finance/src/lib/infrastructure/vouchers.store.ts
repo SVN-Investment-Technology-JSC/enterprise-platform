@@ -1,10 +1,17 @@
 import {
+  FINANCE_VOUCHER_DRAFT_LIKE_STATUSES,
+  FINANCE_VOUCHER_SORT_KEYS,
   FINANCE_VOUCHER_STATUSES,
+  financeDisplayStatusTotals,
   financeIncludedTax,
+  financeMissingFields,
   financePeriodOf,
   formatFinanceDraftCode,
   formatFinanceOfficialCode,
+  type FinanceAccountType,
   type FinanceAllocation,
+  type FinanceRequiredField,
+  type FinanceVoucherSortKey,
   type FinanceProjectVoucher,
   type FinanceProjectTotals,
   type FinanceProjectVoucherList,
@@ -32,7 +39,8 @@ export type Row = QueryResultRow & Record<string, unknown>;
 
 export const VOUCHER_SELECT = `
   SELECT v.*, r.name AS reason_name, a.name AS account_name, d.name AS dest_account_name,
-         g.name AS group_name, src.instance_code AS source_instance_code
+         g.name AS group_name, src.instance_code AS source_instance_code,
+         a.account_type AS account_type_ref, r.require_project AS reason_require_project
     FROM finance_schema.vouchers v
     LEFT JOIN finance_schema.reasons r ON r.id = v.reason_id
     LEFT JOIN finance_schema.accounts a ON a.id = v.account_id
@@ -86,6 +94,60 @@ export function mapSummary(row: Row): FinanceVoucherSummary {
     officialCode: optStr(row.official_code),
     sourceCode: optStr(row.source_instance_code),
   };
+}
+
+/**
+ * Trường bắt buộc còn thiếu của phiếu đã lưu (dòng đọc bằng `VOUCHER_SELECT`), theo đúng luật chung `financeMissingFields`. Chỉ tính
+ * cho phiếu chưa ghi sổ; phiếu đã duyệt/huỷ trả rỗng (phiếu cũ thiếu người nhận không bị cảnh báo lại).
+ */
+export function voucherMissingFields(row: Row, requireAllocation: boolean): FinanceRequiredField[] {
+  if (!FINANCE_VOUCHER_DRAFT_LIKE_STATUSES.includes(row.status as FinanceVoucherStatus)) return [];
+  return financeMissingFields({
+    kind: row.kind as FinanceVoucherKind,
+    voucherDate: row.voucher_date ? dateOnly(row.voucher_date) : null,
+    postingDate: row.posting_date ? dateOnly(row.posting_date) : null,
+    content: optStr(row.content),
+    totalAmount: num(row.total_amount),
+    reasonId: optStr(row.reason_id),
+    accountId: optStr(row.account_id),
+    accountType: optStr(row.account_type_ref) as FinanceAccountType | null,
+    counterpartyGroupId: optStr(row.counterparty_group_id),
+    counterpartyName: optStr(row.counterparty_name),
+    counterpartyAccountNo: optStr(row.counterparty_account_no),
+    counterpartyBank: optStr(row.counterparty_bank),
+    hasAllocation: Boolean(row.alloc_type),
+    allocationRequired: requireAllocation || Boolean(row.reason_require_project),
+  });
+}
+
+/** Biểu thức sắp xếp theo từng cột được phép; mã lạ bị từ chối nên không chuỗi nào của người dùng lọt vào SQL. */
+const SORT_SQL: Readonly<Record<FinanceVoucherSortKey, string>> = {
+  code: 'v.code',
+  'voucher-date': 'v.voucher_date',
+  content: 'v.content',
+  reason: 'r.name',
+  account: 'a.name',
+  counterparty: 'g.name',
+  person: 'v.counterparty_name',
+  allocation: 'v.alloc_project_code',
+  amount: 'v.total_amount',
+  // Hai trạng thái hiển thị: Nháp (chưa ghi sổ) đứng trước Đã duyệt khi tăng dần.
+  status: `(v.status = 'APPROVED')`,
+  'created-by': 'v.created_by_name',
+};
+const DEFAULT_ORDER = 'v.voucher_date DESC, v.created_at DESC, v.id DESC';
+
+/**
+ * Mệnh đề ORDER BY của danh sách phiếu: cột theo danh sách trắng `FINANCE_VOUCHER_SORT_KEYS`, ô trống luôn xuống cuối, các dòng bằng
+ * nhau giữ thứ tự mặc định (mới nhất trước) để phân trang ổn định. Không có `sort` thì giữ thứ tự mặc định như trước.
+ */
+export function voucherListOrderBy(sort: unknown, direction: unknown): string {
+  if (sort === undefined || sort === null || sort === '') return DEFAULT_ORDER;
+  if (typeof sort !== 'string' || !FINANCE_VOUCHER_SORT_KEYS.includes(sort as FinanceVoucherSortKey)) throw invalid('Cột sắp xếp không hợp lệ.');
+  if (direction !== undefined && direction !== null && direction !== '' && direction !== 'asc' && direction !== 'desc')
+    throw invalid('Chiều sắp xếp không hợp lệ.');
+  const dir = direction === 'desc' ? 'DESC' : 'ASC';
+  return `${SORT_SQL[sort as FinanceVoucherSortKey]} ${dir} NULLS LAST, ${DEFAULT_ORDER}`;
 }
 
 /** Dự án/công việc đã được Workspace xác nhận (mã, tên) cùng một phiếu; được ghi nguyên văn vào phiếu. */
@@ -427,9 +489,13 @@ export async function listVouchers(
   allowSelfApproval: boolean,
   /** Bộ lọc "Chờ tôi ghi sổ": chỉ các phiếu này (đã lọc theo phân công ở tầng ứng dụng). */
   restrictIds?: readonly string[],
+  /** Cài đặt "Bắt buộc hạch toán dự án", để báo trường còn thiếu của từng phiếu. */
+  requireAllocation = false,
 ): Promise<FinanceVoucherList> {
+  const orderBy = voucherListOrderBy(query.sort, query.direction);
   const params: unknown[] = [tenantId, query.kind];
-  const where: string[] = ['v.tenant_id = $1', 'v.kind = $2'];
+  // Phiếu đã huỷ không hiện ở danh sách: Huỷ là xoá phiếu; phiếu đã ghi sổ bị huỷ chỉ còn giữ dòng vì sổ cái (chỉ thêm) trỏ về nó.
+  const where: string[] = ['v.tenant_id = $1', 'v.kind = $2', `v.status <> 'CANCELLED'`];
   const add = (sql: string, value: unknown) => {
     params.push(value);
     where.push(sql.replace('?', `$${params.length}`));
@@ -489,23 +555,40 @@ export async function listVouchers(
 
   if (query.status) {
     if (!FINANCE_VOUCHER_STATUSES.includes(query.status)) throw invalid('Trạng thái không hợp lệ.');
-    add('v.status = ?', query.status);
+    // "Nháp" là trạng thái hiển thị gồm mọi phiếu chưa ghi sổ (nháp, chờ duyệt, bị từ chối).
+    if (query.status === 'DRAFT') add('v.status = ANY(?::text[])', [...FINANCE_VOUCHER_DRAFT_LIKE_STATUSES]);
+    else add('v.status = ?', query.status);
   }
   const filtered = where.join(' AND ');
-  const total = query.status ? statusCounts[query.status] : Object.values(statusCounts).reduce((a, b) => a + b, 0);
+  const total =
+    query.status === 'DRAFT'
+      ? financeDisplayStatusTotals(statusCounts).DRAFT
+      : query.status
+        ? statusCounts[query.status]
+        : Object.values(statusCounts).reduce((a, b) => a + b, 0);
   const pageSize = PAGE_SIZES.includes(Math.trunc(query.pageSize ?? 20)) ? Math.trunc(query.pageSize ?? 20) : 20;
   const page = Math.max(Math.trunc(query.page ?? 1), 1);
   params.push(pageSize, (page - 1) * pageSize);
+  // Sắp xếp theo tài khoản / đối tượng cần tên của chúng: chỉ nối thêm ở truy vấn lấy trang, không ở truy vấn đếm.
+  const sortJoined = `${joined} LEFT JOIN finance_schema.accounts a ON a.id = v.account_id LEFT JOIN finance_schema.counterparty_groups g ON g.id = v.counterparty_group_id`;
   const rows = (
     await db.query(
       `${VOUCHER_SELECT} WHERE v.id IN (
-         SELECT v.id ${joined} WHERE ${filtered}
-          ORDER BY v.voucher_date DESC, v.created_at DESC, v.id DESC LIMIT $${params.length - 1} OFFSET $${params.length}
-       ) ORDER BY v.voucher_date DESC, v.created_at DESC, v.id DESC`,
+         SELECT v.id ${sortJoined} WHERE ${filtered}
+          ORDER BY ${orderBy} LIMIT $${params.length - 1} OFFSET $${params.length}
+       ) ORDER BY ${orderBy}`,
       params,
     )
   ).rows as Row[];
-  return { items: rows.map(mapSummary), total, page, pageSize, statusCounts, approvedTotal, statusAmounts };
+  return {
+    items: rows.map((row) => ({ ...mapSummary(row), missingFields: voucherMissingFields(row, requireAllocation) })),
+    total,
+    page,
+    pageSize,
+    statusCounts,
+    approvedTotal,
+    statusAmounts,
+  };
 }
 
 const PROJECT_LIST_LIMIT = 200;

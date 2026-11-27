@@ -15,6 +15,10 @@ jest.mock('../finance-api', () => {
   const actual = jest.requireActual('../finance-api');
   return { ...actual, financeFetch: jest.fn(), financePost: jest.fn(), financeDelete: jest.fn() };
 });
+let mockCapabilities: Record<string, unknown> | null = null;
+jest.mock('../finance-permissions', () => ({
+  useFinancePermissions: () => ({ loading: false, error: null, capabilities: mockCapabilities, canOpenPage: () => true }),
+}));
 
 const fetchMock = financeFetch as jest.MockedFunction<typeof financeFetch>;
 const postMock = financePost as jest.MockedFunction<typeof financePost>;
@@ -97,6 +101,7 @@ const load = (v: FinanceVoucher) => fetchMock.mockImplementation(async () => v a
 beforeEach(() => {
   jest.clearAllMocks();
   mockPathname = '/modules/finance/payments/v1';
+  mockCapabilities = null;
   postMock.mockImplementation(async () => voucher({ status: 'APPROVED', posted: true }) as never);
 });
 
@@ -119,7 +124,8 @@ describe('Chi tiết phiếu', () => {
     load(voucher());
     render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
     expect(await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' })).toBeTruthy();
-    expect(screen.getByText('Chờ duyệt')).toBeTruthy();
+    // Chỉ hai trạng thái hiển thị: phiếu đang chờ duyệt vẫn hiện "Nháp".
+    expect(screen.getByText('Nháp')).toBeTruthy();
     const info = screen.getByRole('region', { name: 'Thông tin chung' });
     expect(within(info).getAllByText('14/10/2026').length).toBe(2); // ngày lập và ngày hạch toán
     const lines = screen.getByRole('region', { name: 'Chi tiết chi' });
@@ -202,13 +208,75 @@ describe('Chi tiết phiếu', () => {
     expect(screen.getByRole('button', { name: /Thử lại/ })).toBeTruthy();
   });
 
-  it('phiếu đã ghi sổ: chỉ người có quyền thấy nút huỷ phiếu đã ghi sổ; không có nút sửa hay xoá', async () => {
-    load(voucher({ status: 'APPROVED', posted: true, permissions: { ...none, canReverse: true } }));
+  it('phiếu đã ghi sổ: Huỷ chạy ngay không hỏi lại (đảo bút toán), rồi về danh sách; không có nút sửa hay xoá riêng', async () => {
+    postMock.mockResolvedValueOnce({ id: 'v1', code: 'PC-2610-0045', deleted: false } as never);
+    load(voucher({ status: 'APPROVED', posted: true, permissions: { ...none, canReverse: true, canCancel: true } }));
     render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
     expect(await screen.findByText('Đã ghi sổ tài khoản')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Huỷ phiếu đã ghi sổ/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Sửa/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Xoá/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Huỷ$/ }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/cancel', {}));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/payments'));
+  });
+
+  it('phiếu nháp: Huỷ xoá hẳn phiếu ngay (không hộp xác nhận) và về danh sách', async () => {
+    postMock.mockResolvedValueOnce({ id: 'v1', code: 'NHAP_PC_2610_0003', deleted: true } as never);
+    load(voucher({ status: 'DRAFT', permissions: { ...none, canEdit: true, canCancel: true, canDelete: true } }));
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Huỷ$/ }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/cancel', {}));
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/payments'));
+  });
+
+  it('Nhân bản mở form tạo mới điền sẵn từ phiếu này (trong popup thì giữ trong khung nhúng); không có quyền lập thì không hiện', async () => {
+    load(voucher({ status: 'APPROVED', posted: true }));
+    const { unmount } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    await screen.findByRole('region', { name: 'Thông tin chung' });
+    expect(screen.queryByRole('button', { name: /Nhân bản/ })).toBeNull();
+    unmount();
+
+    mockCapabilities = { payment: { create: true, approve: true } };
+    const first = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Nhân bản/ }));
+    expect(mockPush).toHaveBeenCalledWith('/payments/new?from=v1');
+    first.unmount();
+
+    mockPathname = '/modules/finance/embed/payments/v1';
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Nhân bản/ }));
+    expect(mockPush).toHaveBeenCalledWith('/embed/payments/new?from=v1');
+  });
+
+  it('người duyệt mà phiếu chưa đủ thông tin: nút "Duyệt ghi sổ" mờ kèm lý do máy chủ trả', async () => {
+    load(voucher({ status: 'DRAFT', permissions: { ...none, approveBlockedReason: 'Chưa đủ thông tin để duyệt ghi sổ. Còn thiếu: Tài khoản chi.' } }));
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    const button = (await screen.findByRole('button', { name: /Duyệt ghi sổ/ })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain('Còn thiếu: Tài khoản chi.');
+  });
+
+  it('phiếu nháp còn thiếu trường bắt buộc: báo đủ danh sách và mở form để bổ sung (người sửa được phiếu)', async () => {
+    load(voucher({ status: 'DRAFT', missingFields: ['reason', 'account', 'counterpartyName'], permissions: { ...none, canEdit: true } }));
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    const banner = await screen.findByRole('alert', { name: 'Phiếu còn thiếu thông tin' });
+    expect(banner.textContent).toContain('Còn thiếu: Lý do chi, Tài khoản chi, Người nhận tiền.');
+    fireEvent.click(within(banner).getByRole('button', { name: /Bổ sung thông tin/ }));
+    expect(mockPush).toHaveBeenCalledWith('/payments/v1/edit');
+  });
+
+  it('người không sửa được phiếu vẫn thấy danh sách còn thiếu nhưng không có nút bổ sung; phiếu đủ thông tin thì không có cảnh báo', async () => {
+    load(voucher({ status: 'DRAFT', missingFields: ['counterpartyBank'] }));
+    const { unmount } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    const banner = await screen.findByRole('alert', { name: 'Phiếu còn thiếu thông tin' });
+    expect(banner.textContent).toContain('Ngân hàng nhận tiền');
+    expect(within(banner).queryByRole('button')).toBeNull();
+    unmount();
+    load(voucher({ status: 'DRAFT', missingFields: [] }));
+    render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
+    await screen.findByRole('region', { name: 'Thông tin chung' });
+    expect(screen.queryByRole('alert', { name: 'Phiếu còn thiếu thông tin' })).toBeNull();
   });
 
   describe('phiếu tạo từ hồ sơ quy trình', () => {
@@ -239,17 +307,18 @@ describe('Chi tiết phiếu', () => {
     const sourced = (over: Partial<FinanceVoucher> = {}) =>
       voucher({ status: 'DRAFT', approvalMode: 'INHERITED', sourceCode: 'PR-0012', source: source(), ...over });
 
-    it('hiện khối Nguồn, trường lấy từ hồ sơ có biểu tượng khoá; Ghi sổ gửi kèm phiên bản đang xem', async () => {
+    it('hiện khối Nguồn, trường lấy từ hồ sơ không còn khoá (sửa được); Ghi sổ gửi kèm phiên bản đang xem', async () => {
       load(sourced({ permissions: { ...none, sourced: { canEditSourced: true, canPost: true, canReturnSource: true, canTakeOver: false, canRetryReversal: false } } }));
       render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
       const panel = await screen.findByRole('region', { name: 'Nguồn hồ sơ quy trình' });
       expect(within(panel).getByRole('link', { name: 'PR-0012' }).getAttribute('href')).toBe('/modules/procedure#workspace/inst-12');
       expect(within(panel).getByText('Kế toán thanh toán')).toBeTruthy();
       const info = screen.getByRole('region', { name: 'Thông tin chung' });
-      expect(within(info).getAllByLabelText('Lấy từ hồ sơ').length).toBe(3); // số tiền, nội dung, người nhận tiền
+      // Mọi trường điền sẵn từ hồ sơ đều sửa được nên không còn biểu tượng khoá.
+      expect(within(info).queryAllByLabelText('Lấy từ hồ sơ')).toHaveLength(0);
       expect(screen.queryByRole('button', { name: /Gửi duyệt/ })).toBeNull();
 
-      fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Sửa$/ }));
       expect(mockPush).toHaveBeenCalledWith('/payments/v1/edit');
       fireEvent.click(screen.getByRole('button', { name: /Ghi sổ/ }));
       await confirm('Ghi sổ');
@@ -275,7 +344,7 @@ describe('Chi tiết phiếu', () => {
       load(sourced({ source: source({ canAct: false, canActReason: 'Bạn không giữ vai R của bước này.' }) }));
       const { unmount } = render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
       expect((await screen.findByRole('region', { name: 'Nguồn hồ sơ quy trình' })).textContent).toContain('Bạn không giữ vai R của bước này. Phiếu chỉ xem.');
-      expect(screen.queryByRole('button', { name: /Ghi sổ|Trả hồ sơ|Nhập thông tin/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /Ghi sổ|Trả hồ sơ|^Sửa$/ })).toBeNull();
       unmount();
 
       load(sourced({ source: source({ canAct: null, canActReason: 'Không xác minh được quyền ở bước quy trình, thử lại sau.' }) }));
@@ -356,7 +425,7 @@ describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)'
     };
   }
 
-  it('ghi sổ xong thì báo bên chủ tải lại hồ sơ (chỉ tới đúng tên miền của mình); Nhập thông tin kế toán đi trang sửa nhúng', async () => {
+  it('ghi sổ xong thì báo bên chủ tải lại hồ sơ (chỉ tới đúng tên miền của mình); Sửa đi trang sửa nhúng', async () => {
     mockPathname = '/modules/finance/embed/payments/v1';
     const frame = insideFrame();
     try {
@@ -364,7 +433,7 @@ describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)'
       render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
       await screen.findByRole('region', { name: 'Thông tin chung' });
 
-      fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Sửa$/ }));
       expect(mockPush).toHaveBeenCalledWith('/embed/payments/v1/edit');
 
       fireEvent.click(screen.getByRole('button', { name: /Ghi sổ/ }));
@@ -419,7 +488,7 @@ describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)'
     expect(footer.querySelectorAll('button')).toHaveLength(0);
   });
 
-  it('dải nút ở chân popup: Nhập thông tin kế toán, Trả hồ sơ, rồi Ghi sổ ngoài cùng bên phải', async () => {
+  it('dải nút ở chân popup: Sửa, Trả hồ sơ, rồi Ghi sổ ngoài cùng bên phải', async () => {
     mockPathname = '/modules/finance/embed/payments/v1';
     const sourcedWithAll = sourcedVoucher();
     sourcedWithAll.permissions = {
@@ -432,7 +501,7 @@ describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)'
     const labels = Array.from((container.querySelector('footer') as HTMLElement).querySelectorAll('button')).map((button) =>
       (button.textContent ?? '').trim(),
     );
-    expect(labels).toEqual(['Nhập thông tin kế toán', 'Trả hồ sơ', 'Ghi sổ']);
+    expect(labels).toEqual(['Sửa', 'Trả hồ sơ', 'Ghi sổ']);
   });
 
   it('trang đầy đủ (ngoài popup) vẫn có thanh đầu trang với mã, trạng thái và dải nút cùng thứ tự: Trả hồ sơ trước Ghi sổ', async () => {
@@ -448,7 +517,7 @@ describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)'
     const labels = Array.from((container.querySelector('header') as HTMLElement).querySelectorAll('button')).map((button) =>
       (button.textContent ?? '').trim(),
     );
-    expect(labels).toEqual(['Nhập thông tin kế toán', 'Trả hồ sơ', 'Ghi sổ']);
+    expect(labels).toEqual(['Sửa', 'Trả hồ sơ', 'Ghi sổ']);
   });
 
   it('không tìm thấy phiếu: báo lỗi và không có nút "Về danh sách" (popup không có danh sách để về)', async () => {
@@ -465,7 +534,7 @@ describe('Chi tiết phiếu nhúng trong popup của phân hệ khác (/embed)'
       load(sourcedVoucher());
       render(<VoucherDetailScreen kind="PAYMENT" id="v1" />);
       await screen.findByRole('heading', { name: 'NHAP_PC_2610_0003' });
-      fireEvent.click(screen.getByRole('button', { name: /Nhập thông tin kế toán/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^Sửa$/ }));
       expect(mockPush).toHaveBeenCalledWith('/payments/v1/edit');
     } finally {
       frame.restore();

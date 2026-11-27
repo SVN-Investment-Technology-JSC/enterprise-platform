@@ -37,8 +37,19 @@ type Procedure = {
     assetCode?: string;
     managerName?: string;
     currentStepId?: string;
-    steps?: { id: string; name: string; currentRoleStage?: string | null }[];
-    authorization?: { availableActions?: string[]; myRoles?: string[] };
+    steps?: {
+      id: string;
+      name: string;
+      currentRoleStage?: string | null;
+      assignments?: { role: string; subjectLabel?: string }[];
+    }[];
+    authorization?: {
+      availableActions?: string[];
+      myRoles?: string[];
+      currentRoleStage?: string | null;
+      /** Phần của người này ở bước hiện tại (server tính): tới lượt, sắp tới lượt, hay đã xong phần mình. */
+      currentStepPart?: 'act' | 'upcoming' | 'done';
+    };
   }[];
   definitions?: { status: string }[];
 };
@@ -103,6 +114,30 @@ const GROUP_ROWS = 5;
  * tự quay về trang chủ.
  */
 const RETURN_HOME = `returnTo=${encodeURIComponent('/dashboard')}`;
+
+/** Thứ tự trong "Hồ sơ cần bạn xử lý": tới lượt bạn, rồi sắp tới lượt, rồi đã xong phần mình. */
+const DESK_PART_ORDER = { act: 0, upcoming: 1, done: 2 } as const;
+
+type ProcedureInstanceRow = NonNullable<Procedure['instances']>[number];
+
+/** Ghi chú cho hồ sơ chưa tới lượt / đã xong phần mình: đang chờ vai nào, ai giữ (nhãn chụp lúc công bố quy trình). */
+function procedureDeskNote(item: ProcedureInstanceRow, part: 'act' | 'upcoming' | 'done'): string | undefined {
+  if (part === 'act') return undefined;
+  const stage = item.authorization?.currentRoleStage;
+  const current = item.steps?.find((step) => step.id === item.currentStepId);
+  const labels = [
+    ...new Set(
+      (current?.assignments ?? [])
+        .filter((assignment) => assignment.role === stage)
+        .map((assignment) => assignment.subjectLabel?.trim())
+        .filter((label): label is string => Boolean(label)),
+    ),
+  ];
+  const waiting = stage ? (labels.length ? `vai ${stage}: ${labels.join(', ')}` : `vai ${stage}`) : 'người cùng bước';
+  return part === 'done'
+    ? `Đã xử lý phần của bạn · chờ ${waiting}`
+    : `Sắp tới lượt bạn · đang chờ ${waiting}`;
+}
 
 /** Thứ tự nhóm hạn của "Công việc cần xử lý": quá hạn lên đầu. */
 const BUCKET_ORDER = ['overdue', 'today', 'this_week', 'later', 'no_due'];
@@ -253,6 +288,7 @@ export default async function TenantPortalPage() {
         item.minStock > 0 &&
         (availableByMaterial.get(item.id) ?? 0) < item.minStock,
     ) ?? [];
+  // Tới lượt bạn thao tác: câu tóm tắt "chờ bạn thao tác" giữ đúng nghĩa này.
   const actionable = (procedure?.instances ?? []).filter(
     (item) =>
       item.status === 'running' &&
@@ -260,6 +296,20 @@ export default async function TenantPortalPage() {
         (action) => action !== 'comment',
       ),
   );
+  // "Hồ sơ cần bạn xử lý": mọi hồ sơ ở bước bạn cùng làm (vai R, E, C, A, đầu việc) tới khi bước xong, kể cả khi bạn
+  // đã xong phần mình và đang chờ người cùng bước. Tới lượt bạn lên trước. Chỉ để hiển thị; thao tác vẫn theo quyền.
+  const procedureDesk = (procedure?.instances ?? [])
+    .map((item, index) => ({
+      item,
+      index,
+      part: actionable.includes(item)
+        ? ('act' as const)
+        : item.status === 'running'
+          ? item.authorization?.currentStepPart
+          : undefined,
+    }))
+    .filter((row): row is typeof row & { part: 'act' | 'upcoming' | 'done' } => Boolean(row.part))
+    .sort((left, right) => DESK_PART_ORDER[left.part] - DESK_PART_ORDER[right.part] || left.index - right.index);
   // Công việc của tôi bên Workspace: việc dự án đang mở được giao cho tôi, cộng "Công việc khác" tôi làm
   // hoặc đang chờ tôi duyệt. Quá hạn lên đầu.
   const bucketRank = (bucket: string) => {
@@ -540,32 +590,43 @@ export default async function TenantPortalPage() {
       {procedure ? (
         <CollapsibleGroup
           title="Hồ sơ cần bạn xử lý"
-          count={actionable.length}
+          count={procedureDesk.length}
           tone="bg-violet-100 text-violet-700"
           icon={<ProcedureTasksCardIcon />}
         >
-          {actionable.length > 0 ? (
+          {procedureDesk.length > 0 ? (
             <GroupTable
               columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
               headings={['HỒ SƠ', 'MÃ HỒ SƠ', 'QUY TRÌNH', 'BƯỚC HIỆN TẠI', 'TRẠNG THÁI']}
               footer={
-                actionable.length > GROUP_ROWS ? (
+                procedureDesk.length > GROUP_ROWS ? (
                   <a href="/modules/procedure#workspace" className="font-semibold text-blue-700 hover:text-blue-800">
-                    Xem đủ {actionable.length} hồ sơ trong Quy trình
+                    Xem đủ {procedureDesk.length} hồ sơ trong Quy trình
                   </a>
                 ) : undefined
               }
             >
-              {actionable.slice(0, GROUP_ROWS).map((item) => {
+              {procedureDesk.slice(0, GROUP_ROWS).map(({ item, part }) => {
                 const currentStep = item.steps?.find((step) => step.id === item.currentStepId);
+                const note = procedureDeskNote(item, part);
                 return (
                   <GroupRow
                     key={item.id}
                     columns="22px minmax(220px,1fr) 170px 150px 190px 100px"
                     href={`/modules/procedure?${RETURN_HOME}#workspace/${encodeURIComponent(item.id)}`}
                   >
-                    <Dot className="bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]" />
-                    <Cell strong title={item.title}>{item.title}</Cell>
+                    <Dot
+                      className={
+                        part === 'act'
+                          ? 'bg-amber-500 shadow-[0_0_0_4px_rgba(245,158,11,.12)]'
+                          : 'bg-slate-400 shadow-[0_0_0_4px_rgba(148,163,184,.14)]'
+                      }
+                    />
+                    {/* Chưa tới lượt / đã xong phần mình: ghi rõ đang chờ ai ngay dưới tên hồ sơ. */}
+                    <span className="min-w-0" title={note ? `${item.title}\n${note}` : item.title}>
+                      <span className="block truncate font-medium">{item.title}</span>
+                      {note ? <span className="block truncate text-[12px] text-slate-500">{note}</span> : null}
+                    </span>
                     <Cell muted title={item.code}>{item.code}</Cell>
                     <Cell small>
                       {item.definitionName ? (
@@ -576,7 +637,13 @@ export default async function TenantPortalPage() {
                     </Cell>
                     <Cell small title={currentStep?.name}>{currentStep?.name ?? '—'}</Cell>
                     <span>
-                      <Pill className="bg-[#fff6d6] text-[#8a6400]">Cần xử lý</Pill>
+                      {part === 'act' ? (
+                        <Pill className="bg-[#fff6d6] text-[#8a6400]">Cần xử lý</Pill>
+                      ) : part === 'upcoming' ? (
+                        <Pill className="bg-sky-50 text-sky-800">Sắp tới lượt</Pill>
+                      ) : (
+                        <Pill className="bg-slate-100 text-slate-700">Đã xử lý</Pill>
+                      )}
                     </span>
                   </GroupRow>
                 );

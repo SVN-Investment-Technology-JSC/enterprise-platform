@@ -1,5 +1,6 @@
 import type {
   ProcedureInstance,
+  ProcedureWorkspaceProjectRef,
   ProcedureWorkspaceWorkItemDraft,
 } from '@enterprise-platform/contracts-procedure-engine';
 
@@ -175,6 +176,8 @@ export interface WorkItemProcedureRequestedPayload {
   readonly workItemCode: string;
   readonly projectId: string;
   readonly projectCode: string;
+  /** Tên dự án, để màn hồ sơ hiện hồ sơ thuộc dự án nào; vắng ở sự kiện cũ. */
+  readonly projectName?: string;
   /** Tên công việc; tên hồ sơ ghép thêm mã dự án và mã công việc. */
   readonly title: string;
   readonly definitionId: string;
@@ -191,6 +194,8 @@ export interface WorkItemProcedureLinkedPayload {
   readonly workItemCode: string;
   readonly projectId: string;
   readonly projectCode: string;
+  /** Tên dự án; vắng ở sự kiện cũ. */
+  readonly projectName?: string;
 }
 
 export interface WorkItemProcedureLinkRejectedPayload {
@@ -208,6 +213,56 @@ export function workspaceInstanceTitle(projectCode: string, itemCode: string, na
     .filter(Boolean)
     .join('-')
     .slice(0, 255);
+}
+
+/**
+ * Tên gốc (người dùng đặt) của hồ sơ, bỏ phần `[mã dự án]-[mã công việc]-` mà `workspaceInstanceTitle` đã ghép
+ * cho hồ sơ mở từ công việc Workspace. Chỉ bỏ khi tên bắt đầu đúng bằng mã dự án đã chụp; không khớp (hồ sơ cũ
+ * không có dự án, tên đã bị sửa) thì giữ nguyên tên.
+ */
+export function workspaceInstanceBaseTitle(
+  instance: Pick<ProcedureInstance, 'title' | 'sourceType' | 'workspaceProject'>,
+): string {
+  const projectCode = instance.workspaceProject?.projectCode;
+  if (instance.sourceType !== 'workspace_work_item' || !projectCode) return instance.title;
+  if (!instance.title.startsWith(`${projectCode}-`)) return instance.title;
+  // Mã công việc trong tên đã bỏ gạch nối nên là một đoạn liền tới dấu gạch kế tiếp.
+  const name = /^[^-]+-([\s\S]+)$/.exec(instance.title.slice(projectCode.length + 1))?.[1]?.trim();
+  return name || instance.title;
+}
+
+/**
+ * Dự án của công việc trong sự kiện "mở hồ sơ cho công việc", để lưu vào hồ sơ. Thiếu id hay mã dự án thì bỏ qua
+ * (không đoán); tên dự án vắng ở sự kiện cũ. Cắt độ dài để dữ liệu ngoài không phình hồ sơ.
+ */
+export function workspaceProjectRef(
+  request: Pick<WorkItemProcedureRequestedPayload, 'projectId' | 'projectCode' | 'projectName'>,
+): ProcedureWorkspaceProjectRef | undefined {
+  const projectId = typeof request.projectId === 'string' ? request.projectId.trim() : '';
+  const projectCode = typeof request.projectCode === 'string' ? request.projectCode.trim() : '';
+  if (!projectId || !projectCode) return undefined;
+  const projectName = typeof request.projectName === 'string' ? request.projectName.trim().slice(0, 255) : '';
+  return {
+    projectId: projectId.slice(0, 64),
+    projectCode: projectCode.slice(0, 64),
+    ...(projectName ? { projectName } : {}),
+  };
+}
+
+/**
+ * Dự án hiện tại của công việc đang gắn hồ sơ: liên kết đã gắn (`workspaceLink` linked — hồ sơ mở tay gắn dự án hoặc
+ * đã "Đổi công việc liên kết") đi trước dự án chụp lúc mở hồ sơ cho công việc (`workspaceProject`).
+ */
+export function currentWorkspaceProject(instance: ProcedureInstance): ProcedureWorkspaceProjectRef | undefined {
+  const link = instance.workspaceLink;
+  if (link?.status === 'linked' && link.projectId && link.projectCode) {
+    return {
+      projectId: link.projectId,
+      projectCode: link.projectCode,
+      ...(link.projectName ? { projectName: link.projectName } : {}),
+    };
+  }
+  return instance.workspaceProject ? { ...instance.workspaceProject } : undefined;
 }
 
 /** Khoá chống trùng của hồ sơ mở cho một công việc Workspace. */

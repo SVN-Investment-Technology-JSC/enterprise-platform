@@ -53,6 +53,13 @@ export const PROCEDURE_RUNTIME_ACTIONS = [
 export type ProcedureRuntimeAction = (typeof PROCEDURE_RUNTIME_ACTIONS)[number];
 
 /**
+ * Hành động gửi lên `POST instances/:id/actions`: các hành động của người đang giữ pha (`ProcedureRuntimeAction`) cộng
+ * `withdraw` (hoàn duyệt) của người VỪA duyệt xong. `withdraw` không nằm trong `availableActions`: người hoàn duyệt không
+ * còn giữ pha hiện tại, và hồ sơ không được đếm là "đang chờ họ xử lý" (xem `ProcedureRuntimeAuthorization.canWithdraw`).
+ */
+export type ProcedureApplyAction = ProcedureRuntimeAction | 'withdraw';
+
+/**
  * `initiator_manager` là chủ thể động: không trỏ vào ai cố định mà được phân giải
  * thành chức danh cụ thể lúc bước được kích hoạt, theo quan hệ "Báo cáo cho"
  * tính từ chức danh của người khởi tạo.
@@ -216,6 +223,20 @@ export interface ProcedureDefinition {
    * giữ trong DB, vì các hồ sơ cũ còn tham chiếu tới nó.
    */
   deletedAt?: string;
+  /**
+   * Cho phép duyệt / không duyệt (huỷ) HÀNG LOẠT hồ sơ của quy trình này ở trang Tổng quan. Vắng hoặc `false` = không
+   * cho (mặc định an toàn). Đọc trực tiếp từ quy trình lúc xử lý (không chụp vào hồ sơ), như nhóm quy trình: đây là
+   * cách xử lý, không phải luật của luồng, nên bật/tắt áp ngay cho cả hồ sơ đang chạy.
+   */
+  bulkActions?: ProcedureDefinitionBulkActions;
+}
+
+/** Thao tác hàng loạt một quy trình cho phép; mỗi cờ vắng = không cho. */
+export interface ProcedureDefinitionBulkActions {
+  /** Duyệt / hoàn tất hàng loạt. */
+  approve?: boolean;
+  /** Không duyệt, huỷ hồ sơ hàng loạt (bắt buộc lý do). */
+  reject?: boolean;
 }
 
 export type ProcedureInstanceStatus =
@@ -342,7 +363,7 @@ export interface ProcedureMaterialOrder {
 
 export interface ProcedureActivity {
   id: string;
-  action: ProcedureRuntimeAction | 'start' | 'publish' | 'reverse' | 'delete' | 'relink';
+  action: ProcedureApplyAction | 'start' | 'publish' | 'reverse' | 'delete' | 'relink';
   actorId: string;
   actorName: string;
   summary: string;
@@ -425,6 +446,29 @@ export interface ProcedureRuntimeAuthorization {
   /** Id bước (step instance) trên đường đã đi mà người này được chọn để trả về. */
   returnTargetStepIds?: string[];
   /**
+   * Được hoàn duyệt: thao tác xử lý gần nhất của hồ sơ là chính người này vừa hoàn tất/duyệt, và bước (hay pha) kế
+   * tiếp chưa ai xử lý. Hoàn duyệt đưa hồ sơ về lại chỗ người này để làm lại.
+   */
+  canWithdraw?: boolean;
+  /** Tên bước sẽ được mở lại khi hoàn duyệt, để nút hiện rõ "quay lại bước nào". Chỉ có khi `canWithdraw`. */
+  withdrawStepName?: string;
+  /**
+   * Id bước (step instance) sẽ được mở lại khi hoàn duyệt: bước vừa xong (hoàn duyệt cả bước) hoặc chính bước hiện tại
+   * (chỉ lùi một pha). Giao diện đặt nút Hoàn duyệt ngay trên dòng bước này. Chỉ có khi `canWithdraw`.
+   */
+  withdrawStepId?: string;
+  /**
+   * Phần của người này ở BƯỚC hiện tại (không chỉ pha hiện tại), cho danh sách "Hồ sơ cần bạn xử lý": mọi người cùng
+   * làm một bước đều thấy hồ sơ tới khi bước xong. Tính theo vai R, E, C, A ở bước hiện tại (kể cả được uỷ quyền) và
+   * đầu việc E(x) được giao; vai S (người nộp) và I (chỉ theo dõi) không tính.
+   *  - `act`: tới lượt người này (giữ vai của pha hiện tại, hoặc còn đầu việc chưa xong).
+   *  - `upcoming`: vai của người này ở pha sau trong cùng bước, chưa tới lượt.
+   *  - `done`: phần của người này trong bước đã xong, đang chờ pha sau.
+   * Vắng khi người này không có phần việc ở bước hiện tại hoặc hồ sơ không còn chạy. Chỉ để hiển thị: quyền thao tác
+   * vẫn là `availableActions`.
+   */
+  currentStepPart?: 'act' | 'upcoming' | 'done';
+  /**
    * Được xoá đơn (chỉ khi đơn chưa hoàn thành): người giữ vai A ở bất kỳ bước nào (kể cả được uỷ quyền
    * vai A), quản trị can thiệp hồ sơ, hoặc người submit khi chưa có nút C/A nào pass.
    */
@@ -463,6 +507,11 @@ export interface ProcedureInstance {
   sourceSummary?: ProcedureSourceSummary | null;
   /** Liên kết với một công việc trong dự án Workspace, nếu hồ sơ được mở kèm dự án. */
   workspaceLink?: ProcedureWorkspaceLink;
+  /**
+   * Dự án Workspace của công việc mà hồ sơ được mở cho (`sourceType = 'workspace_work_item'`), chụp từ sự kiện của
+   * Workspace lúc mở hồ sơ. Hồ sơ gắn dự án từ phía Quy trình đọc dự án ở `workspaceLink`. Vắng ở hồ sơ cũ.
+   */
+  workspaceProject?: ProcedureWorkspaceProjectRef;
   /** Người tạo đơn hộ cho người khởi tạo (`initiatedBy`); vắng là người khởi tạo tự tạo. */
   createdOnBehalfBy?: { userId: string; name: string };
   /** Thiết bị hồ sơ gắn vào; đầu việc của vai E được nạp theo thiết bị này. */
@@ -586,6 +635,8 @@ export interface CreateProcedureDefinitionRequest {
    * `key`; server đổi sang id khi lưu.
    */
   gateways?: ProcedureGatewayDefinition[];
+  /** Thao tác hàng loạt được phép; vắng = không cho. */
+  bulkActions?: ProcedureDefinitionBulkActions;
 }
 
 /**
@@ -606,6 +657,8 @@ export interface UpdateProcedureDefinitionRequest {
    * hoặc bằng `key` (cho bước vừa thêm, chưa có id).
    */
   gateways?: ProcedureGatewayDefinition[];
+  /** Bỏ trống = giữ nguyên. Đổi được cả trên quy trình đã công bố qua `PATCH definitions/:id/bulk-actions`. */
+  bulkActions?: ProcedureDefinitionBulkActions;
 }
 
 export interface StartProcedureInstanceRequest {
@@ -687,7 +740,7 @@ export interface ProcedureInstanceReversedPayload {
 }
 
 export interface ApplyProcedureActionRequest {
-  action: ProcedureRuntimeAction;
+  action: ProcedureApplyAction;
   comment?: string;
   idempotencyKey: string;
   /**
@@ -916,10 +969,20 @@ export interface ProcedureWorkspaceWorkItemDraft {
  * đã tạo và trả mã công việc; tên hồ sơ đã gắn mã. `rejected`: Workspace từ
  * chối (thiếu quyền, dự án đóng…), hồ sơ vẫn chạy bình thường.
  */
+/** Dự án Workspace mà hồ sơ thuộc về, chụp lúc mở hồ sơ (tên dự án đổi sau đó không cập nhật theo). */
+export interface ProcedureWorkspaceProjectRef {
+  projectId: string;
+  projectCode: string;
+  /** Vắng khi Workspace bản cũ chưa gửi tên. */
+  projectName?: string;
+}
+
 export interface ProcedureWorkspaceLink {
   status: 'pending' | 'linked' | 'rejected';
   projectId: string;
   projectCode: string;
+  /** Tên dự án, do Workspace báo về khi tạo xong công việc (`procedure_linked`); vắng khi đang chờ hay ở hồ sơ cũ. */
+  projectName?: string;
   /** Tên người dùng nhập — cũng là tên công việc bên Workspace. */
   baseTitle: string;
   workItem: ProcedureWorkspaceWorkItemDraft;

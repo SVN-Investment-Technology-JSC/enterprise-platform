@@ -6,7 +6,7 @@ import type {
   ProcedureAttributeValue,
   ProcedureDefinition,
   ProcedureInstance,
-  ProcedureRuntimeAction,
+  ProcedureApplyAction,
   RelinkProcedureWorkspaceRequest,
   ReverseProcedureInstanceRequest,
 } from '@enterprise-platform/contracts-procedure-engine';
@@ -35,6 +35,7 @@ import {
   type AssetCatalogItem,
   type MaterialCatalogItem,
 } from '../procedure-api';
+import { sameInstance, useProcedureLive } from '../use-procedure-live';
 import styles from './procedure-instance-drawer.module.scss';
 import { WorkspaceBoard } from './workspace-board';
 
@@ -54,7 +55,7 @@ export interface ProcedureInstanceDrawerProps {
 }
 
 /** Những thao tác xử lý xong một lượt: hồ sơ chuyển đi nên drawer đóng, khác với trao đổi vẫn ở lại. */
-const CLOSING_ACTIONS: ReadonlySet<ProcedureRuntimeAction> = new Set([
+const CLOSING_ACTIONS: ReadonlySet<ProcedureApplyAction> = new Set([
   'complete',
   'approve',
   'reject',
@@ -82,6 +83,12 @@ function loadPublishedDefinitions(): Promise<ProcedureDefinition[]> {
   return value;
 }
 
+/** Vị trí của hồ sơ trên quy trình: đổi thì danh sách ngoài drawer cũng đã cũ. */
+function progressKey(instance: ProcedureInstance): string {
+  const step = instance.steps.find((item) => item.id === instance.currentStepId);
+  return `${instance.status}|${instance.currentStepId ?? ''}|${step?.currentRoleStage ?? ''}`;
+}
+
 /** Pha có thể giao bước con và xin vật tư; quản trị xử lý thay cũng cần. */
 const MATERIAL_STAGES: ReadonlySet<string> = new Set(['R', 'E']);
 
@@ -107,15 +114,21 @@ export function ProcedureInstanceDrawer({ instanceId, actor, onClose, onChanged 
   const current = useRef(instanceId);
   current.current = instanceId;
 
-  const refresh = useCallback(async () => {
+  /** Lần nạp bắt đầu sau cùng; lần nạp nền (theo nhịp, tín hiệu) về muộn hơn lần nạp sau thao tác thì bị bỏ. */
+  const refreshTicket = useRef(0);
+
+  const refresh = useCallback(async (): Promise<ProcedureInstance | undefined> => {
     const id = instanceId;
+    const ticket = ++refreshTicket.current;
     const [fresh, files] = await Promise.all([
       loadProcedureInstance(id),
       loadProcedureAttachments(id).catch(() => [] as ProcedureAttachment[]),
     ]);
-    if (current.current !== id) return;
-    setInstance(fresh);
+    if (current.current !== id || refreshTicket.current !== ticket) return undefined;
+    // Cùng nội dung thì giữ object cũ để bảng không vẽ lại vô ích.
+    setInstance((previous) => (sameInstance(previous, fresh) ? previous : fresh));
     setAttachments(files);
+    return fresh;
   }, [instanceId]);
 
   useEffect(() => {
@@ -204,7 +217,7 @@ export function ProcedureInstanceDrawer({ instanceId, actor, onClose, onChanged 
 
   const onAction = async (
     id: string,
-    action: ProcedureRuntimeAction,
+    action: ProcedureApplyAction,
     comment?: string,
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
@@ -243,6 +256,28 @@ export function ProcedureInstanceDrawer({ instanceId, actor, onClose, onChanged 
       // Cập nhật tiện lợi, lần thao tác kế tiếp sẽ nạp lại.
     }
   };
+
+  /**
+   * Người khác duyệt, trả về, hoàn duyệt, huỷ hồ sơ đang mở (tín hiệu realtime), hoặc lần hỏi lại dự phòng: nạp lại
+   * hồ sơ; hồ sơ đã đi tiếp thì báo màn gọi nạp lại danh sách của nó.
+   */
+  const instanceRef = useRef(instance);
+  instanceRef.current = instance;
+  const refreshLive = async () => {
+    const before = instanceRef.current;
+    try {
+      const fresh = await refresh();
+      if (fresh && before && progressKey(before) !== progressKey(fresh)) onChanged?.();
+    } catch {
+      // Như trên: giữ bản đang hiện.
+    }
+  };
+  useProcedureLive({
+    roomInstanceId: instanceId,
+    onSignal: refreshLive,
+    onPoll: refreshLive,
+    paused: busy !== undefined || !instance,
+  });
 
   return (
     <>

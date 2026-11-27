@@ -5,6 +5,7 @@ import type {
   CreateProcedureStepInput,
   ProcedureStepMaterial,
   ProcedureDefinition,
+  ProcedureDefinitionBulkActions,
   ETaskSource,
   ProcedureAttributeDefinition,
   ProcedureGatewayDefinition,
@@ -20,6 +21,7 @@ import {
   PROCEDURE_FINANCE_VOUCHER_KIND_LABELS,
 } from '@enterprise-platform/contracts-procedure-engine';
 import { AttributeEditor } from './rcsi/attribute-editor';
+import { BulkActionsDialog } from './rcsi/bulk-actions-dialog';
 import { BulkAssignDialog } from './rcsi/bulk-assign-dialog';
 import { DynamicApproverEditor } from './rcsi/dynamic-approver-editor';
 import {
@@ -199,6 +201,7 @@ export function RcsiBoard({
   onDeleteDefinition,
   onDeleteArchivedDefinition,
   onChangeGroupDefinition,
+  onChangeBulkActionsDefinition,
   onValidateDefinition,
   railCollapsed = false,
   headSlot,
@@ -235,6 +238,8 @@ export function RcsiBoard({
   onDeleteArchivedDefinition?: (definitionId: string) => void;
   /** Đổi nhóm quy trình; dùng route riêng nên chạy được cả trên bản đã công bố. */
   onChangeGroupDefinition?: (definitionId: string, category: string | undefined) => void;
+  /** Bật / tắt duyệt, không duyệt hàng loạt; route riêng nên chạy được cả trên bản đã công bố. */
+  onChangeBulkActionsDefinition?: (definitionId: string, value: ProcedureDefinitionBulkActions) => void;
   onPublishDefinition?: (definitionId: string) => void;
   onReviseDefinition?: (definitionId: string) => void;
 }) {
@@ -590,6 +595,8 @@ export function RcsiBoard({
   const [gatewayTarget, setGatewayTarget] = useState<{ definitionId: string; gatewayId: string }>();
   const [dynamicTarget, setDynamicTarget] = useState<{ definitionId: string; stepId: string }>();
   const [bulkTarget, setBulkTarget] = useState<{ definitionId: string; stepId: string }>();
+  /** Quy trình đang mở hộp thoại "Thao tác hàng loạt". */
+  const [bulkActionsTarget, setBulkActionsTarget] = useState<string>();
   const [report, setReport] = useState<{ definitionId: string; report: ProcedureValidationReport }>();
 
   const applyFlow = (definition: ProcedureDefinition, change: FlowChange) => {
@@ -1144,6 +1151,9 @@ export function RcsiBoard({
                     setCell({ definitionId: definition.id, stepId, column, anchor })
                   }
                   groups={groups}
+                  onEditBulkActions={
+                    onChangeBulkActionsDefinition ? () => setBulkActionsTarget(definition.id) : undefined
+                  }
                   onChangeGroup={
                     onChangeGroupDefinition
                       ? (category) => onChangeGroupDefinition(definition.id, category)
@@ -1359,6 +1369,25 @@ export function RcsiBoard({
             organization={organization}
             onClose={() => setBulkTarget(undefined)}
             onApply={(role, picked) => saveBulkAssign(definition, step.id, role, picked)}
+          />
+        );
+      })()}
+
+      {(() => {
+        const definition = bulkActionsTarget
+          ? definitions.find((item) => item.id === bulkActionsTarget)
+          : undefined;
+        if (!definition || !onChangeBulkActionsDefinition) return null;
+        return (
+          <BulkActionsDialog
+            definitionName={definition.name}
+            value={definition.bulkActions}
+            busy={busy}
+            onClose={() => setBulkActionsTarget(undefined)}
+            onSave={(value) => {
+              onChangeBulkActionsDefinition(definition.id, value);
+              setBulkActionsTarget(undefined);
+            }}
           />
         );
       })()}
@@ -2063,6 +2092,7 @@ function DefinitionRows({
   onDelete,
   groups,
   onChangeGroup,
+  onEditBulkActions,
   onPickCell,
   materialCatalog,
   onSetStepMaterials,
@@ -2100,6 +2130,8 @@ function DefinitionRows({
   groups?: readonly { code: string; label: string }[];
   /** Đổi nhóm — chạy được cả khi quy trình đã công bố, khác mọi thao tác sửa khác. */
   onChangeGroup?: (category: string | undefined) => void;
+  /** Mở hộp thoại cài đặt duyệt / không duyệt hàng loạt; chạy được cả khi quy trình đã công bố. */
+  onEditBulkActions?: () => void;
   onPickCell: (stepId: string, column: MatrixColumn, anchor: { top: number; left: number }) => void;
   materialCatalog?: readonly { code: string; name: string; unit: string }[];
   onSetStepMaterials?: (stepId: string, materials: ProcedureStepMaterial[]) => void;
@@ -2230,6 +2262,18 @@ function DefinitionRows({
                     onClick={() => onEditAttributes(null)}
                   >
                     Thuộc tính QT{definition.attributes?.length ? ` (${definition.attributes.length})` : ''}
+                  </button>
+                ) : null}
+                {open && onEditBulkActions ? (
+                  <button
+                    type="button"
+                    className={styles.flowToolBtn}
+                    disabled={busy}
+                    title="Cho phép duyệt / không duyệt nhiều hồ sơ của quy trình này một lần ở Hồ sơ xử lý"
+                    onClick={onEditBulkActions}
+                  >
+                    Hàng loạt
+                    {definition.bulkActions?.approve || definition.bulkActions?.reject ? ': bật' : ''}
                   </button>
                 ) : null}
                 {open && onChangeGroup && groups && groups.length > 0 ? (

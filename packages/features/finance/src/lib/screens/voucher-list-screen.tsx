@@ -2,37 +2,59 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCheck, ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Search } from 'lucide-react';
+import { CheckCheck, ChevronLeft, ChevronRight, Download, Plus, RefreshCw, Search, TriangleAlert, Workflow } from 'lucide-react';
 import { Table } from 'antd';
 import type { ColumnType } from 'antd/es/table';
+import type { SorterResult } from 'antd/es/table/interface';
 import { Popconfirm, SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput, MonthPickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { ContextMenu, anchorFromElement, anchorFromMouse, isMenuKey, type MenuAnchor, type MenuEntry } from '@enterprise-platform/feature-shared';
 import {
-  FINANCE_VOUCHER_STATUSES,
+  FINANCE_BULK_SKIP_REASON_LABELS,
+  FINANCE_VOUCHER_DISPLAY_STATUSES,
   FINANCE_VOUCHER_STATUS_LABELS,
   financeAllocationLabel,
+  financeDisplayStatusTotals,
+  financeMissingFieldsMessage,
   type FinanceAccount,
-  type FinanceApprovalMode,
   type FinanceBulkApproveResult,
+  type FinanceCancelVoucherResult,
   type FinanceListColumns,
   type FinanceCatalogs,
   type FinanceVoucher,
   type FinanceVoucherKind,
   type FinanceVoucherList,
+  type FinanceSortDirection,
+  type FinanceVoucherDisplayStatus,
+  type FinanceVoucherSortKey,
   type FinanceVoucherStatus,
   type FinanceVoucherSummary,
 } from '@enterprise-platform/contracts-finance';
-import { financeDelete, financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
+import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
 import { buildCsv, downloadCsv } from '../finance-csv';
 import { dateVn, isMonth, money, monthLabel, monthRange, newFinanceIdempotencyKey, shiftMonth, todayVn, voucherCsvRows } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { useFinancePermissions } from '../finance-permissions';
-import { buildVoucherMenu, type FinanceMenuActionId } from '../voucher-context-menu';
-import { visibleVoucherColumns, voucherColumnCatalog, voucherColumnWidths, type VoucherColumnKey } from '../voucher-list-columns';
+import { APPROVE_MENU_LABEL, buildVoucherMenu, type FinanceMenuActionId } from '../voucher-context-menu';
+import {
+  loadVoucherCellMode,
+  loadVoucherColumnOrder,
+  loadVoucherColumnWidths,
+  moveVoucherColumn,
+  orderVoucherColumns,
+  saveVoucherCellMode,
+  saveVoucherColumnOrder,
+  saveVoucherColumnWidths,
+  visibleVoucherColumns,
+  voucherColumnCatalog,
+  voucherColumnWidths,
+  type VoucherCellMode,
+  type VoucherColumnKey,
+} from '../voucher-list-columns';
 import { loadWorkspaceProjects, projectLabel, type WorkspaceProjectOption } from '../workspace-links';
 import { Button } from '../ui/button';
 import { ColumnPicker } from '../ui/column-picker';
+import { ResizableTitle, type ResizableTitleProps } from '../ui/resizable-title';
 import { Avatar, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { cn } from '../utils';
 
@@ -48,6 +70,24 @@ export function initialMonth(param: string | null, today: string = todayVn()): s
   return isMonth(param) ? param : today.slice(0, 7);
 }
 
+/** Mật độ bảng danh sách phiếu (gọn như danh sách phiếu chi của 1Office): ghi đè kiểu mặc định của antd. */
+const VOUCHER_TABLE_DENSITY = cn(
+  '[&_.ant-table]:text-[13px]',
+  '[&_.ant-table-thead>tr>th]:font-normal! [&_.ant-table-thead>tr>th]:text-slate-500! [&_.ant-table-thead>tr>th]:py-2! [&_.ant-table-thead>tr>th]:text-[13px]!',
+  '[&_.ant-table-tbody>tr>td]:py-2! [&_.ant-table-tbody>tr>td]:leading-5',
+);
+
+/**
+ * Vì sao phiếu không chọn được để duyệt hàng loạt (null: chọn được). Chỉ chặn trước những gì biết chắc từ danh sách; điều kiện cần
+ * máy chủ kiểm (tự duyệt, khoá sổ, số dư, loại phiếu gán quy trình...) thì phiếu vẫn chọn được và bị bỏ qua kèm lý do.
+ */
+export function bulkApproveBlockReason(row: FinanceVoucherSummary): string | null {
+  if (row.status === 'APPROVED' || row.status === 'CANCELLED') return 'Phiếu đã duyệt và ghi sổ';
+  if (row.status === 'PENDING' && row.approvalMode === 'PROCEDURE') return 'Phiếu đang duyệt qua quy trình';
+  if (row.missingFields?.length) return `Chưa đủ thông tin để duyệt. ${financeMissingFieldsMessage(row.kind, row.missingFields)}`;
+  return null;
+}
+
 export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }) {
   const config = FINANCE_KIND_CONFIG[kind];
   const router = useRouter();
@@ -55,7 +95,8 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const { capabilities } = useFinancePermissions();
   const kindCaps = capabilities?.[kind === 'RECEIPT' ? 'receipt' : kind === 'PAYMENT' ? 'payment' : 'transfer'];
 
-  const [status, setStatus] = useState<FinanceVoucherStatus | ''>('');
+  // Hai trạng thái hiển thị: "Nháp" (gồm chờ duyệt, bị từ chối) và "Đã duyệt"; phiếu đã huỷ không hiện.
+  const [status, setStatus] = useState<FinanceVoucherDisplayStatus | ''>('');
   const [scope, setScope] = useState<Scope>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -78,15 +119,46 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
 
-  // Menu chuột phải: Sửa, Duyệt, Huỷ, Xoá, Nhân bản — thao tác nhanh không cần mở từng phiếu.
-  const [menu, setMenu] = useState<{ anchor: MenuAnchor; voucherId: string; entries: MenuEntry<FinanceMenuActionId>[]; approvalMode?: FinanceApprovalMode } | null>(null);
-  const [pendingAction, setPendingAction] = useState<{ action: 'approve' | 'cancel' | 'delete'; voucherId: string; anchor: MenuAnchor; approvalMode?: FinanceApprovalMode } | null>(null);
+  // Menu chuột phải: Sửa, Duyệt ghi sổ, Huỷ, Nhân bản — thao tác nhanh không cần mở từng phiếu.
+  const [menu, setMenu] = useState<{ anchor: MenuAnchor; voucherId: string; entries: MenuEntry<FinanceMenuActionId>[]; voucher?: FinanceVoucher } | null>(null);
+  // Chỉ "Duyệt ghi sổ" còn hỏi xác nhận (tiền vào sổ); "Huỷ" chạy ngay.
+  const [pendingAction, setPendingAction] = useState<{ action: 'approve'; voucher: FinanceVoucher; anchor: MenuAnchor } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const pendingTriggerRef = useRef<HTMLDivElement>(null);
 
-  // Duyệt hàng loạt: chỉ phiếu đang chờ duyệt trực tiếp mới chọn được (phiếu qua quy trình duyệt trong quy trình).
+  // Duyệt hàng loạt: chỉ phiếu thường chưa ghi sổ mới chọn được (phiếu qua quy trình duyệt trong quy trình).
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  /** Kết quả lần duyệt hàng loạt gần nhất: số phiếu đã ghi sổ và các phiếu bị bỏ qua kèm lý do. */
+  const [bulkReport, setBulkReport] = useState<{ approved: number; skipped: FinanceBulkApproveResult['failed'] } | null>(null);
+
+  // Sắp xếp ở máy chủ (danh sách phân trang ở máy chủ); null = mặc định mới nhất trước.
+  const [sort, setSort] = useState<{ key: VoucherColumnKey; sortKey: FinanceVoucherSortKey; direction: FinanceSortDirection } | null>(null);
+  // Chữ dài trong ô: xuống dòng (mặc định) hoặc gọn một dòng; nhớ trên trình duyệt của người dùng.
+  const [cellMode, setCellMode] = useState<VoucherCellMode>(() => loadVoucherCellMode());
+  function changeCellMode(next: VoucherCellMode) {
+    setCellMode(next);
+    saveVoucherCellMode(next);
+  }
+  // Bề ngang cột người dùng đã kéo (px), nhớ trên trình duyệt theo từng loại phiếu.
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => loadVoucherColumnWidths(kind));
+  useEffect(() => setColumnWidths(loadVoucherColumnWidths(kind)), [kind]);
+  function resizeColumn(key: VoucherColumnKey, width: number) {
+    setColumnWidths((current) => {
+      const next = { ...current, [key]: width };
+      saveVoucherColumnWidths(kind, next);
+      return next;
+    });
+  }
+  // Thứ tự cột người dùng đã kéo thả (mã cột), nhớ trên trình duyệt theo từng loại phiếu; rỗng = thứ tự mặc định.
+  const [columnOrder, setColumnOrder] = useState<string[]>(() => loadVoucherColumnOrder(kind));
+  useEffect(() => setColumnOrder(loadVoucherColumnOrder(kind)), [kind]);
+  function resetColumnWidths() {
+    setColumnWidths({});
+    saveVoucherColumnWidths(kind, null);
+    setColumnOrder([]);
+    saveVoucherColumnOrder(kind, null);
+  }
 
   // Cột hiển thị riêng của người dùng; null = bộ mặc định. Chưa tải xong thì dùng mặc định, không chặn danh sách.
   const [savedColumns, setSavedColumns] = useState<string[] | null>(null);
@@ -116,7 +188,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     setMenu({ anchor, voucherId: row.id, entries: LOADING_MENU });
     try {
       const voucher = await financeFetch<FinanceVoucher>(`/vouchers/${row.id}`);
-      setMenu((current) => (current?.voucherId === row.id ? { anchor, voucherId: row.id, entries: buildVoucherMenu(voucher, Boolean(kindCaps?.create)), approvalMode: voucher.approvalMode } : current));
+      setMenu((current) => (current?.voucherId === row.id ? { anchor, voucherId: row.id, entries: buildVoucherMenu(voucher, Boolean(kindCaps?.create)), voucher } : current));
     } catch (e) {
       setMenu(null);
       setActionError(financeErrorMessage(e, 'Không mở được menu thao tác.'));
@@ -125,11 +197,23 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
 
   function pickMenuAction(action: FinanceMenuActionId) {
     if (!menu) return;
-    const { voucherId, anchor, approvalMode } = menu;
+    const { voucherId, anchor, voucher } = menu;
     setMenu(null);
     if (action === 'edit') router.push(`${config.path}/${voucherId}/edit`);
     else if (action === 'duplicate') router.push(`${config.path}/new?from=${voucherId}`);
-    else setPendingAction({ action, voucherId, anchor, approvalMode });
+    else if (action === 'cancel') void cancelVoucher(voucherId);
+    else if (voucher) setPendingAction({ action, voucher, anchor });
+  }
+
+  /** Huỷ không hỏi lại: phiếu chưa ghi sổ bị xoá hẳn, phiếu đã ghi sổ được đảo bút toán; cả hai biến khỏi danh sách. */
+  async function cancelVoucher(voucherId: string) {
+    try {
+      const result = await financePost<FinanceCancelVoucherResult>(`/vouchers/${voucherId}/cancel`, {});
+      toast.success(result.deleted ? `Đã huỷ và xoá ${result.code}` : `Đã huỷ ${result.code} và đảo bút toán`);
+      void load();
+    } catch (e) {
+      setActionError(financeErrorMessage(e));
+    }
   }
 
   useEffect(() => {
@@ -157,7 +241,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     setLoading(true);
     try {
       const result = await financeFetch<FinanceVoucherList>(
-        `/vouchers${toQuery({ kind, status, scope: scope === 'all' || scope === 'procedure' ? undefined : scope, source: scope === 'procedure' ? 'procedure' : undefined, search: debouncedSearch, accountId, reasonId, projectId, from: range.from, to: range.to, page, pageSize })}`,
+        `/vouchers${toQuery({ kind, status, scope: scope === 'all' || scope === 'procedure' ? undefined : scope, source: scope === 'procedure' ? 'procedure' : undefined, search: debouncedSearch, accountId, reasonId, projectId, from: range.from, to: range.to, sort: sort?.sortKey, direction: sort?.direction, page, pageSize })}`,
       );
       if (mine !== sequence.current) return;
       setData(result);
@@ -168,23 +252,22 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     } finally {
       if (mine === sequence.current) setLoading(false);
     }
-  }, [kind, status, scope, debouncedSearch, accountId, reasonId, projectId, range.from, range.to, page, pageSize]);
+  }, [kind, status, scope, debouncedSearch, accountId, reasonId, projectId, range.from, range.to, sort, page, pageSize]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  async function runPendingAction(reason?: string) {
+  async function runPendingAction() {
     if (!pendingAction) return;
-    const { action, voucherId, approvalMode } = pendingAction;
+    const { voucher } = pendingAction;
     try {
-      if (action === 'delete') await financeDelete(`/vouchers/${voucherId}`);
-      else if (action === 'approve')
-        await (approvalMode === 'PROCEDURE'
-          ? financePost(`/vouchers/${voucherId}/procedure-action`, { action: 'approve', idempotencyKey: newFinanceIdempotencyKey() })
-          : financePost(`/vouchers/${voucherId}/approve`, { note: undefined }));
-      else await financePost(`/vouchers/${voucherId}/cancel`, { note: reason });
-      toast.success(action === 'delete' ? 'Đã xoá phiếu' : action === 'approve' ? 'Đã duyệt và ghi sổ' : 'Đã huỷ phiếu');
+      // Phiếu có nguồn (hồ sơ Quy trình, Bán hàng): ghi sổ kèm phiên bản đang xem; phiếu qua quy trình duyệt: duyệt bước của mình.
+      if (voucher.approvalMode === 'INHERITED') await financePost(`/vouchers/${voucher.id}/post-sourced`, { revision: voucher.revision });
+      else if (voucher.approvalMode === 'PROCEDURE' && voucher.status === 'PENDING')
+        await financePost(`/vouchers/${voucher.id}/procedure-action`, { action: 'approve', idempotencyKey: newFinanceIdempotencyKey() });
+      else await financePost(`/vouchers/${voucher.id}/approve`, { note: undefined });
+      toast.success(voucher.approvalMode === 'PROCEDURE' && voucher.status === 'PENDING' ? 'Đã duyệt bước của bạn' : 'Đã duyệt và ghi sổ');
       void load();
     } catch (e) {
       setActionError(financeErrorMessage(e));
@@ -197,14 +280,13 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
     if (!selectedIds.length) return;
     setBulkBusy(true);
     setActionError(null);
+    setBulkReport(null);
     try {
       const result = await financePost<FinanceBulkApproveResult>('/vouchers/bulk-approve', { ids: selectedIds });
       if (result.approved.length) toast.success(`Đã duyệt và ghi sổ ${result.approved.length} phiếu`);
-      if (result.failed.length)
-        setActionError(
-          `${result.failed.length} phiếu chưa duyệt được:\n${result.failed.map((item) => `${item.code ?? item.id}: ${item.message}`).join('\n')}`,
-        );
-      setSelectedIds(result.failed.map((item) => item.id));
+      // Phiếu bị bỏ qua hiện thành danh sách kèm lý do; bỏ chọn hết để lần bấm sau không lặp lại đúng các phiếu đó.
+      if (result.failed.length) setBulkReport({ approved: result.approved.length, skipped: result.failed });
+      setSelectedIds([]);
       void load();
     } catch (e) {
       setActionError(financeErrorMessage(e, 'Không duyệt được các phiếu đã chọn.'));
@@ -226,6 +308,8 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   );
 
   const total = data ? Object.values(data.statusCounts).reduce((sum, n) => sum + n, 0) : 0;
+  const displayCounts = data ? financeDisplayStatusTotals(data.statusCounts) : { DRAFT: 0, APPROVED: 0 };
+  const displayAmounts = data ? financeDisplayStatusTotals(data.statusAmounts) : { DRAFT: 0, APPROVED: 0 };
   const changeMonth = (next: string) => {
     setMonth(next);
     setPage(1);
@@ -233,54 +317,141 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
   const summary = data
     ? [
         { id: 'total', label: 'Tổng số phiếu', count: total, amount: null as number | null },
-        { id: 'approved', label: 'Đã duyệt', count: data.statusCounts.APPROVED, amount: data.statusAmounts.APPROVED },
-        { id: 'pending', label: 'Chờ duyệt', count: data.statusCounts.PENDING, amount: data.statusAmounts.PENDING },
-        { id: 'open', label: 'Nháp / Bị từ chối', count: data.statusCounts.DRAFT + data.statusCounts.REJECTED, amount: data.statusAmounts.DRAFT + data.statusAmounts.REJECTED },
+        { id: 'approved', label: 'Đã duyệt', count: displayCounts.APPROVED, amount: displayAmounts.APPROVED },
+        { id: 'open', label: 'Nháp', count: displayCounts.DRAFT, amount: displayAmounts.DRAFT },
       ]
     : [];
 
   const columnCatalog = voucherColumnCatalog(kind, config);
-  const shownColumns = visibleVoucherColumns(columnCatalog, savedColumns);
-  const widths = voucherColumnWidths(shownColumns);
+  const shownColumns = orderVoucherColumns(visibleVoucherColumns(columnCatalog, savedColumns), columnOrder);
+  const widths = voucherColumnWidths(shownColumns, columnWidths);
+  /** Kéo tiêu đề cột `from` thả lên cột `to`: đổi chỗ, lưu thứ tự của mọi cột đang hiện. */
+  function reorderColumn(from: string, to: string) {
+    const next = moveVoucherColumn(
+      shownColumns.map((column) => column.key),
+      from,
+      to,
+    );
+    setColumnOrder(next);
+    saveVoucherColumnOrder(kind, next);
+  }
+  const compact = cellMode === 'compact';
+  /**
+   * Ô chữ: chế độ "Xuống dòng" hiện đủ chữ (ngắt cả chuỗi dài không dấu cách); "Gọn một dòng" cắt bằng dấu ba chấm và hiện đủ chữ
+   * khi rê chuột (antd tự đặt chú thích cho ô chữ).
+   */
+  const text = (dataIndex: keyof FinanceVoucherSummary | undefined, value: (row: FinanceVoucherSummary) => string): ColumnType<FinanceVoucherSummary> => ({
+    dataIndex,
+    ellipsis: compact,
+    render: (_: unknown, row) => (compact ? value(row) : <span className="[overflow-wrap:anywhere]">{value(row)}</span>),
+  });
+  /** Ô một dòng (mã, ngày, số tiền, trạng thái, người tạo): không ngắt giữa chữ; quá hẹp thì cắt kèm chú thích. */
+  const oneLine = 'block truncate whitespace-nowrap';
   const renderers: Record<VoucherColumnKey, ColumnType<FinanceVoucherSummary>> = {
-    creator: { dataIndex: 'createdByName', align: 'center', render: (name: string | null) => <Avatar name={name} /> },
     code: {
       dataIndex: 'code',
       render: (code: string, row) => (
-        <a
-          href={`${config.path}/${row.id}`}
-          // Phiếu chưa ghi sổ chỉ có mã nháp: hiện nhạt hơn để phân biệt với mã chính thức.
-          className={row.officialCode ? 'font-medium text-link hover:underline' : 'font-medium text-slate-500 hover:text-link hover:underline'}
-          onClick={(event) => {
-            event.preventDefault();
-            router.push(`${config.path}/${row.id}`);
-          }}
-        >
-          {code}
-          {row.sourceCode ? <span className="block text-xs font-normal text-slate-500">Từ hồ sơ {row.sourceCode}</span> : null}
-        </a>
+        <span className="flex min-w-0 items-center gap-1 whitespace-nowrap">
+          <a
+            href={`${config.path}/${row.id}`}
+            // Phiếu chưa ghi sổ chỉ có mã nháp: hiện nhạt hơn để phân biệt với mã chính thức.
+            className={cn('min-w-0 truncate font-medium hover:underline', row.officialCode ? 'text-link' : 'text-slate-500 hover:text-link')}
+            title={code}
+            onClick={(event) => {
+              event.preventDefault();
+              router.push(`${config.path}/${row.id}`);
+            }}
+          >
+            {code}
+          </a>
+          {row.sourceCode ? (
+            // Phiếu từ hồ sơ quy trình: chỉ một biểu tượng nhỏ, mã hồ sơ khi rê chuột (đã có bộ lọc "Từ quy trình").
+            <span role="img" aria-label={`Từ hồ sơ ${row.sourceCode}`} title={`Từ hồ sơ ${row.sourceCode}`} className="inline-flex shrink-0 text-slate-400">
+              <Workflow className="size-3.5" aria-hidden />
+            </span>
+          ) : null}
+        </span>
       ),
     },
-    date: { dataIndex: 'voucherDate', render: (value: string) => dateVn(value) },
-    content: { dataIndex: 'content', ellipsis: true },
-    accounts: { ellipsis: true, render: (_: unknown, row) => `${row.accountName ?? ''} → ${row.destAccountName ?? ''}` },
-    reason: { dataIndex: 'reasonName', ellipsis: true },
-    account: { dataIndex: 'accountName', ellipsis: true },
-    counterparty: { dataIndex: 'counterpartyGroupName', ellipsis: true },
-    person: { dataIndex: 'counterpartyName', ellipsis: true },
-    allocation: { ellipsis: true, render: (_: unknown, row) => (row.allocation ? financeAllocationLabel(row.allocation) : '') },
-    project: { ellipsis: true, render: (_: unknown, row) => (row.allocation ? `${row.allocation.projectCode} - ${row.allocation.projectName}` : '') },
-    amount: { dataIndex: 'totalAmount', align: 'right', render: (value: number) => <span className="tabular-nums font-medium">{money(value)}</span> },
-    status: { dataIndex: 'status', render: (value: FinanceVoucherStatus) => <StatusBadge status={value} /> },
+    date: { dataIndex: 'voucherDate', render: (value: string) => <span className={oneLine}>{dateVn(value)}</span> },
+    content: text('content', (row) => row.content),
+    accounts: text(undefined, (row) => `${row.accountName ?? ''} → ${row.destAccountName ?? ''}`),
+    reason: text('reasonName', (row) => row.reasonName ?? ''),
+    account: text('accountName', (row) => row.accountName ?? ''),
+    counterparty: text('counterpartyGroupName', (row) => row.counterpartyGroupName ?? ''),
+    person: text('counterpartyName', (row) => row.counterpartyName ?? ''),
+    // Hạch toán: chỉ mã dự án cho gọn, tên đầy đủ khi rê chuột.
+    allocation: {
+      render: (_: unknown, row) =>
+        row.allocation ? (
+          <span className={oneLine} title={financeAllocationLabel(row.allocation)}>
+            {row.allocation.projectCode}
+          </span>
+        ) : null,
+    },
+    project: text(undefined, (row) => (row.allocation ? financeAllocationLabel(row.allocation) : '')),
+    'created-by': {
+      dataIndex: 'createdByName',
+      render: (name: string | null) => (
+        <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap" title={name ?? undefined}>
+          <Avatar name={name} className="size-5 text-[10px]" />
+          <span className="min-w-0 truncate">{name ?? ''}</span>
+        </span>
+      ),
+    },
+    amount: {
+      dataIndex: 'totalAmount',
+      align: 'right',
+      render: (value: number) => <span className="whitespace-nowrap tabular-nums font-medium">{money(value)}</span>,
+    },
+    status: {
+      dataIndex: 'status',
+      render: (value: FinanceVoucherStatus, row) => (
+        <span className="flex items-center gap-1 whitespace-nowrap">
+          <StatusBadge status={value} />
+          {row.missingFields?.length ? (
+            // Phiếu nháp còn thiếu trường bắt buộc: biểu tượng nhỏ, rê chuột thấy các trường cần bổ sung trước khi duyệt.
+            <span
+              role="img"
+              aria-label="Thiếu thông tin"
+              title={financeMissingFieldsMessage(row.kind, row.missingFields)}
+              className="inline-flex shrink-0 text-amber-600"
+            >
+              <TriangleAlert className="size-3.5" aria-hidden />
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
   };
+  const sortOrderOf = (key: VoucherColumnKey) => (sort?.key === key ? (sort.direction === 'asc' ? 'ascend' : 'descend') : null);
   const columns: ColumnType<FinanceVoucherSummary>[] = shownColumns.map((column) => ({
     ...renderers[column.key],
     key: column.key,
     title: column.label,
     width: widths[column.key],
+    // Mọi cột sắp xếp được; sắp xếp ở máy chủ nên bảng chỉ báo cột và chiều (bấm lần ba trả về thứ tự mặc định).
+    sorter: true,
+    sortOrder: sortOrderOf(column.key),
+    // Kéo mép phải tiêu đề để đổi bề ngang cột (xem `ResizableTitle`).
+    onHeaderCell: () =>
+      ({
+        width: widths[column.key],
+        minWidth: column.minWidth,
+        resizeKey: column.key,
+        onResize: (width: number) => resizeColumn(column.key, width),
+        onReorder: reorderColumn,
+      }) as ResizableTitleProps,
   }));
+  /** Tổng bề ngang (kể cả ô chọn): vượt khung thì bảng cuộn ngang thay vì bóp cột. */
+  const tableWidth = Object.values(widths).reduce((sum, width) => sum + width, 0) + (kindCaps?.approve ? 36 : 0);
+  function changeSort(sorter: SorterResult<FinanceVoucherSummary> | SorterResult<FinanceVoucherSummary>[]) {
+    const single = Array.isArray(sorter) ? sorter[0] : sorter;
+    const column = single?.order ? columnCatalog.find((candidate) => candidate.key === single.columnKey) : undefined;
+    setSort(column ? { key: column.key, sortKey: column.sortKey, direction: single.order === 'descend' ? 'desc' : 'asc' } : null);
+    setPage(1);
+  }
   const canBulkApprove = Boolean(kindCaps?.approve);
-  const selectable = (row: FinanceVoucherSummary) => row.status === 'PENDING' && row.approvalMode === 'DIRECT';
 
   const scopes: { id: Scope; label: string; visible: boolean }[] = [
     { id: 'all', label: 'Tất cả phiếu', visible: true },
@@ -313,6 +484,9 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
             visible={new Set(shownColumns.map((column) => column.key))}
             onChange={changeColumns}
             onReset={() => changeColumns(null)}
+            cellMode={cellMode}
+            onCellModeChange={changeCellMode}
+            onResetWidths={resetColumnWidths}
           />
           {kindCaps?.create ? (
             <Button type="button" onClick={() => router.push(`${config.path}/new`)}>
@@ -367,7 +541,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
           </div>
 
           {data ? (
-            <div className="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Tổng kết kỳ">
+            <div className="grid gap-2 border-b border-slate-100 p-3 sm:grid-cols-3" aria-label="Tổng kết kỳ">
               {summary.map((item) => (
                 <div key={item.id} data-testid={`summary-${item.id}`} className="rounded-lg bg-slate-50 px-3 py-2">
                   <div className="text-xs text-slate-500">{item.label}</div>
@@ -379,7 +553,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
           ) : null}
 
           <div role="tablist" aria-label="Trạng thái phiếu" className="flex flex-wrap gap-1 border-b border-slate-100 px-3 pt-2">
-            {[{ id: '' as const, label: 'Tất cả', count: total }, ...FINANCE_VOUCHER_STATUSES.map((s) => ({ id: s, label: FINANCE_VOUCHER_STATUS_LABELS[s], count: data?.statusCounts[s] ?? 0 }))].map((tab) => (
+            {[{ id: '' as const, label: 'Tất cả', count: total }, ...FINANCE_VOUCHER_DISPLAY_STATUSES.map((s) => ({ id: s, label: FINANCE_VOUCHER_STATUS_LABELS[s], count: displayCounts[s] }))].map((tab) => (
               <button
                 key={tab.id || 'all'}
                 role="tab"
@@ -458,9 +632,30 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
 
           <div className="p-3">
             <ErrorBanner message={error ?? actionError} />
+            {bulkReport ? (
+              <div role="alert" aria-label="Kết quả duyệt hàng loạt" className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <div className="flex items-start justify-between gap-3">
+                  <p className="font-medium">
+                    {bulkReport.approved ? `Đã duyệt và ghi sổ ${bulkReport.approved} phiếu. ` : ''}
+                    Bỏ qua {bulkReport.skipped.length} phiếu chưa đủ điều kiện:
+                  </p>
+                  <button type="button" onClick={() => setBulkReport(null)} className="shrink-0 text-xs font-medium text-link hover:underline">
+                    Đóng
+                  </button>
+                </div>
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {bulkReport.skipped.map((item) => (
+                    <li key={item.id}>
+                      <span className="font-medium">{item.code ?? 'Phiếu không xem được'}</span>
+                      {item.reason ? ` (${FINANCE_BULK_SKIP_REASON_LABELS[item.reason]})` : ''}: {item.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {canBulkApprove && selectedIds.length ? (
               <div role="region" aria-label="Duyệt hàng loạt" className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-accent-soft px-3 py-2 text-sm">
-                <span className="font-medium text-slate-800">Đã chọn {selectedIds.length} phiếu chờ duyệt</span>
+                <span className="font-medium text-slate-800">Đã chọn {selectedIds.length} phiếu nháp</span>
                 <Popconfirm
                   title={`Duyệt và ghi sổ ${selectedIds.length} phiếu?`}
                   description="Tiền được ghi vào sổ tài khoản ngay; phiếu nào không duyệt được sẽ báo lý do, các phiếu khác vẫn được duyệt."
@@ -477,57 +672,67 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                 </button>
               </div>
             ) : null}
-            <Table<FinanceVoucherSummary>
-              size="small"
-              rowKey="id"
-              loading={loading}
-              columns={columns}
-              dataSource={data?.items ?? []}
-              rowSelection={
-                canBulkApprove
-                  ? {
-                      columnWidth: 36,
-                      selectedRowKeys: selectedIds,
-                      onChange: (keys) => setSelectedIds(keys.map(String)),
-                      getCheckboxProps: (row) => ({
-                        disabled: !selectable(row),
-                        title: selectable(row) ? undefined : 'Chỉ chọn được phiếu đang chờ duyệt trực tiếp',
-                        'aria-label': `Chọn phiếu ${row.code}`,
-                      }),
-                    }
-                  : undefined
-              }
-              // Bố cục cố định theo phần trăm: dữ liệu ít nên vừa một bề ngang bảng, không cuộn ngang.
-              tableLayout="fixed"
-              locale={{ emptyText: loading ? 'Đang tải…' : `Chưa có ${config.singular} nào phù hợp.` }}
-              pagination={{
-                current: page,
-                pageSize,
-                total: status ? (data?.statusCounts[status] ?? 0) : total,
-                showSizeChanger: true,
-                pageSizeOptions: [10, 20, 50, 100],
-                showTotal: (count, range) => `Hiển thị ${range[0]}-${range[1]} / ${count} bản ghi`,
-                onChange: (nextPage, nextSize) => {
-                  setPage(nextPage);
-                  setPageSize(nextSize);
-                },
-              }}
-              onRow={(row) => ({
-                onDoubleClick: () => router.push(`${config.path}/${row.id}`),
-                onContextMenu: (event) => {
-                  event.preventDefault();
-                  setActionError(null);
-                  void openRowMenu(row, anchorFromMouse(event));
-                },
-                tabIndex: 0,
-                onKeyDown: (event) => {
-                  if (!isMenuKey(event)) return;
-                  event.preventDefault();
-                  setActionError(null);
-                  void openRowMenu(row, anchorFromElement(event.currentTarget));
-                },
-              })}
-            />
+            {/* Bảng gọn: chữ 13px, đệm dòng 8px, tiêu đề chữ thường màu nhạt. */}
+            <div className={VOUCHER_TABLE_DENSITY}>
+              <Table<FinanceVoucherSummary>
+                size="small"
+                rowKey="id"
+                loading={loading}
+                columns={columns}
+                dataSource={data?.items ?? []}
+                rowSelection={
+                  canBulkApprove
+                    ? {
+                        columnWidth: 36,
+                        selectedRowKeys: selectedIds,
+                        onChange: (keys) => setSelectedIds(keys.map(String)),
+                        // Phiếu biết chắc không duyệt được (đã duyệt, từ hồ sơ quy trình, đang chạy quy trình, còn thiếu trường) thì
+                        // không chọn được, rê chuột thấy lý do; điều kiện còn lại máy chủ kiểm và báo phiếu bị bỏ qua.
+                        getCheckboxProps: (row) => ({
+                          disabled: Boolean(bulkApproveBlockReason(row)),
+                          title: bulkApproveBlockReason(row) ?? undefined,
+                          'aria-label': `Chọn phiếu ${row.code}`,
+                        }),
+                      }
+                    : undefined
+                }
+                // Bề ngang cột theo px (kéo được); tổng vượt khung thì cuộn ngang, cột đầu (mã, số tiền, trạng thái) vẫn thấy ngay.
+                tableLayout="fixed"
+                scroll={{ x: tableWidth }}
+                components={{ header: { cell: ResizableTitle } }}
+                onChange={(_pagination, _filters, sorter, extra) => {
+                  if (extra.action === 'sort') changeSort(sorter);
+                }}
+                locale={{ emptyText: loading ? 'Đang tải…' : `Chưa có ${config.singular} nào phù hợp.` }}
+                pagination={{
+                  current: page,
+                  pageSize,
+                  total: status ? displayCounts[status] : total,
+                  showSizeChanger: true,
+                  pageSizeOptions: [10, 20, 50, 100],
+                  showTotal: (count, range) => `Hiển thị ${range[0]}-${range[1]} / ${count} bản ghi`,
+                  onChange: (nextPage, nextSize) => {
+                    setPage(nextPage);
+                    setPageSize(nextSize);
+                  },
+                }}
+                onRow={(row) => ({
+                  onDoubleClick: () => router.push(`${config.path}/${row.id}`),
+                  onContextMenu: (event) => {
+                    event.preventDefault();
+                    setActionError(null);
+                    void openRowMenu(row, anchorFromMouse(event));
+                  },
+                  tabIndex: 0,
+                  onKeyDown: (event) => {
+                    if (!isMenuKey(event)) return;
+                    event.preventDefault();
+                    setActionError(null);
+                    void openRowMenu(row, anchorFromElement(event.currentTarget));
+                  },
+                })}
+              />
+            </div>
             {data ? (
               <p className="mt-1 text-right text-xs text-slate-500">
                 Tổng tiền các phiếu đã duyệt trong bộ lọc: <span className="font-semibold tabular-nums text-slate-800">{money(data.approvedTotal)}</span>
@@ -548,22 +753,15 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
       ) : null}
       {pendingAction ? (
         <Popconfirm
-          title={pendingAction.action === 'delete' ? 'Xoá phiếu?' : pendingAction.action === 'approve' ? 'Duyệt và ghi sổ phiếu này?' : 'Huỷ phiếu'}
+          title={`${APPROVE_MENU_LABEL} phiếu này?`}
           description={
-            pendingAction.action === 'delete'
-              ? 'Phiếu chưa ghi sổ nên xoá được; bị xoá hẳn và không khôi phục được.'
-              : pendingAction.action === 'approve'
-                ? pendingAction.approvalMode === 'PROCEDURE'
-                  ? 'Phiếu qua quy trình: tiền được ghi sổ khi bước duyệt cuối hoàn tất.'
-                  : 'Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt.'
-                : undefined
+            pendingAction.voucher.approvalMode === 'PROCEDURE' && pendingAction.voucher.status === 'PENDING'
+              ? 'Phiếu qua quy trình: tiền được ghi sổ khi bước duyệt cuối hoàn tất.'
+              : 'Tiền sẽ được ghi vào sổ tài khoản ngay khi duyệt.'
           }
-          reasonRequired={pendingAction.action === 'cancel' || undefined}
-          reasonLabel={pendingAction.action === 'cancel' ? 'Lý do huỷ' : undefined}
-          reasonPlaceholder={pendingAction.action === 'cancel' ? 'Nhập lý do huỷ phiếu' : undefined}
-          okText={pendingAction.action === 'delete' ? 'Xoá' : pendingAction.action === 'approve' ? 'Duyệt' : 'Huỷ phiếu'}
-          okType={pendingAction.action === 'approve' ? 'primary' : undefined}
-          onConfirm={(reason) => void runPendingAction(reason)}
+          okText="Duyệt"
+          okType="primary"
+          onConfirm={() => void runPendingAction()}
           onCancel={() => setPendingAction(null)}
         >
           <div

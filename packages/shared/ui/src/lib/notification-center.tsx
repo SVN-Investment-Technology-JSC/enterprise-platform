@@ -264,6 +264,7 @@ export function NotificationProvider({ children, client: suppliedClient }: Notif
               event.event === 'workspace.chat.typing' ||
               event.event === 'procedure.comment.changed' ||
               event.event === 'procedure.comment.typing' ||
+              event.event === 'procedure.instance.changed' ||
               event.event === 'authorization.changed' ||
               event.event === 'core.chat.changed' ||
               event.event === 'core.chat.typing' ||

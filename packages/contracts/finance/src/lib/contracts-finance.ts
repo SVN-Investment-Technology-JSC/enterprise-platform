@@ -28,13 +28,33 @@ export const FINANCE_VOUCHER_CODE_PREFIX: Readonly<Record<FinanceVoucherKind, st
 export const FINANCE_VOUCHER_STATUSES = ['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] as const;
 export type FinanceVoucherStatus = (typeof FINANCE_VOUCHER_STATUSES)[number];
 
+/**
+ * Nhãn trạng thái phiếu. Người dùng chỉ thấy HAI trạng thái: "Đã duyệt" (đã ghi sổ) và "Nháp" (mọi phiếu chưa ghi sổ: nháp,
+ * đang chờ duyệt, bị từ chối). Trạng thái nội bộ vẫn giữ để chạy luồng gửi duyệt/quy trình như cũ. Phiếu ĐÃ HUỶ không hiện ở
+ * danh sách nào (Huỷ là xoá phiếu); nhãn "Đã huỷ" chỉ còn cho phiếu đã ghi sổ rồi bị đảo, mở được từ sổ tài khoản.
+ */
 export const FINANCE_VOUCHER_STATUS_LABELS: Readonly<Record<FinanceVoucherStatus, string>> = {
   DRAFT: 'Nháp',
-  PENDING: 'Chờ duyệt',
+  PENDING: 'Nháp',
   APPROVED: 'Đã duyệt',
-  REJECTED: 'Từ chối',
+  REJECTED: 'Nháp',
   CANCELLED: 'Đã huỷ',
 };
+
+/** Hai trạng thái hiển thị của phiếu (tab lọc ở danh sách). Lọc `DRAFT` gồm cả phiếu đang chờ duyệt và bị từ chối. */
+export const FINANCE_VOUCHER_DISPLAY_STATUSES = ['DRAFT', 'APPROVED'] as const satisfies readonly FinanceVoucherStatus[];
+export type FinanceVoucherDisplayStatus = (typeof FINANCE_VOUCHER_DISPLAY_STATUSES)[number];
+
+/** Trạng thái nội bộ thuộc nhóm hiển thị "Nháp": chưa ghi sổ và chưa huỷ. */
+export const FINANCE_VOUCHER_DRAFT_LIKE_STATUSES: readonly FinanceVoucherStatus[] = ['DRAFT', 'PENDING', 'REJECTED'];
+
+/** Gộp số đếm (hoặc số tiền) theo trạng thái nội bộ về hai trạng thái hiển thị. */
+export function financeDisplayStatusTotals(byStatus: Readonly<Record<FinanceVoucherStatus, number>>): Record<FinanceVoucherDisplayStatus, number> {
+  return {
+    DRAFT: FINANCE_VOUCHER_DRAFT_LIKE_STATUSES.reduce((sum, status) => sum + (byStatus[status] ?? 0), 0),
+    APPROVED: byStatus.APPROVED ?? 0,
+  };
+}
 
 export type FinanceAccountType = 'BANK' | 'CASH';
 export const FINANCE_ACCOUNT_TYPE_LABELS: Readonly<Record<FinanceAccountType, string>> = {
@@ -353,6 +373,11 @@ export interface FinanceVoucherSummary {
   officialCode: string | null;
   /** Mã hồ sơ quy trình đã tạo ra phiếu (INHERITED); null với phiếu thường. */
   sourceCode: string | null;
+  /**
+   * Trường bắt buộc còn thiếu để duyệt ghi sổ (`financeMissingFields`), chỉ tính cho phiếu thu/chi chưa ghi sổ; rỗng khi đã đủ.
+   * Vắng ở dữ liệu cũ hoặc nơi không tính (bảng điều khiển).
+   */
+  missingFields?: FinanceRequiredField[];
 }
 
 export interface FinanceVoucher extends FinanceVoucherSummary {
@@ -410,6 +435,12 @@ export interface FinanceVoucherPermissions {
   canDelete: boolean;
   /** Phiếu duyệt qua quy trình đang kẹt (chưa tạo được hồ sơ hoặc chưa ghi sổ được): được bấm thử lại/áp lại. */
   canRetryProcedure: boolean;
+  /**
+   * Người xem có quyền duyệt loại phiếu này nhưng chưa "Duyệt ghi sổ" ngay được (thiếu thông tin bắt buộc, không được tự duyệt,
+   * loại phiếu duyệt qua quy trình...): lý do để giao diện hiện nút mờ kèm giải thích. null khi duyệt được hoặc không liên quan.
+   * Áp cho cả duyệt thường (`canApprove`) và ghi sổ phiếu có nguồn (`sourced.canPost`).
+   */
+  approveBlockedReason?: string | null;
   /** Phiếu có nguồn hồ sơ (INHERITED): thao tác của kế toán. Phiếu thường luôn là false. */
   sourced: FinanceSourcedVoucherPermissions;
 }
@@ -460,9 +491,30 @@ export interface FinanceVoucherListQuery {
   scope?: 'mine' | 'to-approve' | 'to-post' | 'awaiting-post';
   /** Chỉ phiếu tạo từ quy trình. */
   source?: 'procedure';
+  /** Sắp xếp theo cột (danh sách trắng `FINANCE_VOUCHER_SORT_KEYS`); vắng thì mới nhất trước theo ngày phiếu. */
+  sort?: FinanceVoucherSortKey;
+  /** Chiều sắp xếp; mặc định `asc` khi có `sort`. */
+  direction?: FinanceSortDirection;
   page?: number;
   pageSize?: number;
 }
+
+/** Cột sắp xếp được của danh sách phiếu (máy chủ chỉ nhận đúng các mã này). */
+export const FINANCE_VOUCHER_SORT_KEYS = [
+  'code',
+  'voucher-date',
+  'content',
+  'reason',
+  'account',
+  'counterparty',
+  'person',
+  'allocation',
+  'amount',
+  'status',
+  'created-by',
+] as const;
+export type FinanceVoucherSortKey = (typeof FINANCE_VOUCHER_SORT_KEYS)[number];
+export type FinanceSortDirection = 'asc' | 'desc';
 
 export interface FinancePage<T> {
   items: T[];
@@ -484,6 +536,17 @@ export interface FinanceDecisionRequest {
   note?: string;
 }
 
+/**
+ * Kết quả "Huỷ" phiếu (`POST /vouchers/:id/cancel`). Phiếu chưa từng ghi sổ bị XOÁ hẳn (`deleted = true`). Phiếu đã ghi sổ được
+ * đảo bút toán rồi ẩn khỏi mọi danh sách (`deleted = false`): sổ cái chỉ được thêm, không xoá, nên dòng phiếu còn giữ để bút toán
+ * gốc và bút toán đảo vẫn trỏ về được.
+ */
+export interface FinanceCancelVoucherResult {
+  id: string;
+  code: string;
+  deleted: boolean;
+}
+
 /** Cột hiển thị của một danh sách phiếu theo từng người dùng; `columns: null` là dùng bộ cột mặc định. */
 export interface FinanceListColumns {
   listKey: FinanceVoucherKind;
@@ -501,10 +564,29 @@ export interface FinanceBulkApproveRequest {
   note?: string;
 }
 
-/** Duyệt hàng loạt: mỗi phiếu ghi sổ trong giao dịch riêng, phiếu lỗi không làm hỏng các phiếu khác. */
+/**
+ * Nhóm lý do một phiếu bị bỏ qua khi duyệt hàng loạt: INCOMPLETE thiếu thông tin bắt buộc (hoặc thông tin không hợp lệ: lý do,
+ * tài khoản ngừng dùng...); FORBIDDEN không được duyệt (không có quyền, không được tự duyệt, không thấy phiếu); SOURCED phiếu tạo
+ * từ hồ sơ quy trình hoặc phân hệ khác (ghi sổ từng phiếu); PROCEDURE loại phiếu hoặc phiếu đang duyệt qua quy trình; STATE phiếu
+ * đã duyệt hoặc đã huỷ; OTHER các lỗi ghi sổ khác (khoá sổ, số dư không đủ...).
+ */
+export type FinanceBulkSkipReason = 'INCOMPLETE' | 'FORBIDDEN' | 'SOURCED' | 'PROCEDURE' | 'STATE' | 'OTHER';
+export const FINANCE_BULK_SKIP_REASON_LABELS: Readonly<Record<FinanceBulkSkipReason, string>> = {
+  INCOMPLETE: 'Chưa đủ thông tin',
+  FORBIDDEN: 'Không được duyệt',
+  SOURCED: 'Phiếu từ hồ sơ quy trình',
+  PROCEDURE: 'Duyệt qua quy trình',
+  STATE: 'Không còn chờ duyệt',
+  OTHER: 'Chưa ghi sổ được',
+};
+
+/**
+ * Duyệt hàng loạt: mỗi phiếu ghi sổ trong giao dịch riêng, phiếu không đủ điều kiện bị bỏ qua (`failed`, kèm lý do) và không làm
+ * hỏng các phiếu khác.
+ */
 export interface FinanceBulkApproveResult {
   approved: { id: string; code: string }[];
-  failed: { id: string; code: string | null; message: string }[];
+  failed: { id: string; code: string | null; message: string; reason?: FinanceBulkSkipReason }[];
 }
 
 /* --------------------------- Quy trình duyệt --------------------------- */
@@ -756,6 +838,111 @@ export function formatFinanceDraftCode(kind: FinanceVoucherKind, period: string,
 
 export function formatFinanceMoney(value: number): string {
   return new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 }).format(value);
+}
+
+/* ------------------ Trường bắt buộc trước khi duyệt ghi sổ ------------------ */
+
+/**
+ * Trường bắt buộc của phiếu thu/chi trước khi gửi duyệt hoặc "Duyệt ghi sổ". Lưu nháp vẫn được khi còn thiếu; máy chủ chặn duyệt
+ * (một phiếu, hàng loạt, menu chuột phải) và giao diện báo đúng các trường này. Thứ tự theo thứ tự ô trên biểu mẫu.
+ */
+export const FINANCE_REQUIRED_FIELDS = [
+  'voucherDate',
+  'postingDate',
+  'content',
+  'reason',
+  'account',
+  'counterpartyGroup',
+  'counterpartyName',
+  'counterpartyAccountNo',
+  'counterpartyBank',
+  'allocation',
+  'amount',
+] as const;
+export type FinanceRequiredField = (typeof FINANCE_REQUIRED_FIELDS)[number];
+
+const REQUIRED_FIELD_LABELS: Readonly<Record<'RECEIPT' | 'PAYMENT', Readonly<Record<FinanceRequiredField, string>>>> = {
+  RECEIPT: {
+    voucherDate: 'Ngày thu',
+    postingDate: 'Ngày hạch toán',
+    content: 'Nội dung thu',
+    reason: 'Lý do thu',
+    account: 'Tài khoản thu',
+    counterpartyGroup: 'Đối tượng thu',
+    counterpartyName: 'Người nộp tiền',
+    counterpartyAccountNo: 'Số tài khoản nộp tiền',
+    counterpartyBank: 'Ngân hàng nộp tiền',
+    allocation: 'Dự án hạch toán',
+    amount: 'Số tiền (lớn hơn 0)',
+  },
+  PAYMENT: {
+    voucherDate: 'Ngày chi',
+    postingDate: 'Ngày hạch toán',
+    content: 'Nội dung chi',
+    reason: 'Lý do chi',
+    account: 'Tài khoản chi',
+    counterpartyGroup: 'Đối tượng chi',
+    counterpartyName: 'Người nhận tiền',
+    counterpartyAccountNo: 'Số tài khoản nhận tiền',
+    counterpartyBank: 'Ngân hàng nhận tiền',
+    allocation: 'Dự án hạch toán',
+    amount: 'Số tiền (lớn hơn 0)',
+  },
+};
+
+/** Dữ liệu tối thiểu để biết phiếu còn thiếu trường nào; dùng chung cho máy chủ (phiếu đã lưu) và biểu mẫu (đang nhập). */
+export interface FinanceCompletenessInput {
+  kind: FinanceVoucherKind;
+  voucherDate?: string | null;
+  postingDate?: string | null;
+  content?: string | null;
+  /** Tổng tiền phiếu (tổng các dòng chi tiết). */
+  totalAmount: number;
+  reasonId?: string | null;
+  accountId?: string | null;
+  /** Loại tài khoản thu/chi đã chọn; vắng khi chưa biết thì bỏ qua điều kiện riêng của tài khoản ngân hàng. */
+  accountType?: FinanceAccountType | null;
+  counterpartyGroupId?: string | null;
+  counterpartyName?: string | null;
+  counterpartyAccountNo?: string | null;
+  counterpartyBank?: string | null;
+  /** Phiếu đã hạch toán cho dự án. */
+  hasAllocation?: boolean;
+  /** Bắt buộc hạch toán dự án: cài đặt chung bật, hoặc lý do đã chọn yêu cầu (như "Chi theo dự án"). */
+  allocationRequired?: boolean;
+}
+
+const blank = (value: string | null | undefined): boolean => !value || !value.trim();
+
+/**
+ * Trường bắt buộc còn thiếu (rỗng = đủ để duyệt ghi sổ). Phiếu thu/chi cần: ngày phiếu, ngày hạch toán, nội dung, lý do, tài khoản
+ * thu/chi, đối tượng, số tiền lớn hơn 0, dự án khi bắt buộc hạch toán. Người nộp/nhận tiền, số tài khoản và ngân hàng của họ
+ * có thể có hoặc không (kể cả phiếu chi từ tài khoản ngân hàng), nên không bắt. Lệnh chuyển tiền giữ luật riêng (không dùng
+ * danh sách này).
+ */
+export function financeMissingFields(input: FinanceCompletenessInput): FinanceRequiredField[] {
+  if (input.kind === 'TRANSFER') return [];
+  const missing = new Set<FinanceRequiredField>();
+  if (blank(input.voucherDate)) missing.add('voucherDate');
+  if (blank(input.postingDate)) missing.add('postingDate');
+  if (blank(input.content)) missing.add('content');
+  if (blank(input.reasonId)) missing.add('reason');
+  if (blank(input.accountId)) missing.add('account');
+  if (blank(input.counterpartyGroupId)) missing.add('counterpartyGroup');
+  if (input.allocationRequired && !input.hasAllocation) missing.add('allocation');
+  if (!(input.totalAmount > 0)) missing.add('amount');
+  return FINANCE_REQUIRED_FIELDS.filter((field) => missing.has(field));
+}
+
+/** Nhãn trường bắt buộc theo loại phiếu, khớp nhãn ô trên biểu mẫu ("Tài khoản chi", "Người nhận tiền"...). */
+export function financeRequiredFieldLabel(kind: FinanceVoucherKind, field: FinanceRequiredField): string {
+  return REQUIRED_FIELD_LABELS[kind === 'RECEIPT' ? 'RECEIPT' : 'PAYMENT'][field];
+}
+
+/** Câu báo thiếu: "Còn thiếu: Tài khoản chi, Lý do chi, Người nhận tiền." (rỗng khi không thiếu gì). */
+export function financeMissingFieldsMessage(kind: FinanceVoucherKind, fields: readonly FinanceRequiredField[]): string {
+  if (!fields.length) return '';
+  return `Còn thiếu: ${fields.map((field) => financeRequiredFieldLabel(kind, field)).join(', ')}.`;
 }
 
 /* ----------------- Phiếu của dự án (Workspace đọc qua API nội bộ) ----------------- */

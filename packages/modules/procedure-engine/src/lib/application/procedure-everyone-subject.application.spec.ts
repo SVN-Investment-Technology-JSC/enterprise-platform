@@ -7,6 +7,9 @@ import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.por
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 class FixedClock implements ProcedureClock {
   now(): Date {
     return new Date('2026-08-15T10:00:00.000Z');
@@ -91,6 +94,7 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const application = setup();
     const published = await publishWithEveryone(application);
     const started = await application.startInstance(employee('user-a'), {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ của A',
       idempotencyKey: 'a-1',
@@ -108,6 +112,7 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const published = await application.publishDefinition(admin, draft.id);
     await expect(
       application.startInstance(employee('user-a'), {
+        workspaceLink: TEST_WORKSPACE_LINK,
         definitionId: published.id,
         title: 'Không được',
         idempotencyKey: 'a-denied',
@@ -141,6 +146,7 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const published = await publishWithEveryone(application);
     const owner = employee('user-a');
     const started = await application.startInstance(owner, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ của A',
       idempotencyKey: 'a-2',
@@ -156,6 +162,7 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const application = setup();
     const published = await publishWithEveryone(application);
     const started = await application.startInstance(employee('user-a'), {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ của A',
       idempotencyKey: 'a-3',
@@ -172,6 +179,7 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const application = setup();
     const published = await publishWithEveryone(application);
     const started = await application.startInstance(employee('user-a'), {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ của A',
       idempotencyKey: 'a-4',
@@ -187,6 +195,7 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const published = await publishWithEveryone(application);
     const owner = employee('user-a');
     const started = await application.startInstance(owner, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: published.id,
       title: 'Hồ sơ của A',
       idempotencyKey: 'a-5',
@@ -211,8 +220,8 @@ describe('chủ thể "Toàn bộ nhân viên" (everyone) ở module Quy trình'
     const published = await publishWithEveryone(application);
     const a = employee('user-a');
     const b = employee('user-b');
-    const ia = await application.startInstance(a, { definitionId: published.id, title: 'A', idempotencyKey: 'ka' });
-    const ib = await application.startInstance(b, { definitionId: published.id, title: 'B', idempotencyKey: 'kb' });
+    const ia = await application.startInstance(a, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: published.id, title: 'A', idempotencyKey: 'ka' });
+    const ib = await application.startInstance(b, { workspaceLink: TEST_WORKSPACE_LINK, definitionId: published.id, title: 'B', idempotencyKey: 'kb' });
     await expect(
       application.applyAction(a, ib.id, { action: 'complete', idempotencyKey: 'a-on-b' }),
     ).rejects.toBeDefined();

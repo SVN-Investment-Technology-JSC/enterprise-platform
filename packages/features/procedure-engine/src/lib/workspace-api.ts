@@ -75,12 +75,16 @@ export interface ProjectWorkItemInput {
   readonly parentId?: string;
 }
 
-/** Một công việc trong dự án, cho ô chọn "Công việc cha". */
+/** Một công việc trong dự án, cho ô chọn "Công việc cha" (cây WBS). */
 export interface ProjectWorkItemOption {
   readonly id: string;
   readonly code: string;
   readonly title: string;
   readonly depth: number;
+  /** Công việc cha trong cây; vắng là công việc ở gốc dự án. */
+  readonly parentId?: string;
+  /** Đã đóng (xong / huỷ): không nhận việc con mới, chỉ hiện để giữ cấu trúc cây khi có việc con còn mở. */
+  readonly closed?: boolean;
 }
 
 interface ProjectRow {
@@ -121,20 +125,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * án có `myRole` — tức đúng các dự án họ là thành viên. Workspace chưa bật
  * hoặc lỗi mạng thì trả mảng rỗng: vẫn tạo được đơn, chỉ là không gắn dự án.
  */
-export async function loadRelatedProjects(): Promise<RelatedProject[]> {
-  const rows: ProjectRow[] = [];
+export function loadRelatedProjects(): Promise<RelatedProject[]> {
+  const now = Date.now();
+  if (relatedProjectsCache && relatedProjectsCache.expiresAt > now) return relatedProjectsCache.value;
+  const value = fetchRelatedProjects();
+  relatedProjectsCache = { value, expiresAt: now + RELATED_PROJECTS_TTL_MS };
+  // Lỗi (mảng rỗng) thì không nhớ, lần mở sau thử lại.
+  void value.then((rows) => {
+    if (rows.length === 0 && relatedProjectsCache?.value === value) relatedProjectsCache = null;
+  });
+  return value;
+}
+
+/** Nhớ danh sách dự án trong một phút: form tạo đơn và hộp đổi dự án mở liên tiếp không phải tải lại. */
+const RELATED_PROJECTS_TTL_MS = 60_000;
+let relatedProjectsCache: { value: Promise<RelatedProject[]>; expiresAt: number } | null = null;
+
+/** Chỉ cho test: quên danh sách dự án đã nhớ. */
+export function resetRelatedProjectsCache(): void {
+  relatedProjectsCache = null;
+}
+
+async function fetchRelatedProjects(): Promise<RelatedProject[]> {
+  let rows: ProjectRow[];
   try {
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
-      const body = await request<{ items?: ProjectRow[]; total?: number }>(
-        `/projects?page=${page}&pageSize=${PAGE_SIZE}`,
-        { cache: 'no-store' },
-      );
-      const items = body.items ?? [];
-      rows.push(...items);
-      if (items.length === 0 || rows.length >= (body.total ?? 0)) break;
-    }
+    // Một lượt `project-options` (mã, tên, vai, quyền; không thống kê) thay cho lật từng trang danh sách dự án đầy đủ.
+    rows = (await request<{ items?: ProjectRow[] }>('/project-options', { cache: 'no-store' })).items ?? [];
   } catch {
-    return [];
+    rows = await fetchRelatedProjectPages();
   }
   return rows
     .filter((row) => row.myRole && canWrite(row))
@@ -151,6 +169,25 @@ export async function loadRelatedProjects(): Promise<RelatedProject[]> {
         : ASSIGNER_ROLES.has(row.myRole ?? ''),
     }))
     .sort((left, right) => left.code.localeCompare(right.code));
+}
+
+/** Đường cũ khi Workspace chưa có `project-options`: lật từng trang danh sách dự án. */
+async function fetchRelatedProjectPages(): Promise<ProjectRow[]> {
+  const rows: ProjectRow[] = [];
+  try {
+    for (let page = 1; page <= MAX_PAGES; page += 1) {
+      const body = await request<{ items?: ProjectRow[]; total?: number }>(
+        `/projects?page=${page}&pageSize=${PAGE_SIZE}`,
+        { cache: 'no-store' },
+      );
+      const items = body.items ?? [];
+      rows.push(...items);
+      if (items.length === 0 || rows.length >= (body.total ?? 0)) break;
+    }
+  } catch {
+    return [];
+  }
+  return rows;
 }
 
 /**
@@ -170,24 +207,31 @@ export async function loadWorkItemProjectId(workItemId: string): Promise<string 
 }
 
 /**
- * Danh sách công việc của một dự án (cây phẳng), cho ô chọn "Công việc cha".
- * Lỗi mạng / Workspace tắt thì trả mảng rỗng: vẫn tạo được đơn, chỉ là không
- * gắn công việc cha.
+ * Danh sách công việc của một dự án (phẳng, kèm `parentId` để dựng cây WBS), cho ô chọn "Công việc cha".
+ * Công việc đã đóng vẫn trả về nhưng đánh dấu `closed` (không chọn được, chỉ giữ cấu trúc cây).
+ * Lỗi mạng / Workspace tắt thì trả mảng rỗng: vẫn tạo được đơn, chỉ là không gắn công việc cha.
  */
 export async function loadProjectWorkItems(projectId: string): Promise<ProjectWorkItemOption[]> {
   try {
     const body = await request<{
-      items?: { id: string; code: string; title: string; depth?: number; status?: string }[];
+      items?: {
+        id: string;
+        code: string;
+        title: string;
+        depth?: number;
+        status?: string;
+        parentId?: string | null;
+      }[];
     }>(`/projects/${projectId}/work-items`, { cache: 'no-store' });
-    return (body.items ?? [])
+    return (body.items ?? []).map((item) => ({
+      id: item.id,
+      code: item.code,
+      title: item.title,
+      depth: item.depth ?? 0,
+      ...(item.parentId ? { parentId: item.parentId } : {}),
       // Công việc đã đóng không nhận việc con mới.
-      .filter((item) => !item.status || !CLOSED_STATUSES.has(item.status))
-      .map((item) => ({
-        id: item.id,
-        code: item.code,
-        title: item.title,
-        depth: item.depth ?? 0,
-      }));
+      ...(item.status && CLOSED_STATUSES.has(item.status) ? { closed: true } : {}),
+    }));
   } catch {
     return [];
   }

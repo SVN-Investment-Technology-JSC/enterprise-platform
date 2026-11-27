@@ -11,7 +11,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
-import { RelatedObjectService } from '../application/related-object.service.js';
+import { RelatedObjectCreateRejectedError, RelatedObjectService } from '../application/related-object.service.js';
 import type { WorkspaceActor } from '../application/workspace.application.js';
 import { WorkspaceError } from '../domain/workspace.error.js';
 
@@ -27,6 +27,29 @@ function accessTokenOf(request: WorkspaceRequest): string | undefined {
   const bearer = Array.isArray(header) ? header[0] : header;
   if (bearer?.startsWith('Bearer ')) return bearer.slice(7);
   return request.cookies?.['ep_access'];
+}
+
+/**
+ * CSRF của chính phiên người gọi, để chuyển tiếp khi tạo nhanh ở module gốc (module gốc đòi CSRF cho lệnh ghi). Guard
+ * toàn cục đã đối chiếu header với cookie `ep_csrf` trước khi tới đây; chỉ nhận khi hai giá trị vẫn khớp.
+ */
+function csrfTokenOf(request: WorkspaceRequest): string | undefined {
+  const header = request.headers?.['x-csrf-token'];
+  const value = Array.isArray(header) ? header[0] : header;
+  return value && value === request.cookies?.['ep_csrf'] ? value : undefined;
+}
+
+/** Tiền tố tham số lọc của ô tham chiếu trên route tìm kiếm: `f.customerId=...` thành `customerId=...`. */
+const SEARCH_FILTER_PREFIX = 'f.';
+
+/** Gom tham số `f.*` của request (chỉ giá trị chuỗi đơn); hình dạng tên, giá trị do service lọc tiếp. */
+function searchFiltersOf(query: Record<string, unknown> | undefined): Record<string, string> {
+  const filters: Record<string, string> = {};
+  for (const [name, value] of Object.entries(query ?? {})) {
+    if (!name.startsWith(SEARCH_FILTER_PREFIX) || typeof value !== 'string') continue;
+    filters[name.slice(SEARCH_FILTER_PREFIX.length)] = value;
+  }
+  return filters;
 }
 
 /**
@@ -50,13 +73,42 @@ export class RelatedObjectsController {
     @Query('kind') kind?: string,
     @Query('q') q?: string,
     @Query('limit') limit?: string,
+    @Query() query?: Record<string, unknown>,
   ) {
-    return this.execute(() => this.related.search(this.actor(request), accessTokenOf(request), kind, q, limit));
+    return this.execute(() =>
+      this.related.search(this.actor(request), accessTokenOf(request), kind, q, limit, searchFiltersOf(query)),
+    );
+  }
+
+  /** Xem trước theo giá trị một ô của form tạo nhanh (ô có `preview`); GET, đi dưới phiên người gọi như tìm kiếm. */
+  @Get('related-objects/create-preview')
+  createPreview(
+    @Req() request: WorkspaceRequest,
+    @Query('kind') kind?: string,
+    @Query('field') field?: string,
+    @Query('value') value?: string,
+  ) {
+    return this.execute(() => this.related.createPreview(this.actor(request), accessTokenOf(request), kind, field, value));
   }
 
   @Get('related-objects/preview')
   preview(@Req() request: WorkspaceRequest, @Query('kind') kind?: string, @Query('id') id?: string) {
     return this.execute(() => this.related.preview(this.actor(request), accessTokenOf(request), kind, id));
+  }
+
+  /** Form tạo nhanh do module gốc mô tả (loại có `create`). */
+  @Get('related-objects/create-form')
+  createForm(@Req() request: WorkspaceRequest, @Query('kind') kind?: string) {
+    return this.execute(() => this.related.createForm(this.actor(request), accessTokenOf(request), kind));
+  }
+
+  /** Tạo hồ sơ ở module gốc dưới phiên người gọi; chưa gắn vào dự án hay công việc nào. */
+  @Post('related-objects/create')
+  @HttpCode(201)
+  createRecord(@Req() request: WorkspaceRequest, @Query('kind') kind?: string, @Body() body?: unknown) {
+    return this.execute(() =>
+      this.related.createRecord(this.actor(request), accessTokenOf(request), csrfTokenOf(request), kind, body),
+    );
   }
 
   @Get('projects/:id/related-objects')
@@ -113,8 +165,13 @@ export class RelatedObjectsController {
         );
       }
       if (!(error instanceof WorkspaceError)) throw error;
+      // Tạo nhanh bị module gốc từ chối: kèm cảnh báo cần xác nhận và ô sai để hộp thoại hiện đúng chỗ.
+      const extra =
+        error instanceof RelatedObjectCreateRejectedError
+          ? { warnings: error.warnings, ...(error.field ? { field: error.field } : {}) }
+          : {};
       throw new HttpException(
-        { statusCode: error.statusCode, code: error.code, message: error.message },
+        { statusCode: error.statusCode, code: error.code, message: error.message, ...extra },
         error.statusCode,
       );
     }

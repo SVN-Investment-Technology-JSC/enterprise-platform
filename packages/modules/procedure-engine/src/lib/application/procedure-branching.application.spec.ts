@@ -16,6 +16,10 @@ import {
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
+
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 class FixedClock implements ProcedureClock {
   now(): Date {
     return new Date('2026-09-25T08:00:00.000Z');
@@ -184,7 +188,7 @@ async function submitQuote(
   amount: number,
   key = `q-${amount}`,
 ) {
-  const started = await application.startInstance(sales, {
+  const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
     definitionId: definition.id,
     title: `Báo giá ${amount}`,
     idempotencyKey: `start-${key}`,
@@ -270,7 +274,7 @@ describe('Rẽ nhánh — quy trình Duyệt báo giá', () => {
   it('thiếu giá trị bắt buộc thì không hoàn tất được bước', async () => {
     const { application } = setup();
     const definition = await publish(application, quoteInput());
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Thiếu giá trị',
       idempotencyKey: 'start-missing',
@@ -313,7 +317,7 @@ describe('Rẽ nhánh — quy trình Duyệt báo giá', () => {
   it('trước điểm rẽ nhánh, tiến độ là ước lượng', async () => {
     const { application } = setup();
     const definition = await publish(application, quoteInput());
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Mới mở',
       idempotencyKey: 'start-estimate',
@@ -398,7 +402,7 @@ describe('Rẽ nhánh — quy trình Duyệt báo giá', () => {
   it('quyền trả về theo đường đi', async () => {
     const { application } = setup();
     const definition = await publish(application, quoteInput());
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Quyền trả về',
       idempotencyKey: 'start-auth',
@@ -643,7 +647,7 @@ describe('Rẽ nhánh — sửa quy trình và hồ sơ cũ', () => {
   it('hồ sơ đang chạy giữ luật lúc khởi tạo sau khi quy trình được sửa', async () => {
     const { application } = setup();
     const definition = await publish(application, quoteInput());
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Luật cũ',
       idempotencyKey: 'start-old-rule',
@@ -681,7 +685,7 @@ describe('Rẽ nhánh — sửa quy trình và hồ sơ cũ', () => {
   it('không xoá được bước khi còn hồ sơ đang chạy dùng nó', async () => {
     const { application } = setup();
     const definition = await publish(application, quoteInput());
-    await application.startInstance(sales, {
+    await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Đang chạy',
       idempotencyKey: 'start-block-delete',
@@ -708,7 +712,7 @@ describe('Rẽ nhánh — sửa quy trình và hồ sơ cũ', () => {
         stepInput('B3', 3, 'Bước 3', [assign('R', sales.userId)]),
       ],
     });
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Tuyến tính',
       idempotencyKey: 'start-linear',
@@ -725,7 +729,7 @@ describe('Rẽ nhánh — sửa quy trình và hồ sơ cũ', () => {
     const { application, store } = setup();
     const workspace = await application.getWorkspace(designer);
     const seeded = workspace.definitions.find((item) => item.code === 'PROC-PURCHASE');
-    const started = await application.startInstance(designer, {
+    const started = await application.startInstance(designer, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: seeded?.id ?? '',
       title: 'Hồ sơ cũ',
       idempotencyKey: 'start-legacy',
@@ -775,7 +779,7 @@ describe('Người duyệt: quản lý trực tiếp của người khởi tạo
   async function reachApproval(managers: FakeManagers) {
     const { application } = setup(managers);
     const definition = await publish(application, managerInput());
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Đề nghị',
       idempotencyKey: 'start-manager',
@@ -854,7 +858,7 @@ describe('Người duyệt: quản lý trực tiếp của người khởi tạo
           : step,
       ),
     });
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Trùng',
       idempotencyKey: 'start-dup',
@@ -896,7 +900,7 @@ describe('Người duyệt: quản lý trực tiếp của người khởi tạo
           : step,
       ),
     });
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Vai R',
       idempotencyKey: 'start-r',
@@ -942,7 +946,7 @@ describe('Người duyệt: quản lý trực tiếp của người khởi tạo
     const managers = new FakeManagers();
     const { application } = setup(managers);
     const definition = await publish(application, managerInput());
-    const started = await application.startInstance(sales, {
+    const started = await application.startInstance(sales, { workspaceLink: TEST_WORKSPACE_LINK,
       definitionId: definition.id,
       title: 'Core lỗi',
       idempotencyKey: 'start-core-down',

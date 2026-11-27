@@ -15,9 +15,11 @@ import {
   relatedDisplayLabel,
   type PendingRelatedObject,
 } from '../related-objects.model';
+import { pendingFromCreated } from '../related-object-create.model';
 import * as api from '../workspace-api';
 import styles from '../workspace.module.scss';
 import { Choice } from './choice';
+import { RelatedObjectCreateDialog } from './related-object-create-dialog';
 import { Tooltip } from './tooltip';
 
 /** Chờ một nhịp sau phím cuối rồi mới hỏi nơi lưu hồ sơ, để không gọi mỗi phím. */
@@ -46,6 +48,8 @@ export interface RelatedObjectPickerProps {
   readonly onKindChange: (kind: string) => void;
   /** `undefined` khi người dùng xoá lựa chọn. */
   readonly onPick: (candidate: RelatedObjectCandidate | undefined) => void;
+  /** Loại đang chọn tạo nhanh được: thêm mục "Tạo mới" cuối danh sách hồ sơ. */
+  readonly onCreate?: () => void;
 }
 
 /**
@@ -65,6 +69,7 @@ export function RelatedObjectPicker({
   isTaken,
   onKindChange,
   onPick,
+  onCreate,
 }: RelatedObjectPickerProps) {
   // Chữ đang tìm gắn với loại lúc gõ: đổi loại thì tự về rỗng, không phải xoá tay.
   const [search, setSearch] = useState({ kind, text: '' });
@@ -162,6 +167,7 @@ export function RelatedObjectPicker({
           placeholder={kind ? 'Gõ mã hoặc tên để tìm hồ sơ…' : 'Chọn loại trước'}
           emptyText={loading ? 'Đang tìm…' : (error ?? 'Không có hồ sơ nào khớp.')}
           clearable
+          footerAction={onCreate && !disabled ? { label: 'Tạo mới…', onClick: onCreate } : undefined}
           onChange={(value) => {
             if (value === objectId) return;
             if (!value) {
@@ -221,6 +227,8 @@ export function RelatedObjectsEditor({
   canAdd = true,
 }: RelatedObjectsEditorProps) {
   const [openState, setOpenState] = useState(defaultOpen);
+  /** Dòng đang mở hộp thoại "Tạo mới" (loại của dòng tạo nhanh được ở module gốc). */
+  const [creating, setCreating] = useState<{ readonly key: string; readonly kind: string; readonly kindLabel?: string }>();
   const addable = canAdd && kinds.length > 0;
   if (!addable && value.length === 0) return null;
 
@@ -242,6 +250,9 @@ export function RelatedObjectsEditor({
 
   const update = (key: string, patch: Partial<PendingRelatedObject>) =>
     onChange(value.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+
+  /** Loại tạo nhanh được (module gốc khai báo `create` cho người đang xem). */
+  const creatable = (kind: string) => kinds.find((entry) => entry.key === kind && entry.create);
 
   const takenBy = (key: string) => (kind: string, objectId: string) =>
     value.some((row) => row.key !== key && row.kind === kind && row.objectId === objectId) ||
@@ -326,8 +337,27 @@ export function RelatedObjectsEditor({
                             : { objectId: '', label: '' },
                         )
                       }
+                      onCreate={
+                        creatable(row.kind)
+                          ? () => setCreating({ key: row.key, kind: row.kind, kindLabel: creatable(row.kind)?.label })
+                          : undefined
+                      }
                     />
                   )}
+                  {/* Hồ sơ chưa có ở module gốc: tạo ngay tại đây, xong thì thành hồ sơ đã chọn của dòng. */}
+                  {!row.existingId && !row.objectId && creatable(row.kind) ? (
+                    <Tooltip content={`Tạo ${(creatable(row.kind)?.label ?? 'hồ sơ').toLocaleLowerCase('vi')} mới`}>
+                      <button
+                        type="button"
+                        className={styles.draftIconButton}
+                        aria-label={`Tạo mới ${ariaPrefix.toLowerCase()} ${index + 1}`}
+                        disabled={disabled}
+                        onClick={() => setCreating({ key: row.key, kind: row.kind, kindLabel: creatable(row.kind)?.label })}
+                      >
+                        <Plus size={15} />
+                      </button>
+                    </Tooltip>
+                  ) : null}
                   {row.existingId && !row.canRemove ? (
                     <span className={styles.relatedRemoveSpacer} aria-hidden="true" />
                   ) : (
@@ -370,6 +400,19 @@ export function RelatedObjectsEditor({
           ) : null}
         </div>
       ) : null}
+      <RelatedObjectCreateDialog
+        kind={creating?.kind}
+        kindLabel={creating?.kindLabel}
+        onClose={() => setCreating(undefined)}
+        onCreated={(created) => {
+          // Hồ sơ mới thành một dòng bình thường: form tạo gắn sau khi tạo xong, form sửa gắn lúc lưu.
+          const target = creating;
+          setCreating(undefined);
+          if (!target) return;
+          if (value.some((row) => row.key === target.key)) update(target.key, pendingFromCreated(created));
+          else if (value.length < limit) onChange([...value, pendingRelatedRow({ kind: target.kind, ...pendingFromCreated(created) })]);
+        }}
+      />
     </div>
   );
 }

@@ -274,6 +274,26 @@ export interface SaveContractRequest {
   readonly note?: string | null;
   /** Thay toàn bộ dòng; bỏ trống khi sửa thì giữ dòng đang có. */
   readonly lines?: readonly SaveContractLineRequest[];
+  /**
+   * Chỉ khi lập mới: gắn báo giá khách đã chấp nhận, chưa chuyển hay gắn hợp đồng nào. Dòng hợp đồng lấy từ phiên
+   * bản khách chấp nhận như khi chuyển báo giá (bỏ qua `lines` gửi kèm); `value` trống thì lấy tổng phiên bản đó.
+   */
+  readonly quoteId?: string | null;
+}
+
+/** Xem trước hợp đồng sẽ lập từ một báo giá (`GET /v1/contracts/quote-preview/:quoteId`); cùng cách tính lúc lập. */
+export interface ContractQuotePreview {
+  readonly quoteId: string;
+  readonly quoteCode: string;
+  readonly quoteName: string | null;
+  readonly customerId: string;
+  readonly customerCode: string;
+  readonly customerName: string;
+  readonly ownerUserId: string;
+  readonly versionNo: number;
+  /** Tổng phiên bản khách chấp nhận (giá trị hợp đồng khi bỏ trống). */
+  readonly totalAmount: number;
+  readonly lines: readonly ContractLine[];
 }
 
 export interface SavePaymentTermRequest {

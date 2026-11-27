@@ -15,6 +15,9 @@ import type { InitiatorActorResolver } from './initiator-actor.port.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 class FixedClock implements ProcedureClock {
   now(): Date {
     return new Date('2026-10-15T08:00:00.000Z');
@@ -144,6 +147,7 @@ const stepKey = (definition: ProcedureDefinition, key: string) => definition.ste
 /** Mở hồ sơ, nhập số tiền và người nhận, trưởng phòng duyệt → hồ sơ đứng ở bước Chi tiền. */
 async function reachFinanceStep(application: ProcedureEngineApplication, definition: ProcedureDefinition, key = 'a') {
   const started = await application.startInstance(requester, {
+    workspaceLink: TEST_WORKSPACE_LINK,
     definitionId: definition.id,
     title: 'Thanh toán tiền điện tháng 10',
     idempotencyKey: `start-${key}`,
@@ -317,6 +321,49 @@ describe('Bước Tài chính — lúc chạy', () => {
     });
     // Ghi lại hồ sơ mà bước không kích hoạt lại thì không phát lần nữa.
     expect(financeStepEvents(after, after)).toEqual([]);
+  });
+
+  it('form thanh toán đặt mã theo nhãn ("Người nhận", "STK người nhận", "Ngân hàng người nhận") vẫn vào phiếu', async () => {
+    const { application, store } = setup();
+    const input = paymentInput();
+    const definition = await publish(application, {
+      ...input,
+      attributes: [
+        ...(input.attributes ?? []),
+        { id: '', code: 'nguoi_nhan', name: 'Người nhận', type: 'text', required: false },
+        { id: '', code: 'stk_nguoi_nhan', name: 'STK người nhận', type: 'text', required: false },
+        { id: '', code: 'ngan_hang_nguoi_nhan', name: 'Ngân hàng người nhận', type: 'text', required: false },
+      ],
+      steps: input.steps.map((item) => (item.key === 'DE_NGHI' ? { ...item, attributes: [] } : item)),
+    });
+    const before = (await store.read(requester.tenantId)).instances;
+    const started = await application.startInstance(requester, {
+      workspaceLink: TEST_WORKSPACE_LINK,
+      definitionId: definition.id,
+      title: 'Thanh toán chi phí đi lại',
+      idempotencyKey: 'start-payee',
+    });
+    await application.applyAction(requester, started.id, {
+      action: 'complete',
+      idempotencyKey: 'submit-payee',
+      attributeValues: {
+        'process:so_tien': { type: 'money', value: 2_650_000 },
+        'process:nguoi_nhan': { type: 'text', value: 'Hà Nguyên Hoàng' },
+        'process:stk_nguoi_nhan': { type: 'text', value: '0123456789' },
+        'process:ngan_hang_nguoi_nhan': { type: 'text', value: 'Vietcombank' },
+      },
+    });
+    await application.applyAction(manager, started.id, { action: 'approve', idempotencyKey: 'approve-payee' });
+    const after = (await store.read(requester.tenantId)).instances;
+
+    expect(financeStepEvents(before, after)[0]?.payload).toMatchObject({
+      values: {
+        amount: 2_650_000,
+        counterpartyName: 'Hà Nguyên Hoàng',
+        counterpartyAccountNo: '0123456789',
+        counterpartyBank: 'Vietcombank',
+      },
+    });
   });
 
   it('không ai hoàn thành được bước bằng tay, kể cả quản trị; vẫn trả về được', async () => {
