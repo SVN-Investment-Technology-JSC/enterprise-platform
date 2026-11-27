@@ -51,7 +51,7 @@ import {
 import { sameUnread } from '../chat.model';
 import type { OverviewTab } from '../overview-tabs';
 import { procedureProgressToWrite } from '../procedure-progress-pull';
-import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
+import { branchOf, mergeNewProjectMembers, parentCandidateOptions, reopenChainForMove } from '../project-tree.model';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -1920,10 +1920,18 @@ export function ProjectsView({
         item={moving}
         items={detail?.items ?? []}
         onClose={() => setMoving(undefined)}
-        onMove={async (parentId) => {
+        onMove={async (parentId, reopenParent) => {
           if (!moving) return;
+          const reopened = reopenChainForMove(detail?.items ?? [], moving, parentId);
           // Lỗi ném ra để hộp thoại tự hiện.
-          await api.moveWorkItem(moving.id, { parentId });
+          await api.moveWorkItem(moving.id, { parentId, reopenParent: reopenParent || undefined });
+          if (reopened.length > 0) {
+            toast.success(
+              `Đã chuyển ${moving.code} và mở lại ${reopened.map((node) => node.code).join(', ')} về "Đang làm"; tiến độ được tính lại và người thực hiện đã được thông báo.`,
+            );
+          } else {
+            toast.success(`Đã chuyển ${moving.code}.`);
+          }
           if (openId) await refreshDetail(openId);
         }}
       />

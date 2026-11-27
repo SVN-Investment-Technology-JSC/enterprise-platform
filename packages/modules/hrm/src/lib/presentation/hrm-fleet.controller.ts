@@ -1,8 +1,10 @@
 import type { SaveFleetDriverRequest, SaveFleetVehicleRequest } from '@enterprise-platform/contracts-hrm';
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseInterceptors } from '@nestjs/common';
 import type { Request } from 'express';
 import { HrmContextService } from '../infrastructure/hrm-context.service.js';
 import {
+  deleteDriver,
+  deleteVehicle,
   findAvailability,
   listBookings,
   listDrivers,
@@ -43,6 +45,13 @@ export class HrmFleetController {
     return { data: await hrmTransaction(pool, (db) => saveVehicle(db, tenantId, requireUuid(id, 'id'), body ?? {})) };
   }
 
+  @Delete('vehicles/:id')
+  async removeVehicle(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
+    await hrmTransaction(pool, (db) => deleteVehicle(db, tenantId, requireUuid(id, 'id')));
+    return { data: { id } };
+  }
+
   @Get('drivers')
   async drivers(@Req() req: Request) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.read');
@@ -59,6 +68,13 @@ export class HrmFleetController {
   async updateDriver(@Req() req: Request, @Param('id') id: string, @Body() body: SaveFleetDriverRequest) {
     const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
     return { data: await hrmTransaction(pool, (db) => saveDriver(db, tenantId, requireUuid(id, 'id'), body ?? {})) };
+  }
+
+  @Delete('drivers/:id')
+  async removeDriver(@Req() req: Request, @Param('id') id: string) {
+    const { pool, tenantId } = await this.ctx.getContext(req, 'hrm.fleet.manage');
+    await hrmTransaction(pool, (db) => deleteDriver(db, tenantId, requireUuid(id, 'id')));
+    return { data: { id } };
   }
 
   @Get('bookings')

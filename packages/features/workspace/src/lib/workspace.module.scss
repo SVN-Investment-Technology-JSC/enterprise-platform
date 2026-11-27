@@ -12234,6 +12234,68 @@ th[data-column-id='select'] .columnResizeHandle {
   color: var(--ep-accent-strong, #d9ab00);
 }
 
+/* Dòng đích trong hộp thoại Di chuyển: nhãn bên trái, chip trạng thái của công việc đó bên phải. */
+.moveOptionRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Mục danh sách là hộp flex và bọc dòng này trong một <span>: cho span đó giãn hết bề ngang để chip nằm sát mép phải. */
+span:has(> .moveOptionRow) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.moveOptionLabel,
+.moveOptionParent {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Việc đang có việc con: chữ đậm để phân biệt với việc lá. */
+.moveOptionParent {
+  font-weight: 600;
+}
+
+/* Mũi tên nhánh trước tên việc con. */
+.moveOptionBranch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ep-text-muted, #6b7280);
+}
+
+.moveOptionTags {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Vai trong cây: Việc gốc / Việc cha · N con / Việc con, chữ nhỏ viền xám. */
+.moveOptionRole {
+  padding: 0 6px;
+  border: 1px solid var(--ep-border, #d4d4d8);
+  border-radius: 999px;
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.moveOptionStatus {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .columnResizeHandleActive::after {
   width: 3px;
   background: var(--ep-accent-strong, #d9ab00);

@@ -1,6 +1,6 @@
 'use client';
 
-import { Car, Pencil, Plus, Search } from 'lucide-react';
+import { Car, Pencil, Plus, Search, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { HrmFleetVehicle } from '@enterprise-platform/contracts-hrm';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
@@ -108,6 +108,16 @@ export default function FleetVehiclesScreen() {
     }
   }
 
+  async function remove(vehicle: HrmFleetVehicle) {
+    try {
+      await hrmFetch(`/fleet/vehicles/${vehicle.id}`, { method: 'DELETE' });
+      toast.success(`Đã xóa xe ${vehicle.plateNo}.`);
+      await load();
+    } catch (error) {
+      toast.error(errorText(error));
+    }
+  }
+
   return (
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
@@ -192,6 +202,20 @@ export default function FleetVehiclesScreen() {
                       Kích hoạt lại
                     </Button>
                   )}
+                  <Popconfirm
+                    title={`Xóa xe ${vehicle.plateNo}?`}
+                    description="Xe bị ẩn khỏi danh mục. Lịch đã chạy giữ nguyên để tra cứu. Không xóa được khi xe còn lịch chưa kết thúc."
+                    okText="Xóa"
+                    cancelText="Không"
+                    okType="danger"
+                    placement="top-end"
+                    onConfirm={() => remove(vehicle)}
+                  >
+                    <Button variant="outline" permission="hrm.fleet.manage" className="h-9 gap-1.5 border-red-200 px-3 text-xs text-red-600 hover:bg-red-50">
+                      <Trash2 className="size-3.5" aria-hidden />
+                      Xóa
+                    </Button>
+                  </Popconfirm>
                 </div>
               </li>
             ))}

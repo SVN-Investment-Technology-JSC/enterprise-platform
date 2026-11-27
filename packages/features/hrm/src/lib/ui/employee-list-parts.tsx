@@ -79,8 +79,6 @@ export function EmployeeStatCards({
         tone="bg-blue-50 text-blue-600"
         label="Tổng nhân sự"
         value={stats.total}
-        note={stats.joinedThisMonth > 0 ? `+${stats.joinedThisMonth} vào làm trong tháng` : undefined}
-        noteTone="text-emerald-600"
       />
       <StatCard
         testId="employee-stat-active"

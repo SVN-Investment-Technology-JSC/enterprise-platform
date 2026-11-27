@@ -633,6 +633,26 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceId: `${id(payload, 'workItemId')}:${event.id}`,
     }),
   }),
+  directPolicy({
+    eventType: 'workspace.work-item.reopened',
+    module: 'workspace',
+    category: 'result',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => ({
+      title: 'Công việc được mở lại',
+      body: `${text(payload, 'code', '')} · ${text(payload, 'title', 'Một công việc')}: ${text(
+        payload,
+        'reason',
+        'Công việc đã hoàn thành được chuyển về "Đang làm".',
+      )}`,
+      deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
+      sourceType: 'workspace_work_item_reopened',
+      // Một việc có thể bị mở lại nhiều lần, mỗi lần là một thông báo riêng.
+      sourceId: `${id(payload, 'workItemId')}:${event.id}`,
+    }),
+  }),
   ...(
     [
       ['assigned', 'assignment', 'actionable', 'Bạn được giao việc ngoài dự án'],

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Table, type TableColumnsType } from 'antd';
 import { Popconfirm, formatDate } from '@enterprise-platform/shared-ui';
-import { Undo2 } from 'lucide-react';
+import { SlidersHorizontal, Undo2 } from 'lucide-react';
 import type {
   HrmLeaveBalanceListItem,
   HrmLeaveTransaction,
@@ -11,8 +11,10 @@ import { hrmFetch } from '../hrm-api';
 import { useHrmPermissions } from '../hrm-permissions';
 import { Badge } from './badge';
 import { Button } from './button';
+import { Input } from './input';
 import {
   formatLeaveNumber,
+  leaveBalanceFigures,
   leaveTransactionLabels,
 } from './leave-ledger-format';
 import {
@@ -51,6 +53,12 @@ export function LeaveBalanceHistoryDrawer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const loadSeq = useRef(0);
+  const [adjusting, setAdjusting] = useState(false);
+  const [adjustDays, setAdjustDays] = useState('');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjustBusy, setAdjustBusy] = useState(false);
+  const [adjustError, setAdjustError] = useState('');
+  const [operationId, setOperationId] = useState(() => crypto.randomUUID());
 
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
@@ -92,6 +100,47 @@ export function LeaveBalanceHistoryDrawer({
       await Promise.all([load(), onChanged()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không đảo được điều chỉnh');
+    }
+  };
+
+  const closeAdjust = () => {
+    setAdjusting(false);
+    setAdjustDays('');
+    setAdjustReason('');
+    setAdjustError('');
+  };
+
+  const submitAdjust = async () => {
+    const days = Number(adjustDays.replace(',', '.'));
+    if (!Number.isFinite(days) || days === 0) {
+      setAdjustError('Số ngày điều chỉnh phải khác 0');
+      return;
+    }
+    if (!adjustReason.trim()) {
+      setAdjustError('Cần nhập ghi chú');
+      return;
+    }
+    setAdjustBusy(true);
+    setAdjustError('');
+    try {
+      await hrmFetch('/leave-adjustments', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeId,
+          leaveTypeId,
+          year,
+          daysAdjusted: days,
+          reason: adjustReason.trim(),
+          operationId,
+        }),
+      });
+      setOperationId(crypto.randomUUID());
+      closeAdjust();
+      await Promise.all([load(), onChanged()]);
+    } catch (e) {
+      setAdjustError(e instanceof Error ? e.message : 'Không điều chỉnh được quỹ phép');
+    } finally {
+      setAdjustBusy(false);
     }
   };
 
@@ -215,6 +264,7 @@ export function LeaveBalanceHistoryDrawer({
       : []),
   ];
 
+  const figures = leaveBalanceFigures(balance);
   const hasPolicyInfo =
     balance.entitledToDate != null || balance.advanceAllowed;
 
@@ -235,10 +285,10 @@ export function LeaveBalanceHistoryDrawer({
           </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto p-5 text-xs">
-          {/* Khu vực tổng quan: Thông tin chính sách (bên trái) và 4 chỉ số quỹ gom trong 1 card (bên phải) */}
+          {/* Khu vực tổng quan: Thông tin chính sách (bên trái) và 5 chỉ số quỹ gom trong 1 card (bên phải) */}
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-12">
             {hasPolicyInfo && (
-              <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:col-span-5">
+              <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:col-span-12">
                 <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   Thông tin theo chính sách
                 </span>
@@ -283,56 +333,111 @@ export function LeaveBalanceHistoryDrawer({
               </div>
             )}
 
-            {/* 4 chỉ số quỹ gom thành 1 card duy nhất */}
+            {/* 5 chỉ số quỹ gom thành 1 card duy nhất */}
             <div
-              className={`flex flex-col justify-center rounded-xl border border-slate-200 bg-white p-3 shadow-2xs ${
-                hasPolicyInfo ? 'sm:col-span-7' : 'sm:col-span-12'
-              }`}
+              className="flex flex-col justify-center rounded-xl border border-slate-200 bg-white p-3 shadow-2xs sm:col-span-12"
             >
-              <div className="grid grid-cols-4 divide-x divide-slate-100 text-center">
-                <div className="px-1.5">
-                  <span className="block text-[11px] font-medium text-slate-500">
-                    Tổng quỹ năm
-                  </span>
-                  <strong className="mt-1 block text-sm font-bold text-slate-900 sm:text-base">
-                    {formatLeaveNumber(balance.entitlement)}
-                  </strong>
-                </div>
-                <div className="px-1.5">
-                  <span className="block text-[11px] font-medium text-slate-500">
-                    Đã dùng
-                  </span>
-                  <strong className="mt-1 block text-sm font-bold text-slate-900 sm:text-base">
-                    {formatLeaveNumber(balance.used)}
-                  </strong>
-                </div>
-                <div className="px-1.5">
-                  <span className="block text-[11px] font-medium text-slate-500">
-                    Chờ duyệt
-                  </span>
-                  <strong className="mt-1 block text-sm font-bold text-slate-900 sm:text-base">
-                    {formatLeaveNumber(balance.pending)}
-                  </strong>
-                </div>
-                <div className="px-1.5">
-                  <span className="block text-[11px] font-medium text-slate-500">
-                    Có thể dùng
-                  </span>
-                  <strong
-                    className={`mt-1 block text-sm font-bold sm:text-base ${
-                      balance.remaining < 0
-                        ? 'text-red-600'
-                        : balance.remaining === 0
-                          ? 'text-amber-600'
-                          : 'text-emerald-600'
-                    }`}
-                  >
-                    {formatLeaveNumber(balance.remaining)}
-                  </strong>
-                </div>
+              <div className="grid grid-cols-5 divide-x divide-slate-100 text-center">
+                {(
+                  [
+                    ['Còn tồn', figures.stock, true],
+                    ['Đã dùng', figures.used, false],
+                    ['Có thể ứng', figures.advance, false],
+                    ['Tổng', figures.total, true],
+                    ['Đã điều chỉnh', figures.adjusted, false],
+                  ] as const
+                ).map(([label, value, tone]) => (
+                  <div key={label} className="px-1.5">
+                    <span className="block text-[11px] font-medium text-slate-500">
+                      {label}
+                    </span>
+                    <strong
+                      className={`mt-1 block text-sm font-bold sm:text-base ${
+                        !tone
+                          ? 'text-slate-900'
+                          : value < 0
+                            ? 'text-red-600'
+                            : value === 0
+                              ? 'text-amber-600'
+                              : 'text-emerald-600'
+                      }`}
+                    >
+                      {label === 'Đã điều chỉnh' ? signedDays(value) : formatLeaveNumber(value)}
+                    </strong>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
+          {canManage && (
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              {adjusting ? (
+                <form
+                  className="space-y-2.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void submitAdjust();
+                  }}
+                >
+                  <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Điều chỉnh quỹ phép
+                  </span>
+                  {balance.hasBalance === false && (
+                    <p className="text-slate-500">
+                      Nhân viên chưa có quỹ phép của năm này; điều chỉnh sẽ tạo quỹ.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[140px_1fr]">
+                    <label className="space-y-1">
+                      <span className="block font-medium text-slate-600">
+                        Số ngày (+ cộng, - trừ)
+                      </span>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        aria-label="Số ngày (+ cộng, - trừ)"
+                        className="h-9 text-xs"
+                        value={adjustDays}
+                        onChange={(e) => setAdjustDays(e.target.value)}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="block font-medium text-slate-600">Ghi chú</span>
+                      <Input
+                        aria-label="Ghi chú"
+                        className="h-9 text-xs"
+                        value={adjustReason}
+                        onChange={(e) => setAdjustReason(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  {adjustError && (
+                    <p role="alert" className="font-semibold text-red-700">
+                      {adjustError}
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={adjustBusy} onClick={closeAdjust}>
+                      Hủy
+                    </Button>
+                    <Button type="submit" size="sm" disabled={adjustBusy}>
+                      {adjustBusy ? 'Đang lưu…' : 'Lưu điều chỉnh'}
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-500">
+                    Cộng hoặc trừ ngày phép thủ công; mọi điều chỉnh được ghi vào lịch sử bên dưới.
+                  </span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setAdjusting(true)}>
+                    <SlidersHorizontal className="size-3.5" />
+                    Điều chỉnh
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
           {error && (
             <p
               role="alert"

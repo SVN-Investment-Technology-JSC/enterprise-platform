@@ -1093,6 +1093,11 @@ export interface ChangeWorkItemStatusRequest {
 export interface MoveWorkItemRequest {
   readonly parentId?: string | null;
   readonly sortOrder?: number;
+  /**
+   * Chuyển việc chưa xong vào cha đã hoàn thành: `true` là đồng ý mở lại cha (và các cha đã xong phía trên) về "Đang làm",
+   * tính lại tiến độ và báo cho người thực hiện; vắng thì server từ chối bằng `PARENT_ITEM_DONE`.
+   */
+  readonly reopenParent?: boolean;
 }
 
 /* =========================================================================

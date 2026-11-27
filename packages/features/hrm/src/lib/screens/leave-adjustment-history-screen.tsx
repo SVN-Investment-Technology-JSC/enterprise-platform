@@ -41,7 +41,7 @@ interface HistoryRow {
   readonly note: string | null;
   readonly actorLabel: string | null;
   readonly actorEmail: string | null;
-  /** Nguồn import Excel (chỉ quỹ nghỉ bù). */
+  /** Dòng sinh ra từ import Excel (quỹ phép năm và quỹ nghỉ bù). */
   readonly imported: boolean;
   /** Cộng quỹ nghỉ bù khi chốt công tháng (không phải điều chỉnh tay). */
   readonly closing: boolean;
@@ -69,7 +69,7 @@ const fromLeave = (r: HrmLeaveTransaction): HistoryRow => ({
   note: r.note ?? null,
   actorLabel: r.actorLabel ?? null,
   actorEmail: r.actorEmail ?? null,
-  imported: false,
+  imported: Boolean(r.operationKey?.startsWith('import:')),
   closing: false,
   closingMonth: null,
 });
