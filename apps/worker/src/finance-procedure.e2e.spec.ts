@@ -159,12 +159,17 @@ integration('Tài chính ↔ Quy trình: bước Tài chính chạy xuyên modul
 
   /** Mở hồ sơ, nhập số tiền, trưởng phòng duyệt, relay → Tài chính đã tạo phiếu. */
   async function requestPayment(amount: number, options: { project?: boolean } = {}) {
-    const started = await procedure.startInstance(requester, {
-      definitionId: definition.id,
-      title: 'Thanh toán tiền điện tháng 10',
-      idempotencyKey: randomUUID(),
-      ...(options.project ? { workspaceLink: { projectId: PROJECT.id, projectCode: PROJECT.code } } : {}),
-    });
+    // Không gắn dự án: dựng hồ sơ cũ (trước luật bắt buộc chọn dự án) bằng cờ nội bộ `projectOptional`.
+    const started = await procedure.startInstance(
+      requester,
+      {
+        definitionId: definition.id,
+        title: 'Thanh toán tiền điện tháng 10',
+        idempotencyKey: randomUUID(),
+        ...(options.project ? { workspaceLink: { projectId: PROJECT.id, projectCode: PROJECT.code } } : {}),
+      },
+      options.project ? undefined : { projectOptional: true },
+    );
     await procedure.applyAction(requester, started.id, {
       action: 'complete',
       idempotencyKey: randomUUID(),
@@ -291,7 +296,7 @@ integration('Tài chính ↔ Quy trình: bước Tài chính chạy xuyên modul
     }
   }, 60_000);
 
-  it('a) đề nghị gắn dự án: phiếu nháp khoá số tiền, hạch toán dự án; kế toán đúng chức danh ghi sổ; hồ sơ hoàn tất', async () => {
+  it('a) đề nghị gắn dự án: phiếu nháp hạch toán dự án, kế toán sửa được số tiền; kế toán đúng chức danh ghi sổ; hồ sơ hoàn tất', async () => {
     const { instanceId, voucherId } = await requestPayment(12_500_000, { project: true });
     expect(voucherId).not.toBe('');
     expect(current(await instance(instanceId))?.financeVoucher).toMatchObject({ state: 'linked', voucherId, amount: 12_500_000 });
@@ -301,15 +306,22 @@ integration('Tài chính ↔ Quy trình: bước Tài chính chạy xuyên modul
     expect(draft.allocation).toMatchObject({ type: 'PROJECT', projectId: PROJECT.id, projectCode: 'DA001' });
     expect(draft.source?.lockedFields).toEqual(expect.arrayContaining(['amount', 'allocation']));
 
-    // Client cố sửa số tiền / dòng chi tiết: server giữ nguyên số liệu từ hồ sơ.
-    const saved = await finance.updateVoucher(cashierA, voucherId, accountantInput());
-    expect(saved.totalAmount).toBe(12_500_000);
+    // Phiếu từ hồ sơ Quy trình: kế toán sửa được cả số tiền / dòng chi tiết (thanh toán thực tế khác đề nghị); dự án giữ nguyên.
+    const saved = await finance.updateVoucher(
+      cashierA,
+      voucherId,
+      accountantInput({
+        lines: [{ description: 'Thanh toán đợt 1', quantity: 1, unitAmount: 12_000_000, total: 12_000_000 }],
+        allocation: { type: 'PROJECT', projectId: PROJECT.id },
+      } as Partial<VoucherInput>),
+    );
+    expect(saved.totalAmount).toBe(12_000_000);
     expect(saved.allocation?.projectId).toBe(PROJECT.id);
 
     const before = await balance();
     const posted = await finance.postSourced(cashierA, voucherId, {});
     expect(posted).toMatchObject({ status: 'APPROVED', code: expect.stringMatching(/^PC-\d{4}-\d{4}$/) });
-    expect(await balance()).toBe(before - 12_500_000);
+    expect(await balance()).toBe(before - 12_000_000);
 
     await relay();
     const done = await instance(instanceId);
@@ -385,7 +397,12 @@ integration('Tài chính ↔ Quy trình: bước Tài chính chạy xuyên modul
 
   it('e) huỷ hiệu lực hồ sơ đã ghi sổ: kỳ khoá sổ thì bị chặn; mở khoá thì phiếu được đảo và ĐÃ HUỶ', async () => {
     const { instanceId, voucherId } = await requestPayment(2_000_000);
-    await finance.updateVoucher(cashierA, voucherId, accountantInput());
+    // Kế toán giữ đúng số tiền đề nghị (phiếu từ quy trình sửa được số tiền, nên gửi lại đúng số).
+    await finance.updateVoucher(
+      cashierA,
+      voucherId,
+      accountantInput({ lines: [{ description: 'Chi tiền', quantity: 1, unitAmount: 2_000_000, total: 2_000_000 }] }),
+    );
     await finance.postSourced(cashierA, voucherId, {});
     await relay();
     expect((await instance(instanceId)).status).toBe('completed');

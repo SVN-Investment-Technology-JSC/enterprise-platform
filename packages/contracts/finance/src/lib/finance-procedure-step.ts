@@ -139,7 +139,10 @@ export interface FinanceStepCanActResponse {
 
 /* ----------------------------- Phiếu có nguồn ----------------------------- */
 
-/** Trường phiếu lấy từ hồ sơ và bị khoá trên form. */
+/**
+ * Trường phiếu lấy từ hồ sơ. Kế toán vẫn sửa được mọi trường này (kể cả số tiền: chi một phần từ tài khoản này, phần còn lại
+ * nhân bản sang phiếu khác); danh sách chỉ để biết trường nào sẽ được cập nhật lại khi hồ sơ quay lại bước Tài chính.
+ */
 export type FinanceSourceLockedField =
   | 'amount'
   | 'content'
@@ -198,7 +201,7 @@ export interface FinanceVoucherSource {
 
 /** Thao tác trên phiếu có nguồn. */
 export interface FinanceSourcedVoucherPermissions {
-  /** Sửa phần kế toán được nhập (tài khoản, lý do, ngày hạch toán, hoá đơn...). */
+  /** Sửa phiếu: phần kế toán (tài khoản, lý do, ngày hạch toán, hoá đơn...) và cả các trường lấy từ hồ sơ, trừ mã phiếu. */
   canEditSourced: boolean;
   canPost: boolean;
   canReturnSource: boolean;

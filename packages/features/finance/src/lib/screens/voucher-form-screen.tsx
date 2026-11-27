@@ -7,12 +7,16 @@ import { MODULE_EMBED_MESSAGE, postModuleEmbedMessage } from '@enterprise-platfo
 import { SearchableSelect, toast } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import {
+  FINANCE_SOURCE_MODULE_PROCEDURE,
   financeIncludedTax,
   financeLineTotal,
   financeLinesTotal,
+  financeMissingFields,
+  financeMissingFieldsMessage,
   type FinanceAccount,
   type FinanceAllocationType,
   type FinanceCatalogs,
+  type FinanceRequiredField,
   type FinanceSettings,
   type FinanceSourceLockedField,
   type FinanceVoucher,
@@ -22,7 +26,7 @@ import {
   type SaveFinanceVoucherRequest,
 } from '@enterprise-platform/contracts-finance';
 import { MAX_ATTACHMENTS, attachmentProblem, removeFinanceAttachment, uploadFinanceAttachment } from '../attachment-upload';
-import { financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
+import { FinanceApiError, financeErrorMessage, financeFetch, financePost, financePut, toQuery } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { money, todayVn } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
@@ -191,8 +195,15 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Đã lưu nháp nhưng chưa gửi duyệt / ghi sổ được vì còn thiếu trường bắt buộc: cảnh báo vàng, không phải lỗi. */
+  const [warning, setWarning] = useState<string | null>(null);
+  /** Đã bấm lưu ít nhất một lần: từ đó các ô bắt buộc còn trống được đánh dấu. */
+  const [showMissing, setShowMissing] = useState(false);
   const [locked, setLocked] = useState(false);
-  /** Phiếu tạo từ hồ sơ quy trình: kế toán chỉ nhập phần kế toán; trường lấy từ hồ sơ bị khoá. */
+  /**
+   * Phiếu có nguồn. Từ hồ sơ Quy trình: các trường điền sẵn từ hồ sơ vẫn sửa được hết (kể cả số tiền), chỉ mã phiếu cố định. Từ
+   * nguồn khác (lần thu của Bán hàng): trường lấy từ nguồn vẫn khoá vì số tiền đã phân bổ vào công nợ bên đó.
+   */
   const [source, setSource] = useState<FinanceVoucherSource | null>(null);
   const [savedFiles, setSavedFiles] = useState<FinanceVoucherAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -285,8 +296,10 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   }, []);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
-  /** Trường lấy từ hồ sơ quy trình (chỉ với phiếu có nguồn). Nội dung và dòng chi tiết luôn thuộc hồ sơ. */
-  const fromSource = (field: FinanceSourceLockedField) => Boolean(source && (field === 'content' || field === 'amount' || source.lockedFields.includes(field)));
+  /** Nguồn ngoài Quy trình (Bán hàng) mới khoá trường; nội dung và dòng chi tiết luôn thuộc nguồn đó. Phiếu từ hồ sơ Quy trình không khoá trường nào. */
+  const lockedSource = source && (source.sourceModule ?? FINANCE_SOURCE_MODULE_PROCEDURE) !== FINANCE_SOURCE_MODULE_PROCEDURE ? source : null;
+  const fromSource = (field: FinanceSourceLockedField) =>
+    Boolean(lockedSource && (field === 'content' || field === 'amount' || lockedSource.lockedFields.includes(field)));
   const patchLine = (key: number, patch: Partial<LineState>) =>
     setForm((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, ...patch } : line)) }));
 
@@ -315,11 +328,14 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     : projectsTruncated
       ? 'Danh sách dự án quá dài, chỉ hiện một phần; gõ mã dự án để lọc trong phần đang hiện.'
       : undefined;
+  // Quỹ tiền mặt lên đầu (phần lớn khoản thu chi là tiền mặt), sau đó giữ nguyên thứ tự tài khoản như danh sách trả về.
   const accountOptions = useMemo(
     () =>
       accounts
         .filter((a) => a.isActive)
-        .map((a) => ({
+        .map((a, index) => ({ a, index }))
+        .sort((x, y) => Number(y.a.accountType === 'CASH') - Number(x.a.accountType === 'CASH') || x.index - y.index)
+        .map(({ a }) => ({
           value: a.id,
           label: a.name,
           description: [a.accountType === 'CASH' ? 'Quỹ tiền mặt' : a.accountNumber, a.balance === null ? null : `Số dư ${money(a.balance)}`].filter(Boolean).join(' · '),
@@ -328,6 +344,27 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
   );
   const total = config.hasLines ? financeLinesTotal(form.lines) : form.amount;
   const includedTax = form.taxIncluded ? financeIncludedTax(total, form.taxRate) : 0;
+  const accountType = accounts.find((a) => a.id === form.accountId)?.accountType ?? null;
+  /** Trường bắt buộc còn thiếu, đúng luật máy chủ dùng khi gửi duyệt / duyệt ghi sổ (lưu nháp thì vẫn được). */
+  const missing: FinanceRequiredField[] = config.hasLines
+    ? financeMissingFields({
+        kind,
+        voucherDate: form.voucherDate,
+        postingDate: form.postingDate,
+        content: form.content,
+        totalAmount: total,
+        reasonId: form.reasonId,
+        accountId: form.accountId,
+        accountType,
+        counterpartyGroupId: form.counterpartyGroupId,
+        counterpartyName: form.counterpartyName,
+        counterpartyAccountNo: form.counterpartyAccountNo,
+        counterpartyBank: form.counterpartyBank,
+        hasAllocation: Boolean(form.allocProjectId),
+        allocationRequired: projectRequired,
+      })
+    : [];
+  const missingError = (field: FinanceRequiredField) => (showMissing && missing.includes(field) ? 'Chưa nhập: bắt buộc để duyệt ghi sổ' : null);
 
   /**
    * Lưu phiếu, tải các tệp đang chờ, rồi gửi duyệt nếu phiếu chưa sang trạng thái chờ duyệt. Tệp phải lên TRƯỚC khi gửi
@@ -343,6 +380,8 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
     }
     setSaving(true);
     setError(null);
+    setWarning(null);
+    setShowMissing(true);
     const body = buildRequest(kind, form, revision);
     try {
       const saved = savedId
@@ -369,8 +408,28 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
 
       if (source) {
         toast.success(`Đã lưu ${saved.code}`);
+        // Phiếu có nguồn còn thiếu trường: lưu được nhưng ở lại form, báo rõ trường cần bổ sung trước khi ghi sổ.
+        const left = saved.missingFields ?? missing;
+        if (left.length) {
+          setCode(saved.code);
+          setWarning(`Đã lưu ${saved.code}. Chưa ghi sổ được: ${financeMissingFieldsMessage(kind, left)} Bổ sung các ô được đánh dấu rồi lưu lại.`);
+          postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
+          return;
+        }
       } else {
-        if (saved.status !== 'PENDING') await financePost<FinanceVoucher>(`/vouchers/${saved.id}/submit`);
+        if (saved.status !== 'PENDING') {
+          try {
+            await financePost<FinanceVoucher>(`/vouchers/${saved.id}/submit`);
+          } catch (e) {
+            // Chưa đủ điều kiện gửi duyệt: phiếu đã lưu nháp; ở lại form, cảnh báo đúng các trường còn thiếu (máy chủ kiểm cùng luật).
+            if (!(e instanceof FinanceApiError && e.code === 'FINANCE_SUBMIT_INVALID')) throw e;
+            setCode(saved.code);
+            toast.success(`Đã lưu nháp ${saved.code}`);
+            setWarning(`Đã lưu nháp ${saved.code} nhưng chưa gửi duyệt được. ${financeErrorMessage(e)} Bổ sung các ô được đánh dấu rồi bấm Gửi duyệt lại.`);
+            postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
+            return;
+          }
+        }
         toast.success(`Đã gửi duyệt ${saved.code}`);
       }
       postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
@@ -431,7 +490,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
       type="button"
       variant="outline"
       disabled={saving}
-      onClick={() => router.push(embedded && id ? `${basePath}/${id}` : config.path)}
+      onClick={() => router.push(embedded && (id || fromId) ? `${basePath}/${id ?? fromId}` : config.path)}
     >
       Hủy bỏ
     </Button>
@@ -453,25 +512,33 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           }
         >
           <ErrorBanner message={error} />
+          {warning ? (
+            <div role="alert" aria-label="Phiếu còn thiếu thông tin" className="mt-4 whitespace-pre-line rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {warning}
+            </div>
+          ) : null}
           {source ? (
             <p role="note" className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
               Phiếu tạo từ hồ sơ {source.instanceCode}
-              {source.definitionName ? ` (${source.definitionName})` : ''}. Các trường có biểu tượng khoá lấy từ hồ sơ; muốn sửa thì trả hồ sơ về.
+              {source.definitionName ? ` (${source.definitionName})` : ''}.{' '}
+              {lockedSource
+                ? 'Các trường có biểu tượng khoá lấy từ hồ sơ; muốn sửa thì trả hồ sơ về.'
+                : 'Các trường điền sẵn từ hồ sơ vẫn sửa được, kể cả số tiền; chi một phần thì ghi sổ phiếu này rồi dùng Nhân bản để lập phiếu cho phần còn lại (cùng dự án hạch toán).'}
             </p>
           ) : null}
 
           <FormSection title="Thông tin chung">
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label={config.codeLabel}>{(fieldId) => <Input id={fieldId} value={code} disabled readOnly />}</Field>
-              <Field label={config.dateLabel} required locked={fromSource('voucherDate')}>
+              <Field label={config.dateLabel} required locked={fromSource('voucherDate')} missing={missingError('voucherDate')}>
                 {(fieldId) => <DatePickerInput id={fieldId} value={form.voucherDate} disabled={fromSource('voucherDate')} onChange={(value) => set('voucherDate', value)} />}
               </Field>
-              <Field label="Ngày hạch toán" required>
+              <Field label="Ngày hạch toán" required missing={missingError('postingDate')}>
                 {(fieldId) => <DatePickerInput id={fieldId} value={form.postingDate} onChange={(value) => set('postingDate', value)} />}
               </Field>
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label={config.contentLabel} required className="sm:col-span-2" locked={fromSource('content')}>
+              <Field label={config.contentLabel} required className="sm:col-span-2" locked={fromSource('content')} missing={missingError('content')}>
                 {(fieldId) => (
                   <Input id={fieldId} value={form.content} disabled={fromSource('content')} placeholder={config.contentPlaceholder} maxLength={500} onChange={(e) => set('content', e.target.value)} />
                 )}
@@ -479,13 +546,13 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
 
               {config.hasLines ? (
                 <>
-                  <Field label={config.reasonLabel} required>
+                  <Field label={config.reasonLabel} required missing={missingError('reason')}>
                     {(fieldId) => <SearchableSelect name={fieldId} options={reasonOptions} value={form.reasonId} onChange={(v) => set('reasonId', v)} placeholder={`Chọn ${config.reasonLabel.toLowerCase()}`} clearable height={32} />}
                   </Field>
-                  <Field label={config.accountLabel} required>
+                  <Field label={config.accountLabel} required missing={missingError('account')}>
                     {(fieldId) => <SearchableSelect name={fieldId} options={accountOptions} value={form.accountId} onChange={(v) => set('accountId', v)} placeholder={`Chọn ${config.accountLabel.toLowerCase()}`} clearable height={32} />}
                   </Field>
-                  <Field label={config.counterpartyLabel} required>
+                  <Field label={config.counterpartyLabel} required missing={missingError('counterpartyGroup')}>
                     {(fieldId) => <SearchableSelect name={fieldId} options={groupOptions} value={form.counterpartyGroupId} onChange={(v) => set('counterpartyGroupId', v)} placeholder={`Chọn ${config.counterpartyLabel.toLowerCase()}`} clearable height={32} />}
                   </Field>
                   <Field label={config.personLabel} locked={fromSource('counterpartyName')}>
@@ -493,7 +560,10 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                       <Input id={fieldId} value={form.counterpartyName} disabled={fromSource('counterpartyName')} maxLength={255} onChange={(e) => set('counterpartyName', e.target.value)} />
                     )}
                   </Field>
-                  <Field label={config.personAccountLabel} locked={fromSource('counterpartyAccountNo')}>
+                  <Field
+                    label={config.personAccountLabel}
+                    locked={fromSource('counterpartyAccountNo')}
+                  >
                     {(fieldId) => (
                       <Input id={fieldId} value={form.counterpartyAccountNo} disabled={fromSource('counterpartyAccountNo')} maxLength={60} onChange={(e) => set('counterpartyAccountNo', e.target.value)} />
                     )}
@@ -507,6 +577,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                     label="Hạch toán nội bộ (dự án)"
                     required={projectRequired}
                     locked={fromSource('allocation')}
+                    missing={missingError('allocation')}
                     hint={
                       workspaceHint ??
                       (projectRequired
@@ -615,6 +686,9 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                   )}
                   <div className="text-right text-sm">
                     <div className="font-semibold text-slate-900">Tổng tiền: <span data-testid="voucher-total" className="tabular-nums">{money(total)}</span></div>
+                    {missingError('amount') ? (
+                      <p className="text-xs font-medium text-amber-700">Số tiền phải lớn hơn 0 để duyệt ghi sổ</p>
+                    ) : null}
                     {form.taxIncluded ? <div className="text-xs text-slate-500">Trong đó thuế: {money(includedTax)}</div> : null}
                   </div>
                 </div>

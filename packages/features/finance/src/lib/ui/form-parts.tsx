@@ -13,6 +13,7 @@ export function Field({
   label,
   required,
   error,
+  missing,
   hint,
   className,
   locked,
@@ -20,7 +21,9 @@ export function Field({
 }: {
   label: string;
   required?: boolean;
-  /** Trường lấy từ hồ sơ quy trình: hiện biểu tượng khoá, người dùng không sửa được. */
+  /** Ô bắt buộc còn trống sau khi bấm lưu: đánh dấu nhãn và ghi chú màu vàng (lưu nháp vẫn được, chỉ chưa duyệt được). */
+  missing?: string | null;
+  /** Trường lấy từ nguồn ngoài Quy trình (lần thu của Bán hàng): hiện biểu tượng khoá, người dùng không sửa được. Phiếu từ hồ sơ Quy trình thì không khoá. */
   locked?: boolean;
   error?: string | null;
   hint?: string;
@@ -30,7 +33,7 @@ export function Field({
   const id = useId();
   return (
     <div className={cn('flex min-w-0 flex-col gap-1', className)}>
-      <label htmlFor={id} className="text-xs font-medium text-slate-600">
+      <label htmlFor={id} className={cn('text-xs font-medium', missing ? 'text-amber-700' : 'text-slate-600')}>
         {label}
         {required ? <span className="ml-0.5 text-red-500" aria-hidden>*</span> : null}
         {locked ? (
@@ -44,6 +47,8 @@ export function Field({
         <p role="alert" className="text-xs text-red-600">
           {error}
         </p>
+      ) : missing ? (
+        <p className="text-xs font-medium text-amber-700">{missing}</p>
       ) : hint ? (
         <p className="text-xs text-slate-500">{hint}</p>
       ) : null}

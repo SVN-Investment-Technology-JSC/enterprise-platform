@@ -4,7 +4,7 @@ import type { FinanceCapabilities, FinanceVoucher, FinanceVoucherList, FinanceVo
 import { installAntdEnv } from '../../test-support/antd-env';
 import { financeDelete, financeFetch, financePost, financePut } from '../finance-api';
 import { monthLabel, monthRange, shiftMonth, todayVn } from '../finance-format';
-import VoucherListScreen, { initialMonth } from './voucher-list-screen';
+import VoucherListScreen, { bulkApproveBlockReason, initialMonth } from './voucher-list-screen';
 
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({
@@ -89,10 +89,8 @@ describe('Danh sách phiếu thu', () => {
     render(<VoucherListScreen kind="RECEIPT" />);
     expect(screen.getByRole('heading', { name: 'Danh sách phiếu thu' })).toBeTruthy();
     expect(await screen.findByText('PT-2610-0001')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Tất cả (2)' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Chờ duyệt (1)' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Đã duyệt (1)' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'Nháp (0)' })).toBeTruthy();
+    // Chỉ hai trạng thái hiển thị: phiếu chờ duyệt tính vào "Nháp"; không còn tab Chờ duyệt, Từ chối, Đã huỷ.
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Tất cả (2)', 'Nháp (1)', 'Đã duyệt (1)']);
     expect(screen.getByText('Hiển thị 1-2 / 2 bản ghi')).toBeTruthy();
     expect(screen.getByText('Đã duyệt', { selector: 'span' })).toBeTruthy();
   });
@@ -100,8 +98,8 @@ describe('Danh sách phiếu thu', () => {
   it('đổi tab gửi trạng thái lên máy chủ và về trang 1; từ khoá tìm kiếm được gửi sau khi dừng gõ', async () => {
     render(<VoucherListScreen kind="RECEIPT" />);
     await screen.findByText('PT-2610-0001');
-    fireEvent.click(screen.getByRole('tab', { name: 'Chờ duyệt (1)' }));
-    await waitFor(() => expect(paths().some((p) => p.includes('status=PENDING') && p.includes('kind=RECEIPT') && p.includes('page=1'))).toBe(true));
+    fireEvent.click(screen.getByRole('tab', { name: 'Nháp (1)' }));
+    await waitFor(() => expect(paths().some((p) => p.includes('status=DRAFT') && p.includes('kind=RECEIPT') && p.includes('page=1'))).toBe(true));
     fireEvent.change(screen.getByLabelText('Tìm phiếu'), { target: { value: 'ABC' } });
     await waitFor(() => expect(paths().some((p) => p.includes('search=ABC'))).toBe(true));
   });
@@ -165,7 +163,9 @@ describe('Danh sách phiếu thu', () => {
       ) as never;
     });
     render(<VoucherListScreen kind="RECEIPT" />);
-    expect(await screen.findByText('DA001 - Trạm biến áp Đà Nẵng')).toBeTruthy();
+    // Hạch toán chỉ hiện mã dự án cho gọn; tên đầy đủ khi rê chuột.
+    expect((await screen.findByText('DA001')).getAttribute('title')).toBe('DA001 - Trạm biến áp Đà Nẵng');
+    expect(screen.queryByText('DA001 - Trạm biến áp Đà Nẵng')).toBeNull();
     fireEvent.click(await screen.findByPlaceholderText('Mọi dự án'));
     fireEvent.click(await screen.findByRole('option', { name: /DA001/ }));
     await waitFor(() => expect(paths().some((p) => p.includes('projectId=p1'))).toBe(true));
@@ -252,11 +252,11 @@ describe('Theo dõi theo tháng', () => {
     expect(screen.getByText('Tháng 2/2026')).toBeTruthy();
   });
 
-  it('thẻ tổng kết kỳ: tổng phiếu, đã duyệt, chờ duyệt kèm số tiền; nháp và bị từ chối gộp một thẻ', async () => {
+  it('thẻ tổng kết kỳ: tổng phiếu, đã duyệt và nháp (gồm chờ duyệt, bị từ chối) kèm số tiền', async () => {
     fetchMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/vouchers'))
         return {
-          ...list([summary({})], { APPROVED: 3, PENDING: 2, DRAFT: 1, REJECTED: 1, CANCELLED: 4 }),
+          ...list([summary({})], { APPROVED: 3, PENDING: 2, DRAFT: 1, REJECTED: 1 }),
           statusAmounts: { DRAFT: 10_000, PENDING: 250_000, APPROVED: 1_200_000, REJECTED: 5_000, CANCELLED: 999_999 },
         } as never;
       return [] as never;
@@ -264,13 +264,12 @@ describe('Theo dõi theo tháng', () => {
     render(<VoucherListScreen kind="PAYMENT" />);
     await screen.findByText('PT-2610-0001');
     const card = (id: string) => screen.getByTestId(`summary-${id}`);
-    expect(within(card('total')).getByText('11 phiếu')).toBeTruthy();
+    expect(within(card('total')).getByText('7 phiếu')).toBeTruthy();
     expect(within(card('approved')).getByText('3 phiếu')).toBeTruthy();
     expect(within(card('approved')).getByText('1.200.000')).toBeTruthy();
-    expect(within(card('pending')).getByText('2 phiếu')).toBeTruthy();
-    expect(within(card('pending')).getByText('250.000')).toBeTruthy();
-    expect(within(card('open')).getByText('2 phiếu')).toBeTruthy();
-    expect(within(card('open')).getByText('15.000')).toBeTruthy();
+    expect(screen.queryByTestId('summary-pending')).toBeNull();
+    expect(within(card('open')).getByText('4 phiếu')).toBeTruthy();
+    expect(within(card('open')).getByText('265.000')).toBeTruthy();
   });
 });
 
@@ -333,8 +332,8 @@ describe('Menu chuột phải trên danh sách', () => {
     render(<VoucherListScreen kind="RECEIPT" />);
     await openMenuFor();
     expect(await screen.findByRole('menuitem', { name: 'Sửa' })).toBeTruthy();
-    expect(await screen.findByRole('menuitem', { name: 'Xoá' })).toBeTruthy();
-    expect(screen.queryByRole('menuitem', { name: 'Duyệt' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Xoá' })).toBeNull(); // Huỷ thay cho Xoá
+    expect(screen.queryByRole('menuitem', { name: /Duyệt ghi sổ/ })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Huỷ' })).toBeNull();
     // Nhân bản luôn hiện khi có quyền lập loại phiếu này (mockCapabilities.receipt.create = true).
     expect(screen.getByRole('menuitem', { name: 'Nhân bản' })).toBeTruthy();
@@ -350,47 +349,66 @@ describe('Menu chuột phải trên danh sách', () => {
     expect(mockPush).toHaveBeenCalledWith('/receipts/new?from=v1');
   });
 
-  it('Xoá: xác nhận rồi gọi xoá phiếu và tải lại danh sách', async () => {
-    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canDelete: true } }));
-    deleteMock.mockResolvedValue(undefined as never);
+  it('Huỷ: chạy ngay không hỏi xác nhận hay lý do (xoá phiếu), rồi tải lại danh sách', async () => {
+    withVoucherDetail(voucherDetail({ status: 'DRAFT', permissions: { ...NONE, canCancel: true } }));
+    postMock.mockResolvedValue({ id: 'v1', code: 'NHAP_PT_2610_0001', deleted: true } as never);
     render(<VoucherListScreen kind="RECEIPT" />);
     await openMenuFor();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Xoá' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Xoá' }));
-    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/vouchers/v1'));
-  });
-
-  it('Huỷ: bắt buộc nhập lý do mới xác nhận được', async () => {
-    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canCancel: true } }));
-    postMock.mockResolvedValue({} as never);
-    render(<VoucherListScreen kind="RECEIPT" />);
-    await openMenuFor();
+    const before = paths().filter((p) => p.startsWith('/vouchers?')).length;
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Huỷ' }));
-    const confirmBtn = (await screen.findByRole('button', { name: 'Huỷ phiếu' })) as HTMLButtonElement;
-    expect(confirmBtn.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText(/Lý do huỷ/), { target: { value: 'Nhập nhầm' } });
-    fireEvent.click(confirmBtn);
-    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/cancel', { note: 'Nhập nhầm' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/cancel', {}));
+    expect(screen.queryByRole('button', { name: 'Huỷ phiếu' })).toBeNull();
+    expect(screen.queryByLabelText(/Lý do huỷ/)).toBeNull();
+    await waitFor(() => expect(paths().filter((p) => p.startsWith('/vouchers?')).length).toBeGreaterThan(before));
+    expect(deleteMock).not.toHaveBeenCalled();
   });
 
-  it('Duyệt: gọi approve khi trực tiếp, procedure-action khi qua quy trình', async () => {
-    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canApprove: true }, approvalMode: 'DIRECT' }));
+  it('Duyệt ghi sổ: gọi approve khi trực tiếp (kể cả phiếu nháp)', async () => {
+    withVoucherDetail(voucherDetail({ status: 'DRAFT', permissions: { ...NONE, canApprove: true }, approvalMode: 'DIRECT' }));
     postMock.mockResolvedValue({} as never);
     render(<VoucherListScreen kind="RECEIPT" />);
     await openMenuFor();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt ghi sổ' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/approve', { note: undefined }));
   });
 
-  it('Duyệt qua quy trình: gọi procedure-action thay vì approve', async () => {
-    withVoucherDetail(voucherDetail({ permissions: { ...NONE, canApprove: true }, approvalMode: 'PROCEDURE' }));
+  it('Duyệt ghi sổ qua quy trình: gọi procedure-action thay vì approve', async () => {
+    withVoucherDetail(voucherDetail({ status: 'PENDING', permissions: { ...NONE, canApprove: true }, approvalMode: 'PROCEDURE' }));
     postMock.mockResolvedValue({} as never);
     render(<VoucherListScreen kind="RECEIPT" />);
     await openMenuFor();
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt ghi sổ' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
     await waitFor(() => expect(postMock.mock.calls.some(([path]) => path === '/vouchers/v1/procedure-action')).toBe(true));
+  });
+
+  it('Duyệt ghi sổ phiếu có nguồn (từ hồ sơ): ghi sổ kèm phiên bản đang xem', async () => {
+    withVoucherDetail(
+      voucherDetail({
+        status: 'DRAFT',
+        approvalMode: 'INHERITED',
+        revision: 4,
+        permissions: { ...NONE, sourced: { ...NONE.sourced, canPost: true } },
+      }),
+    );
+    postMock.mockResolvedValue({} as never);
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Duyệt ghi sổ' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/v1/post-sourced', { revision: 4 }));
+  });
+
+  it('chưa đủ thông tin: "Duyệt ghi sổ" hiện mờ kèm lý do, bấm không làm gì', async () => {
+    withVoucherDetail(voucherDetail({ status: 'DRAFT', permissions: { ...NONE, approveBlockedReason: 'Chưa đủ thông tin để duyệt ghi sổ: Chọn tài khoản thu.' } }));
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await openMenuFor();
+    const entry = await screen.findByRole('menuitem', { name: /Duyệt ghi sổ/ });
+    expect(entry.getAttribute('aria-disabled')).toBe('true');
+    expect(entry.getAttribute('title')).toContain('Chọn tài khoản thu.');
+    fireEvent.click(entry);
+    expect(postMock).not.toHaveBeenCalled();
   });
 });
 
@@ -416,7 +434,7 @@ describe('Duyệt hàng loạt và cột hiển thị', () => {
     });
   });
 
-  it('chỉ chọn được phiếu chờ duyệt trực tiếp; duyệt các phiếu đã chọn một lượt và báo phiếu lỗi', async () => {
+  it('chỉ chọn được phiếu nháp duyệt trực tiếp (chưa ghi sổ); duyệt các phiếu đã chọn một lượt và báo phiếu lỗi', async () => {
     postMock.mockResolvedValue({ approved: [{ id: 'p1', code: 'PC-2610-0010' }], failed: [{ id: 'p2', code: 'NHAP_PC_2610_0002', message: 'Không được tự duyệt phiếu do mình lập.' }] } as never);
     render(<VoucherListScreen kind="PAYMENT" />);
     await screen.findByText('NHAP_PC_2610_0001');
@@ -425,11 +443,62 @@ describe('Duyệt hàng loạt và cột hiển thị', () => {
     fireEvent.click(screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0001'));
     fireEvent.click(screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0002'));
     const bar = screen.getByRole('region', { name: 'Duyệt hàng loạt' });
-    expect(within(bar).getByText('Đã chọn 2 phiếu chờ duyệt')).toBeTruthy();
+    expect(within(bar).getByText('Đã chọn 2 phiếu nháp')).toBeTruthy();
     fireEvent.click(within(bar).getByRole('button', { name: /Duyệt 2 phiếu/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
     await waitFor(() => expect(postMock).toHaveBeenCalledWith('/vouchers/bulk-approve', { ids: ['p1', 'p2'] }));
     expect((await screen.findByRole('alert')).textContent).toContain('NHAP_PC_2610_0002: Không được tự duyệt phiếu do mình lập.');
+  });
+
+  it('phiếu biết chắc không duyệt được thì không chọn được, rê chuột thấy lý do; phiếu bị bỏ qua hiện thành danh sách kèm lý do', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/preferences/list-columns/PAYMENT')) return { listKey: 'PAYMENT', columns: null } as never;
+      if (path.startsWith('/vouchers'))
+        return list(
+          [
+            summary({ id: 'm1', code: 'NHAP_PC_2610_0011', kind: 'PAYMENT', status: 'DRAFT', officialCode: null, missingFields: ['account', 'counterpartyName'] }),
+            summary({ id: 's1', code: 'NHAP_PC_2610_0012', kind: 'PAYMENT', status: 'DRAFT', officialCode: null, approvalMode: 'INHERITED', sourceCode: 'HS-01' }),
+            summary({ id: 'ok', code: 'NHAP_PC_2610_0013', kind: 'PAYMENT', status: 'DRAFT', officialCode: null, missingFields: [] }),
+          ],
+          { DRAFT: 3 },
+        ) as never;
+      return [] as never;
+    });
+    postMock.mockResolvedValue({
+      approved: [],
+      failed: [{ id: 'ok', code: 'NHAP_PC_2610_0013', reason: 'FORBIDDEN', message: 'Không được tự duyệt phiếu do mình lập.' }],
+    } as never);
+    render(<VoucherListScreen kind="PAYMENT" />);
+    await screen.findByText('NHAP_PC_2610_0011');
+    const missing = screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0011') as HTMLInputElement;
+    expect(missing.disabled).toBe(true);
+    expect(missing.closest('[title]')?.getAttribute('title') ?? missing.getAttribute('title')).toContain('Còn thiếu: Tài khoản chi, Người nhận tiền.');
+    // Phiếu từ hồ sơ quy trình đủ thông tin: chọn được, máy chủ ghi sổ qua đường của phiếu có nguồn.
+    expect((screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0012') as HTMLInputElement).disabled).toBe(false);
+    // Cột trạng thái báo phiếu còn thiếu thông tin.
+    expect(screen.getByRole('img', { name: 'Thiếu thông tin' }).getAttribute('title')).toBe('Còn thiếu: Tài khoản chi, Người nhận tiền.');
+    // Phiếu từ hồ sơ: không còn dòng "Từ hồ sơ ..." dưới mã, chỉ biểu tượng nhỏ kèm chú thích.
+    expect(screen.getByRole('img', { name: 'Từ hồ sơ HS-01' }).getAttribute('title')).toBe('Từ hồ sơ HS-01');
+    expect(screen.queryByText('Từ hồ sơ HS-01')).toBeNull();
+    fireEvent.click(screen.getByLabelText('Chọn phiếu NHAP_PC_2610_0013'));
+    fireEvent.click(within(screen.getByRole('region', { name: 'Duyệt hàng loạt' })).getByRole('button', { name: /Duyệt 1 phiếu/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Duyệt' }));
+    const report = await screen.findByRole('alert', { name: 'Kết quả duyệt hàng loạt' });
+    expect(report.textContent).toContain('Bỏ qua 1 phiếu chưa đủ điều kiện');
+    expect(report.textContent).toContain('NHAP_PC_2610_0013 (Không được duyệt): Không được tự duyệt phiếu do mình lập.');
+    // Đã bỏ chọn sau khi duyệt: thanh duyệt hàng loạt đóng lại.
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Duyệt hàng loạt' })).toBeNull());
+  });
+
+  it('lý do không chọn được để duyệt hàng loạt', () => {
+    expect(bulkApproveBlockReason(summary({ status: 'APPROVED' }))).toMatch(/đã duyệt/);
+    expect(bulkApproveBlockReason(summary({ status: 'DRAFT', approvalMode: 'INHERITED' }))).toBeNull();
+    expect(bulkApproveBlockReason(summary({ status: 'PENDING', approvalMode: 'PROCEDURE' }))).toMatch(/quy trình/);
+    expect(bulkApproveBlockReason(summary({ status: 'REJECTED', approvalMode: 'PROCEDURE' }))).toBeNull();
+    expect(bulkApproveBlockReason(summary({ status: 'DRAFT', kind: 'RECEIPT', missingFields: ['counterpartyName'] }))).toBe(
+      'Chưa đủ thông tin để duyệt. Còn thiếu: Người nộp tiền.',
+    );
+    expect(bulkApproveBlockReason(summary({ status: 'PENDING' }))).toBeNull();
   });
 
   it('không có quyền duyệt thì không có ô chọn', async () => {
@@ -452,13 +521,94 @@ describe('Duyệt hàng loạt và cột hiển thị', () => {
     expect(screen.getByRole('columnheader', { name: 'Số tiền' })).toBeTruthy();
     expect(screen.getByRole('columnheader', { name: 'Mã phiếu chi' })).toBeTruthy();
 
+    // Cột "Người tạo" thêm sau khi người dùng đã lưu bộ cột: vẫn hiện vì bộ đã lưu không nhắc tới nó.
+    expect(screen.getByRole('columnheader', { name: 'Người tạo' })).toBeTruthy();
+
     fireEvent.click(screen.getByRole('button', { name: 'Chọn cột hiển thị' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Người nhận tiền' }));
-    await waitFor(() => expect(putMock).toHaveBeenCalledWith('/preferences/list-columns/PAYMENT', { columns: ['code', 'person', 'project', 'amount'] }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith('/preferences/list-columns/PAYMENT', { columns: ['code', 'amount', 'person', 'project', 'created-by'] }),
+    );
     expect(screen.getByRole('columnheader', { name: 'Người nhận tiền' })).toBeTruthy();
+    // Bỏ chọn cột thêm sau: lưu dấu ẩn để cột không tự hiện lại.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Người tạo' }));
+    await waitFor(() =>
+      expect(putMock).toHaveBeenLastCalledWith('/preferences/list-columns/PAYMENT', { columns: ['code', 'amount', 'person', 'project', 'no-created-by'] }),
+    );
+    expect(screen.queryByRole('columnheader', { name: 'Người tạo' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Về mặc định' }));
     await waitFor(() => expect(putMock).toHaveBeenLastCalledWith('/preferences/list-columns/PAYMENT', { columns: null }));
     expect(screen.getByRole('columnheader', { name: 'Lý do chi' })).toBeTruthy();
+  });
+});
+
+describe('Sắp xếp, cột Người tạo và cách hiện chữ', () => {
+  beforeEach(() => {
+    try {
+      localStorage.removeItem('finance.voucher-list.cell-mode');
+    } catch {
+      /* bỏ qua */
+    }
+  });
+
+  it('cột Người tạo hiện avatar kèm họ tên', async () => {
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await screen.findByText('PT-2610-0001');
+    expect(screen.getByRole('columnheader', { name: 'Người tạo' })).toBeTruthy();
+    expect(screen.getAllByText('Nguyễn Văn An').length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText('Nguyễn Văn An').length).toBeGreaterThan(0); // avatar
+  });
+
+  it('bấm tiêu đề cột thì sắp xếp ở máy chủ: tăng dần, giảm dần, rồi về mặc định; đổi cách sắp xếp về trang 1', async () => {
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await screen.findByText('PT-2610-0001');
+    const header = () => screen.getByRole('columnheader', { name: /Số tiền/ });
+    fireEvent.click(header());
+    await waitFor(() => expect(paths().at(-1)).toContain('sort=amount&direction=asc'));
+    expect(paths().at(-1)).toContain('page=1');
+    fireEvent.click(header());
+    await waitFor(() => expect(paths().at(-1)).toContain('sort=amount&direction=desc'));
+    fireEvent.click(header());
+    await waitFor(() => expect(paths().at(-1)).not.toContain('sort='));
+    fireEvent.click(screen.getByRole('columnheader', { name: /Người tạo/ }));
+    await waitFor(() => expect(paths().at(-1)).toContain('sort=created-by&direction=asc'));
+  });
+
+  it('kéo mép tiêu đề cột để đổi bề ngang (không nhỏ hơn mức tối thiểu), nhớ theo loại phiếu; "Về mặc định" bỏ bề ngang đã kéo', async () => {
+    localStorage.removeItem('finance.voucher-list.widths.RECEIPT');
+    const { container } = render(<VoucherListScreen kind="RECEIPT" />);
+    await screen.findByText('PT-2610-0001');
+    const handle = container.querySelector('[data-column-resize="amount"]') as HTMLElement;
+    expect(handle).toBeTruthy();
+    const before = paths().length;
+    fireEvent.mouseDown(handle, { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: 160 });
+    fireEvent.mouseUp(window);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('finance.voucher-list.widths.RECEIPT') ?? '{}')).toEqual({ amount: 184 }));
+    // Kéo không kích hoạt sắp xếp.
+    expect(paths().slice(before).some((p) => p.includes('sort='))).toBe(false);
+    fireEvent.mouseDown(container.querySelector('[data-column-resize="amount"]') as HTMLElement, { clientX: 100 });
+    fireEvent.mouseMove(window, { clientX: -500 });
+    fireEvent.mouseUp(window);
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('finance.voucher-list.widths.RECEIPT') ?? '{}')).toEqual({ amount: 90 }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chọn cột hiển thị' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Độ rộng và vị trí cột về mặc định' }));
+    expect(localStorage.getItem('finance.voucher-list.widths.RECEIPT')).toBeNull();
+  });
+
+  it('mặc định xuống dòng để không mất chữ; chọn "Gọn một dòng" thì cắt kèm chú thích đủ chữ và nhớ lựa chọn', async () => {
+    const { unmount } = render(<VoucherListScreen kind="RECEIPT" />);
+    await screen.findByText('PT-2610-0001');
+    const contentCell = () => screen.getAllByText('Thu tiền hàng', { selector: 'td, td *' })[0].closest('td') as HTMLElement;
+    expect(contentCell().className).not.toContain('ant-table-cell-ellipsis');
+    fireEvent.click(screen.getByRole('button', { name: 'Chọn cột hiển thị' }));
+    fireEvent.click(await screen.findByRole('radio', { name: 'Gọn một dòng' }));
+    await waitFor(() => expect(contentCell().className).toContain('ant-table-cell-ellipsis'));
+    expect(localStorage.getItem('finance.voucher-list.cell-mode')).toBe('compact');
+    unmount();
+    render(<VoucherListScreen kind="RECEIPT" />);
+    await screen.findByText('PT-2610-0001');
+    expect(contentCell().className).toContain('ant-table-cell-ellipsis');
   });
 });
 

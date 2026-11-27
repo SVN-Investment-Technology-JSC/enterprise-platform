@@ -136,7 +136,7 @@ describe('Tài chính công bố đối tượng liên kết', () => {
   it('lệnh chuyển tiền: hai tài khoản, không có lý do hay đối tượng', () => {
     expect(voucherCandidate(transfer).hint).toBe('Quỹ tiền mặt → Vietcombank 0011 — 2026-11-20');
     const object = voucherObject(transfer);
-    expect(object.status).toBe('Chờ duyệt');
+    expect(object.status).toBe('Nháp'); // chỉ hai trạng thái hiển thị: chờ duyệt vẫn là "Nháp"
     const keys = object.fields.map((field) => field.key);
     expect(keys).toContain('destAccount');
     expect(keys).not.toContain('reason');

@@ -333,9 +333,10 @@ export async function financeDashboard(db: Db, tenantId: string, actor: FinanceA
   ).rows[0] as Row;
 
   const visibleAll = canReadAll(actor);
+  // Phiếu đã huỷ không hiện ở đâu cả (Huỷ là xoá; phiếu đã ghi sổ bị huỷ chỉ còn để sổ cái trỏ về).
   const recent = (
     await db.query(
-      `${VOUCHER_SELECT} WHERE v.tenant_id = $1 AND ($2::boolean OR v.created_by = $3 OR v.kind = ANY($4::text[]))
+      `${VOUCHER_SELECT} WHERE v.tenant_id = $1 AND v.status <> 'CANCELLED' AND ($2::boolean OR v.created_by = $3 OR v.kind = ANY($4::text[]))
         ORDER BY v.created_at DESC LIMIT 8`,
       [tenantId, visibleAll, actor.userId, kinds],
     )

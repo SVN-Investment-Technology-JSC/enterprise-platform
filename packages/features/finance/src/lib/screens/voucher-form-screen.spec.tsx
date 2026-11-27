@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { FinanceVoucher } from '@enterprise-platform/contracts-finance';
-import { financeFetch, financePost } from '../finance-api';
+import { financeFetch, financePost, financePut } from '../finance-api';
 import { MODULE_EMBED_MESSAGE } from '@enterprise-platform/feature-module-shell';
 import VoucherFormScreen, { allocationProblem, buildRequest } from './voucher-form-screen';
 
@@ -25,6 +25,7 @@ jest.mock('../finance-api', () => {
 
 const fetchMock = financeFetch as jest.MockedFunction<typeof financeFetch>;
 const postMock = financePost as jest.MockedFunction<typeof financePost>;
+const putMock = financePut as jest.MockedFunction<typeof financePut>;
 
 const CATALOGS = {
   reasons: [{ id: 'r1', kind: 'RECEIPT', code: 'THU', name: 'Thu tiền hàng', isActive: true, note: null }],
@@ -168,6 +169,45 @@ describe('Form tạo phiếu thu', () => {
     expect(alert.textContent).toContain('Chọn lý do thu.');
     expect(alert.textContent).toContain('Chọn tài khoản thu.');
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('còn thiếu trường bắt buộc: vẫn lưu nháp, cảnh báo đúng các trường còn thiếu, đánh dấu từng ô và ở lại form', async () => {
+    const { FinanceApiError } = jest.requireActual('../finance-api') as typeof import('../finance-api');
+    postMock
+      .mockResolvedValueOnce({ id: 'v1', code: 'NHAP_PT_2610_0005', revision: 1, status: 'DRAFT' } as never)
+      .mockRejectedValueOnce(
+        new FinanceApiError('Còn thiếu: Lý do thu, Tài khoản thu, Đối tượng thu.', 422, 'FINANCE_SUBMIT_INVALID', [
+          'Còn thiếu: Lý do thu, Tài khoản thu, Đối tượng thu.',
+        ]),
+      );
+    render(<VoucherFormScreen kind="RECEIPT" />);
+    await screen.findByDisplayValue('NHAP_PT_2610_0005');
+    // Chưa bấm lưu thì chưa đánh dấu ô nào.
+    expect(screen.queryByText('Chưa nhập: bắt buộc để duyệt ghi sổ')).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText('Nội dung thu'), { target: { value: 'Thu tiền hàng đợt 1' } });
+    fireEvent.change(screen.getByLabelText('Diễn giải dòng 1'), { target: { value: 'Hàng A' } });
+    fireEvent.change(screen.getByLabelText('Số tiền dòng 1'), { target: { value: '120000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    const warning = await screen.findByRole('alert', { name: 'Phiếu còn thiếu thông tin' });
+    expect(warning.textContent).toContain('Đã lưu nháp NHAP_PT_2610_0005 nhưng chưa gửi duyệt được.');
+    expect(warning.textContent).toContain('Còn thiếu: Lý do thu, Tài khoản thu, Đối tượng thu.');
+    // Ba ô còn trống được đánh dấu: lý do, tài khoản, đối tượng. Người nộp tiền không bắt buộc.
+    expect(screen.getAllByText('Chưa nhập: bắt buộc để duyệt ghi sổ')).toHaveLength(3);
+    expect(postMock.mock.calls.map(([path]) => path)).toEqual(['/vouchers', '/vouchers/v1/submit']);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('phiếu chi từ tài khoản ngân hàng: người nhận, số tài khoản, ngân hàng vẫn không bắt buộc', async () => {
+    mockPathname = '/modules/finance/payments/new';
+    render(<VoucherFormScreen kind="PAYMENT" />);
+    await screen.findByDisplayValue('NHAP_PT_2610_0005');
+    fireEvent.click(screen.getByPlaceholderText('Chọn tài khoản chi'));
+    fireEvent.click(await screen.findByRole('option', { name: /Vietcombank/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Gửi duyệt' }));
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    // Chỉ lý do, đối tượng, nội dung bị đánh dấu; người nhận, số tài khoản, ngân hàng để trống vẫn được.
+    expect(screen.getAllByText('Chưa nhập: bắt buộc để duyệt ghi sổ').length).toBe(3);
+    expect(screen.getByText('Số tiền phải lớn hơn 0 để duyệt ghi sổ')).toBeTruthy();
   });
 
   it('nhân bản (?from=id): điền sẵn dữ liệu phiếu nguồn, lấy mã mới và đặt lại ngày hôm nay, không copy tệp đính kèm', async () => {
@@ -388,7 +428,7 @@ describe('Form phiếu tạo từ hồ sơ quy trình', () => {
     permissions: { canEdit: false, sourced: { canEditSourced: true, canPost: true, canReturnSource: true, canTakeOver: false, canRetryReversal: false } },
   } as unknown as FinanceVoucher;
 
-  it('trường lấy từ hồ sơ bị khoá, dòng chi tiết chỉ xem, không có Lưu và gửi duyệt; phần kế toán vẫn nhập được', async () => {
+  it('mọi trường lấy từ hồ sơ đều sửa được, kể cả số tiền; chỉ mã phiếu chỉ đọc; Lưu gửi số tiền mới, không gửi duyệt', async () => {
     fetchMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/catalogs')) return CATALOGS as never;
       if (path.startsWith('/accounts')) return [] as never;
@@ -396,15 +436,26 @@ describe('Form phiếu tạo từ hồ sơ quy trình', () => {
       if (path === '/workspace/projects') return { items: PROJECTS, truncated: false } as never;
       throw new Error(`route lạ ${path}`);
     });
+    putMock.mockResolvedValue({ id: 'v9', code: 'NHAP_PT_2610_0009', revision: 4, status: 'DRAFT' } as never);
     render(<VoucherFormScreen kind="RECEIPT" id="v9" />);
     expect((await screen.findByRole('note')).textContent).toContain('PR-0009');
-    for (const input of screen.getAllByDisplayValue('Thu tiền hợp đồng')) expect((input as HTMLInputElement).disabled).toBe(true); // nội dung và diễn giải dòng
-    expect((screen.getByLabelText('Số tiền dòng 1') as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByRole('button', { name: /Thêm dòng/ })).toBeNull();
-    expect(screen.getByText('Dòng chi tiết và số tiền lấy từ hồ sơ')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Lưu và gửi duyệt' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Lưu' })).toBeTruthy();
-    expect(document.querySelector('.finance-note-prose')?.getAttribute('contenteditable')).toBe('true');
+    expect((screen.getByDisplayValue('NHAP_PT_2610_0009') as HTMLInputElement).disabled).toBe(true); // mã phiếu
+    for (const input of screen.getAllByDisplayValue('Thu tiền hợp đồng')) expect((input as HTMLInputElement).disabled).toBe(false); // nội dung và diễn giải dòng
+    const amount = screen.getByLabelText('Số tiền dòng 1') as HTMLInputElement;
+    expect(amount.disabled).toBe(false);
+    expect(screen.getByRole('button', { name: /Thêm dòng/ })).toBeTruthy();
+    expect(screen.queryByLabelText('Lấy từ hồ sơ')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Gửi duyệt' })).toBeNull();
+
+    // Hồ sơ đề nghị 2.000.000 nhưng chỉ chi 1.200.000 từ phiếu này; phần còn lại nhân bản sang phiếu khác.
+    fireEvent.change(amount, { target: { value: '1200000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu' }));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const [path, body] = putMock.mock.calls[0] as [string, { lines: { unitAmount: number }[]; revision: number }];
+    expect(path).toBe('/vouchers/v9');
+    expect(body.lines[0].unitAmount).toBe(1_200_000);
+    expect(body.revision).toBe(3);
+    expect(postMock).not.toHaveBeenCalled(); // phiếu có nguồn không gửi duyệt
   });
 
   it('không được nhập (không được giao bước): báo chỉ kế toán đang được giao mới nhập được', async () => {
@@ -417,6 +468,31 @@ describe('Form phiếu tạo từ hồ sơ quy trình', () => {
     });
     render(<VoucherFormScreen kind="RECEIPT" id="v9" />);
     expect((await screen.findByRole('alert')).textContent).toContain('chỉ kế toán đang được giao bước Tài chính');
+  });
+});
+
+describe('Chọn tài khoản thu/chi', () => {
+  it('quỹ tiền mặt lên đầu danh sách, sau đó các tài khoản khác giữ thứ tự', async () => {
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/catalogs')) return CATALOGS as never;
+      if (path.startsWith('/accounts'))
+        return [
+          { id: 'a1', code: 'VCB', name: 'Vietcombank', accountType: 'BANK', accountNumber: '001', isActive: true, balance: 1 },
+          { id: 'a2', code: 'TM', name: 'Quỹ tiền mặt', accountType: 'CASH', accountNumber: null, isActive: true, balance: 1 },
+          { id: 'a3', code: 'BIDV', name: 'BIDV', accountType: 'BANK', accountNumber: '002', isActive: true, balance: 1 },
+        ] as never;
+      if (path.startsWith('/vouchers/next-code')) return { code: 'NHAP_PT_2610_0005' } as never;
+      if (path === '/workspace/projects') return { items: PROJECTS, truncated: false } as never;
+      if (path === '/settings') return { booksLockedUntil: null, allowSelfApproval: false, requireAllocation: false } as never;
+      throw new Error(`route lạ ${path}`);
+    });
+    render(<VoucherFormScreen kind="RECEIPT" />);
+    await screen.findByDisplayValue('NHAP_PT_2610_0005');
+    fireEvent.click(screen.getByPlaceholderText('Chọn tài khoản thu'));
+    const names = (await screen.findAllByRole('option')).map((option) => option.textContent ?? '');
+    expect(names[0]).toContain('Quỹ tiền mặt');
+    expect(names[1]).toContain('Vietcombank');
+    expect(names[2]).toContain('BIDV');
   });
 });
 

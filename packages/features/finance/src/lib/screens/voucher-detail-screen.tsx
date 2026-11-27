@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Ban, BookCheck, Check, CornerUpLeft, Lock, Paperclip, Pencil, RefreshCw, Send, Trash2, Undo2, UserCheck, X } from 'lucide-react';
+import { Ban, BookCheck, Check, Copy, CornerUpLeft, Lock, Paperclip, Pencil, RefreshCw, Send, UserCheck, X } from 'lucide-react';
 import {
   MODULE_EMBED_MESSAGE,
   postModuleEmbedMessage,
@@ -12,9 +12,12 @@ import {
 import { Popconfirm, toast } from '@enterprise-platform/shared-ui';
 import {
   FINANCE_ALLOCATION_LABELS,
+  FINANCE_SOURCE_MODULE_PROCEDURE,
   FINANCE_VOUCHER_EVENT_LABELS,
   FINANCE_VOUCHER_STATUS_LABELS,
   financeAllocationLabel,
+  financeMissingFieldsMessage,
+  type FinanceCancelVoucherResult,
   type FinanceProcedureProgress,
   type FinanceSourceLockedField,
   type FinanceVoucher,
@@ -22,21 +25,22 @@ import {
   type FinanceVoucherKind,
 } from '@enterprise-platform/contracts-finance';
 import { formatBytes, openFinanceAttachment } from '../attachment-upload';
-import { financeDelete, financeErrorMessage, financeFetch, financePost } from '../finance-api';
+import { financeErrorMessage, financeFetch, financePost } from '../finance-api';
 import { useFinanceCrumbs } from '../finance-crumbs';
 import { dateTimeVn, dateVn, money, newFinanceIdempotencyKey } from '../finance-format';
 import { FINANCE_KIND_CONFIG } from '../finance-kinds';
 import { FINANCE_EMBED_PREFIX, isFinanceEmbedPath } from '../finance-navigation';
+import { useFinancePermissions } from '../finance-permissions';
 import { Button } from '../ui/button';
 import { EmptyState, ErrorBanner, StatusBadge } from '../ui/form-parts';
 import { NoteView } from '../ui/note-view';
 
-/** Màu nhãn trạng thái phiếu ở tiêu đề popup của bên chủ. */
+/** Màu nhãn trạng thái phiếu ở tiêu đề popup của bên chủ (chỉ hai trạng thái hiển thị: Nháp, Đã duyệt). */
 const STATUS_TONE: Record<FinanceVoucher['status'], ModuleEmbedBadgeTone> = {
   DRAFT: 'neutral',
-  PENDING: 'warning',
+  PENDING: 'neutral',
   APPROVED: 'success',
-  REJECTED: 'danger',
+  REJECTED: 'neutral',
   CANCELLED: 'neutral',
 };
 
@@ -208,9 +212,13 @@ function SourcePanel({ source }: { source: FinanceVoucherSource }) {
   );
 }
 
-/** Nhãn kèm biểu tượng khoá cho trường lấy từ hồ sơ. */
+/**
+ * Nhãn kèm biểu tượng khoá cho trường lấy từ nguồn ngoài Quy trình (lần thu của Bán hàng). Phiếu từ hồ sơ Quy trình không khoá trường
+ * nào: kế toán sửa được hết, kể cả số tiền.
+ */
 function lockedLabel(label: string, source: FinanceVoucherSource | null, field: FinanceSourceLockedField): ReactNode {
-  const locked = Boolean(source && (field === 'content' || field === 'amount' || source.lockedFields.includes(field)));
+  const external = Boolean(source && (source.sourceModule ?? FINANCE_SOURCE_MODULE_PROCEDURE) !== FINANCE_SOURCE_MODULE_PROCEDURE);
+  const locked = Boolean(source && external && (field === 'content' || field === 'amount' || source.lockedFields.includes(field)));
   if (!locked) return label;
   return (
     <span className="inline-flex items-center gap-1">
@@ -241,6 +249,8 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { capabilities } = useFinancePermissions();
+  const canDuplicate = Boolean(capabilities?.[kind === 'RECEIPT' ? 'receipt' : kind === 'PAYMENT' ? 'payment' : 'transfer']?.create);
 
   useFinanceCrumbs([config.singular.replace(/^./, (c) => c.toUpperCase()), voucher?.code ?? '']);
 
@@ -293,11 +303,15 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
       ? act('procedure-action', { action, comment, idempotencyKey: newFinanceIdempotencyKey() }, success)
       : act(action, { note: comment }, success);
 
-  async function remove() {
+  /**
+   * Huỷ phiếu, không hỏi xác nhận: phiếu chưa ghi sổ bị xoá hẳn; phiếu đã ghi sổ được đảo bút toán rồi ẩn khỏi danh sách. Xong thì
+   * rời trang (phiếu không còn trong danh sách nữa).
+   */
+  async function cancelVoucher() {
     setBusy(true);
     try {
-      await financeDelete(`/vouchers/${id}`);
-      toast.success('Đã xoá phiếu');
+      const result = await financePost<FinanceCancelVoucherResult>(`/vouchers/${id}/cancel`, {});
+      toast.success(result.deleted ? `Đã huỷ và xoá ${result.code}` : `Đã huỷ ${result.code} và đảo bút toán`);
       if (embedded) {
         postModuleEmbedMessage(MODULE_EMBED_MESSAGE.changed);
         postModuleEmbedMessage(MODULE_EMBED_MESSAGE.close);
@@ -325,6 +339,9 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
   const sourced = can.sourced;
   const source = voucher.approvalMode === 'INHERITED' ? voucher.source : null;
   const isTransfer = kind === 'TRANSFER';
+  // Trường bắt buộc còn thiếu (máy chủ tính theo luật chung): ai xem phiếu nháp cũng thấy cần bổ sung gì trước khi duyệt ghi sổ.
+  const missingMessage = voucher.missingFields?.length ? financeMissingFieldsMessage(kind, voucher.missingFields) : '';
+  const canFill = can.canEdit || sourced.canEditSourced;
 
   // Dải nút thao tác: ở đầu trang thường; trong popup nhúng nằm ở chân popup (xem `footer` bên dưới).
   // Thứ tự: nút phụ, Trả hồ sơ, rồi Ghi sổ ngoài cùng bên phải.
@@ -332,7 +349,7 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
     <div className="flex flex-wrap items-center gap-2">
       {sourced.canEditSourced ? (
         <Button type="button" variant="outline" onClick={() => router.push(`${basePath}/${id}/edit`)}>
-          <Pencil aria-hidden /> Nhập thông tin kế toán
+          <Pencil aria-hidden /> Sửa
         </Button>
       ) : null}
       {sourced.canReturnSource ? (
@@ -400,20 +417,23 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
           <RefreshCw aria-hidden /> {voucher.procedure?.syncStatus === 'CONFLICT' ? 'Áp lại' : 'Thử lại'}
         </Button>
       ) : null}
+      {can.approveBlockedReason && !can.canApprove && !sourced.canPost ? (
+        // Có quyền duyệt nhưng chưa duyệt ghi sổ được ngay: nút mờ kèm lý do (thiếu thông tin, không tự duyệt, qua quy trình...).
+        <Button type="button" disabled title={can.approveBlockedReason} aria-label={`Duyệt ghi sổ: ${can.approveBlockedReason}`}>
+          <BookCheck aria-hidden /> Duyệt ghi sổ
+        </Button>
+      ) : null}
+      {canDuplicate ? (
+        // Nhân bản: phiếu mới điền sẵn như phiếu này (cả dự án hạch toán) nhưng là phiếu thường, không gắn với hồ sơ Quy trình.
+        <Button type="button" variant="outline" disabled={busy} onClick={() => router.push(`${basePath}/new?from=${id}`)}>
+          <Copy aria-hidden /> Nhân bản
+        </Button>
+      ) : null}
       {can.canCancel ? (
-        <Popconfirm title="Huỷ phiếu" reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu" okText="Huỷ phiếu" onConfirm={(reason) => act('cancel', { note: reason }, 'Đã huỷ phiếu')}>
-          <Button type="button" variant="outline" disabled={busy}><Ban aria-hidden /> Huỷ phiếu</Button>
-        </Popconfirm>
-      ) : null}
-      {can.canReverse ? (
-        <Popconfirm title="Huỷ phiếu đã ghi sổ" description="Hệ thống ghi bút toán đảo vào hôm nay; số của kỳ đã qua không bị sửa." reasonRequired reasonLabel="Lý do huỷ" reasonPlaceholder="Nhập lý do huỷ phiếu đã ghi sổ" okText="Đảo bút toán" onConfirm={(reason) => act('reverse', { note: reason }, 'Đã huỷ phiếu và đảo bút toán')}>
-          <Button type="button" variant="destructive" disabled={busy}><Undo2 aria-hidden /> Huỷ phiếu đã ghi sổ</Button>
-        </Popconfirm>
-      ) : null}
-      {can.canDelete ? (
-        <Popconfirm title="Xoá phiếu?" description="Phiếu chưa ghi sổ nên xoá được; bị xoá hẳn và không khôi phục được." okText="Xoá" onConfirm={remove}>
-          <Button type="button" variant="ghost" disabled={busy}><Trash2 aria-hidden /> Xoá</Button>
-        </Popconfirm>
+        // Huỷ không hỏi lại: chưa ghi sổ thì xoá hẳn, đã ghi sổ thì đảo bút toán rồi ẩn.
+        <Button type="button" variant="outline" disabled={busy} onClick={() => void cancelVoucher()}>
+          <Ban aria-hidden /> Huỷ
+        </Button>
       ) : null}
     </div>
   );
@@ -438,6 +458,22 @@ export default function VoucherDetailScreen({ kind, id }: { kind: FinanceVoucher
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
         <ErrorBanner message={error} />
+        {missingMessage ? (
+          <div
+            role="alert"
+            aria-label="Phiếu còn thiếu thông tin"
+            className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            <span>
+              <span className="font-medium">Phiếu chưa đủ thông tin để duyệt ghi sổ.</span> {missingMessage}
+            </span>
+            {canFill ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => router.push(`${basePath}/${id}/edit`)}>
+                <Pencil aria-hidden /> Bổ sung thông tin
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-2 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0 space-y-4">
             {source ? <SourcePanel source={source} /> : null}

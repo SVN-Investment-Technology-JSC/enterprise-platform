@@ -127,6 +127,9 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     reasonId,
     accountId,
     counterpartyGroupId: groupId,
+    counterpartyName: 'Cửa hàng VPP',
+    counterpartyAccountNo: '0123456789',
+    counterpartyBank: 'VCB',
     lines: [{ description: 'Giấy in', quantity: 1, unitAmount: amount, total: amount }],
     ...over,
   });
@@ -311,7 +314,7 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     // Chưa nạp tiền: áp lại vẫn kẹt.
     expect((await app.retryProcedure(chief, voucher.id)).procedure?.syncStatus).toBe('CONFLICT');
     // Thu tiền vào tài khoản rồi áp lại.
-    const receipt = await app.createVoucher(accountant, { kind: 'RECEIPT', voucherDate: today, postingDate: today, content: 'Nạp quỹ', reasonId: (await app.saveReason(manager, null, { kind: 'RECEIPT', code: 'NAP', name: 'Nạp quỹ' })).id, accountId, counterpartyGroupId: groupId, lines: [{ description: 'Nạp', quantity: 1, unitAmount: 5_000_000, total: 5_000_000 }] });
+    const receipt = await app.createVoucher(accountant, { kind: 'RECEIPT', voucherDate: today, postingDate: today, content: 'Nạp quỹ', reasonId: (await app.saveReason(manager, null, { kind: 'RECEIPT', code: 'NAP', name: 'Nạp quỹ' })).id, accountId, counterpartyGroupId: groupId, counterpartyName: 'Quỹ công ty', lines: [{ description: 'Nạp', quantity: 1, unitAmount: 5_000_000, total: 5_000_000 }] });
     await app.submit(accountant, receipt.id);
     await app.approve(chief, receipt.id);
     const fixed = await app.retryProcedure(chief, voucher.id);
@@ -319,14 +322,14 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
     expect(fixed.procedure?.syncStatus).toBe('APPLIED');
   });
 
-  it('huỷ phiếu đang chạy quy trình: huỷ hồ sơ bên Procedure, đóng lần gửi; kết quả muộn không áp lại', async () => {
+  it('huỷ phiếu đang chạy quy trình: huỷ hồ sơ bên Procedure rồi xoá phiếu (cả lần gửi); kết quả muộn không áp lại', async () => {
     const before = (await balance())!;
     const voucher = await submitViaProcedure(400_000);
     const link = await linkOf(voucher.id);
     const cancelled = await app.cancel(accountant, session, voucher.id, 'Nhập sai');
-    expect(cancelled.status).toBe('CANCELLED');
+    expect(cancelled).toMatchObject({ id: voucher.id, deleted: true });
     expect(pe.actions.at(-1)).toMatchObject({ instanceId: link['instance_id'], action: 'cancel' });
-    expect((await linkOf(voucher.id))['sync_status']).toBe('CLOSED');
+    expect(await linkOf(voucher.id)).toBeUndefined();
     expect(await receiveFinanceProcedureEvent(pool, tenantId, completed(link, 'completed'))).toBe('ignored');
     expect(await balance()).toBe(before);
   });
@@ -465,6 +468,7 @@ integration('Tài chính: duyệt phiếu qua quy trình (PostgreSQL, Procedure 
       reasonId: (await app.catalogs(manager, false)).reasons.find((r) => r.kind === 'RECEIPT')?.id,
       accountId,
       counterpartyGroupId: groupId,
+      counterpartyName: 'Khách lẻ',
       lines: [{ description: 'Thu', quantity: 1, unitAmount: 1000, total: 1000 }],
     });
     const submitted = await app.submit(accountant, receipt.id);

@@ -213,16 +213,40 @@ function toPostable(row: Row) {
   };
 }
 
-/** Duyệt trực tiếp (không qua Procedure): kiểm quyền, khoá sổ, số dư rồi ghi sổ trong cùng giao dịch. */
-export async function approveVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string, note?: string): Promise<void> {
+/** Lý do loại phiếu không duyệt thẳng từ nháp được: đang gán quy trình duyệt. */
+export const PROCEDURE_BOUND_REASON = 'Loại phiếu này duyệt qua quy trình: mở phiếu và gửi duyệt để chạy quy trình.';
+
+/**
+ * Duyệt trực tiếp (không qua Procedure): kiểm quyền, khoá sổ, số dư rồi ghi sổ trong cùng giao dịch.
+ *
+ * Người dùng chỉ thấy hai trạng thái (Nháp / Đã duyệt), nên ngoài phiếu đang chờ duyệt trực tiếp, phiếu NHÁP hoặc BỊ TỪ CHỐI cũng
+ * duyệt ghi sổ thẳng được khi loại phiếu duyệt trực tiếp (`directBinding`): phải đủ điều kiện như lúc gửi duyệt.
+ */
+export async function approveVoucher(
+  db: Db,
+  tenantId: string,
+  actor: FinanceActor,
+  id: string,
+  note?: string,
+  options: { directBinding?: boolean } = {},
+): Promise<void> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
   if (!canApprove(actor, kind)) throw forbidden('Bạn không có quyền duyệt loại phiếu này.');
-  if (row.status !== 'PENDING') throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu không ở trạng thái chờ duyệt.');
-  if (row.approval_mode !== 'DIRECT') throw conflict('FINANCE_PROCEDURE_MANAGED', 'Phiếu đang duyệt qua quy trình; xử lý trong quy trình.');
+  const draftLike = row.approval_mode !== 'INHERITED' && (row.status === 'DRAFT' || row.status === 'REJECTED');
+  if (row.status !== 'PENDING' && !draftLike) throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu không ở trạng thái chờ duyệt.');
+  if (row.status === 'PENDING' && row.approval_mode !== 'DIRECT')
+    throw conflict('FINANCE_PROCEDURE_MANAGED', 'Phiếu đang duyệt qua quy trình; xử lý trong quy trình.');
+  if (draftLike && !options.directBinding) throw conflict('FINANCE_PROCEDURE_MANAGED', PROCEDURE_BOUND_REASON);
   const settings = await loadSettings(db, tenantId);
   if (row.created_by === actor.userId && !settings.allowSelfApproval)
     throw forbidden('Không được tự duyệt phiếu do mình lập.');
+  // Đủ thông tin bắt buộc mới ghi sổ, kể cả phiếu đã gửi duyệt từ trước khi luật trường bắt buộc chặt hơn.
+  const errors = await submitErrors(db, tenantId, await loadVoucherRecord(db, tenantId, id));
+  if (errors.length) throw invalidMany('FINANCE_SUBMIT_INVALID', errors);
+  // Phiếu từng bị quy trình từ chối, nay loại phiếu duyệt trực tiếp: ghi nhận là duyệt trực tiếp.
+  if (draftLike && row.approval_mode !== 'DIRECT')
+    await db.query(`UPDATE finance_schema.vouchers SET approval_mode='DIRECT', updated_at=now() WHERE tenant_id=$1 AND id=$2`, [tenantId, id]);
 
   await postApproval(db, tenantId, row, actor, note);
 }
@@ -295,23 +319,52 @@ export async function rejectVoucher(db: Db, tenantId: string, actor: FinanceActo
   await notifyOutcome(db, notificationFacts(tenantId, row), 'REJECTED', actor.userId, actor.displayName, reason);
 }
 
-/** Huỷ phiếu chưa ghi sổ: người lập huỷ phiếu của mình; người duyệt huỷ phiếu đang chờ hoặc bị từ chối. */
-export async function cancelVoucher(db: Db, tenantId: string, actor: FinanceActor, id: string, note: string | undefined): Promise<void> {
+/** Ghi chú mặc định khi Huỷ không kèm lý do (Huỷ không còn hỏi xác nhận hay lý do). */
+export const DEFAULT_CANCEL_NOTE = 'Huỷ phiếu';
+
+/**
+ * Xoá hẳn một phiếu CHƯA TỪNG GHI SỔ. Bảng con (dòng chi tiết, hoá đơn, đính kèm, nhật ký phiếu, nguồn, lần gửi quy trình) xoá theo
+ * khoá ngoại. Nhật ký phiếu (`voucher_events`) đi theo phiếu nên dấu vết của lần xoá nằm ở sự kiện `finance.voucher.status-changed`
+ * (CANCELLED, người thao tác, lý do) ghi vào outbox trong cùng giao dịch — chính sự kiện "Phiếu đã bị huỷ" vẫn báo cho người lập.
+ * Sổ cái chỉ được thêm: phiếu còn bút toán thì không xoá được (người gọi đảo bút toán thay vì xoá).
+ */
+export async function deleteVoucherRow(db: Db, tenantId: string, row: Row, decider: Decider, note: string | null): Promise<void> {
+  const id = String(row.id);
+  const ledger = await db.query(`SELECT 1 FROM finance_schema.ledger_entries WHERE voucher_id=$1 LIMIT 1`, [id]);
+  if (ledger.rows.length) throw conflict('FINANCE_VOUCHER_POSTED', 'Phiếu đã có bút toán trên sổ cái; không xoá được, chỉ đảo bút toán được.');
+  await notifyOutcome(db, notificationFacts(tenantId, row), 'CANCELLED', decider.userId, decider.displayName, `${note?.trim() || DEFAULT_CANCEL_NOTE} (đã xoá phiếu)`);
+  await db.query(`DELETE FROM finance_schema.vouchers WHERE tenant_id=$1 AND id=$2`, [tenantId, id]);
+}
+
+/**
+ * Huỷ phiếu thường (không có nguồn), không hỏi xác nhận:
+ * - phiếu chưa ghi sổ (nháp, chờ duyệt, bị từ chối): XOÁ hẳn. Người lập huỷ phiếu của mình; người duyệt huỷ phiếu đã gửi duyệt;
+ * - phiếu đã ghi sổ: đảo bút toán vào hôm nay rồi chuyển ĐÃ HUỶ — ẩn khỏi mọi danh sách; dòng phiếu còn giữ vì bút toán gốc và
+ *   bút toán đảo trên sổ cái (chỉ thêm, không xoá) vẫn trỏ về nó. Chỉ người có quyền duyệt.
+ * Phiếu đang chạy quy trình duyệt thì nơi gọi huỷ hồ sơ bên Procedure trước.
+ */
+export async function cancelVoucher(
+  db: Db,
+  tenantId: string,
+  actor: FinanceActor,
+  id: string,
+  note: string | undefined,
+): Promise<{ id: string; code: string; deleted: boolean }> {
   const row = await lockVoucher(db, tenantId, actor, id);
   const kind = row.kind as FinanceVoucherKind;
+  const reason = note?.trim() || DEFAULT_CANCEL_NOTE;
   if (row.approval_mode === 'INHERITED') throw sourceManaged();
-  if (row.status === 'APPROVED') throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu đã ghi sổ; dùng Huỷ phiếu đã ghi sổ (đảo bút toán).');
   if (row.status === 'CANCELLED') throw conflict('FINANCE_VOUCHER_STATE', 'Phiếu đã huỷ.');
+  if (row.status === 'APPROVED') {
+    if (!canApprove(actor, kind)) throw forbidden('Bạn không có quyền huỷ phiếu đã ghi sổ.');
+    await postReversal(db, tenantId, row, actor, reason);
+    return { id, code: String(row.code), deleted: false };
+  }
   const owner = row.created_by === actor.userId && canCreate(actor, kind);
   const approver = canApprove(actor, kind) && row.status !== 'DRAFT';
   if (!owner && !approver) throw forbidden('Bạn không có quyền huỷ phiếu này.');
-  await db.query(
-    `UPDATE finance_schema.vouchers SET status='CANCELLED', decided_by=$3, decided_by_name=$4, decided_at=now(), decision_note=$5, updated_at=now()
-      WHERE tenant_id=$1 AND id=$2`,
-    [tenantId, id, actor.userId, actor.displayName, note?.trim() || null],
-  );
-  await addEvent(db, tenantId, id, 'CANCELLED', actor, note);
-  await notifyOutcome(db, notificationFacts(tenantId, row), 'CANCELLED', actor.userId, actor.displayName, note ?? null);
+  await deleteVoucherRow(db, tenantId, row, actor, reason);
+  return { id, code: String(row.code), deleted: true };
 }
 
 /**

@@ -162,6 +162,8 @@ export class FinanceController {
     @Query('to') to?: string,
     @Query('scope') scope?: FinanceVoucherListQuery['scope'],
     @Query('source') source?: string,
+    @Query('sort') sort?: FinanceVoucherListQuery['sort'],
+    @Query('direction') direction?: FinanceVoucherListQuery['direction'],
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
@@ -177,6 +179,9 @@ export class FinanceController {
         to: to || undefined,
         scope: scope || undefined,
         source: source === 'procedure' ? 'procedure' : undefined,
+        // Máy chủ kiểm mã cột theo danh sách trắng (`voucherListOrderBy`).
+        sort: sort || undefined,
+        direction: direction || undefined,
         page: int(page),
         pageSize: int(pageSize),
       }),
