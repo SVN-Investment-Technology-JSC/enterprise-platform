@@ -289,7 +289,7 @@ integration('Lịch xe công ty (PostgreSQL)', () => {
   });
 
   it('không đặt được xe hoặc tài xế đã ngừng sử dụng', async () => {
-    const retired = await saveVehicle(pool, tenantId, null, { plateNo: '51A-999.99', name: 'Xe cũ', status: 'INACTIVE' });
+    const retired = await saveVehicle(pool, tenantId, null, { plateNo: '51A-888.88', name: 'Xe cũ', status: 'INACTIVE' });
     await expect(book({ vehicleId: retired.id, startAt: '2027-03-01T01:00:00Z', endAt: '2027-03-01T05:00:00Z' })).rejects.toMatchObject({
       response: { code: 'HRM_FLEET_VEHICLE_INACTIVE' },
     });
