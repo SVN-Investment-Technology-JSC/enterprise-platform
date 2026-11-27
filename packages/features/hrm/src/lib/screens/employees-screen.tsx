@@ -75,8 +75,8 @@ export default function EmployeesManagementPage() {
   // Search & Filter (Tab 1: Employees)
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  // Lọc theo thẻ tổng quan (đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ); 'ALL' là không lọc.
-  const [cardFilter, setCardFilter] = useState<EmployeeCardFilter>('ALL');
+  // Lọc theo thẻ tổng quan (đang làm việc, nghỉ việc, chờ hoàn thiện hồ sơ); 'ALL' là không lọc. Mặc định xem người đang làm việc.
+  const [cardFilter, setCardFilter] = useState<EmployeeCardFilter>('ACTIVE');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [positionFilter, setPositionFilter] = useState('ALL');
   const [page, setPage] = useState(1);
