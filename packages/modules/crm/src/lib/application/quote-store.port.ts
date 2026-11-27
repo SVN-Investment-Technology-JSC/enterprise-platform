@@ -47,6 +47,8 @@ export interface QuoteFilter {
   readonly ownerUserId?: string;
   /** Chỉ các báo giá này (bộ lọc "Cần tôi duyệt"); mảng rỗng là không có báo giá nào. */
   readonly ids?: readonly string[];
+  /** Chỉ báo giá gắn được vào hợp đồng mới: khách chấp nhận, chưa chuyển hay gắn hợp đồng. */
+  readonly contractLinkable?: boolean;
   readonly cursor?: KeysetCursor;
   /** Phân trang theo số trang (bỏ qua `cursor`). */
   readonly page?: number;

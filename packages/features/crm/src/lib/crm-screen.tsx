@@ -302,6 +302,7 @@ function SalesView({
           onOpenCustomer={openCustomer}
           onOpenOpportunity={openOpportunity}
           onOpenOrder={openOrder}
+          onOpenContract={openContract}
         />
       ) : (
         <QuotesPage onOpen={openQuote} onCreate={() => navigate('quotes', 'new')} />

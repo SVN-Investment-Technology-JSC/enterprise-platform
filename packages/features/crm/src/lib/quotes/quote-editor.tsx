@@ -165,6 +165,7 @@ export function QuoteEditor({
   onOpenCustomer,
   onOpenOpportunity,
   onOpenOrder,
+  onOpenContract,
 }: {
   quoteId: string;
   /** Khối mở sẵn khi vào (mở từ việc PAKD ở trang Việc cần xử lý). */
@@ -176,6 +177,8 @@ export function QuoteEditor({
   onOpenOpportunity: (id: string) => void;
   /** Mở đơn sinh khi chuyển báo giá khách chấp nhận (T4-06). */
   onOpenOrder?: (id: string) => void;
+  /** Mở hợp đồng đã gắn báo giá (hợp đồng lập tay có chọn báo giá, không sinh đơn). */
+  onOpenContract?: (id: string) => void;
 }) {
   const { capabilities, people, currentUserId } = useCrm();
   const [detail, setDetail] = useState<QuoteDetail>();
@@ -657,7 +660,19 @@ export function QuoteEditor({
           />
         ) : null}
         <ApprovalNotice detail={detail} />
-        {canConvert ? (
+        {detail.convertedAt && detail.conversion && !detail.conversion.orderId ? (
+          // Gắn vào hợp đồng lập tay: không có đơn từ báo giá nên không có nút chuyển, mở hợp đồng thay cho mở đơn.
+          <div className={styles.toolbar}>
+            <span className={styles.muted}>
+              Đã gắn vào hợp đồng {detail.conversion.contractCode} ngày {formatDateTime(detail.convertedAt)}; đơn bán lập từ hợp đồng.
+            </span>
+            {onOpenContract ? (
+              <button type="button" className={styles.buttonGhost} onClick={() => onOpenContract(detail.conversion?.contractId as string)}>
+                Mở hợp đồng
+              </button>
+            ) : null}
+          </div>
+        ) : canConvert ? (
           <div className={styles.toolbar}>
             {detail.convertedAt ? (
               <>

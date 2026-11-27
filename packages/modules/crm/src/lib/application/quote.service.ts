@@ -193,6 +193,7 @@ export class QuoteService {
     const ids = awaiting ? (this.approvals ? await this.approvals.awaitingQuoteIds(actor) : []) : undefined;
     return this.quotes.listQuotes(actor.tenantId, scope, {
       ...(ids ? { ids } : {}),
+      ...(flagOf(query?.contractLinkable) ? { contractLinkable: true } : {}),
       q: normalizeSearch(query.q),
       status: optionalEnum(query.status, QUOTE_STATUSES, 'trạng thái'),
       customerId: optionalId(query.customerId, 'khách hàng') ?? undefined,

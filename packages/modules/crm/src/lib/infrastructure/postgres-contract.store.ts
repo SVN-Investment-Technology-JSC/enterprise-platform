@@ -6,6 +6,7 @@ import {
   type ContractDetail,
   type ContractLine,
   type ContractOrderRef,
+  type ContractQuotePreview,
   type ContractStatus,
   type ContractSummary,
   type ContractType,
@@ -21,6 +22,7 @@ import {
 import type {
   ContractFilter,
   ContractLineRecord,
+  ContractQuoteRecord,
   ContractRecord,
   ContractStore,
   ContractTransition,
@@ -35,6 +37,8 @@ import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import { writeCrmOutbox } from './crm-outbox.js';
 import type { CrmDatabase } from './crm.database.js';
 import { enqueueReservationRelease } from './integration-requests.js';
+import { QUOTE_AUDIT_ENTITY } from './postgres-quote.store.js';
+import { assertQuoteLinkable, contractLines, readAcceptedVersion, readQuoteSource } from './quote-contract-source.js';
 import { SqlConditions, cursorAt, prefixPattern, prefixTsQuery, toDateOnly, toIso, toNumber , pagedList} from './sql-helpers.js';
 import { recognizeSignTerms, reverseContractTerms } from './receivable-recognition.js';
 
@@ -43,6 +47,8 @@ export const CONTRACT_AUDIT_ENTITY = 'contract';
 /** Khoá cấu hình (notification-worker đọc cùng khoá). */
 export const CONTRACT_EXPIRING_SETTING_KEY = 'contract.expiring';
 export const RESERVATION_HOLD_SETTING_KEY = 'reservation.holdDays';
+/** Thao tác ghi vào nhật ký báo giá khi báo giá được gắn vào hợp đồng lập tay. */
+export const QUOTE_LINK_CONTRACT_ACTION = 'link-contract';
 
 const STALE = () =>
   new CrmConflictError('STALE_VERSION', 'Hợp đồng vừa được người khác cập nhật. Vui lòng tải lại rồi thao tác lại.');
@@ -185,6 +191,54 @@ export class PostgresContractStore implements ContractStore {
 
   createContract(tenantId: string, record: ContractRecord, lines: readonly ContractLineRecord[], actorId: string): Promise<string> {
     return this.database.transaction(tenantId, (client) => insertContract(client, record, lines, null, actorId));
+  }
+
+  /**
+   * Lập hợp đồng gắn báo giá: cùng khoá, cùng nguồn dòng với chuyển báo giá (`quote-contract-source.ts`) nên hai đường
+   * không thể cùng ăn một báo giá; unique `quote_id` trên hợp đồng là chốt chặn thứ hai. Không sinh đơn bán, kế hoạch
+   * giao: đơn lập từ hợp đồng khi cần.
+   */
+  createContractFromQuote(tenantId: string, quoteId: string, record: ContractQuoteRecord, actorId: string): Promise<string> {
+    return this.database.transaction(tenantId, async (client) => {
+      const quote = await readQuoteSource(client, quoteId, true);
+      const acceptedVersion = assertQuoteLinkable(quote, record.customerId);
+      const { version, lines } = await readAcceptedVersion(client, quoteId, acceptedVersion);
+      // Giá trị bỏ trống: tổng phiên bản khách chấp nhận, như khi chuyển báo giá.
+      const id = await insertContract(client, { ...record, value: record.value ?? num(version.total_amount) }, contractLines(lines), quoteId, actorId);
+      await client.query(`UPDATE crm_schema.quotes SET converted_at = now(), updated_at = now(), updated_by = $2 WHERE id = $1`, [
+        quoteId,
+        actorId,
+      ]);
+      const code = (await client.query<{ code: string }>(`SELECT code FROM crm_schema.contracts WHERE id = $1`, [id])).rows[0].code;
+      await writeAuditLog(client, {
+        entityType: QUOTE_AUDIT_ENTITY,
+        entityId: quoteId,
+        action: QUOTE_LINK_CONTRACT_ACTION,
+        actorId,
+        reason: `Gắn vào hợp đồng ${code}`,
+        metadata: { versionNo: version.version_no, contractId: id, contractCode: code },
+      });
+      return id;
+    });
+  }
+
+  async quoteContractPreview(tenantId: string, quoteId: string): Promise<ContractQuotePreview> {
+    const pool = await this.database.pool(tenantId);
+    const quote = await readQuoteSource(pool, quoteId, false);
+    const acceptedVersion = assertQuoteLinkable(quote);
+    const { version, lines } = await readAcceptedVersion(pool, quoteId, acceptedVersion);
+    return {
+      quoteId,
+      quoteCode: quote.code,
+      quoteName: version.quote_name,
+      customerId: quote.customer_id,
+      customerCode: quote.customer_code,
+      customerName: quote.customer_name,
+      ownerUserId: quote.owner_user_id,
+      versionNo: version.version_no,
+      totalAmount: num(version.total_amount),
+      lines: contractLines(lines),
+    };
   }
 
   updateContract(

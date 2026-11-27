@@ -1,46 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { AppliedDiscountPolicy, ConvertQuoteResult, DiscountStacking, PriceSource } from '@enterprise-platform/contracts-crm';
-import type { ContractLineRecord } from '../application/contract-store.port.js';
+import type { AppliedDiscountPolicy, ConvertQuoteResult, DiscountStacking } from '@enterprise-platform/contracts-crm';
 import type { OrderLineRecord, QuoteConversionStore } from '../application/sales-order-store.port.js';
-import { CrmConflictError, CrmNotFoundError } from '../domain/crm.error.js';
-import { round3 } from '../domain/delivery-plan.js';
-import { allocateOrderAdjustments } from '../domain/quote-allocation.js';
+import { CrmConflictError } from '../domain/crm.error.js';
 import { writeAuditLog, type CrmSqlClient } from './audit-log.js';
 import type { CrmDatabase } from './crm.database.js';
 import { insertContract } from './postgres-contract.store.js';
 import { QUOTE_AUDIT_ENTITY } from './postgres-quote.store.js';
 import { insertDelivery, insertOrder } from './postgres-sales-order.store.js';
+import { contractLines, readAcceptedVersion, readQuoteSource } from './quote-contract-source.js';
 
 const num = (value: string | number | null | undefined): number => Number(value ?? 0);
-
-interface QuoteLineRow {
-  id: string;
-  line_no: number;
-  material_id: string;
-  material_code: string;
-  material_name: string;
-  unit: string;
-  material_kind: string;
-  category: string | null;
-  quantity: string;
-  list_price: string;
-  price_source: PriceSource;
-  price_reference_id: string | null;
-  price_reference_code: string | null;
-  discount_percent: string;
-  overridden: boolean;
-  override_unit_price: string | null;
-  override_discount_percent: string | null;
-  override_vat_rate: string | null;
-  unit_price: string;
-  gross_amount: string;
-  discount_amount: string;
-  vat_rate: string;
-  line_amount: string;
-  vat_amount: string;
-  line_total: string;
-  est_unit_cost: string | null;
-}
 
 /**
  * Chuyển báo giá Khách chấp nhận thành hợp đồng mua bán (Nháp), đơn bán (Nháp,
@@ -61,60 +30,13 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
     actorId: string,
   ): Promise<ConvertQuoteResult> {
     return this.database.transaction(tenantId, async (client) => {
-      const quote = (
-        await client.query<{
-          code: string;
-          customer_id: string;
-          opportunity_id: string | null;
-          owner_user_id: string;
-          status: string;
-          accepted_version: number | null;
-          converted_at: Date | null;
-          customer_address: string | null;
-        }>(
-          `SELECT q.code, q.customer_id, q.opportunity_id, q.owner_user_id, q.status, q.accepted_version, q.converted_at,
-                  c.address AS customer_address
-             FROM crm_schema.quotes q
-             JOIN crm_schema.customers c ON c.id = q.customer_id
-            WHERE q.id = $1
-            FOR UPDATE OF q`,
-          [quoteId],
-        )
-      ).rows[0];
-      if (!quote) throw new CrmNotFoundError('Không tìm thấy báo giá.');
+      const quote = await readQuoteSource(client, quoteId, true);
       if (quote.converted_at) return existing(client, quoteId);
       if (quote.status !== 'ACCEPTED' || quote.accepted_version === null) {
         throw new CrmConflictError('QUOTE_NOT_ACCEPTED', 'Chỉ chuyển được báo giá khách đã chấp nhận.');
       }
-      const version = (
-        await client.query<{
-          id: string;
-          version_no: number;
-          priced_on: string | null;
-          price_list_id: string | null;
-          shipping_amount: string;
-          shipping_vat_rate: string;
-          gross_amount: string;
-          discount_amount: string;
-          net_amount: string;
-          vat_amount: string;
-          total_amount: string;
-          discount_mode: 'LINE' | 'ORDER';
-          tax_mode: 'LINE' | 'ORDER';
-          order_discount_total: string;
-          order_tax_total: string;
-        }>(
-          `SELECT id, version_no, priced_on::text AS priced_on, price_list_id, shipping_amount, shipping_vat_rate, gross_amount, discount_amount,
-                  net_amount, vat_amount, total_amount, discount_mode, tax_mode, order_discount_total, order_tax_total
-             FROM crm_schema.quote_versions WHERE quote_id = $1 AND version_no = $2`,
-          [quoteId, quote.accepted_version],
-        )
-      ).rows[0];
-      if (!version) throw new CrmConflictError('QUOTE_NOT_ACCEPTED', 'Không tìm thấy phiên bản khách chấp nhận.');
-      const sourceLines = (await client.query<QuoteLineRow>(`SELECT * FROM crm_schema.quote_lines WHERE version_id = $1 ORDER BY line_no`, [version.id])).rows;
-      if (!sourceLines.length) throw new CrmConflictError('QUOTE_EMPTY', 'Báo giá không có dòng hàng nào.');
       // Chiết khấu và thuế tổng đơn (mẫu ORDER) được phân bổ xuống dòng để tổng dòng khớp tổng báo giá (P2I-09).
-      const lines = withOrderAdjustments(sourceLines, version);
+      const { version, lines } = await readAcceptedVersion(client, quoteId, quote.accepted_version);
       const policies = await client.query<{
         line_id: string;
         policy_id: string;
@@ -243,90 +165,26 @@ export class PostgresQuoteConversionStore implements QuoteConversionStore {
   }
 }
 
-/**
- * Dòng báo giá đã đưa chiết khấu, thuế tổng đơn vào dòng (xem `allocateOrderAdjustments`). Báo giá mẫu theo dòng,
- * hoặc mẫu tổng đơn không nhập chiết khấu, thuế: dòng giữ nguyên.
- */
-function withOrderAdjustments(
-  lines: readonly QuoteLineRow[],
-  version: { discount_mode: 'LINE' | 'ORDER'; tax_mode: 'LINE' | 'ORDER'; order_discount_total: string; order_tax_total: string },
-): QuoteLineRow[] {
-  const allocated = allocateOrderAdjustments({
-    lines: lines.map((line) => ({
-      quantity: num(line.quantity),
-      grossAmount: num(line.gross_amount),
-      discountAmount: num(line.discount_amount),
-      lineAmount: num(line.line_amount),
-      vatAmount: num(line.vat_amount),
-    })),
-    discountMode: version.discount_mode,
-    taxMode: version.tax_mode,
-    orderDiscountTotal: num(version.order_discount_total),
-    orderTaxTotal: num(version.order_tax_total),
-  });
-  return lines.map((line, index) => {
-    const next = allocated[index];
-    if (next.orderDiscountShare === 0 && next.vatAmount === num(line.vat_amount)) return line;
-    const gross = num(line.gross_amount);
-    return {
-      ...line,
-      discount_amount: String(next.discountAmount),
-      line_amount: String(next.lineAmount),
-      vat_amount: String(next.vatAmount),
-      line_total: String(next.lineAmount + next.vatAmount),
-      // Đơn giá và phần trăm chiết khấu hiển thị theo thành tiền mới (làm tròn 2 và 4 chữ số thập phân).
-      unit_price: next.orderDiscountShare === 0 || next.quantity <= 0 ? line.unit_price : String(Math.round((next.lineAmount / next.quantity) * 100) / 100),
-      discount_percent:
-        next.orderDiscountShare === 0 || gross <= 0 ? line.discount_percent : String(Math.round((next.discountAmount / gross) * 100 * 10_000) / 10_000),
-    };
-  });
-}
-
-/** Dòng hợp đồng từ dòng báo giá; dòng trùng mặt hàng và đơn vị gộp số lượng, thành tiền. */
-function contractLines(lines: readonly QuoteLineRow[]): ContractLineRecord[] {
-  const merged = new Map<string, ContractLineRecord>();
-  for (const line of lines) {
-    const key = `${line.material_id}|${line.unit.trim().toLowerCase()}`;
-    const current = merged.get(key);
-    if (current) {
-      merged.set(key, {
-        ...current,
-        quantity: round3((current.quantity ?? 0) + num(line.quantity)),
-        lineAmount: (current.lineAmount ?? 0) + num(line.line_amount),
-      });
-      continue;
-    }
-    merged.set(key, {
-      id: randomUUID(),
-      lineNo: merged.size + 1,
-      materialId: line.material_id,
-      materialCode: line.material_code,
-      materialName: line.material_name,
-      unit: line.unit,
-      materialKind: line.material_kind,
-      quantity: num(line.quantity),
-      unitPrice: num(line.unit_price),
-      vatRate: num(line.vat_rate),
-      discountPercent: num(line.discount_percent),
-      lineAmount: num(line.line_amount),
-      note: null,
-    });
-  }
-  return [...merged.values()];
-}
-
 async function existing(client: CrmSqlClient, quoteId: string): Promise<ConvertQuoteResult> {
   const row = (
-    await client.query<{ contract_id: string; contract_code: string; order_id: string; order_code: string; delivery_id: string | null }>(
+    await client.query<{ contract_id: string; contract_code: string; order_id: string | null; order_code: string | null; delivery_id: string | null }>(
       `SELECT k.id AS contract_id, k.code AS contract_code, o.id AS order_id, o.code AS order_code,
               (SELECT d.id FROM crm_schema.delivery_plans d WHERE d.order_id = o.id ORDER BY d.seq LIMIT 1) AS delivery_id
          FROM crm_schema.contracts k
-         JOIN crm_schema.sales_orders o ON o.quote_id = k.quote_id AND o.source = 'QUOTE'
+         LEFT JOIN crm_schema.sales_orders o ON o.quote_id = k.quote_id AND o.source = 'QUOTE'
         WHERE k.quote_id = $1`,
       [quoteId],
     )
   ).rows[0];
   if (!row) throw new CrmConflictError('QUOTE_CONVERTED', 'Báo giá đã được chuyển thành hợp đồng.');
+  // Báo giá gắn vào hợp đồng lập tay: không có đơn từ báo giá, đơn lập từ hợp đồng.
+  if (!row.order_id || !row.order_code) {
+    throw new CrmConflictError(
+      'QUOTE_LINKED_TO_CONTRACT',
+      `Báo giá đã gắn vào hợp đồng ${row.contract_code}; lập đơn bán từ hợp đồng đó.`,
+      { contractId: row.contract_id, contractCode: row.contract_code },
+    );
+  }
   return {
     quoteId,
     contractId: row.contract_id,

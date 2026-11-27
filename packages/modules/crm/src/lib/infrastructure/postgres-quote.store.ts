@@ -250,6 +250,8 @@ export class PostgresQuoteStore implements QuoteStore {
     if (filter.opportunityId) where.add(`q.opportunity_id = ${where.param(filter.opportunityId)}::uuid`);
     if (filter.ownerUserId) where.add(`q.owner_user_id = ${where.param(filter.ownerUserId)}::uuid`);
     if (filter.ids) where.add(`q.id = ANY(${where.param([...filter.ids])}::uuid[])`);
+    // Cùng điều kiện với `assertQuoteLinkable` (quote-contract-source.ts).
+    if (filter.contractLinkable) where.add(`q.status = 'ACCEPTED' AND q.accepted_version IS NOT NULL AND q.converted_at IS NULL`);
     if (filter.q) {
       const tsQuery = prefixTsQuery(filter.q);
       const code = `q.code ILIKE ${where.param(prefixPattern(filter.q.toUpperCase()))}`;
@@ -281,7 +283,7 @@ export class PostgresQuoteStore implements QuoteStore {
     if (!head) return undefined;
     const version = await readVersion(pool, id, versionNo ?? head.current_version, true);
     if (!version) return undefined;
-    const [versions, link, history] = await Promise.all([
+    const [versions, link, history, conversion] = await Promise.all([
       pool.query<{ version_no: number; status: QuoteStatus; total_amount: string; created_at: Date }>(
         `SELECT version_no, status, total_amount, created_at FROM crm_schema.quote_versions
           WHERE quote_id = $1 ORDER BY version_no DESC`,
@@ -317,7 +319,19 @@ export class PostgresQuoteStore implements QuoteStore {
           LIMIT 200`,
         [QUOTE_AUDIT_ENTITY, id],
       ),
+      // Đã chuyển: hợp đồng sinh từ báo giá và đơn từ báo giá (rỗng khi báo giá được gắn vào hợp đồng lập tay).
+      head.converted_at
+        ? pool.query<{ contract_id: string; contract_code: string; order_id: string | null; order_code: string | null }>(
+            `SELECT k.id AS contract_id, k.code AS contract_code, o.id AS order_id, o.code AS order_code
+               FROM crm_schema.contracts k
+               LEFT JOIN crm_schema.sales_orders o ON o.quote_id = k.quote_id AND o.source = 'QUOTE'
+              WHERE k.quote_id = $1
+              LIMIT 1`,
+            [id],
+          )
+        : Promise.resolve({ rows: [] }),
     ]);
+    const conversionRow = conversion.rows[0];
     const linkRow = link.rows[0];
     const procedure: QuoteProcedureLink | null = linkRow
       ? {
@@ -334,6 +348,16 @@ export class PostgresQuoteStore implements QuoteStore {
       ...toSummary(head),
       acceptedVersion: head.accepted_version,
       convertedAt: toIso(head.converted_at),
+      ...(conversionRow
+        ? {
+            conversion: {
+              contractId: conversionRow.contract_id,
+              contractCode: conversionRow.contract_code,
+              orderId: conversionRow.order_id,
+              orderCode: conversionRow.order_code,
+            },
+          }
+        : {}),
       createdAt: toIso(head.created_at) ?? '',
       versions: versions.rows.map(
         (row): QuoteVersionSummary => ({
