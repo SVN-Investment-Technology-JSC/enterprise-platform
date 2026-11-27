@@ -6,6 +6,8 @@ import { createIntegrationEvent } from '@enterprise-platform/contracts-integrati
 import { receiveFleetBookingEvent } from './hrm-fleet-events';
 import {
   cancelFleetBookingBySource,
+  deleteDriver,
+  deleteVehicle,
   findAvailability,
   listBookings,
   saveDriver,
@@ -108,6 +110,30 @@ integration('Lịch xe công ty (PostgreSQL)', () => {
       response: { code: 'HRM_FLEET_CONFLICT', resource: 'DRIVER' },
     });
     await expect(book({ startAt: '2026-11-10T09:00:00Z', endAt: '2026-11-10T11:00:00Z' })).resolves.toBeTruthy();
+  });
+
+  it('xóa mềm xe và tài xế: chặn khi còn lịch chưa kết thúc, xóa được rồi dùng lại biển số', async () => {
+    const vehicle = (await saveVehicle(pool, tenantId, null, { plateNo: '51A-999.99', name: 'Xe thử xóa' })).id;
+    const driver = (await saveDriver(pool, tenantId, null, { employeeId: await person('DRV-DEL') })).id;
+    const future = await book({ vehicleId: vehicle, driverId: driver, startAt: '2099-01-01T01:00:00Z', endAt: '2099-01-01T05:00:00Z' });
+    await expect(deleteVehicle(pool, tenantId, vehicle)).rejects.toMatchObject({ response: { code: 'HRM_FLEET_VEHICLE_HAS_BOOKINGS' } });
+    await expect(deleteDriver(pool, tenantId, driver)).rejects.toMatchObject({ response: { code: 'HRM_FLEET_DRIVER_HAS_BOOKINGS' } });
+
+    await pool.query(`UPDATE hrm_schema.fleet_bookings SET status = 'CANCELLED' WHERE id = $1`, [future.id]);
+    await deleteVehicle(pool, tenantId, vehicle);
+    await deleteDriver(pool, tenantId, driver);
+    await expect(deleteVehicle(pool, tenantId, vehicle)).rejects.toMatchObject({ response: { code: 'HRM_FLEET_VEHICLE_NOT_FOUND' } });
+    const rows = await pool.query('SELECT id FROM hrm_schema.fleet_vehicles WHERE id = $1 AND deleted_at IS NOT NULL', [vehicle]);
+    expect(rows.rowCount).toBe(1);
+
+    const range = ['2099-02-01T00:00:00Z', '2099-02-02T00:00:00Z'] as const;
+    const available = await findAvailability(pool, tenantId, ...range);
+    expect(available.vehicles.map((v) => v.id)).not.toContain(vehicle);
+    expect(available.drivers.map((d) => d.id)).not.toContain(driver);
+    await expect(book({ vehicleId: vehicle, startAt: range[0], endAt: range[1] })).rejects.toMatchObject({
+      response: { code: 'HRM_FLEET_VEHICLE_NOT_FOUND' },
+    });
+    await expect(saveVehicle(pool, tenantId, null, { plateNo: '51A-999.99', name: 'Xe cùng biển' })).resolves.toBeTruthy();
   });
 
   it('sửa lịch của chính nguồn không tự trùng với lịch cũ của nó', async () => {
