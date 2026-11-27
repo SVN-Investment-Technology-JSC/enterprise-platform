@@ -161,6 +161,7 @@ import type {
   WorkItemDeletionLog,
   ProjectTimelineQuery,
   WorkItemProgressRow,
+  WorkItemReopenNotice,
   WorkspaceSchemaStatus,
   WorkspaceStore,
 } from '../application/workspace-store.port.js';
@@ -1852,6 +1853,7 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
       note: string | undefined,
       today: string,
       completionEvidence?: WorkItemCompletionEvidence,
+      reopenNotice?: WorkItemReopenNotice,
     ) => {
       const pool = await this.poolFor(tenantId);
       return inTransaction(pool, async (client) => {
@@ -1934,7 +1936,38 @@ export class PostgresWorkspaceStore implements WorkspaceStore {
             },
           });
         }
-        return (await withExtras(client, [item]))[0] as WorkItem;
+        const result = (await withExtras(client, [item]))[0] as WorkItem;
+        // Việc đã xong bị mở lại vì có việc con vào dưới: báo người giao, người phụ trách và người cùng thực hiện để họ
+        // biết việc quay về "Đang làm" và vì sao (người thao tác đọc được thông báo qua toast, nên bị bỏ ở bước giải người nhận).
+        if (reopenNotice && str(current.status) === 'done' && next !== 'done' && next !== 'cancelled') {
+          const recipientUserIds = [
+            ...new Set(
+              [result.createdBy, result.assigneeUserId, ...(result.participantUserIds ?? [])].filter(
+                (userId): userId is string => Boolean(userId),
+              ),
+            ),
+          ];
+          if (recipientUserIds.length > 0) {
+            await writeOutbox(client, tenantId, {
+              type: 'workspace.work-item.reopened',
+              aggregateType: 'workspace-work-item',
+              aggregateId: result.id,
+              payload: {
+                workItemId: result.id,
+                projectId: result.projectId,
+                code: result.code,
+                title: result.title,
+                trigger: reopenNotice.trigger,
+                reason: reopenNotice.reason,
+                childCode: reopenNotice.childCode,
+                childTitle: reopenNotice.childTitle,
+                recipientUserIds,
+                actorUserId,
+              },
+            });
+          }
+        }
+        return result;
       });
     },
 

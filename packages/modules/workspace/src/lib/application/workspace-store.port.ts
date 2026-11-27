@@ -90,6 +90,16 @@ import type {
   ProjectCodeParts,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
+
+/** Lý do một công việc đã xong bị mở lại vì việc con vào dưới nó; đi kèm sự kiện `workspace.work-item.reopened`. */
+export interface WorkItemReopenNotice {
+  /** `child-moved`: việc con được chuyển vào; `child-added`: việc con mới được thêm. */
+  readonly trigger: 'child-moved' | 'child-added';
+  /** Câu giải thích đầy đủ gửi cho người nhận (đã nói ai làm, vì sao). */
+  readonly reason: string;
+  readonly childCode: string;
+  readonly childTitle: string;
+}
 import type {
   WorkItemLinkedInstanceDraft,
   WorkItemProcedureRequestDraft,
@@ -526,6 +536,8 @@ export interface WorkspaceStore {
       today: string,
       /** Điều kiện hoàn thành đã xác nhận, ghi vào dòng nhật ký của lần hoàn thành này. */
       completionEvidence?: WorkItemCompletionEvidence,
+      /** Việc đang được mở lại vì một việc con vừa vào dưới nó: store phát thông báo cho người liên quan trong cùng transaction. */
+      reopenNotice?: WorkItemReopenNotice,
     ): Promise<WorkItem>;
     /**
      * Chỉ cập nhật lý do vướng mắc của việc ĐANG `blocked` (không đổi trạng thái, không ghi nhật ký chuyển trạng thái).
