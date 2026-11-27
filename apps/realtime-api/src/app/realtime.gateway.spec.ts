@@ -671,6 +671,55 @@ describe('RealtimeDeliveryHandler', () => {
     );
   });
 
+  describe('procedure.instance.changed', () => {
+    const changed = (payload: Record<string, unknown>): IntegrationEventEnvelope => ({
+      id: '10000000-0000-4000-8000-000000000006',
+      type: 'procedure.instance.changed',
+      version: 1,
+      occurredAt: '2026-11-27T00:00:00.000Z',
+      tenantId: 'tenant-a',
+      source: 'procedure-engine',
+      correlationId: 'instance-1',
+      payload: { instanceId: 'instance-1', actorUserId: 'user-actor', ...payload },
+    });
+
+    it('is pushed into the same instance room as comments, id-only', async () => {
+      const gateway = { emitRoomEvent: jest.fn() };
+      const handler = new RealtimeDeliveryHandler(gateway as never, async (_id, operation) => operation());
+      await handler.handle(changed({ status: 'completed', title: 'bí mật' }));
+
+      expect(gateway.emitRoomEvent).toHaveBeenCalledTimes(1);
+      const [room, envelope] = gateway.emitRoomEvent.mock.calls[0];
+      expect(room).toBe('tenant:tenant-a:procedure:instance-1');
+      expect(envelope).toEqual({
+        id: '10000000-0000-4000-8000-000000000006',
+        event: 'procedure.instance.changed',
+        version: 1,
+        tenantId: 'tenant-a',
+        userId: 'user-actor',
+        sequence: 1,
+        occurredAt: '2026-11-27T00:00:00.000Z',
+        data: { instanceId: 'instance-1', actorUserId: 'user-actor' },
+      });
+      expect(JSON.stringify(envelope)).not.toContain('bí mật');
+    });
+
+    it('does not emit when the tenant is no longer active', async () => {
+      const gateway = { emitRoomEvent: jest.fn() };
+      const handler = new RealtimeDeliveryHandler(gateway as never, async () => undefined);
+      await handler.handle(changed({}));
+      expect(gateway.emitRoomEvent).not.toHaveBeenCalled();
+    });
+
+    it.each([['instanceId'], ['actorUserId']])(
+      'a payload without %s is a permanent failure (DLQ), not an endless retry',
+      async (field) => {
+        const handler = new RealtimeDeliveryHandler({ emitRoomEvent: jest.fn() } as never, async (_id, operation) => operation());
+        await expect(handler.handle(changed({ [field]: undefined }))).rejects.toBeInstanceOf(PermanentMessageError);
+      },
+    );
+  });
+
   describe('workspace.chat.changed', () => {
     const chatEvent = (payload: Record<string, unknown>): IntegrationEventEnvelope => ({
       id: '10000000-0000-4000-8000-000000000003',

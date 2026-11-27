@@ -5,6 +5,7 @@ import {
   publishRealtimeEvent,
   publishRealtimeStatus,
   registerRealtimeSender,
+  retainProcedureRoom,
   sendRealtime,
   subscribeRealtime,
   useRealtimeEvent,
@@ -104,6 +105,29 @@ describe('realtime-bus', () => {
       throw new Error('socket closed');
     });
     expect(sendRealtime('chat.typing', {})).toBe(false);
+    registerRealtimeSender(undefined);
+  });
+
+  it('retainProcedureRoom joins once, leaves only when the last holder releases, and rejoins on reconnect', () => {
+    const sender = jest.fn();
+    registerRealtimeSender(sender);
+    const releaseBoard = retainProcedureRoom('i1');
+    const releaseChat = retainProcedureRoom('i1');
+    expect(sender.mock.calls).toEqual([['procedure.subscribe', { instanceId: 'i1' }]]);
+
+    releaseChat();
+    releaseChat();
+    expect(sender).toHaveBeenCalledTimes(1);
+
+    sender.mockClear();
+    publishRealtimeStatus(true);
+    expect(sender.mock.calls).toEqual([['procedure.subscribe', { instanceId: 'i1' }]]);
+
+    sender.mockClear();
+    releaseBoard();
+    expect(sender.mock.calls).toEqual([['procedure.unsubscribe', { instanceId: 'i1' }]]);
+    publishRealtimeStatus(true);
+    expect(sender).toHaveBeenCalledTimes(1);
     registerRealtimeSender(undefined);
   });
 

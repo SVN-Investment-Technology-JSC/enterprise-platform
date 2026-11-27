@@ -13,6 +13,7 @@ import {
   type AuthorizationChangedSignal,
   type CoreChatSignal,
   type ProcedureCommentSignal,
+  type ProcedureInstanceSignal,
   type WorkspaceChatSignal,
 } from '@enterprise-platform/contracts-realtime';
 import { RealtimeGateway, tenantRoom } from './realtime.gateway';
@@ -54,6 +55,23 @@ export class RealtimeDeliveryHandler {
         this.gateway.emitRoomEvent(procedureRoom(event.tenantId, signal.instanceId), {
           id: event.id,
           event: 'procedure.comment.changed',
+          version: 1,
+          tenantId: event.tenantId,
+          userId: signal.actorUserId,
+          sequence: 1,
+          occurredAt: event.occurredAt,
+          data: signal,
+        }),
+      );
+      return;
+    }
+    if (event.type === 'procedure.instance.changed') {
+      const signal = procedureInstance(event.payload);
+      // Cùng phòng với trao đổi: chỉ người đang mở hồ sơ (đã được kiểm quyền lúc vào phòng) nhận.
+      await this.withActiveTenant(event.tenantId, () =>
+        this.gateway.emitRoomEvent(procedureRoom(event.tenantId, signal.instanceId), {
+          id: event.id,
+          event: 'procedure.instance.changed',
           version: 1,
           tenantId: event.tenantId,
           userId: signal.actorUserId,
@@ -183,6 +201,7 @@ export class RealtimeDeliveryConsumer {
           'identity.session.revoked',
           'workspace.chat.changed',
           'procedure.comment.posted',
+          'procedure.instance.changed',
           'core.authorization.changed',
           CORE_CHAT_CHANGED_EVENT,
           ...SOCIAL_FEED_SOURCE_EVENT_TYPES,
@@ -222,6 +241,17 @@ function procedureComment(value: unknown): ProcedureCommentSignal {
     throw new PermanentMessageError('Procedure comment payload is incomplete.');
   }
   return { instanceId, activityId, actorUserId };
+}
+
+function procedureInstance(value: unknown): ProcedureInstanceSignal {
+  if (!isRecord(value)) throw new PermanentMessageError('Procedure instance payload must be an object.');
+  const instanceId = text(value.instanceId);
+  const actorUserId = text(value.actorUserId);
+  if (!instanceId || !actorUserId) {
+    throw new PermanentMessageError('Procedure instance payload is incomplete.');
+  }
+  // Dựng lại thay vì chuyển nguyên payload: trường lạ (nếu có) không bao giờ ra tới trình duyệt.
+  return { instanceId, actorUserId };
 }
 /** Phải khớp `WorkspaceChatSignal['change']`: thiếu một giá trị là sự kiện đó bị đẩy vào DLQ. */
 const CHAT_CHANGES: ReadonlySet<string> = new Set(['created', 'edited', 'deleted', 'read']);
