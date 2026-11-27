@@ -80,6 +80,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   COMP_OFF_ADJUSTED: 'Điều chỉnh quỹ nghỉ bù',
   COMP_OFF_ADJUST_REVERSED: 'Đảo điều chỉnh quỹ nghỉ bù',
   COMP_OFF_IMPORTED: 'Nhập quỹ nghỉ bù từ Excel',
+  LEAVE_BALANCE_IMPORTED: 'Nhập quỹ phép năm từ Excel',
   OVERTIME_COMP_SETTINGS_SAVED: 'Lưu cấu hình làm thêm và nghỉ bù',
   OVERTIME_COMP_VERSION_REMOVED: 'Xóa phiên bản làm thêm và nghỉ bù',
   SHIFT_CREATED: 'Tạo ca làm việc',
