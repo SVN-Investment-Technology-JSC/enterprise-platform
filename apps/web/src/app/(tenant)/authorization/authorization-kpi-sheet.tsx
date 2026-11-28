@@ -88,8 +88,8 @@ function Segmented<T extends string>({
         <button
           aria-pressed={value === v}
           className={cn(
-            'h-7 cursor-pointer whitespace-nowrap rounded-[7px] px-2.5 text-[13px] font-semibold',
-            value === v ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'text-slate-500 hover:text-[#18181b]',
+            'h-8 cursor-pointer whitespace-nowrap rounded-[7px] px-2.5 text-sm font-medium',
+            value === v ? 'bg-white font-semibold text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]' : 'text-slate-500 hover:text-[#18181b]',
           )}
           key={v}
           onClick={() => onChange(v)}
@@ -175,10 +175,6 @@ function GroupMatrix({ items, needle }: { items: readonly MatrixItem[]; needle: 
     );
   return (
     <div className="flex flex-col gap-1.5" data-testid="auth-kpi-matrix">
-      <p className="m-0 text-[12px] text-slate-500">
-        <b className="font-semibold text-slate-700">Hàng</b> là đối tượng được thao tác,{' '}
-        <b className="font-semibold text-slate-700">cột</b> là mức quyền được cấp trên đối tượng đó.
-      </p>
       <div className="overflow-x-auto rounded-lg border border-[#e5e7eb] bg-white">
         <table className="w-full min-w-[560px] border-collapse text-left">
           <thead>

@@ -80,10 +80,7 @@ export function SettingsView({
   return (
     <section className={`${styles.card} ${styles.settings}`}>
       <h2>Cấu hình sổ văn thư</h2>
-      <p className={styles.sectionNote}>
-        Số đến, số đi cấp theo mẫu số của từng sổ (mục Sổ đăng ký bên dưới), đếm lại từ 1 mỗi năm. Đổi ký hiệu chỉ áp dụng cho số
-        cấp sau khi lưu.
-      </p>
+      <p className={styles.sectionNote}>Đổi ký hiệu chỉ áp dụng cho số cấp sau khi lưu.</p>
       <form
         className={styles.form}
         onSubmit={(event) => {
@@ -112,10 +109,7 @@ export function SettingsView({
               ))}
             </div>
           ) : null}
-          <span className={styles.hint}>
-            Người được chọn làm việc của văn thư (tiếp nhận, kiểm tra, ban hành, lưu trữ), nhận thông báo việc của văn thư và hiện tên
-            ở các bước của văn thư. Bỏ trống là mọi người có quyền văn thư trong Phân quyền.
-          </span>
+          <span className={styles.hint}>Bỏ trống là mọi người có quyền văn thư.</span>
         </SelectField>
         <Field label="Ký hiệu cơ quan">
           <input value={form.orgCode ?? ''} maxLength={20} placeholder="Ví dụ: SVN" onChange={(event) => set('orgCode', event.target.value)} />
@@ -158,10 +152,7 @@ export function SettingsView({
             hideDropdownSearch
             onChange={(value) => set('dispatchMode', value as DispatchMode)}
           />
-          <span className={styles.hint}>
-            Cả phòng cùng nhận: mọi nhân sự của phòng được báo, trưởng phòng phân công người xử lý sau nếu cần. Phải chọn người xử
-            lý: văn thư chọn sẵn một người cho mỗi phòng.
-          </span>
+          <span className={styles.hint}>Phải chọn người xử lý: văn thư chọn sẵn một người cho mỗi phòng.</span>
         </SelectField>
         {error ? (
           <p role="alert" className={styles.alert}>
@@ -193,9 +184,7 @@ function UnitCodesField({
   return (
     <div className={styles.field} role="group" aria-label="Ký hiệu đơn vị">
       <span className={styles.fieldLabel}>Ký hiệu đơn vị</span>
-      <span className={styles.hint}>
-        Phần {'{donvi}'} trong mẫu số (đơn vị soạn thảo). Đơn vị chưa đặt thì lấy chữ cái đầu của tên, ví dụ Phòng Kinh doanh là KD.
-      </span>
+      <span className={styles.hint}>Phần {'{donvi}'} trong mẫu số; chưa đặt thì lấy chữ cái đầu của tên.</span>
       {codes.map((item, index) => (
         <div key={index} className={styles.unitCodeRow}>
           <SearchableSelect
@@ -249,9 +238,6 @@ function DelegationsField({
   return (
     <div className={styles.field} role="group" aria-label="Ủy quyền duyệt">
       <span className={styles.fieldLabel}>Ủy quyền duyệt</span>
-      <span className={styles.hint}>
-        Người được ủy quyền (thường là cấp phó) duyệt, bút phê thay trong khoảng ngày; lịch sử ghi rõ duyệt thay ai.
-      </span>
       {delegations.map((item, index) => {
         const active = item.fromDate <= today && today <= item.toDate;
         return (

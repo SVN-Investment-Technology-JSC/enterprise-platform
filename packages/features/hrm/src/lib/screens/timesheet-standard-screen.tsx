@@ -140,13 +140,11 @@ export default function TimesheetStandardScreen() {
     <div className="space-y-4">
       <PageTitle
         title="Công chuẩn của bảng công"
-        description="Chính sách có hiệu lực từ tháng ban hành đến khi có chính sách mới thay thế. Cấu hình công chuẩn trong chính sách lương chỉ dùng để tính lương."
       />
 
       <InfoNote>
-        <strong>Động theo lịch ca:</strong> công chuẩn của mỗi nhân viên là tổng sức chứa công của các ngày có ca trong tháng
-        (ca đủ ngày là 1, ca sáng thứ Bảy 4 giờ là 0,5; ngày lễ có lịch ca vẫn tính). <strong>Cố định:</strong> mọi nhân viên
-        dùng số ngày công nhập tay, ví dụ 24,5. Chưa có chính sách nào thì dùng công chuẩn động.
+        <strong>Động theo lịch ca:</strong> tổng công các ngày có ca trong tháng. <strong>Cố định:</strong> số ngày công nhập tay. Chưa có chính
+        sách thì dùng công chuẩn động.
       </InfoNote>
 
       {error ? (

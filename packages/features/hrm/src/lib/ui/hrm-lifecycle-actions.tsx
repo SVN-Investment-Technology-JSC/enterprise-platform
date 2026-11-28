@@ -50,7 +50,7 @@ export function EmployeeLifecycleActions({
     setAction({
       title: `Cập nhật hồ sơ · ${employee.employeeCode}`,
       columns: 2,
-      description: `Ngày vào làm: ${formatDate(employee.joinDate, '----')}. Họ tên và email do Core quản lý, không sửa tại đây. Thay đổi hồ sơ không đổi thông tin đăng nhập ERP.`,
+      description: `Ngày vào làm: ${formatDate(employee.joinDate, '----')}. Họ tên và email do Core quản lý.`,
       fields: [
         {
           key: 'dateOfBirth',

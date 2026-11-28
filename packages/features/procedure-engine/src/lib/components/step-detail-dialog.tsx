@@ -1,8 +1,9 @@
 'use client';
 
 import {
-  formatAttributeValue,
+  isBlankAttributeValue,
   type ProcedureActivity,
+  type ProcedureAttachment,
   type ProcedureAttributeDefinition,
   type ProcedureAttributeValue,
   type ProcedureInstance,
@@ -10,7 +11,7 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { MinimalPopupForm, formatDateTime as formatSharedDateTime } from '@enterprise-platform/shared-ui';
 import type { ReactNode } from 'react';
-import { attributeSlots } from './attribute-form';
+import { AttributeValues, attributeSlots } from './attribute-form';
 import styles from './step-detail-dialog.module.scss';
 
 /** Thao tác chốt bước: người làm thao tác này là người thực hiện bước. */
@@ -32,6 +33,8 @@ export interface StepDetail {
     readonly definition: ProcedureAttributeDefinition;
     readonly value: ProcedureAttributeValue;
     readonly scopeLabel: string;
+    /** Bước của ô (vắng là thông tin chung): khối giá trị chỉ ghi "bước N" khi ô thuộc bước khác. */
+    readonly step?: { readonly definitionStepId: string; readonly order: number };
   }[];
 }
 
@@ -101,6 +104,8 @@ export function StepDetailDialog({
   statusLabel,
   roles,
   extra,
+  members,
+  attachments,
   onClose,
 }: {
   instance: ProcedureInstance;
@@ -110,6 +115,9 @@ export function StepDetailDialog({
   roles: ReactNode;
   /** Phần riêng của bước như phiếu Tài chính, tài liệu đã nộp. */
   extra?: ReactNode;
+  /** Chỉ để trình bày giá trị đã nhập: tên người của ô chọn người, tệp của ô tệp. */
+  members?: readonly { userId: string; displayName: string }[];
+  attachments?: readonly ProcedureAttachment[];
   onClose: () => void;
 }) {
   const detail = stepDetail(instance, step);
@@ -168,19 +176,16 @@ export function StepDetailDialog({
           <div className={styles.roles}>{roles}</div>
         </section>
 
-        {detail.values.length ? (
+        {detail.values.some((item) => !isBlankAttributeValue(item.value)) ? (
           <section className={styles.section}>
             <h3>Thông tin đã nhập</h3>
-            <dl className={styles.values}>
-              {detail.values.map((item) => (
-                <div key={item.key}>
-                  <dt>
-                    {item.definition.name} <small>{item.scopeLabel}</small>
-                  </dt>
-                  <dd>{formatAttributeValue(item.value, item.definition)}</dd>
-                </div>
-              ))}
-            </dl>
+            <AttributeValues
+              instance={instance}
+              items={detail.values}
+              contextStepId={step.definitionStepId}
+              members={members}
+              attachments={attachments}
+            />
           </section>
         ) : null}
 

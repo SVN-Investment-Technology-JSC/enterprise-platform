@@ -279,7 +279,6 @@ export function SalaryProfilesPanel() {
       icon={UserCheck}
       tone="blue"
       title="Hồ sơ lương nhân viên"
-      description="Nơi nhập mức lương, ngạch và bậc của từng nhân viên. Mỗi lần lưu tạo phiên bản mới và kết thúc phiên bản đang hiệu lực."
       className="@container"
       actions={
         <Button
@@ -357,7 +356,6 @@ export function SalaryProfilesPanel() {
             <EmptyPanel
               icon={UserCheck}
               title={employee ? 'Nhân viên chưa có hồ sơ lương.' : 'Chọn nhân viên để xem hồ sơ lương.'}
-              description={employee ? 'Bấm Thêm hồ sơ lương để nhập mức lương đầu tiên.' : undefined}
               className="py-8"
             />
           }

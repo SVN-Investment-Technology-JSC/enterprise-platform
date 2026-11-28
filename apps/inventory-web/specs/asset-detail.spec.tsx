@@ -145,9 +145,7 @@ describe('AssetDetail', () => {
     const { container } = renderDetail({ asset: asset({ code: 'AST-001' }) });
     await waitFor(() => expect(mockLoadHistory).toHaveBeenCalled());
     fireEvent.click(screen.getByRole('tab', { name: /Lịch sử vận hành/ }));
-    expect(
-      screen.getByText('Chưa có sự kiện hoặc nhật ký vận hành nào được ghi nhận cho thiết bị này.'),
-    ).toBeTruthy();
+    expect(screen.getByText('Chưa có nhật ký vận hành nào.')).toBeTruthy();
     const availability = screen.getByText('Tỷ lệ sẵn sàng').closest('div')?.parentElement;
     expect(availability?.textContent).toContain('—');
     const mttr = screen.getByText('Chỉ số MTTR').closest('div')?.parentElement;

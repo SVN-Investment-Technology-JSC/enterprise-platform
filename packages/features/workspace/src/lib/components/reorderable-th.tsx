@@ -244,11 +244,7 @@ export function ReorderableTh({
       )}
       style={mergedStyle}
       draggable={!isPinned && !handleHot && !resizing}
-      title={
-        isPinned
-          ? undefined
-          : `Kéo để đổi chỗ cột ${label} (hoặc nhấn Alt cùng mũi tên trái/phải)`
-      }
+      title={label}
       data-column-id={id}
       aria-sort={onSort ? (sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : 'none') : undefined}
       onKeyDown={onKeyDown}

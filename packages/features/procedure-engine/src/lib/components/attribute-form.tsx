@@ -3,6 +3,7 @@
 import {
   FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES,
   formatAttributeValue,
+  isBlankAttributeValue,
   type ProcedureAttachment,
   type ProcedureAttributeDefinition,
   type ProcedureAttributeValue,
@@ -10,7 +11,7 @@ import {
 } from '@enterprise-platform/contracts-procedure-engine';
 import { SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
-import { Info } from 'lucide-react';
+import { FileText, Info } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatGroupedInput } from './grouped-number';
 import type { PayeeMode, PayeePicker } from './use-payee-picker';
@@ -273,6 +274,173 @@ export function longTextSlotKeys(instance: ProcedureInstance): Set<string> {
   return keys;
 }
 
+/** Chữ dài hơn ngần này ký tự (hay có xuống dòng) thì khối giá trị chỉ đọc cho trọn bề ngang. */
+const LONG_VALUE_LENGTH = 60;
+
+const PAYEE_VALUE_FIELDS = ['counterpartyName', 'counterpartyAccountNo', 'counterpartyBank'] as const;
+
+/**
+ * Khoá các ô người nhận tiền (Người nhận, STK, Ngân hàng) để khối giá trị chỉ đọc xếp liền nhau, theo thứ tự đó. Cùng
+ * cách nhận ra như lúc nhập (ánh xạ của bước lập phiếu chi, không có thì bộ mã chuẩn) nhưng không cần ô đang mở. Không có
+ * ô "Người nhận" thì không gom. Chỉ để trình bày.
+ */
+function readonlyPayeeKeys(instance: ProcedureInstance): string[] {
+  const textSlots = attributeSlots(instance).filter((slot) => slot.definition.type === 'text');
+  const mapping = instance.steps.find((step) => step.integration?.voucherKind === 'PAYMENT')?.integration?.mapping ?? {};
+  const keys: string[] = [];
+  for (const field of PAYEE_VALUE_FIELDS) {
+    const mapped = mapping[field];
+    const key = mapped
+      ? textSlots.find((slot) => slot.key === mapped)?.key
+      : FINANCE_VOUCHER_SOURCE_ATTRIBUTE_CODES[field]
+          .map((code) => textSlots.find((slot) => slot.definition.code.toLowerCase() === code && !keys.includes(slot.key)))
+          .find(Boolean)?.key;
+    if (field === 'counterpartyName' && !key) return [];
+    if (key) keys.push(key);
+  }
+  return keys;
+}
+
+/** Một giá trị đã nhập cần hiện chỉ đọc. `step` vắng là thông tin chung của hồ sơ. */
+export interface AttributeValueItem {
+  readonly key: string;
+  readonly definition: ProcedureAttributeDefinition;
+  readonly value: ProcedureAttributeValue | null | undefined;
+  readonly step?: { readonly definitionStepId: string; readonly order: number };
+}
+
+/** Mọi giá trị đã nhập của hồ sơ, theo thứ tự khai báo (thông tin chung trước, rồi từng bước). */
+export function attributeValueItems(instance: ProcedureInstance): AttributeValueItem[] {
+  return attributeSlots(instance).map((slot) => ({ ...slot, value: instance.attributeValues?.[slot.key]?.value }));
+}
+
+/** Giá trị chỉ đọc: số tiền "3.000.000 đ", ngày dd/mm/yyyy, Có / Không, tên người, tệp là đường dẫn / thẻ tệp. */
+function ReadonlyValue({
+  item,
+  value,
+  members,
+  attachments,
+}: {
+  item: AttributeValueItem;
+  value: ProcedureAttributeValue;
+  members: readonly { userId: string; displayName: string }[];
+  attachments: readonly ProcedureAttachment[];
+}) {
+  if (value.type === 'user') {
+    return <>{value.label ?? members.find((member) => member.userId === value.value)?.displayName ?? value.value}</>;
+  }
+  if (value.type === 'file') {
+    const known = value.value.flatMap((id) => attachments.filter((file) => file.id === id));
+    const missing = value.value.length - known.length;
+    return (
+      <span className={styles.valueFiles}>
+        {known.map((file) =>
+          file.downloadUrl ? (
+            <a key={file.id} className={styles.valueFile} href={file.downloadUrl} target="_blank" rel="noreferrer">
+              <FileText size={12} aria-hidden />
+              {file.fileName}
+            </a>
+          ) : (
+            <span key={file.id} className={styles.valueFile}>
+              <FileText size={12} aria-hidden />
+              {file.fileName}
+            </span>
+          ),
+        )}
+        {missing > 0 ? <span>{known.length ? `+${missing} tệp` : `${missing} tệp`}</span> : null}
+      </span>
+    );
+  }
+  return <>{formatAttributeValue(value, item.definition)}</>;
+}
+
+/**
+ * Khối "Thông tin đã nhập" dùng chung cho mọi chỗ hiện giá trị chỉ đọc (khung xử lý bước đang làm, thẻ bước đã qua trên
+ * tiến trình, popup xem lại bước; giao diện mới, giao diện cũ và khung nhúng). Cùng lưới co giãn với lưới ô nhập: ô ngắn
+ * (tiền, số, ngày, chọn, người, có / không, chữ ngắn) mỗi ô tối thiểu 200px; chữ dài (ô nội dung, mô tả, ghi chú... như
+ * lúc nhập, hay chữ dài hơn 60 ký tự / có xuống dòng) trọn bề ngang, giữ xuống dòng, không cắt; khối người nhận tiền
+ * (Người nhận, STK, Ngân hàng) đứng liền nhau ở hàng riêng. Ô trống không hiện. Không ghi "Thông tin chung"; chỉ ghi
+ * "bước N" (chữ nhỏ nhạt) khi ô thuộc bước khác với bước của thẻ đang hiện (`contextStepId`, id bước định nghĩa).
+ */
+export function AttributeValues({
+  instance,
+  items,
+  contextStepId,
+  members = [],
+  attachments = [],
+  heading,
+  className,
+}: {
+  instance: ProcedureInstance;
+  items: readonly AttributeValueItem[];
+  contextStepId?: string;
+  members?: readonly { userId: string; displayName: string }[];
+  attachments?: readonly ProcedureAttachment[];
+  /** Tiêu đề nhỏ phía trên (vd "Thông tin đã nhập"); vắng thì không có. */
+  heading?: string;
+  className?: string;
+}) {
+  const visible = items.filter(
+    (item): item is AttributeValueItem & { value: ProcedureAttributeValue } =>
+      Boolean(item.value) && !isBlankAttributeValue(item.value ?? undefined),
+  );
+  if (!visible.length) return null;
+  const longKeys = longTextSlotKeys(instance);
+  const payeeOrder = readonlyPayeeKeys(instance).filter((key) => visible.some((item) => item.key === key));
+  const payeeKeys = new Set(payeeOrder);
+  const isLong = (item: (typeof visible)[number]) =>
+    !payeeKeys.has(item.key) &&
+    item.value.type === 'text' &&
+    (longKeys.has(item.key) || item.value.value.length > LONG_VALUE_LENGTH || item.value.value.includes('\n'));
+  const ordered = [
+    ...visible.filter((item) => !payeeKeys.has(item.key) && !isLong(item)),
+    ...visible.filter(isLong),
+    ...payeeOrder.flatMap((key) => visible.filter((item) => item.key === key)),
+  ];
+  const scopeHint = (item: AttributeValueItem) =>
+    item.step && item.step.definitionStepId !== contextStepId ? `bước ${item.step.order}` : undefined;
+  return (
+    <section
+      className={className ? `${styles.values} ${className}` : styles.values}
+      aria-label={heading ?? 'Thông tin đã nhập'}
+      data-attribute-values=""
+    >
+      {heading ? <h4 className={styles.valuesHead}>{heading}</h4> : null}
+      <dl className={styles.valuesGrid}>
+        {ordered.map((item) => {
+          const long = isLong(item);
+          const payee = payeeKeys.has(item.key);
+          const hint = scopeHint(item);
+          const numeric = ['money', 'number', 'percent', 'date'].includes(item.value.type);
+          return (
+            <div
+              key={item.key}
+              className={[
+                styles.valueItem,
+                long ? styles.valueItemLong : '',
+                payee && item.key === payeeOrder[0] ? styles.valueItemPayeeStart : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              data-value-key={item.key}
+              data-long={long ? '' : undefined}
+              data-payee={payee ? '' : undefined}
+            >
+              <dt className={styles.valueLabel}>
+                {item.definition.name}
+                {hint ? <small className={styles.valueScope}>{hint}</small> : null}
+              </dt>
+              <dd className={numeric ? `${styles.valueText} ${styles.valueNumeric}` : styles.valueText}>
+                <ReadonlyValue item={item} value={item.value} members={members} attachments={attachments} />
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+    </section>
+  );
+}
+
 /** Ô chữ nhiều dòng của cửa sổ hồ sơ: 3 dòng, tự cao theo nội dung tới khoảng 8 dòng rồi cuộn. Giá trị vẫn là chữ thường. */
 function LongTextInput({
   value,
@@ -440,10 +608,24 @@ export function AttributeForm({
   const editable = new Set(instance.authorization?.editableAttributeKeys ?? []);
   const slots = attributeSlots(instance);
   const open = slots.filter((slot) => editable.has(slot.key));
+  // Ô trống không hiện ở khối chỉ đọc.
   const readonly = slots.filter(
-    (slot) => !editable.has(slot.key) && instance.attributeValues?.[slot.key],
+    (slot) => !editable.has(slot.key) && !isBlankAttributeValue(instance.attributeValues?.[slot.key]?.value),
   );
   if (!open.length && !readonly.length) return null;
+  const currentDefinitionStepId = instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId;
+  // Giá trị đã nhập (ô không mở cho người này): cùng một khối chỉ đọc ở cả hai cách trình bày.
+  const readonlyValues = (className?: string) => (
+    <AttributeValues
+      instance={instance}
+      items={readonly.map((slot) => ({ ...slot, value: instance.attributeValues?.[slot.key]?.value }))}
+      contextStepId={currentDefinitionStepId}
+      members={members}
+      attachments={attachments}
+      heading="Thông tin đã nhập"
+      className={className}
+    />
+  );
 
   const valueOf = (key: string) =>
     key in draft ? draft[key] : instance.attributeValues?.[key]?.value;
@@ -470,7 +652,6 @@ export function AttributeForm({
     slot.key === payeeHintKey ? <small className={styles.hint}>{PAYEE_HINT}</small> : null;
 
   if (variant === 'modal') {
-    const currentDefinitionStepId = instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId;
     // Thông tin chung và ô của chính bước đang làm: không ghi phạm vi.
     const scopeTag = (slot: Slot) =>
       slot.step && slot.step.definitionStepId !== currentDefinitionStepId ? `từ bước ${slot.step.order}` : undefined;
@@ -558,26 +739,7 @@ export function AttributeForm({
             {ordered.map((slot) => field(slot))}
           </div>
         ) : null}
-        {readonly.length ? (
-          <div className={styles.modalReadonly}>
-            <h4 className={styles.modalSubhead}>Thông tin đã nhập</h4>
-            <dl className={styles.modalValues}>
-              {readonly.map((slot) => {
-                const tag = scopeTag(slot);
-                const text = formatAttributeValue(instance.attributeValues?.[slot.key]?.value, slot.definition);
-                return (
-                  <div key={slot.key}>
-                    <dt>
-                      {slot.definition.name}
-                      {tag ? <small>{tag}</small> : null}
-                    </dt>
-                    <dd title={text}>{text}</dd>
-                  </div>
-                );
-              })}
-            </dl>
-          </div>
-        ) : null}
+        {readonly.length ? readonlyValues(open.length ? styles.valuesSplit : undefined) : null}
       </section>
     );
   }
@@ -609,18 +771,7 @@ export function AttributeForm({
           </div>
         </>
       ) : null}
-      {readonly.length ? (
-        <dl className={styles.readonly}>
-          {readonly.map((slot) => (
-            <div key={slot.key}>
-              <dt>
-                {slot.definition.name} <small>{slot.scopeLabel}</small>
-              </dt>
-              <dd>{formatAttributeValue(instance.attributeValues?.[slot.key]?.value, slot.definition)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
+      {readonly.length ? readonlyValues(open.length ? styles.valuesSplit : undefined) : null}
     </section>
   );
 }

@@ -31,19 +31,12 @@ export function ScheduledView() {
   return (
     <section className={extras.view} aria-label="Bài hẹn giờ">
       <div className={extras.viewHead}>
-        <div>
-          <h2>Bài hẹn giờ</h2>
-          <p className={extras.viewDesc}>
-            Bài của bạn sẽ tự đăng đúng giờ hẹn (giờ Việt Nam). Chỉ mình bạn
-            thấy các bài này.
-          </p>
-        </div>
+        <h2>Bài hẹn giờ</h2>
       </div>
       <PostList
         fetchPage={fetchPage}
         keep={isScheduled}
         emptyTitle="Không có bài nào đang hẹn giờ"
-        emptyHint="Khi soạn bài, chọn Hẹn giờ đăng để bài tự lên đúng lúc."
         renderActions={(post, actions) => (
           <ScheduledActions post={post} actions={actions} />
         )}

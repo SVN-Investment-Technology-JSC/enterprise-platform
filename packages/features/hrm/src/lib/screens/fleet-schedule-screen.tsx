@@ -104,11 +104,10 @@ export default function FleetScheduleScreen() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Lịch xe"
-        description="Xe công ty đang được đặt cho đơn công tác, công việc, lịch họp và sự cố. Chọn xe và tài xế ngay trên đơn hoặc công việc."
         withTabs
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <div role="group" aria-label="Khoảng xem" className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 text-xs">
+            <div role="group" aria-label="Khoảng xem" className="flex gap-0.5 rounded-lg bg-slate-100 p-0.5 text-sm">
               {SPANS.map((value) => (
                 <button
                   key={value}
@@ -116,8 +115,8 @@ export default function FleetScheduleScreen() {
                   aria-pressed={span === value}
                   onClick={() => setSpan(value)}
                   className={cn(
-                    'h-8 cursor-pointer rounded-md px-3 font-medium whitespace-nowrap transition-all',
-                    span === value ? 'bg-white font-bold text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900',
+                    'h-8 cursor-pointer rounded-md px-3 whitespace-nowrap transition-all',
+                    span === value ? 'bg-white font-semibold text-slate-900 shadow-xs' : 'font-medium text-slate-500 hover:text-slate-900',
                   )}
                 >
                   {value} ngày
@@ -250,7 +249,7 @@ export default function FleetScheduleScreen() {
           <SheetHeader className="shrink-0 border-b border-slate-200">
             <SheetTitle>{selected ? `${selected.vehiclePlateNo} · ${selected.vehicleName}` : 'Chi tiết lịch xe'}</SheetTitle>
             <SheetDescription>
-              Lịch xe sinh ra từ đơn hoặc công việc gốc; đổi hay huỷ lịch thực hiện ngay trên nguồn đó.
+              Đổi hay huỷ lịch trên đơn hoặc công việc gốc.
             </SheetDescription>
           </SheetHeader>
           {selected ? (

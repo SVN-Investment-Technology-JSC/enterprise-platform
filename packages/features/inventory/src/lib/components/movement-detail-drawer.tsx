@@ -589,8 +589,7 @@ export function MovementDetailDrawer({
                 </div>
               ) : (
                 <div className="py-3 px-4 bg-slate-50 border-l-3 border-l-blue-600 rounded-[0_6px_6px_0] text-[0.875rem] text-slate-700 leading-[1.5]">
-                  Chưa ghi nhận. Phiếu tạo trước khi hệ thống lưu nơi nhập/xuất,
-                  hoặc người lập phiếu không khai báo.
+                  Chưa ghi nhận.
                 </div>
               )}
             </div>

@@ -170,7 +170,6 @@ export default function AdvancesScreen() {
       <PageTitle
         withTabs
         title="Ứng và thu hồi"
-        description="Quy trình khép kín: Đề nghị → Phê duyệt → Ghi nhận giải ngân → Tự động khấu trừ khi chốt kỳ lương."
         badge={
           <Link
             href="/requests"
@@ -481,7 +480,7 @@ export default function AdvancesScreen() {
             </div>
           ) : (
             <div className="text-xs text-slate-400 text-center py-12">
-              Chọn một yêu cầu ở bảng bên trái để xem lịch thu hồi và thực hiện giải ngân.
+              Chọn một yêu cầu để xem chi tiết.
             </div>
           )}
         </section>

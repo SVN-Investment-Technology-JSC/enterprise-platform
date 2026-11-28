@@ -107,13 +107,10 @@ beforeEach(() => {
 });
 
 describe('PayrollScreen: đầu trang và trạng thái rỗng', () => {
-  it('có tiêu đề, mô tả và 4 thẻ số liệu bằng 0 khi chưa có kỳ lương', async () => {
+  it('có tiêu đề và 4 thẻ số liệu bằng 0 khi chưa có kỳ lương', async () => {
     setup({});
     render(<PayrollScreen />);
     expect(screen.getByRole('heading', { name: 'Lương và chi trả' })).toBeTruthy();
-    expect(
-      screen.getByText('Quản lý kỳ lương, tính lương, phát hành phiếu lương và theo dõi lịch sử chi trả.'),
-    ).toBeTruthy();
     await screen.findByText('Chưa có kỳ lương');
     expect(stat('payroll-stat-open')).toContain('Kỳ lương đang mở');
     expect(stat('payroll-stat-waiting-calculation')).toContain('Chờ tính lương');
@@ -133,9 +130,6 @@ describe('PayrollScreen: đầu trang và trạng thái rỗng', () => {
     setup({});
     render(<PayrollScreen />);
     await screen.findByText('Chưa có kỳ lương');
-    expect(
-      screen.getByText('Tạo kỳ lương để tổng hợp dữ liệu từ bảng công đã khóa, tính lương và phát hành phiếu lương.'),
-    ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Tạo kỳ lương đầu tiên' })).toBeTruthy();
     const steps = screen.getByRole('region', { name: 'Quy trình tạo kỳ lương' });
     expect(within(steps).getByTestId('payroll-step-1').textContent).toContain('Chọn kỳ công đã khóa');

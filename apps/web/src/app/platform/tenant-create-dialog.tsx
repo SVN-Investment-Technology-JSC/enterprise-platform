@@ -6,16 +6,16 @@ import type { CreateTenantRequest, CreateTenantResponse, TenantSummary } from '@
 import { ArrowLeft, ArrowRight, Building2, Database, ShieldCheck } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group';
 import { cn } from '@/lib/utils';
 import { organizationNamePatch, sanitizeEmailLocal, tenantAdminEmail, tenantSlugPatch } from './tenant-create-form';
 
 const tenantCreateStepper = defineStepper([
-  { id: 'organization', title: 'Doanh nghiệp', description: 'Định danh tenant' },
-  { id: 'administrator', title: 'Quản trị viên', description: 'Tài khoản tenant admin' },
-  { id: 'database', title: 'Database', description: 'Dedicated database' },
+  { id: 'organization', title: 'Doanh nghiệp' },
+  { id: 'administrator', title: 'Quản trị viên' },
+  { id: 'database', title: 'Database' },
 ] as const, { linear: true });
 
 type TenantDraft = { name: string; slug: string; adminDisplayName: string; adminEmailLocal: string; initialPassword: string; confirmation: string; databaseName: string; host: string; port: string; secretRef: string; ssl: boolean };
@@ -91,7 +91,7 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
   }
 
   return <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden p-0" showCloseButton={!busy}>
-    <DialogHeader className="border-b px-6 pt-6 pb-5"><DialogTitle>Tạo Tenant mới</DialogTitle><DialogDescription>Hoàn tất từng bước. Dữ liệu đã nhập luôn được giữ khi quay lại.</DialogDescription></DialogHeader>
+    <DialogHeader className="border-b px-6 pt-6 pb-5"><DialogTitle>Tạo Tenant mới</DialogTitle></DialogHeader>
     <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
       <TenantStepper currentIndex={stepper.index} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
@@ -111,23 +111,23 @@ function TenantCreateDialogFlow({ onCreated, onOpenChange }: Omit<TenantCreateDi
 }
 
 function TenantStepper({ currentIndex }: { currentIndex: number }) {
-  return <ol className="grid grid-cols-3 gap-2 border-b bg-slate-50 px-6 py-4" aria-label="Tiến trình tạo tenant">{tenantCreateStepper.steps.map((step, index) => { const active = index === currentIndex; const complete = index < currentIndex; return <li className={cn('flex min-w-0 items-center gap-3', !active && 'opacity-50')} key={step.id}><span className={cn('grid size-7 shrink-0 place-items-center rounded-full border text-xs font-semibold', active || complete ? 'border-[#091426] bg-[#091426] text-white' : 'border-slate-300 bg-white text-slate-500')}>{complete ? '✓' : index + 1}</span><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{step.title}</p><p className="truncate text-xs text-muted-foreground">{step.description}</p></div></li>; })}</ol>;
+  return <ol className="grid grid-cols-3 gap-2 border-b bg-slate-50 px-6 py-4" aria-label="Tiến trình tạo tenant">{tenantCreateStepper.steps.map((step, index) => { const active = index === currentIndex; const complete = index < currentIndex; return <li className={cn('flex min-w-0 items-center gap-3', !active && 'opacity-50')} key={step.id}><span className={cn('grid size-7 shrink-0 place-items-center rounded-full border text-xs font-semibold', active || complete ? 'border-[#091426] bg-[#091426] text-white' : 'border-slate-300 bg-white text-slate-500')}>{complete ? '✓' : index + 1}</span><p className="min-w-0 truncate text-sm font-semibold text-slate-800">{step.title}</p></li>; })}</ol>;
 }
 
 function OrganizationFields({ formData, update, updateSlug }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void; updateSlug: (slug: string) => void }) {
-  return <FormSection description="Đây là định danh dùng xuyên suốt cho tenant và dedicated database." icon={Building2} title="Thông tin doanh nghiệp"><Field label="Tên doanh nghiệp"><Input autoFocus onChange={(event) => update(organizationNamePatch(event.currentTarget.value))} value={formData.name} /></Field><Field label="Mã tenant"><Input onChange={(event) => updateSlug(event.currentTarget.value)} placeholder="vi-du-cong-ty" value={formData.slug} /></Field></FormSection>;
+  return <FormSection icon={Building2} title="Thông tin doanh nghiệp"><Field label="Tên doanh nghiệp"><Input autoFocus onChange={(event) => update(organizationNamePatch(event.currentTarget.value))} value={formData.name} /></Field><Field label="Mã tenant"><Input onChange={(event) => updateSlug(event.currentTarget.value)} placeholder="vi-du-cong-ty" value={formData.slug} /></Field></FormSection>;
 }
 
 function AdministratorFields({ formData, update }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void }) {
-  return <FormSection description="Tài khoản này được gán role tenant-admin sau khi provisioning hoàn tất." icon={ShieldCheck} title="Quản trị viên Tenant"><Field label="Họ và tên"><Input autoFocus onChange={(event) => update({ adminDisplayName: event.currentTarget.value })} value={formData.adminDisplayName} /></Field><Field label="Email công việc"><InputGroup><InputGroupInput aria-label="Tên email công việc" autoComplete="username" onChange={(event) => update({ adminEmailLocal: sanitizeEmailLocal(event.currentTarget.value) })} placeholder="admin" value={formData.adminEmailLocal} /><InputGroupAddon align="inline-end"><InputGroupText>@{formData.slug}.com</InputGroupText></InputGroupAddon></InputGroup></Field><Field label="Mật khẩu tạm thời"><Input autoComplete="new-password" onChange={(event) => update({ initialPassword: event.currentTarget.value })} type="password" value={formData.initialPassword} /></Field><Field label="Xác nhận mật khẩu"><Input autoComplete="new-password" onChange={(event) => update({ confirmation: event.currentTarget.value })} type="password" value={formData.confirmation} /></Field></FormSection>;
+  return <FormSection icon={ShieldCheck} title="Quản trị viên Tenant"><Field label="Họ và tên"><Input autoFocus onChange={(event) => update({ adminDisplayName: event.currentTarget.value })} value={formData.adminDisplayName} /></Field><Field label="Email công việc"><InputGroup><InputGroupInput aria-label="Tên email công việc" autoComplete="username" onChange={(event) => update({ adminEmailLocal: sanitizeEmailLocal(event.currentTarget.value) })} placeholder="admin" value={formData.adminEmailLocal} /><InputGroupAddon align="inline-end"><InputGroupText>@{formData.slug}.com</InputGroupText></InputGroupAddon></InputGroup></Field><Field label="Mật khẩu tạm thời"><Input autoComplete="new-password" onChange={(event) => update({ initialPassword: event.currentTarget.value })} type="password" value={formData.initialPassword} /></Field><Field label="Xác nhận mật khẩu"><Input autoComplete="new-password" onChange={(event) => update({ confirmation: event.currentTarget.value })} type="password" value={formData.confirmation} /></Field></FormSection>;
 }
 
 function DatabaseFields({ formData, update }: { formData: TenantDraft; update: (patch: Partial<TenantDraft>) => void }) {
-  return <FormSection description="Platform chỉ lưu secret reference; không lưu chuỗi kết nối database dưới dạng rõ." icon={Database} title="Dedicated Database"><Field label="Database name"><Input autoFocus onChange={(event) => update({ databaseName: event.currentTarget.value })} value={formData.databaseName} /></Field><Field label="Database host"><Input onChange={(event) => update({ host: event.currentTarget.value })} value={formData.host} /></Field><Field label="Port"><Input onChange={(event) => update({ port: event.currentTarget.value })} type="number" value={formData.port} /></Field><Field label="Secret reference"><Input onChange={(event) => update({ secretRef: event.currentTarget.value })} value={formData.secretRef} /></Field><label className="col-span-full flex items-center gap-2 text-sm font-medium text-slate-700"><input checked={formData.ssl} className="size-4" onChange={(event) => update({ ssl: event.currentTarget.checked })} type="checkbox" />Sử dụng SSL</label></FormSection>;
+  return <FormSection description="Chỉ lưu secret reference, không lưu chuỗi kết nối." icon={Database} title="Dedicated Database"><Field label="Database name"><Input autoFocus onChange={(event) => update({ databaseName: event.currentTarget.value })} value={formData.databaseName} /></Field><Field label="Database host"><Input onChange={(event) => update({ host: event.currentTarget.value })} value={formData.host} /></Field><Field label="Port"><Input onChange={(event) => update({ port: event.currentTarget.value })} type="number" value={formData.port} /></Field><Field label="Secret reference"><Input onChange={(event) => update({ secretRef: event.currentTarget.value })} value={formData.secretRef} /></Field><label className="col-span-full flex items-center gap-2 text-sm font-medium text-slate-700"><input checked={formData.ssl} className="size-4" onChange={(event) => update({ ssl: event.currentTarget.checked })} type="checkbox" />Sử dụng SSL</label></FormSection>;
 }
 
-function FormSection({ description, icon: Icon, title, children }: { description: string; icon: typeof Building2; title: string; children: React.ReactNode }) {
-  return <section><div className="mb-5"><div className="flex items-center gap-2"><Icon className="size-4 text-[#091426]" /><h2 className="font-semibold text-slate-900">{title}</h2></div><p className="mt-1 text-sm text-muted-foreground">{description}</p></div><div className="grid gap-5 sm:grid-cols-2">{children}</div></section>;
+function FormSection({ description, icon: Icon, title, children }: { description?: string; icon: typeof Building2; title: string; children: React.ReactNode }) {
+  return <section><div className="mb-5"><div className="flex items-center gap-2"><Icon className="size-4 text-[#091426]" /><h2 className="font-semibold text-slate-900">{title}</h2></div>{description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}</div><div className="grid gap-5 sm:grid-cols-2">{children}</div></section>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="grid gap-1.5 text-sm font-medium text-slate-700"><span>{label}</span>{children}</label>; }

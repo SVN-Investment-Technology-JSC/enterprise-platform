@@ -112,12 +112,7 @@ export function LabelSettings() {
 
   return (
     <div className={styles.roleSettings}>
-      <p className={styles.muted}>
-        Trạng thái gắn với quy trình duyệt, đóng việc và báo cáo, nên chỉ đổi được tên, màu và thứ tự hiển
-        thị. Mức ưu tiên thêm, xoá được; mức đang có việc dùng và mức mặc định của việc mới thì không xoá
-        được.
-        {canEdit ? '' : ' Chỉ quản trị viên được sửa.'}
-      </p>
+      {canEdit ? null : <p className={styles.muted}>Chỉ quản trị viên được sửa.</p>}
 
       <OptionTable
         title="Trạng thái công việc"

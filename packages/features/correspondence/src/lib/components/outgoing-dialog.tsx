@@ -158,11 +158,7 @@ export function OutgoingDialog({
       open={open}
       wide
       title={replyTo ? 'Soạn công văn trả lời' : 'Soạn công văn đi'}
-      subtitle={
-        replyTo
-          ? `Trả lời công văn đến số ${replyTo.number}. Gửi văn thư kiểm tra khi dự thảo xong.`
-          : 'Cấp số dự thảo; gửi văn thư kiểm tra khi dự thảo xong. Số đi cấp khi văn thư ban hành.'
-      }
+      subtitle={replyTo ? `Trả lời công văn đến số ${replyTo.number}` : undefined}
       submitLabel="Tạo dự thảo"
       submitting={submitting}
       dirty={dirty}
@@ -243,7 +239,7 @@ export function OutgoingDialog({
         <Field label="Hạn ban hành">
           <input type="date" value={form.dueOn} min={localToday()} onChange={(event) => set('dueOn', event.target.value)} />
         </Field>
-        <FilePickField label="Tệp dự thảo" files={files} hint="Tệp Word, PDF của dự thảo" onChange={setFiles} />
+        <FilePickField label="Tệp dự thảo" files={files} onChange={setFiles} />
       </div>
       <WorkflowPicker config={config} direction="outgoing" facts={facts} value={form.workflowId} directory={directory} onChange={(value) => set('workflowId', value)} />
     </FormDialog>

@@ -106,13 +106,13 @@ export function BirthdayView() {
         </span>
         <div className="min-w-0 flex-1">
           <h1 className="m-0 text-[17px] leading-tight font-bold text-slate-900">Sinh nhật sắp tới</h1>
-          <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
-            {data
-              ? todayCount > 0
+          {data ? (
+            <p className="m-0 mt-0.5 text-[12.5px] text-slate-500">
+              {todayCount > 0
                 ? `Hôm nay có ${todayCount} người sinh nhật · ${data.total} người trong ${PAGE_MONTHS} tháng tới`
-                : `${data.total} người trong ${PAGE_MONTHS} tháng tới`
-              : 'Đồng nghiệp có sinh nhật trong thời gian tới'}
-          </p>
+                : `${data.total} người trong ${PAGE_MONTHS} tháng tới`}
+            </p>
+          ) : null}
         </div>
         <div className="relative w-full sm:w-64">
           <Search

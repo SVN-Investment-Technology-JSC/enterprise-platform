@@ -58,7 +58,7 @@ export function ProgressHistoryPanel({
       ) : !reports ? (
         <p className={styles.muted}>Đang tải…</p>
       ) : reports.length === 0 ? (
-        <p className={styles.muted}>Chưa có báo cáo tiến độ nào. Bấm vào thanh tiến độ để báo cáo.</p>
+        <p className={styles.muted}>Chưa có báo cáo tiến độ nào.</p>
       ) : (
         <ul className={styles.progressHistory}>
           {reports.map((report) => (

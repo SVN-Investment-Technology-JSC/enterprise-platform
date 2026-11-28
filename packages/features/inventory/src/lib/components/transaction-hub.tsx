@@ -74,7 +74,6 @@ export function TransactionHub({
     initialQuantity?: number;
     initialNote?: string;
     title?: string;
-    description?: string;
     reqCode?: string;
   }>({
     open: false,
@@ -200,9 +199,6 @@ export function TransactionHub({
                 Tác nghiệp kho bãi
               </span>
               <h1 className="m-0 text-[1.25rem] font-bold tracking-[-0.02em] text-slate-900">Trung tâm Giao dịch &amp; Nhập xuất Kho</h1>
-              <p className="m-0 mt-1 text-[14px] text-slate-500">
-                Tra cứu toàn bộ sổ cái lịch sử giao dịch, lập phiếu xuất/nhập và thực hiện kiểm kê kho đối soát số sách.
-              </p>
             </div>
           </div>
 
@@ -210,9 +206,9 @@ export function TransactionHub({
             <button
               type="button"
               className={cn(
-                'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+                'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-medium',
                 activeSubTab === 'ledger'
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-primary font-semibold text-primary-foreground'
                   : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
               )}
               onClick={() => setActiveSubTab('ledger')}
@@ -222,9 +218,9 @@ export function TransactionHub({
             <button
               type="button"
               className={cn(
-                'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+                'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-medium',
                 activeSubTab === 'stocktake'
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-primary font-semibold text-primary-foreground'
                   : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
               )}
               onClick={() => setActiveSubTab('stocktake')}
@@ -378,7 +374,6 @@ export function TransactionHub({
                             e.stopPropagation();
                             setSelectedTx(row);
                           }}
-                          title="Mở ngăn kéo xem chi tiết phiếu xuất nhập kho"
                         >
                           {row.transactionCode}
                         </button>
@@ -429,7 +424,6 @@ export function TransactionHub({
                           size="sm"
                           className="gap-1 border-primary/30 bg-primary/10 text-slate-900"
                           onClick={() => setSelectedTx(row)}
-                          title="Mở ngăn kéo xem chi tiết phiếu xuất nhập"
                         >
                           <Eye size={12} />
                           <span>Chi tiết</span>
@@ -506,7 +500,6 @@ export function TransactionHub({
           initialNote={popupMovement.initialNote}
           procedures={procedures}
           title={popupMovement.title}
-          description={popupMovement.description}
           isDialog={true}
           busy={busy}
           onCancel={() => setPopupMovement({ open: false })}

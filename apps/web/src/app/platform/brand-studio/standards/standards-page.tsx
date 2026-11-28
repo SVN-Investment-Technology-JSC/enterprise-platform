@@ -145,11 +145,11 @@ export function StandardsPage() {
             <Panel hint={`${settings.palette.tokens.length} màu, sửa là lưu ngay`} icon={Palette} id="palette-title" title="Bảng màu thương hiệu">
               <PaletteEditor docs={library.docs} onChange={settings.setPalette} palette={settings.palette} />
             </Panel>
-            <Panel hint="Icon mẫu theo bảng màu đang chỉnh" icon={Sparkles} id="preview-title" title="Xem trước">
+            <Panel icon={Sparkles} id="preview-title" title="Xem trước">
               <PalettePreview docs={library.docs} palette={settings.palette} />
             </Panel>
           </div>
-          <Panel hint="Ngưỡng dùng khi kiểm tra icon" icon={Ruler} id="rules-title" title="Quy chuẩn">
+          <Panel icon={Ruler} id="rules-title" title="Quy chuẩn">
             <RulesEditor onChange={settings.setRules} rules={settings.rules} />
           </Panel>
         </div>

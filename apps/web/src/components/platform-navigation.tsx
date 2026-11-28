@@ -94,7 +94,6 @@ export function PlatformNavigation({
             <div
               className="flex cursor-not-allowed items-center justify-between rounded-md px-3 py-2 text-sm text-slate-500 opacity-60"
               key={key}
-              title="Tính năng đang được phát triển"
             >
               <div className="flex items-center gap-3">
                 <Icon className="size-4" />

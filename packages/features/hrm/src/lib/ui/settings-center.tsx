@@ -117,10 +117,10 @@ function SettingsNav({
       return next;
     });
   const link = (selected: boolean) =>
-    `flex items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-xs font-semibold transition-colors ${
+    `flex items-center gap-2.5 rounded-lg border-l-2 px-3 py-2 text-sm transition-colors ${
       selected
-        ? 'border-blue-600 bg-blue-50 text-blue-700'
-        : 'border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+        ? 'border-blue-600 bg-blue-50 font-semibold text-blue-700'
+        : 'border-transparent font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900'
     }`;
   return (
     <>
@@ -268,10 +268,7 @@ function Overview({
                   className="mb-2 flex items-center gap-3"
                 >
                   <IconTile icon={ICONS[group.icon]} tone={GROUP_TONE[group.id] ?? 'slate'} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-bold text-slate-900">{group.title}</span>
-                    <span className="block text-[12px] leading-snug text-slate-500">{group.description}</span>
-                  </span>
+                  <span className="min-w-0 flex-1 text-sm font-bold text-slate-900">{group.title}</span>
                   <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-slate-400" />
                 </Link>
                 <ul className="space-y-1">
@@ -283,10 +280,7 @@ function Overview({
                         className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 transition-colors hover:border-blue-200 hover:bg-blue-50/40"
                       >
                         <IconTile icon={ICONS[entry.icon]} tone="slate" size="sm" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-xs font-semibold text-slate-900">{entry.label}</span>
-                          <span className="block truncate text-[12px] text-slate-500">{entry.description}</span>
-                        </span>
+                        <span className="min-w-0 flex-1 text-xs font-semibold text-slate-900">{entry.label}</span>
                         <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-slate-400" />
                       </Link>
                     </li>

@@ -10,7 +10,7 @@ export function HostAttributeBadge({ code }: { code: string }) {
   const label = hostAttributeSourceLabel(code);
   if (!label) return null;
   return (
-    <span className={styles.hostBadge} title="Giá trị thuộc tính này do HRM điền sẵn từ đơn khi khởi tạo hồ sơ.">
+    <span className={styles.hostBadge}>
       {label}
     </span>
   );

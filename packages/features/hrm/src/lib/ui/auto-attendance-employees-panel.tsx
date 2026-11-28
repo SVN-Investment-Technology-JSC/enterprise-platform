@@ -159,8 +159,7 @@ export function AutoAttendanceEmployeesPanel() {
       <div>
         <h2 className="text-sm font-semibold text-slate-900">Theo nhân viên</h2>
         <p className="text-xs text-slate-500">
-          Dành cho người không chấm công ngoài đời. Hệ thống ghi giờ vào/ra theo ca của họ như chấm công hằng ngày, kể cả
-          khi cấu hình chung của đơn vị đang tắt.
+          Ghi giờ vào/ra theo ca, kể cả khi cấu hình chung đang tắt.
         </p>
       </div>
 

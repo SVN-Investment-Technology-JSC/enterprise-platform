@@ -130,7 +130,7 @@ export function GeneralFields({
     <div className={styles.fieldGrid}>
       <Field
         label="Mã báo giá"
-        hint={generateCode ? 'Bỏ trống: hệ thống tự sinh khi lập. Có thể sửa mã khi còn Nháp.' : 'Chỉ sửa được khi báo giá còn Nháp.'}
+        hint={generateCode ? 'Bỏ trống: tự sinh khi lập' : 'Chỉ sửa được khi báo giá còn Nháp.'}
       >
         <span className={styles.rowActions}>
           <input
@@ -164,7 +164,7 @@ export function GeneralFields({
         <DatePickerInput value={value.validUntil || undefined} onChange={(next) => set({ validUntil: next })} height={38} aria-label="Hiệu lực đến" />
       </Field>
       {showTemplate ? (
-        <Field label="Mẫu báo giá" hint={TEMPLATE_HINT}>
+        <Field label="Mẫu báo giá">
           <SearchableSelect
             options={templateOptions(templates)}
             value={value.templateId}
@@ -190,8 +190,6 @@ export function GeneralFields({
 const modeText = (template: QuoteTemplate) =>
   `Chiết khấu ${QUOTE_ADJUSTMENT_MODE_LABELS[template.discountMode].toLowerCase()}, thuế ${QUOTE_ADJUSTMENT_MODE_LABELS[template.taxMode].toLowerCase()}`;
 
-const TEMPLATE_HINT = 'Mẫu quyết định bố cục in và chiết khấu, thuế tính theo dòng hay theo tổng đơn';
-
 const templateOptions = (templates: readonly QuoteTemplate[]): SearchableSelectOption[] =>
   templates.map((item) => ({ value: item.id, label: item.name, description: modeText(item) }));
 
@@ -210,7 +208,7 @@ export function TemplatePicker({
   className?: string;
 }) {
   return (
-    <label className={className} title={TEMPLATE_HINT}>
+    <label className={className}>
       <span>Mẫu</span>
       <SearchableSelect
         name="templateId"
@@ -249,7 +247,7 @@ export function OrderAmountField({
   const locked = lockedOrderField(value);
   return (
     <div className={styles.fieldGrid}>
-      <Field label={`${label} tổng đơn (%)`} hint="Nhập phần trăm hoặc số tiền, không nhập cả hai">
+      <Field label={`${label} tổng đơn (%)`}>
         <input
           className={styles.input}
           inputMode="decimal"
@@ -329,7 +327,7 @@ export function CustomFieldsEditor({
   onChange: (next: CustomFieldTexts) => void;
 }) {
   const fields = activeFields(definitions);
-  if (!fields.length) return <p className={styles.muted}>Chưa có trường tuỳ biến nào. Quản trị viên thêm trong Cấu hình, thẻ "Mẫu và loại báo giá".</p>;
+  if (!fields.length) return <p className={styles.muted}>Chưa có trường tuỳ biến nào.</p>;
   const set = (id: string, text: string) => onChange({ ...texts, [id]: text });
   return (
     <div className={styles.fieldGrid}>
@@ -434,7 +432,7 @@ export function FollowersPanel({ quoteId, editable }: { quoteId: string; editabl
           ))}
         </ul>
       ) : (
-        <p className={styles.muted}>Chưa có người theo dõi. Người theo dõi nhận thông báo khi báo giá gửi duyệt hoặc đổi trạng thái.</p>
+        <p className={styles.muted}>Chưa có người theo dõi.</p>
       )}
       {editable ? (
         <SearchableSelect

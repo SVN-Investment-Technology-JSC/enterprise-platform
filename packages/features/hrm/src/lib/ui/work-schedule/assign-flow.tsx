@@ -341,7 +341,6 @@ export function AssignResultSection({ result }: { result: AnyApplyResult }) {
           <SummaryStats summary={result.summary} employeeCount={result.employeeCount} />
         </>
       )}
-      <p className="text-xs text-slate-500">Mọi thay đổi được ghi vào Lịch sử thay đổi. Lưới lịch đã được làm mới.</p>
     </div>
   );
 }

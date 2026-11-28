@@ -89,3 +89,28 @@ describe('ModuleShell light: vùng cố định cuối thanh bên (TC-FB-15)', (
     expect(onViewChange).toHaveBeenCalledWith('b');
   });
 });
+
+describe('ModuleShell light: dòng ở mục riêng của thanh bên không có chú thích mô tả', () => {
+  const section = (title?: string) => ({
+    id: 'modules',
+    title: 'Ứng dụng đang dùng',
+    items: [{ id: 'inventory', label: 'Kho vật tư', title, onSelect: jest.fn() }],
+  });
+
+  it('không truyền title thì rê chuột không có chú thích', () => {
+    shell({ sidebarSections: [section()] });
+    const row = screen.getByRole('button', { name: 'Kho vật tư' });
+    expect(row.getAttribute('title')).toBeNull();
+    expect(row.querySelector('[title]')).toBeNull();
+  });
+
+  it('thanh bên thu gọn thì chú thích là tên dòng (nút chỉ còn biểu tượng)', () => {
+    shell({ collapsible: true, collapsed: true, sidebarSections: [section()] });
+    expect(screen.getByRole('button', { name: 'Kho vật tư' }).getAttribute('title')).toBe('Kho vật tư');
+  });
+
+  it('nơi gọi tự truyền title thì vẫn dùng', () => {
+    shell({ sidebarSections: [section('Đang dùng 3 kho')] });
+    expect(screen.getByRole('button', { name: 'Kho vật tư' }).getAttribute('title')).toBe('Đang dùng 3 kho');
+  });
+});

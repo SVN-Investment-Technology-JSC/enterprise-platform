@@ -85,7 +85,7 @@ export function BulkAssignDialog({
     <MinimalPopupForm
       isOpen
       title="Gán vai cho nhiều chức danh"
-      subtitle={`Bước “${stepName}”: chọn vai rồi tích các chức danh cần gán. Chức danh đã có vai khác ở bước này sẽ được đổi sang vai mới.`}
+      subtitle={`Bước “${stepName}” · chức danh đã có vai khác sẽ được đổi sang vai mới`}
       maxWidth="640px"
       onClose={onClose}
     >
@@ -163,7 +163,6 @@ export function BulkAssignDialog({
             className={styles.dangerButton}
             disabled={chosen.length === 0}
             onClick={() => onApply(undefined, chosen)}
-            title="Xoá vai ở bước này khỏi các chức danh đã chọn"
           >
             Xoá vai khỏi {chosen.length || ''} chức danh
           </button>

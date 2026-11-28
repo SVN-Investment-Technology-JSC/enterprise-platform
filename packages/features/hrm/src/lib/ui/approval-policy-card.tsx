@@ -66,13 +66,11 @@ export function ApprovalPolicyCard() {
       icon={ShieldAlert}
       tone="amber"
       title="Chính sách tự duyệt đơn (duyệt trực tiếp)"
-      description="Mặc định người duyệt không được tự duyệt đơn của chính mình."
       actions={<StatusPill tone={status.tone}>{status.label}</StatusPill>}
       bodyClassName="space-y-3"
     >
       <InfoNote tone="amber">
-        Chỉ bật ngoại lệ khi tổ chức không có người duyệt thay thế. Mọi thay đổi
-        được ghi nhật ký kiểm toán kèm lý do.
+        Chỉ bật khi tổ chức không có người duyệt thay thế.
       </InfoNote>
       <div className="flex flex-wrap items-start gap-3">
         <SettingsField

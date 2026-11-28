@@ -793,12 +793,12 @@ export function ComposerDialog({
       {needsApproval || resubmit ? (
         <p className={extras.notice} role="note">
           {scheduleOn
-            ? 'Bài sẽ vào hàng chờ duyệt khi đến giờ hẹn; chỉ hiện trên Tường công ty sau khi được duyệt.'
-            : 'Bài trên Tường công ty cần được kiểm duyệt viên duyệt. Bài sẽ vào hàng chờ duyệt và chỉ hiện sau khi được duyệt.'}
+            ? 'Đến giờ hẹn, bài vào hàng chờ duyệt; chỉ hiện sau khi được duyệt.'
+            : 'Bài cần được duyệt trước khi hiện trên Tường công ty.'}
         </p>
       ) : null}
 
-      <Field label="Tiêu đề" hint="Không bắt buộc.">
+      <Field label="Tiêu đề">
         <Input
           className={CONTROL_CLASS}
           value={title}
@@ -809,7 +809,7 @@ export function ComposerDialog({
       </Field>
 
       {!inGroup ? (
-        <SelectField label="Chuyên mục" hint={`Chọn được nhiều chuyên mục (tối đa ${SOCIAL_POST_TOPICS_MAX}).`}>
+        <SelectField label="Chuyên mục">
           <MultiSelect
             options={topicOptions}
             values={topicIds}
@@ -837,7 +837,7 @@ export function ComposerDialog({
           />
         </SelectField>
       ) : (
-        <SelectField label="Chủ đề" hint="Không bắt buộc. Không chọn thì bài chưa thuộc chủ đề nào của nhóm.">
+        <SelectField label="Chủ đề">
           <MultiSelect
             options={groupTopics.map((topic) => ({ value: topic.id, label: topic.name }))}
             values={groupTopicIds}
@@ -1044,15 +1044,9 @@ export function ComposerDialog({
           <div className={layoutStyles.section}>
             <span className={layoutStyles.sectionHead}>Bố cục hiển thị</span>
             <MediaLayoutPicker value={mediaLayout} disabled={submitting} onChange={setMediaLayout} />
-            <p className={layoutStyles.sectionHint}>
-              Dùng nút mũi tên trên từng ảnh hoặc video để đổi thứ tự hiển thị.
-            </p>
             <div className={layoutStyles.previewFrame}>
               <MediaGallery items={buildGalleryItems(shownUploads)} layout={mediaLayout} preview />
             </div>
-            <p className={layoutStyles.previewCaption}>
-              Xem trước: đây là cách bài viết hiển thị với mọi người.
-            </p>
           </div>
         ) : null}
         {videoFailed ? (

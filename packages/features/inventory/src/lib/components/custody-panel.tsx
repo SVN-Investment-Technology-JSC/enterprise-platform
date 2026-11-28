@@ -160,6 +160,7 @@ export function CustodyPanel({
               type="button"
               variant={filter === item.id ? "default" : "outline"}
               aria-pressed={filter === item.id}
+              className={filter === item.id ? 'font-semibold' : undefined}
               onClick={() => setFilter(item.id)}
             >
               {item.label} ({counts[item.id]})

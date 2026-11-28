@@ -83,8 +83,8 @@ export default function DashboardScreen() {
             ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <Kpi label="Phiếu chờ bạn duyệt" value={String(data.pendingApprovalCount)} hint={data.pendingApprovalCount ? `Tổng ${money(data.pendingApprovalAmount)}` : 'Không có phiếu nào đang chờ'} />
-              <Kpi label="Phiếu nháp hoặc bị từ chối của bạn" value={String(data.myDraftCount)} hint="Cần sửa và gửi duyệt" />
+              <Kpi label="Phiếu chờ bạn duyệt" value={String(data.pendingApprovalCount)} hint={data.pendingApprovalCount ? `Tổng ${money(data.pendingApprovalAmount)}` : undefined} />
+              <Kpi label="Phiếu nháp hoặc bị từ chối của bạn" value={String(data.myDraftCount)} />
             </div>
 
             {showMoney ? (

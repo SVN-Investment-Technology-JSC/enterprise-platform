@@ -10,7 +10,7 @@ import {
 } from '../../hrm-work-schedule-model';
 import { fetchScheduleAudit } from '../../hrm-work-schedule-api';
 import { Button } from '../button';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../sheet';
 import { EmptyState, Notice, Spinner } from './common';
 
 export function formatDateTime(iso: string): string {
@@ -106,19 +106,16 @@ export function AuditDrawer({
   open,
   onOpenChange,
   employeeId,
-  subtitle,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   employeeId?: string;
-  subtitle?: string;
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[640px] max-w-full sm:max-w-[640px]" aria-label="Lịch sử thay đổi phân ca">
         <SheetHeader>
           <SheetTitle>Lịch sử thay đổi phân ca</SheetTitle>
-          <SheetDescription>{subtitle ?? 'Các đợt phân ca, hủy và sao chép gần đây (tối đa 100 bản ghi).'}</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-5">
           <AuditEntries employeeId={employeeId} active={open} />

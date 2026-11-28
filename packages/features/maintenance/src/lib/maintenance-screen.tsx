@@ -812,7 +812,6 @@ export function MaintenanceScreen() {
       moduleKey="maintenance"
       appearance="light"
       title="Bảo trì"
-      subtitle="Lập lịch theo thiết bị và sinh phiếu công việc sang Quy trình. Thiết bị được quản lý trong module Kho & Tài sản."
       nav={NAV}
       view={view}
       onViewChange={navigate}
@@ -841,12 +840,7 @@ export function MaintenanceScreen() {
           {view === 'dashboard' ? (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="m-0 text-xl font-bold tracking-tight text-foreground">Tổng quan</h2>
-                  <p className="m-0 text-sm text-muted-foreground">
-                    Việc cần xử lý hôm nay. Bấm Tuỳ chỉnh để chọn thẻ theo cách bạn làm việc; chỉ áp dụng cho tài khoản của bạn.
-                  </p>
-                </div>
+                <h2 className="m-0 text-xl font-bold tracking-tight text-foreground">Tổng quan</h2>
                 <div className="flex flex-wrap items-center gap-2">
                   {workspace.permissions.canManageOccurrences ? (
                     <Button
@@ -904,7 +898,7 @@ export function MaintenanceScreen() {
                     </PopoverTrigger>
                     <PopoverContent align="end" className="max-h-[70vh] w-[26rem] overflow-y-auto">
                       <p className="m-0 mb-3 text-[0.8125rem] text-muted-foreground">
-                        Tích để hiện thẻ, dùng mũi tên để đổi thứ tự. Thay đổi được lưu ngay.
+                        Thay đổi được lưu ngay.
                       </p>
                       <MaintenanceCardPicker<MaintenanceDashboardData>
                         catalog={MAINTENANCE_DASHBOARD_CARDS}
@@ -950,7 +944,7 @@ export function MaintenanceScreen() {
                   id: 'frequencies',
                   label: 'Tần suất bảo trì',
                   description:
-                    'Chu kỳ cho lịch bảo trì. Số kỳ và đơn vị quyết định ngày đến hạn kế tiếp; đổi nhãn thì lịch không đổi.',
+                    'Đổi nhãn thì lịch không đổi; số kỳ và đơn vị mới quyết định ngày đến hạn.',
                   render: () =>
                     freqDraft ? (
                       <FrequencyCatalogEditor
@@ -976,7 +970,6 @@ export function MaintenanceScreen() {
         <MinimalPopupForm
           isOpen={creating}
           title="Lịch bảo trì mới"
-          subtitle="Thiết lập chu kỳ bảo trì phòng ngừa định kỳ cho thiết bị trong hệ thống."
           maxWidth="680px"
           // Kích thước cố định; màn thấp hơn thì popup co theo chiều cao màn hình, phần dư cuộn dọc trong form.
           popupClassName="h-[640px]"
@@ -998,13 +991,11 @@ export function MaintenanceScreen() {
                   clearable
                   onChange={(val) => setAssetQuery(val)}
                 />
-                <span className="text-[0.8125rem] text-muted-foreground">
-                  {pickedAsset ? (
+                {pickedAsset ? (
+                  <span className="text-[0.8125rem] text-muted-foreground">
                     <strong className="font-semibold text-emerald-700">{pickedAsset.name}</strong>
-                  ) : (
-                    <>Sẵn sàng tìm kiếm trong {assetOptions.length} thiết bị</>
-                  )}
-                </span>
+                  </span>
+                ) : null}
               </div>
 
               <div className={SCHEDULE_FIELD}>
@@ -1153,12 +1144,9 @@ export function MaintenanceScreen() {
               {/* Tiêu đề & hành động: nằm ngoài thẻ bảng, cùng kiểu các trang khác */}
               <header className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="m-0 mb-1 text-xl font-bold tracking-tight text-foreground">
+                  <h2 className="m-0 text-xl font-bold tracking-tight text-foreground">
                     Phiếu công việc phát sinh
                   </h2>
-                  <p className="m-0 text-sm leading-snug text-muted-foreground">
-                    Theo dõi danh sách các sự cố đột xuất và phiếu bảo trì phát sinh ngoài kế hoạch định kỳ.
-                  </p>
                 </div>
                 {workspace.permissions.canManageOccurrences ? (
                   <Button
@@ -1208,7 +1196,7 @@ export function MaintenanceScreen() {
                         className={cn(
                           'h-9 cursor-pointer rounded-md border px-3 text-sm font-medium transition-colors',
                           occQuick === key
-                            ? 'border-blue-600 bg-blue-600 text-white'
+                            ? 'border-blue-600 bg-blue-600 font-semibold text-white'
                             : 'border-border bg-white text-slate-700 hover:bg-muted',
                         )}
                         onClick={() => {
@@ -1305,18 +1293,16 @@ export function MaintenanceScreen() {
                   </Popover>
 
                   {isOccFilterActive ? (
-                    <Tip content="Đặt lại toàn bộ bộ lọc">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="lg"
-                        className="gap-1.5 rounded-md px-3"
-                        onClick={resetOccFilters}
-                      >
-                        <RotateCcw size={13} />
-                        <span>Xoá bộ lọc</span>
-                      </Button>
-                    </Tip>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      className="gap-1.5 rounded-md px-3"
+                      onClick={resetOccFilters}
+                    >
+                      <RotateCcw size={13} />
+                      <span>Xoá bộ lọc</span>
+                    </Button>
                   ) : null}
                 </div>
 

@@ -63,9 +63,6 @@ export function CustodyAssignDialog({
           <DialogHeader>
             <div>
               <DialogTitle>Cấp phát tài sản</DialogTitle>
-              <p className="mt-1 mb-0 text-sm text-slate-500">
-                Chọn tài sản đang tồn kho và nhân viên nhận.
-              </p>
             </div>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
               <DialogCloseButton />

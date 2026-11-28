@@ -24,7 +24,8 @@ interface LoginFormProps {
   portal: LoginPortal;
   eyebrow: string;
   title: string;
-  description: string;
+  /** Không còn hiển thị; giữ để nơi gọi cũ vẫn biên dịch. */
+  description?: string;
 }
 
 const TESTIMONIALS = [
@@ -54,7 +55,7 @@ const TESTIMONIALS = [
   },
 ];
 
-export function LoginForm({ portal, eyebrow, title, description }: LoginFormProps) {
+export function LoginForm({ portal, eyebrow, title }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -232,21 +233,6 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
           </div>
         </div>
 
-        {/* Bottom Feature Badges Bar */}
-        <div className="relative z-10 grid grid-cols-3 gap-4 pt-4 border-t border-white/10 text-xs">
-          <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-blue-400" />
-            <span className="text-slate-300">Quản trị HRM & Chấm công</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-indigo-400" />
-            <span className="text-slate-300">Phân quyền RBAC động</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-emerald-400" />
-            <span className="text-slate-300">Kiến trúc SaaS linh hoạt</span>
-          </div>
-        </div>
       </section>
 
       {/* RIGHT COLUMN: AUTHENTICATION FORM */}
@@ -257,14 +243,9 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
             <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20">
               <Layers className="size-5" />
             </div>
-            <div>
-              <span className="block text-sm font-bold tracking-tight text-slate-900 leading-none">
-                Enterprise Platform
-              </span>
-              <span className="block text-[11px] font-medium text-slate-500 leading-tight mt-0.5">
-                {isPlatform ? 'Hệ thống Quản trị Nền tảng' : 'Hệ thống Doanh nghiệp'}
-              </span>
-            </div>
+            <span className="block text-sm font-bold tracking-tight text-slate-900 leading-none">
+              Enterprise Platform
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -288,9 +269,6 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
             <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
               {title}
             </h1>
-            <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-              {description}
-            </p>
           </div>
 
           {/* Social / SSO Auth Buttons */}
@@ -455,17 +433,13 @@ export function LoginForm({ portal, eyebrow, title, description }: LoginFormProp
           </form>
         </div>
 
-        {/* Bottom Footer Notice */}
-        <footer className="pt-4 border-t border-slate-100 text-center">
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {isPlatform
-              ? 'Chỉ dành cho người quản trị nền tảng. Dữ liệu vận hành được bảo vệ và kiểm toán tập trung.'
-              : 'Tài khoản do doanh nghiệp của bạn cấp. Nếu chưa có tài khoản, vui lòng liên hệ Quản trị viên nội bộ.'}
-          </p>
-          <div className="mt-2 text-[11px] text-slate-400">
-            Enterprise Platform · Multi-tenant SaaS Platform · TLS 1.3
-          </div>
-        </footer>
+        {isPlatform ? null : (
+          <footer className="pt-4 border-t border-slate-100 text-center">
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Chưa có tài khoản? Liên hệ quản trị viên doanh nghiệp.
+            </p>
+          </footer>
+        )}
       </section>
     </main>
   );

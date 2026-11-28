@@ -132,18 +132,9 @@ export function PayrollStatCards({ stats }: { stats: PayrollListStats }) {
 }
 
 const STEPS = [
-  {
-    title: 'Chọn kỳ công đã khóa',
-    description: 'Chọn tháng và dữ liệu bảng công đã được khóa.',
-  },
-  {
-    title: 'Tính và kiểm tra lương',
-    description: 'Hệ thống tự động tính lương theo cấu hình. Kiểm tra và điều chỉnh (nếu có).',
-  },
-  {
-    title: 'Chốt và phát hành phiếu lương',
-    description: 'Chốt kỳ lương và phát hành phiếu lương cho nhân viên.',
-  },
+  { title: 'Chọn kỳ công đã khóa' },
+  { title: 'Tính và kiểm tra lương' },
+  { title: 'Chốt và phát hành phiếu lương' },
 ] as const;
 
 /** Dải "Quy trình tạo kỳ lương" 3 bước. */
@@ -157,10 +148,7 @@ export function PayrollProcessSteps() {
         <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white text-blue-600 ring-1 ring-blue-100">
           <BookOpen className="size-5" />
         </span>
-        <div>
-          <h2 className="text-sm font-bold text-slate-900">Quy trình tạo kỳ lương</h2>
-          <p className="text-[12px] text-slate-500">Thực hiện theo 3 bước đơn giản để tạo và phát hành kỳ lương.</p>
-        </div>
+        <h2 className="text-sm font-bold text-slate-900">Quy trình tạo kỳ lương</h2>
       </div>
       <ol className="grid min-w-0 flex-1 gap-3 md:grid-cols-3">
         {STEPS.map((step, index) => (
@@ -168,10 +156,7 @@ export function PayrollProcessSteps() {
             <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-blue-600 ring-1 ring-blue-200">
               {index + 1}
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold text-slate-900">{step.title}</p>
-              <p className="text-[12px] leading-snug text-slate-500">{step.description}</p>
-            </div>
+            <p className="min-w-0 flex-1 text-xs font-bold text-slate-900">{step.title}</p>
             {index < STEPS.length - 1 ? (
               <ChevronRight aria-hidden="true" className="mt-1 hidden size-4 shrink-0 text-slate-400 md:block" />
             ) : null}
@@ -182,7 +167,7 @@ export function PayrollProcessSteps() {
   );
 }
 
-/** Trạng thái chưa có kỳ lương: minh họa, mô tả và nút tạo kỳ lương đầu tiên (chỉ hiện khi có quyền tính lương). */
+/** Trạng thái chưa có kỳ lương: minh họa và nút tạo kỳ lương đầu tiên (chỉ hiện khi có quyền tính lương). */
 export function PayrollEmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div data-testid="payroll-empty" className="flex flex-col items-center px-4 py-8 text-center">
@@ -193,9 +178,6 @@ export function PayrollEmptyState({ onCreate }: { onCreate: () => void }) {
         </span>
       </div>
       <h2 className="text-lg font-bold text-slate-900">Chưa có kỳ lương</h2>
-      <p className="mt-1 max-w-[60ch] text-xs text-slate-500">
-        Tạo kỳ lương để tổng hợp dữ liệu từ bảng công đã khóa, tính lương và phát hành phiếu lương.
-      </p>
       <Button permission="hrm.payroll.calculate" onClick={onCreate} className="mt-4 h-9 px-4 text-sm font-semibold">
         <Plus className="size-4" />
         Tạo kỳ lương đầu tiên

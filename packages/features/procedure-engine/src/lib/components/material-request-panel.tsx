@@ -63,11 +63,6 @@ export function MaterialRequestPanel({
 
   return (
     <div className={styles.orderBox}>
-      <p className={styles.panelHint}>
-        Khai vật tư bạn cần cho bước này. Đủ hàng thì mở đơn mượn/xuất kho, thiếu thì mở đơn mua
-        sắm — hệ thống không tự trừ kho, thủ kho vẫn là người xuất hàng.
-      </p>
-
       <div className={styles.materialRows}>
         {lines.map((line, index) => {
           const stock = materialCatalog.find((item) => item.code === line.materialCode);

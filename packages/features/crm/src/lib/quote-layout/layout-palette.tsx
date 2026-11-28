@@ -85,7 +85,6 @@ export function LayoutPalette({ onAdd, onDragStart, onDragEnd }: LayoutPalettePr
   return (
     <nav className={styles.palette} aria-label="Thư viện khối">
       <h2 className={styles.paneTitle}>Thư viện khối</h2>
-      <p className={styles.paneHint}>Kéo khối vào trang, hoặc bấm để thêm dưới khối đang chọn.</p>
       <ul className={styles.paletteList}>
         {types.map((type) => (
           <li key={type}>

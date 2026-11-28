@@ -33,13 +33,7 @@ export function LocationCard({
   return (
     <section aria-label="Kiểm tra vị trí khi chấm công" className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 @xl:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-base font-bold tracking-tight text-slate-900">Kiểm tra vị trí khi chấm công</h2>
-          <p className="mt-0.5 max-w-prose text-xs text-slate-500">
-            Bật thì nhân viên chỉ chấm công được khi nằm trong bán kính của một địa điểm được gán cho họ (và đúng IP của địa
-            điểm đó nếu có khai báo).
-          </p>
-        </div>
+        <h2 className="min-w-0 text-base font-bold tracking-tight text-slate-900">Kiểm tra vị trí khi chấm công</h2>
         <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
           <span>{locationCheck ? 'Đang bật' : 'Đang tắt'}</span>
           <SettingsSwitch

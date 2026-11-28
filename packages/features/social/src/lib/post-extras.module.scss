@@ -160,28 +160,48 @@
 
 .activity {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 2px 0;
 }
 
 .activityText {
   display: flex;
-  flex: 1;
   flex-direction: column;
   min-width: 0;
   font-size: 13.5px;
   line-height: 1.45;
 }
 
+// Bài "đã cập nhật ảnh đại diện": dải nền nhạt, ảnh tròn lớn ở giữa (kiểu Facebook).
+.activityCover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 16px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #e8eefc 0%, #f4f6fb 100%);
+  outline: none;
+
+  &:focus-visible {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  }
+}
+
 .activityPreview {
-  flex: none;
-  width: 56px;
-  height: 56px;
-  border: 2px solid var(--ep-surface, #fff);
+  display: block;
+  width: clamp(140px, 42%, 240px);
+  aspect-ratio: 1;
+  border: 4px solid var(--ep-surface, #fff);
   border-radius: 9999px;
-  box-shadow: 0 0 0 1px var(--ep-border-strong, #e5e7eb);
+  background: var(--ep-surface, #fff);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.14);
   object-fit: cover;
+  transition: transform 0.15s ease;
+}
+
+.activityCover:hover .activityPreview {
+  transform: scale(1.02);
 }
 
 /* ------------------------------------------------------------------ bình chọn */
@@ -391,12 +411,13 @@
     background: transparent;
     color: var(--ep-text-sub, #4b5563);
     font: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
 
     &[data-active='true'] {
       background: var(--ep-surface, #fff);
+      font-weight: 600;
       box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
       color: var(--ep-text, #18181b);
     }
@@ -521,12 +542,6 @@
   }
 }
 
-.viewDesc {
-  margin: 2px 0 0;
-  color: var(--ep-text-muted, #6b7280);
-  font-size: 13px;
-}
-
 .countPill {
   display: inline-flex;
   align-items: center;
@@ -538,8 +553,8 @@
   border-radius: 9999px;
   background: var(--ep-accent, #ffc90a);
   color: #1a1a1a;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .listItem {

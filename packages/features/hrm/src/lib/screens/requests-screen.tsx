@@ -1611,7 +1611,6 @@ export default function RequestsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">Đơn từ của tôi</h1>
-          <p className="text-xs text-slate-500">Tạo mới và theo dõi trạng thái các yêu cầu cá nhân.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <MonthStepper month={activeMonth} onChange={setListMonth} />
@@ -1620,7 +1619,6 @@ export default function RequestsPage() {
             size="sm"
             aria-pressed={listMonth === null}
             className="h-9 text-xs"
-            title="Xem đơn của mọi tháng thay vì một tháng"
             onClick={() => setListMonth(listMonth === null ? currentMonthVn() : null)}
           >
             Tất cả tháng
@@ -1697,7 +1695,7 @@ export default function RequestsPage() {
                         {cat.tag}
                       </Badge>
                     </span>
-                    <span className="mt-0.5 line-clamp-1 block text-[12px] text-slate-500">{cat.desc}</span>
+                    {cat.desc ? <span className="mt-0.5 line-clamp-1 block text-[12px] text-slate-500">{cat.desc}</span> : null}
                     {cat.balanceLabel ? (
                       <span className="mt-1 block truncate text-[12px] font-medium text-slate-600">
                         {cat.balanceLabel}
@@ -1749,7 +1747,6 @@ export default function RequestsPage() {
                 className="h-8 text-xs"
                 aria-expanded={showAdvancedFilters}
                 onClick={() => setShowAdvancedFilters((v) => !v)}
-                title="Lọc theo người đang chờ duyệt và bước quy trình hiện tại"
               >
                 Bước duyệt
               </Button>
@@ -1759,7 +1756,6 @@ export default function RequestsPage() {
                 className="h-8 gap-1.5 text-xs"
                 onClick={handleExportHistory}
                 disabled={loading || filteredHistory.length === 0}
-                title="Xuất các dòng đang hiển thị trong danh sách ra file Excel"
               >
                 <Download className="size-3.5" />
                 <span>Xuất lịch sử đơn</span>

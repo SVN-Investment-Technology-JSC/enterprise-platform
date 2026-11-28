@@ -66,7 +66,7 @@ export default function MyTimesheetScreen() {
             ? `${employee.employeeCode} · ${employee.employeeName}${
                 employee.departmentName ? ` · ${employee.departmentName}` : ''
               }${employee.positionName ? ` · ${employee.positionName}` : ''}`
-            : 'Công từng ngày, đi trễ về sớm và đơn từ trong tháng.'
+            : undefined
         }
         badge={
           state ? (
@@ -91,7 +91,6 @@ export default function MyTimesheetScreen() {
       />
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3">
         <MonthStepper month={month} onChange={setMonth} />
-        <p className="text-xs text-slate-500">Chấm công thực hiện trên ứng dụng di động. Bấm một ngày để xem chi tiết.</p>
       </div>
 
       {error ? (

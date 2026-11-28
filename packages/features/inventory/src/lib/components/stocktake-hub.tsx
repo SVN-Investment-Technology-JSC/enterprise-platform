@@ -490,9 +490,6 @@ export function StocktakeHub({
             Đối soát &amp; Cân đối kho
           </span>
           <h1 className="m-0 text-xl font-bold tracking-[-0.02em] text-slate-900">Kiểm kê kho &amp; Đối soát số sách</h1>
-          <p className="mb-0 mt-1 text-sm text-slate-500">
-            Quy trình đối soát định kỳ và đột xuất toàn kho, chốt snapshot, ghi nhận chênh lệch và tự động sinh bút toán cân kho sau phê duyệt.
-          </p>
         </div>
       </div>
 
@@ -652,7 +649,6 @@ export function StocktakeHub({
                   type="button"
                   variant="outline"
                   onClick={handleExportExcel}
-                  title="Tải bảng tính Excel để điền số đếm ngoại tuyến"
                 >
                   <Download size={14} /> Xuất Excel
                 </Button>
@@ -663,7 +659,6 @@ export function StocktakeHub({
                     type="button"
                     variant="outline"
                     onClick={() => fileInputRef.current?.click()}
-                    title="Nạp số thực đếm từ file Excel đã kiểm"
                   >
                     <Upload size={14} /> Nhập Excel
                   </Button>
@@ -688,7 +683,6 @@ export function StocktakeHub({
                       variant="outline"
                       onClick={handleOpenRejectDialog}
                       className="border-amber-300 text-amber-700"
-                      title="Yêu cầu kiểm kê viên kiểm đếm lại số liệu"
                     >
                       <RotateCcw size={14} /> Yêu cầu đếm lại
                     </Button>
@@ -792,7 +786,7 @@ export function StocktakeHub({
                   type="button"
                   variant="outline"
                   onClick={() => setGridFilter('all')}
-                  className={cn('font-semibold', gridFilter === 'all' && 'border-blue-600 bg-blue-50 text-blue-600')}
+                  className={cn(gridFilter === 'all' && 'border-blue-600 bg-blue-50 font-semibold text-blue-600')}
                 >
                   Tất cả ({lines.length})
                 </Button>
@@ -800,7 +794,7 @@ export function StocktakeHub({
                   type="button"
                   variant="outline"
                   onClick={() => setGridFilter('uncounted')}
-                  className={cn('font-semibold', gridFilter === 'uncounted' && 'border-blue-600 bg-blue-50 text-blue-600')}
+                  className={cn(gridFilter === 'uncounted' && 'border-blue-600 bg-blue-50 font-semibold text-blue-600')}
                 >
                   Chưa đếm ({lines.filter((l) => l.actualQuantity === undefined || l.actualQuantity === null).length})
                 </Button>
@@ -808,7 +802,7 @@ export function StocktakeHub({
                   type="button"
                   variant="outline"
                   onClick={() => setGridFilter('diff')}
-                  className={cn('font-semibold', gridFilter === 'diff' && 'border-red-600 bg-red-50 text-red-600')}
+                  className={cn(gridFilter === 'diff' && 'border-red-600 bg-red-50 font-semibold text-red-600')}
                 >
                   Có chênh lệch ({lines.filter((l) => l.difference !== 0 && l.actualQuantity !== undefined).length})
                 </Button>
@@ -816,7 +810,7 @@ export function StocktakeHub({
                   type="button"
                   variant="outline"
                   onClick={() => setGridFilter('lot_serial')}
-                  className={cn('font-semibold', gridFilter === 'lot_serial' && 'border-blue-600 bg-blue-50 text-blue-600')}
+                  className={cn(gridFilter === 'lot_serial' && 'border-blue-600 bg-blue-50 font-semibold text-blue-600')}
                 >
                   Hàng theo Lô / Sê-ri
                 </Button>
@@ -911,7 +905,6 @@ export function StocktakeHub({
                                 line.actualQuantity !== undefined ? 'text-slate-900' : 'text-slate-400',
                                 line.isLotTracked || line.isSerialized ? 'cursor-pointer underline' : 'cursor-default no-underline',
                               )}
-                              title={line.isLotTracked || line.isSerialized ? 'Bấm để mở kiểm kê chi tiết Lô/Sê-ri' : ''}
                             >
                               {line.actualQuantity !== undefined ? formatNumber(line.actualQuantity) : '— Chưa đếm —'}
                             </div>
@@ -969,7 +962,6 @@ export function StocktakeHub({
                                 size="xs"
                                 onClick={() => setDrawerLine(line)}
                                 className="border-blue-200 bg-blue-50 font-semibold text-blue-700 hover:bg-blue-100"
-                                title="Kiểm kê chi tiết Lô và Sê-ri"
                               >
                                 Chi tiết
                               </Button>

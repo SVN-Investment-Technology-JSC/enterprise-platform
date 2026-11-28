@@ -192,7 +192,7 @@ function GeneralSettings() {
           <Field label="Số chữ số của mã" hint="Từ 3 đến 12">
             <input className={styles.input} inputMode="numeric" value={length} maxLength={2} onChange={(event) => setLength(event.target.value.replace(/[^\d]/g, ''))} />
           </Field>
-          <Field label="Nhắc hoạt động trước hạn (phút)" hint="Người được giao nhận thông báo trước hạn và khi quá hạn">
+          <Field label="Nhắc hoạt động trước hạn (phút)">
             <input className={styles.input} inputMode="numeric" value={reminder} maxLength={5} onChange={(event) => setReminder(event.target.value.replace(/[^\d]/g, ''))} />
           </Field>
           <div className={styles.formActions}>
@@ -249,10 +249,10 @@ function SalesSettingsPanel() {
             void save();
           }}
         >
-          <Field label="Giữ hàng mặc định (ngày)" hint="Tính từ lúc xác nhận; đơn có ngày giao dự kiến thì giữ tới ngày đó cộng 2 ngày">
+          <Field label="Giữ hàng mặc định (ngày)" hint="Đơn có ngày giao dự kiến: giữ tới ngày đó + 2 ngày">
             <input className={styles.input} inputMode="numeric" value={holdDays} maxLength={3} onChange={(event) => setHoldDays(event.target.value.replace(/[^\d]/g, ''))} />
           </Field>
-          <Field label="Báo hợp đồng sắp hết hạn trước (ngày)" hint="Người phụ trách hợp đồng nhận thông báo">
+          <Field label="Báo hợp đồng sắp hết hạn trước (ngày)">
             <input className={styles.input} inputMode="numeric" value={expiringDays} maxLength={3} onChange={(event) => setExpiringDays(event.target.value.replace(/[^\d]/g, ''))} />
           </Field>
           <div className={styles.formActions}>

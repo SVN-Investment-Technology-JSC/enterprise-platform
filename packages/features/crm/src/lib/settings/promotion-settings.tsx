@@ -161,11 +161,6 @@ export function PromotionSettings() {
           <Plus size={14} /> Thêm khuyến mãi
         </button>
       </div>
-      <p className={styles.muted}>
-        Danh mục để chọn cho từng dự án và báo giá. Khuyến mãi chỉ là thông tin
-        kèm theo, không tự trừ vào tổng báo giá. Mục đã tắt hoặc hết hạn không
-        chọn được thêm.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       <Table<PromotionCatalogItem>
         size="small"

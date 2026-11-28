@@ -73,7 +73,7 @@ export function QuoteSellerSection({
   const manual = value.organizationId === MANUAL_ORGANIZATION;
   const selected = allOrganizations.find((item) => item.id === value.organizationId);
   const selectedName = manual ? MANUAL_ORGANIZATION_TEXT : (selected?.name ?? organizationName ?? null);
-  const options = allOrganizations.map((item) => ({
+  const options: { value: string; label: string; description?: string }[] = allOrganizations.map((item) => ({
     value: item.id,
     label: item.name,
     description: [item.isDefault ? 'Mặc định' : '', item.taxCode ? `MST ${item.taxCode}` : ''].filter(Boolean).join(' · ') || undefined,
@@ -81,7 +81,7 @@ export function QuoteSellerSection({
   if (value.organizationId && !manual && !selected) {
     options.push({ value: value.organizationId, label: selectedName ?? 'Tổ chức đã tắt', description: 'Đã tắt' });
   }
-  options.push({ value: MANUAL_ORGANIZATION, label: MANUAL_ORGANIZATION_TEXT, description: 'Tự nhập thông tin công ty cho riêng báo giá này' });
+  options.push({ value: MANUAL_ORGANIZATION, label: MANUAL_ORGANIZATION_TEXT });
 
   function choose(id: string) {
     if (!id) return onChange({ organizationId: '', seller: EMPTY_SELLER_TEXTS });
@@ -200,11 +200,7 @@ export function QuoteSellerSection({
       {open ? (
         <>
           <div className={styles.fieldGrid}>
-            <Field
-              label="Tổ chức"
-              hint="Chọn tổ chức thì đầu trang in theo thông tin của tổ chức; chọn Nhập thủ công để tự nhập cho riêng báo giá này"
-              wide
-            >
+            <Field label="Tổ chức" wide>
               <SearchableSelect options={options} value={value.organizationId} placeholder={NO_ORGANIZATION_TEXT} clearable onChange={choose} />
             </Field>
             {manual ? SELLER_MAIN_FIELDS.map((field) => input(field, field === 'name' || field === 'address')) : null}
@@ -216,13 +212,11 @@ export function QuoteSellerSection({
                 {showMore ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
                 {showMore ? ' Ẩn thông tin thêm' : ' Thêm thông tin'}
               </button>
-              {showMore ? null : <span className={styles.muted}>Tên viết tắt, website, tài khoản ngân hàng, người đại diện.</span>}
               {canSaveOrganization ? (
                 <button
                   type="button"
                   className={`${styles.buttonGhost} ${styles.pushRight}`}
                   disabled={saving}
-                  title="Lưu thông tin đang nhập thành tổ chức báo giá trong Cấu hình để lần sau chọn lại"
                   onClick={() => void saveAsOrganization()}
                 >
                   <BookmarkPlus size={14} aria-hidden="true" /> {SAVE_ORGANIZATION_TEXT}
@@ -237,7 +231,6 @@ export function QuoteSellerSection({
                   type="button"
                   className={styles.buttonGhost}
                   disabled={refreshing}
-                  title="Chép lại thông tin mới nhất của tổ chức đang chọn"
                   onClick={recopy}
                 >
                   <RefreshCw size={14} aria-hidden="true" /> Lấy lại từ tổ chức

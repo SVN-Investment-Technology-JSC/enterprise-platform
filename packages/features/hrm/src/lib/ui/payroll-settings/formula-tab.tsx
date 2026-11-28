@@ -159,7 +159,7 @@ export function FormulaTab({
       cardOrder: 1,
       cell: (v) =>
         v.used ? (
-          <span title="Đã được kỳ lương/OT/phép tham chiếu: không sửa hoặc xóa; tạo phiên bản kế tiếp có hiệu lực sau kỳ đó">
+          <span title="Đã được kỳ lương/OT/phép tham chiếu; muốn đổi thì tạo phiên bản kế tiếp">
             <StatusPill tone="slate">
               <Lock aria-hidden="true" className="mr-1 size-3" />
               Đã dùng - khóa sửa
@@ -203,7 +203,6 @@ export function FormulaTab({
         <SettingsSection
           icon={Calculator}
           title="Công thức lương"
-          description="Các khoản thu nhập, khấu trừ và công thức tính lương theo mốc hiệu lực."
           actions={
             <Button permission="hrm.payroll.configure" onClick={onNewFormula} className="h-9 gap-1.5 px-3 text-xs font-semibold">
               <Plus className="size-4" />
@@ -228,7 +227,6 @@ export function FormulaTab({
           icon={Clock}
           tone="amber"
           title="Quy định tăng ca (OT)"
-          description="Giới hạn giờ làm thêm, hệ số OT và khung giờ đêm theo mốc hiệu lực."
           actions={
             <Button permission="hrm.payroll.configure" variant="outline" onClick={() => onEditOt()} className="h-9 gap-1.5 px-3 text-xs font-semibold">
               <Clock className="size-3.5" />
@@ -254,7 +252,6 @@ export function FormulaTab({
         icon={GitBranch}
         tone="violet"
         title="Dòng thời gian phiên bản"
-        description="Kiểm tra khoảng trống hoặc chồng lấn hiệu lực giữa các phiên bản cùng loại."
       >
         <PayrollVersionTimeline versions={versions} />
       </SettingsSection>

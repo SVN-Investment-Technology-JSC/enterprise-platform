@@ -328,7 +328,6 @@ export function CreateQuoteDialog({
   return (
     <CrmDialog open wide title="Lập báo giá" submitLabel="Lập báo giá" cancelLabel="Huỷ bỏ" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
       <div className={styles.toolbar}>
-        <span className={styles.muted}>Cần xem trước bản in hoặc nhập dòng hàng ngay?</span>
         <button type="button" className={styles.linkButton} disabled={saving} onClick={openFull}>
           Mở màn đầy đủ
         </button>
@@ -336,7 +335,7 @@ export function CreateQuoteDialog({
       <div className={styles.fieldGrid}>
         {fixedOpportunityId ? null : (
           <>
-            <Field label="Dự án bán hàng" hint="Khách hàng và người phụ trách lấy theo dự án bán hàng">
+            <Field label="Dự án bán hàng">
               <SearchableSelect
                 options={opportunities.map((item) => ({ value: item.id, label: item.name, description: item.customerName }))}
                 value={opportunityId}
@@ -369,7 +368,7 @@ export function CreateQuoteDialog({
         nameError={nameError}
       />
       <h4 className={styles.sectionTitle}>Ghi chú</h4>
-      <Field label="Ghi chú" hint='In vào mục "Ghi chú" của báo giá (trên các điều khoản)' wide>
+      <Field label="Ghi chú" wide>
         <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => setNote(event.target.value)} />
       </Field>
       <h4 className={styles.sectionTitle}>Trường tuỳ biến</h4>
@@ -599,7 +598,7 @@ function NewQuoteForm({
       <section className={styles.panel} aria-label="Thông tin báo giá">
         <h3 className={styles.sectionTitle}>Thông tin chung</h3>
         <div className={styles.fieldGrid}>
-          <Field label="Dự án bán hàng" hint="Khách hàng và người phụ trách lấy theo dự án bán hàng">
+          <Field label="Dự án bán hàng">
             <SearchableSelect
               options={opportunities.map((item) => ({ value: item.id, label: item.name, description: item.customerName }))}
               value={opportunityId}
@@ -642,7 +641,7 @@ function NewQuoteForm({
           nameError={nameError}
           showTemplate={false}
         />
-        <Field label="Ghi chú" hint='In vào mục "Ghi chú" của báo giá (trên các điều khoản)' wide>
+        <Field label="Ghi chú" wide>
           <textarea className={styles.textarea} rows={3} maxLength={4000} value={note} onChange={(event) => change(setNote)(event.target.value)} />
         </Field>
         {lookups.fields.length ? (

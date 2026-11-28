@@ -16,19 +16,11 @@ import { Input } from './input';
 import { LeaveField, LeaveSwitch } from './leave-form-controls';
 import { useCloseGuard } from './use-close-guard';
 
-export const TIME_MODE_OPTIONS: { value: HrmRequestTimeMode; label: string; hint: string }[] = [
-  {
-    value: 'RANGE_DATETIME',
-    label: 'Từ ngày giờ đến ngày giờ',
-    hint: 'Người làm đơn chọn ngày và giờ bắt đầu, ngày và giờ kết thúc.',
-  },
-  {
-    value: 'DATE_RANGE',
-    label: 'Từ ngày đến ngày (cả ngày)',
-    hint: 'Chọn ngày bắt đầu và ngày kết thúc, tính cả ngày.',
-  },
-  { value: 'SINGLE_DATE', label: 'Một ngày', hint: 'Chọn một ngày duy nhất.' },
-  { value: 'NONE', label: 'Không có thời gian', hint: 'Đơn không gắn với thời gian (ví dụ đề xuất, xin cấp).' },
+export const TIME_MODE_OPTIONS: { value: HrmRequestTimeMode; label: string }[] = [
+  { value: 'RANGE_DATETIME', label: 'Từ ngày giờ đến ngày giờ' },
+  { value: 'DATE_RANGE', label: 'Từ ngày đến ngày (cả ngày)' },
+  { value: 'SINGLE_DATE', label: 'Một ngày' },
+  { value: 'NONE', label: 'Không có thời gian' },
 ];
 
 export const FIELD_TYPE_OPTIONS: { value: HrmRequestFieldType; label: string }[] = [
@@ -212,8 +204,6 @@ export function RequestTypeDialog({
     }
   }
 
-  const modeHint = TIME_MODE_OPTIONS.find((o) => o.value === timeMode)?.hint;
-
   return (
     <Dialog {...guard.dialogProps}>
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden bg-white p-0 sm:max-w-[720px]">
@@ -221,9 +211,6 @@ export function RequestTypeDialog({
           <DialogTitle className="text-base font-bold text-slate-900">
             {row ? `Sửa loại đơn ${row.name}` : 'Thêm loại đơn'}
           </DialogTitle>
-          <p className="mt-1 text-xs text-slate-500">
-            Loại đơn là danh mục do quản trị cấu hình; người dùng chọn loại rồi điền thông tin theo cấu hình.
-          </p>
         </DialogHeader>
         <form onSubmit={submit} noValidate className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
@@ -246,8 +233,7 @@ export function RequestTypeDialog({
               >
                 <Info className="mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  Loại đơn tự tạo chỉ ghi nhận và duyệt, không ảnh hưởng bảng công, phép, lương. Nghỉ có lương hoặc không
-                  lương cấu hình ở lý do nghỉ (Phép năm).
+                  Loại đơn tự tạo chỉ ghi nhận và duyệt, không ảnh hưởng bảng công, phép, lương.
                 </span>
               </p>
             )}
@@ -283,7 +269,7 @@ export function RequestTypeDialog({
                 </LeaveField>
               )}
             </div>
-            <LeaveField label="Mô tả" htmlFor={`${uid}-desc`} hint="Hiện cạnh loại đơn khi người dùng chọn loại.">
+            <LeaveField label="Mô tả" htmlFor={`${uid}-desc`}>
               <Input
                 id={`${uid}-desc`}
                 maxLength={1000}
@@ -297,7 +283,7 @@ export function RequestTypeDialog({
             {!system ? (
               <>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <LeaveField label="Thời gian của đơn" required hint={modeHint}>
+                  <LeaveField label="Thời gian của đơn" required>
                     <SearchableSelect
                       height={36}
                       value={timeMode}
@@ -315,10 +301,7 @@ export function RequestTypeDialog({
                       disabled={busy}
                       onChange={setRequiresAttachment}
                     />
-                    <div>
-                      <p className="text-xs font-medium text-slate-700">Cần chứng từ</p>
-                      <p className="text-[12px] leading-snug text-slate-500">Người làm đơn phải đính kèm chứng từ.</p>
-                    </div>
+                    <p className="text-xs font-medium text-slate-700">Cần chứng từ</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -331,19 +314,14 @@ export function RequestTypeDialog({
                   <div>
                     <p className="text-xs font-medium text-slate-700">Cần phương tiện</p>
                     <p className="text-[11px] leading-snug text-slate-500">
-                      Form đơn có khối chọn xe công ty hoặc phương tiện tự sắp xếp; xe công ty được giữ chỗ trên Lịch xe.
+                      Xe công ty được giữ chỗ trên Lịch xe.
                     </p>
                   </div>
                 </div>
 
                 <section aria-label="Trường bổ sung" className="space-y-2 rounded-lg border border-slate-200 p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Trường bổ sung</h3>
-                      <p className="text-[12px] text-slate-500">
-                        Thông tin người làm đơn phải điền thêm (ví dụ Nơi nhận, Mức độ).
-                      </p>
-                    </div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Trường bổ sung</h3>
                     <Button
                       type="button"
                       size="xs"
@@ -409,7 +387,7 @@ export function RequestTypeDialog({
                       {f.type === 'select' ? (
                         <LeaveField
                           label={`Các lựa chọn của trường ${index + 1}`}
-                          hint="Ngăn cách bằng dấu phẩy, ví dụ: Gấp, Thường"
+                          hint="Ngăn cách bằng dấu phẩy"
                           className="sm:col-span-12"
                           htmlFor={`${uid}-f${index}-options`}
                         >
@@ -438,7 +416,7 @@ export function RequestTypeDialog({
               <div>
                 <p className="text-xs font-medium text-slate-700">Đang sử dụng</p>
                 <p className="text-[12px] leading-snug text-slate-500">
-                  Tắt thì loại đơn ẩn khỏi danh sách chọn của đơn mới; đơn đã gửi không bị ảnh hưởng.
+                  Đơn đã gửi không bị ảnh hưởng khi tắt.
                 </p>
               </div>
             </div>

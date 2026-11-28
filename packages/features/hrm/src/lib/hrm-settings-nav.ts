@@ -23,7 +23,8 @@ export interface SettingsEntry {
   /** Duy nhất trong toàn bộ mục cấu hình. */
   readonly id: string;
   readonly label: string;
-  readonly description: string;
+  /** Từ khoá tìm kiếm (không hiển thị). */
+  readonly keywords: string;
   readonly icon: SettingsIcon;
   /** Id tab của `HRM_HUBS['/settings']`. */
   readonly view: string;
@@ -39,7 +40,6 @@ export interface SettingsGroup {
   readonly navLabel: string;
   /** Tên thẻ ở trang tổng quan. */
   readonly title: string;
-  readonly description: string;
   readonly icon: SettingsIcon;
   readonly entries: readonly SettingsEntry[];
 }
@@ -49,20 +49,19 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     id: 'leave',
     navLabel: 'Nghỉ phép',
     title: 'Nghỉ phép',
-    description: 'Cách tính phép năm, phép thâm niên, ứng phép và các tác vụ định kỳ.',
     icon: 'leave',
     entries: [
       {
         id: 'leave-policy',
         label: 'Chính sách phép năm',
-        description: 'Thiết lập nguyên tắc tính phép, thâm niên, ứng phép',
+        keywords: 'Thiết lập nguyên tắc tính phép, thâm niên, ứng phép',
         icon: 'leave',
         view: 'leave',
       },
       {
         id: 'overtime-comp',
         label: 'Làm thêm và nghỉ bù',
-        description: 'Phân loại làm thêm và ca đêm, trần giờ làm thêm tính lương, quy đổi giờ dư thành ngày nghỉ bù',
+        keywords: 'Phân loại làm thêm và ca đêm, trần giờ làm thêm tính lương, quy đổi giờ dư thành ngày nghỉ bù',
         icon: 'rules',
         view: 'overtime-comp',
         permissions: ['hrm.policy.view', 'hrm.policy.manage'],
@@ -73,13 +72,12 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     id: 'time',
     navLabel: 'Chấm công',
     title: 'Chấm công',
-    description: 'GPS, IP, quy tắc vào/ra và chấm công tự động.',
     icon: 'rules',
     entries: [
       {
         id: 'time-sites',
         label: 'Địa điểm GPS',
-        description: 'Khai báo địa điểm (GPS, kèm IP nếu cần), kiểm tra vị trí và phòng ban được chấm công tại đó',
+        keywords: 'Khai báo địa điểm (GPS, kèm IP nếu cần), kiểm tra vị trí và phòng ban được chấm công tại đó',
         icon: 'gps',
         view: 'time',
         tab: 'sites',
@@ -88,7 +86,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
       {
         id: 'auto-attendance',
         label: 'Chấm công tự động',
-        description: 'Bật hoặc tắt tự sinh giờ vào/ra theo ca cho từng thứ trong tuần, không cần phân ca lại',
+        keywords: 'Bật hoặc tắt tự sinh giờ vào/ra theo ca cho từng thứ trong tuần, không cần phân ca lại',
         icon: 'rules',
         view: 'auto-attendance',
         permissions: ['hrm.time.configure'],
@@ -99,27 +97,26 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     id: 'schedule',
     navLabel: 'Lịch làm việc',
     title: 'Lịch làm việc',
-    description: 'Gán ca theo nhân viên, lịch tuần/tháng, mẫu ca và lịch định kỳ.',
     icon: 'schedule',
     entries: [
       {
         id: 'schedules',
         label: 'Phân ca',
-        description: 'Thiết lập và quản lý các ca làm việc theo nhân viên',
+        keywords: 'Thiết lập và quản lý các ca làm việc theo nhân viên',
         icon: 'schedule',
         view: 'schedules',
       },
       {
         id: 'shifts',
         label: 'Danh mục ca',
-        description: 'Quản lý danh mục ca, mẫu ca và quy tắc tính',
+        keywords: 'Quản lý danh mục ca, mẫu ca và quy tắc tính',
         icon: 'shift',
         view: 'shifts',
       },
       {
         id: 'standard-work',
         label: 'Công chuẩn',
-        description: 'Công chuẩn của bảng công theo từng tháng: động theo lịch ca hoặc cố định số ngày công',
+        keywords: 'Công chuẩn của bảng công theo từng tháng: động theo lịch ca hoặc cố định số ngày công',
         icon: 'calendar',
         view: 'standard-work',
       },
@@ -129,41 +126,40 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     id: 'request',
     navLabel: 'Đơn từ & phê duyệt',
     title: 'Đơn từ & quy trình',
-    description: 'Loại đơn, lý do của từng loại đơn (gồm lý do nghỉ) và các bước phê duyệt.',
     icon: 'request',
     entries: [
       {
         id: 'request-reasons',
         label: 'Loại đơn & lý do',
-        description: 'Quản lý loại đơn và danh mục lý do (gồm lý do nghỉ) của từng loại',
+        keywords: 'Quản lý loại đơn và danh mục lý do (gồm lý do nghỉ) của từng loại',
         icon: 'request',
         view: 'request-reasons',
       },
       {
         id: 'request-quota',
         label: 'Hạn mức đơn',
-        description: 'Giới hạn số đơn được duyệt mỗi tháng của một nhân viên theo từng loại đơn',
+        keywords: 'Giới hạn số đơn được duyệt mỗi tháng của một nhân viên theo từng loại đơn',
         icon: 'rules',
         view: 'request-quota',
       },
       {
         id: 'request-time-rules',
         label: 'Quy tắc thời gian đơn',
-        description: 'Báo trước, tạo lùi và chuyển người dự phòng theo số ngày, đặt riêng cho từng loại đơn',
+        keywords: 'Báo trước, tạo lùi và chuyển người dự phòng theo số ngày, đặt riêng cho từng loại đơn',
         icon: 'rules',
         view: 'request-time-rules',
       },
       {
         id: 'request-proxy',
         label: 'Tạo đơn hộ',
-        description: 'Quy định ai được tạo hộ nghỉ phép, tăng ca, công tác cho nhân viên nào',
+        keywords: 'Quy định ai được tạo hộ nghỉ phép, tăng ca, công tác cho nhân viên nào',
         icon: 'request',
         view: 'request-proxy',
       },
       {
         id: 'approval',
         label: 'Quy trình duyệt',
-        description: 'Thiết lập quy trình phê duyệt đơn từ',
+        keywords: 'Thiết lập quy trình phê duyệt đơn từ',
         icon: 'approval',
         view: 'approval',
       },
@@ -173,13 +169,12 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     id: 'payroll',
     navLabel: 'Lương',
     title: 'Lương',
-    description: 'Cấu hình lương, OT và các khoản chi trả.',
     icon: 'payroll',
     entries: [
       {
         id: 'payroll',
         label: 'Lương & OT',
-        description: 'Cấu hình lương, phụ cấp, OT và các khoản chi trả',
+        keywords: 'Cấu hình lương, phụ cấp, OT và các khoản chi trả',
         icon: 'payroll',
         view: 'payroll',
       },
@@ -189,20 +184,19 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     id: 'system',
     navLabel: 'Hệ thống',
     title: 'Hệ thống',
-    description: 'Vận hành, tích hợp, quyền và vai trò.',
     icon: 'integration',
     entries: [
       {
         id: 'operations',
         label: 'Vận hành & tích hợp',
-        description: 'Tích hợp dữ liệu, thiết bị và vận hành hệ thống',
+        keywords: 'Tích hợp dữ liệu, thiết bị và vận hành hệ thống',
         icon: 'integration',
         view: 'operations',
       },
       {
         id: 'permissions',
         label: 'Quyền và vai trò',
-        description: 'Phân quyền truy cập và vai trò trong hệ thống',
+        keywords: 'Phân quyền truy cập và vai trò trong hệ thống',
         icon: 'permission',
         view: 'permissions',
       },
@@ -226,13 +220,13 @@ const fold = (text: string) =>
     .toLowerCase()
     .trim();
 
-/** Lọc mục theo từ khoá, bỏ dấu tiếng Việt, khớp tên, mô tả hoặc tên nhóm. */
+/** Lọc mục theo từ khoá, bỏ dấu tiếng Việt, khớp tên, từ khoá hoặc tên nhóm. */
 export function filterSettingsEntries<T extends SettingsEntry>(entries: readonly T[], keyword: string): T[] {
   const needle = fold(keyword);
   if (!needle) return [...entries];
   return entries.filter((entry) => {
     const group = SETTINGS_GROUPS.find((g) => g.entries.some((e) => e.id === entry.id));
-    return fold(`${entry.label} ${entry.description} ${group?.navLabel ?? ''}`).includes(needle);
+    return fold(`${entry.label} ${entry.keywords} ${group?.navLabel ?? ''}`).includes(needle);
   });
 }
 

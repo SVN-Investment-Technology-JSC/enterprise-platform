@@ -101,35 +101,14 @@ const WORKSPACE_ACTION_KEYS = assistantActionKeys(WORKSPACE_ASSISTANT_ACTIONS);
 
 const VIEWS = NAV.map((item) => item.id);
 
-const TITLES: Record<Tab, { title: string; subtitle: string }> = {
-  'my-work': {
-    title: 'Công việc của tôi',
-    subtitle: 'Việc được giao, lịch hôm nay và những nơi có người nhắc tên bạn.',
-  },
-  tasks: {
-    title: 'Công việc khác',
-    subtitle: 'Giao việc cho bất kỳ ai trong tổ chức mà không cần dự án; người giao duyệt kết quả.',
-  },
-  projects: {
-    title: 'Dự án',
-    subtitle: 'Cây dự án nhiều cấp, công việc, tiến độ và lịch biểu của từng hạng mục.',
-  },
-  customers: {
-    title: 'Khách hàng',
-    subtitle: 'Khách hàng chủ quản của dự án và các hợp đồng của từng khách hàng.',
-  },
-  documents: {
-    title: 'Tài liệu',
-    subtitle: 'Kho tài liệu theo dự án và theo đơn vị, có phiên bản và khoá chỉnh sửa.',
-  },
-  reports: {
-    title: 'Báo cáo',
-    subtitle: 'Số liệu của bạn và của các dự án bạn tham gia.',
-  },
-  settings: {
-    title: 'Cài đặt',
-    subtitle: 'Cấu hình dùng chung cho mọi dự án của Không gian làm việc.',
-  },
+const TITLES: Record<Tab, string> = {
+  'my-work': 'Công việc của tôi',
+  tasks: 'Công việc khác',
+  projects: 'Dự án',
+  customers: 'Khách hàng',
+  documents: 'Tài liệu',
+  reports: 'Báo cáo',
+  settings: 'Cài đặt',
 };
 
 /** Các mục trong trang Cài đặt; `#settings/<id>` mở thẳng mục đó. */
@@ -138,50 +117,36 @@ const SETTINGS_SECTIONS = [
     id: 'general',
     label: 'Cấu hình chung',
     bare: true,
-    description:
-      'Những lựa chọn có từ hai khả năng trở lên và áp cho cả tenant: tự đóng hồ sơ, mở lưu trữ dự án đã hoàn thành, trao đổi trong dự án lưu trữ.',
     render: () => <GeneralSettings />,
   },
   {
     id: 'project-roles',
     label: 'Vai trò trong dự án',
-    description:
-      'Định nghĩa vai trò gán cho thành viên dự án và những gì mỗi vai được làm. Mặc định có Chủ nhiệm, Quản lý, Thành viên và Người xem.',
     render: () => <ProjectRoleSettings />,
   },
   {
     id: 'project-groups',
     label: 'Nhóm dự án',
-    description:
-      'Danh mục nhóm để phân loại dự án, chọn khi tạo dự án và lọc trên trang Dự án. Đổi tên nhóm thì các dự án của nhóm đổi theo.',
     render: () => <ProjectGroupSettings />,
   },
   {
     id: 'project-report-groups',
     label: 'Nhóm báo cáo',
-    description:
-      'Lĩnh vực dùng khi xuất báo cáo doanh thu (ví dụ Dịch vụ, Thí nghiệm, Bán hàng, O&M), ít hơn và độc lập với nhóm dự án. Mỗi dự án gán tối đa một nhóm ngay trong trang dự án.',
     render: () => <ProjectReportGroupSettings />,
   },
   {
     id: 'project-code',
     label: 'Mã dự án',
-    description:
-      'Quy tắc sinh mã cho dự án mới, ví dụ DA_{NHOM}_{SO:4} → DA_DVTN_0001 hoặc DA_{NAM}_{SO:3} → DA_2026_001. Mã do hệ thống cấp khi tạo dự án.',
     render: () => <ProjectCodeSettings />,
   },
   {
     id: 'labels',
     label: 'Trạng thái và ưu tiên',
-    description:
-      'Tên, màu và thứ tự của trạng thái công việc, trạng thái dự án và mức ưu tiên. Thêm hoặc xoá mức ưu tiên tuỳ ý.',
     render: () => <LabelSettings />,
   },
   {
     id: 'tags',
     label: 'Nhãn',
-    description:
-      'Danh mục nhãn dùng chung cho công việc và dự án. Sửa tên, màu, ẩn nhãn không còn dùng hoặc xoá hẳn.',
     render: () => <TagSettings />,
   },
 ] as const;
@@ -408,8 +373,8 @@ export function WorkspaceScreen() {
       moduleKey="workspace"
       appearance="light"
       // Tiêu đề của **module**, không phải của trang đang mở: breadcrumb là
-      // "SVN DTS / Không gian làm việc / Dự án". Trước đây chỗ này truyền tên
-      // trang nên nó lặp lại chính nó — "SVN DTS / Dự án / Dự án".
+      // "Trang chủ / Không gian làm việc / Dự án". Trước đây chỗ này truyền tên
+      // trang nên nó lặp lại chính nó — "Trang chủ / Dự án / Dự án".
       title="Dự án & Công việc"
       nav={nav}
       view={view}
@@ -559,8 +524,7 @@ export function WorkspaceScreen() {
         />
       ) : (
         <section className={styles.placeholder}>
-          <h2>{TITLES[view].title}</h2>
-          <p>{TITLES[view].subtitle}</p>
+          <h2>{TITLES[view]}</h2>
         </section>
       )}
       <QuickSearch open={quickOpen} onClose={() => setQuickOpen(false)} onPick={onQuickPick} />

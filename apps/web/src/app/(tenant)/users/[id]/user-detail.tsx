@@ -401,9 +401,9 @@ function DetailContent({
                 tabIndex={selected ? 0 : -1}
                 onClick={() => selectTab(id)}
                 onKeyDown={onTabKeyDown}
-                className={`-mb-px inline-flex h-10 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[14px] ${
+                className={`-mb-px inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap border-b-2 px-3 text-[14px] ${
                   selected
-                    ? 'border-[#ffc90a] font-bold text-[#18181b]'
+                    ? 'border-[#ffc90a] font-semibold text-[#18181b]'
                     : 'border-transparent font-medium text-slate-500 hover:text-[#18181b]'
                 }`}
               >

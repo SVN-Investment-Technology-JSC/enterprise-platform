@@ -21,7 +21,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -157,7 +156,6 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{plans.length}</div>
-            <p className="text-xs text-slate-500 mt-1">Đang hoạt động trên nền tảng</p>
           </CardContent>
         </Card>
 
@@ -170,7 +168,6 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{totalTenants}</div>
-            <p className="text-xs text-slate-500 mt-1">Tenant đang có gói đăng ký</p>
           </CardContent>
         </Card>
 
@@ -308,14 +305,11 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
         <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden p-0 sm:max-w-2xl" showCloseButton={!isSubmitting}>
           <DialogHeader className="border-b px-6 pt-6 pb-5">
             <DialogTitle>Tạo gói dịch vụ mới</DialogTitle>
-            <DialogDescription>
-              Định nghĩa mã gói, phân hệ cấp phép và hạn mức tài nguyên cho tenant.
-            </DialogDescription>
           </DialogHeader>
 
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleCreatePlan}>
             <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-6">
-              <PlanFormSection icon={PackageCheck} title="Thông tin cơ bản" description="Mã gói dùng để định danh và không nên thay đổi sau khi cấp cho tenant.">
+              <PlanFormSection icon={PackageCheck} title="Thông tin cơ bản" description="Không nên đổi mã gói sau khi đã cấp cho tenant.">
                 <PlanField label="Mã gói">
                   <Input autoFocus placeholder="professional" value={newKey} onChange={(e) => setNewKey(e.target.value)} required />
                 </PlanField>
@@ -327,7 +321,7 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
                 </PlanField>
               </PlanFormSection>
 
-              <PlanFormSection icon={Layers} title="Phân hệ cấp phép" description="Tenant dùng gói này chỉ truy cập được các phân hệ được chọn.">
+              <PlanFormSection icon={Layers} title="Phân hệ cấp phép">
                 <div className="grid gap-2 sm:col-span-2 sm:grid-cols-3">
                   {PLAN_MODULE_OPTIONS.map((m) => {
                     const checked = selectedModules.includes(m.key);
@@ -340,10 +334,7 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
                         )}
                       >
                         <input className="mt-0.5 size-4 accent-[#091426]" type="checkbox" checked={checked} onChange={() => toggleModule(m.key)} />
-                        <span>
-                          <span className="block font-medium text-slate-900">{m.label}</span>
-                          <span className="block text-xs text-muted-foreground">{m.hint}</span>
-                        </span>
+                        <span className="font-medium text-slate-900">{m.label}</span>
                       </label>
                     );
                   })}
@@ -376,12 +367,12 @@ export function PlansManagement({ initialPlans }: PlansManagementProps) {
 }
 
 const PLAN_MODULE_OPTIONS = [
-  { key: 'procedure-engine', label: 'Quy trình', hint: 'Bộ máy quy trình' },
-  { key: 'maintenance', label: 'Bảo trì', hint: 'Thiết bị và bảo trì phòng ngừa' },
-  { key: 'inventory', label: 'Kho & Tài sản', hint: 'Vật tư, kho và tồn kho' },
+  { key: 'procedure-engine', label: 'Quy trình' },
+  { key: 'maintenance', label: 'Bảo trì' },
+  { key: 'inventory', label: 'Kho & Tài sản' },
 ] as const;
 
-function PlanFormSection({ description, icon: Icon, title, children }: { description: string; icon: typeof PackageCheck; title: string; children: React.ReactNode }) {
+function PlanFormSection({ description, icon: Icon, title, children }: { description?: string; icon: typeof PackageCheck; title: string; children: React.ReactNode }) {
   return (
     <section>
       <div className="mb-4">
@@ -389,7 +380,7 @@ function PlanFormSection({ description, icon: Icon, title, children }: { descrip
           <Icon className="size-4 text-[#091426]" />
           <h2 className="font-semibold text-slate-900">{title}</h2>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">{children}</div>
     </section>

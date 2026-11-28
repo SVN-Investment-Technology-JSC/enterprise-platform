@@ -94,9 +94,6 @@ export function MaterialStocktakePanel(props: {
         <span className="text-sm font-bold text-slate-700">
           Chưa có kỳ kiểm kê nào ghi nhận cho vật tư này
         </span>
-        <span className="max-w-[440px] text-[13px] leading-normal text-slate-500">
-          Vật tư chưa được đưa vào danh mục kiểm đếm trong bất kỳ đợt kiểm kê kho nào gần đây. Kết quả và chênh lệch đối soát sẽ hiển thị tại đây sau khi hoàn tất kiểm kê.
-        </span>
       </div>
     );
   }
@@ -161,7 +158,6 @@ export function MaterialStocktakePanel(props: {
             <strong className="text-xl font-extrabold tabular-nums text-slate-900">{formatNumber(sysQty)}</strong>
             <small className="text-[13px] font-semibold text-slate-500">{unit}</small>
           </div>
-          <span className="text-xs leading-[1.35] text-slate-400">Số lượng tại thời điểm chốt sổ</span>
         </div>
 
         <div className="flex flex-col gap-[0.35rem] rounded-lg border border-slate-200 bg-white px-4 py-[0.85rem] shadow-xs">
@@ -170,7 +166,6 @@ export function MaterialStocktakePanel(props: {
             <strong className="text-xl font-extrabold tabular-nums text-slate-900">{formatNumber(actQty)}</strong>
             <small className="text-[13px] font-semibold text-slate-500">{unit}</small>
           </div>
-          <span className="text-xs leading-[1.35] text-slate-400">Được thủ kho & tổ kiểm kê xác nhận</span>
         </div>
 
         <div

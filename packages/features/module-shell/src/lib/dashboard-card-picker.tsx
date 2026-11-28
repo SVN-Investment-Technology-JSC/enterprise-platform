@@ -64,7 +64,6 @@ export function DashboardCardPicker<TData>(props: DashboardCardPickerProps<TData
               />
               <span className={styles.pickerText}>
                 <strong>{card.title}</strong>
-                <small>{card.description}</small>
               </span>
               {on ? (
                 <span className={styles.pickerOrder}>

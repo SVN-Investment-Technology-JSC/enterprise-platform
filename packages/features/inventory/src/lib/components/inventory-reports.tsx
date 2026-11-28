@@ -194,9 +194,6 @@ export function InventoryReports({
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 [&_h2]:m-0 [&_h2]:text-base [&_h2]:font-bold [&_h2]:tracking-tight [&_h2]:text-slate-900">
         <div>
           <h2>Báo cáo kho</h2>
-          <span className={COUNT_HINT}>
-            Tồn thực tế, đã giữ, chờ kiểm định hoặc không đạt, khả dụng; nhập xuất theo kỳ
-          </span>
         </div>
       </div>
       <div className="mb-[0.85rem] flex flex-wrap gap-[0.35rem]" role="tablist">
@@ -206,7 +203,7 @@ export function InventoryReports({
             type="button"
             role="tab"
             aria-selected={view === item.id}
-            className={cn('cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold', view === item.id ? 'bg-primary text-primary-foreground' : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900')}
+            className={cn('cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-medium', view === item.id ? 'bg-primary font-semibold text-primary-foreground' : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900')}
             onClick={() => setView(item.id)}
           >
             {item.label}

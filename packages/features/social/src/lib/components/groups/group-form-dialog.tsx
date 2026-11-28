@@ -166,8 +166,8 @@ export function GroupFormDialog({
             label="Phòng ban, vị trí"
             hint={
               editing && group?.lastSyncedAt
-                ? 'Thành viên tự đồng bộ khi bấm "Đồng bộ lại" ở màn Thành viên.'
-                : 'Thành viên được nở từ các nguồn này tại thời điểm lưu; đồng bộ lại sau bằng nút ở màn Thành viên.'
+                ? 'Bấm "Đồng bộ lại" ở màn Thành viên để cập nhật.'
+                : 'Thành viên lấy theo nguồn tại thời điểm lưu.'
             }
           >
             <OrgSourcePicker sources={state.sources} onChange={(sources) => patch({ sources })} />

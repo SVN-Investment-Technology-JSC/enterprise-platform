@@ -8,9 +8,8 @@ import {
 export const ADJUSTMENT_MODE_HELP: Readonly<
   Record<QuoteAdjustmentMode, string>
 > = {
-  LINE: 'Theo dòng: chiết khấu hoặc thuế tính trên từng dòng hàng rồi cộng lại.',
-  ORDER:
-    'Theo tổng đơn: nhập một lần cho cả báo giá, tính trên tổng tiền hàng; dòng hàng không tính thêm nên không bị tính trùng.',
+  LINE: 'Theo dòng: tính trên từng dòng hàng.',
+  ORDER: 'Theo tổng đơn: nhập một lần, tính trên tổng tiền hàng.',
 };
 
 export const adjustmentModeOptions = QUOTE_ADJUSTMENT_MODES.map((mode) => ({

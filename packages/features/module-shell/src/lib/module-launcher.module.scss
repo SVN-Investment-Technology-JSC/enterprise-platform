@@ -1,0 +1,335 @@
+// Menu toàn bộ phân hệ: ngăn cao hết màn hình mở từ mép trái (che thanh bên trái), lưới thẻ 2 cột.
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  background: rgb(15 23 42 / 32%);
+  backdrop-filter: blur(2px);
+}
+
+.panel {
+  display: flex;
+  font-family: var(--ep-font, inherit);
+  flex-direction: column;
+  width: min(440px, 100vw);
+  height: 100dvh;
+  overflow: hidden;
+  border-right: 1px solid var(--ep-border-strong, #e2e8f0);
+  background: var(--ep-surface, #fff);
+  box-shadow: 16px 0 44px rgb(15 23 42 / 16%);
+  color: var(--ep-text, #0f172a);
+  font-size: 13.5px;
+  text-align: left;
+  animation: launcherSlide 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes launcherSlide {
+  from {
+    opacity: 0.7;
+    transform: translateX(-24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ---------------------------------------------------------------- đầu ngăn */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--ep-border, #eef1f5);
+}
+
+.headLogo {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.searchRow {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--ep-border-strong, #e5e7eb);
+  border-radius: 10px;
+  background: var(--ep-surface-soft, #f8fafc);
+  color: var(--ep-text-muted, #64748b);
+
+  &:focus-within {
+    border-color: #2563eb;
+    background: var(--ep-surface, #fff);
+    box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+  }
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ep-text, #0f172a);
+  font: inherit;
+  font-size: 14px;
+}
+
+.close {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ep-text-muted, #64748b);
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--ep-hover, #f1f5f9);
+    color: var(--ep-text, #0f172a);
+    outline: none;
+  }
+}
+
+/* ---------------------------------------------------------------- lưới */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 10px 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* ---------------------------------------------------------------- thẻ phân hệ */
+
+// Màu của phân hệ: chỉ dùng cho ô mã ngắn (khi chưa có icon thương hiệu) và viền phân hệ đang mở.
+.tone-blue { --tone: #2563eb; }
+.tone-green { --tone: #16a34a; }
+.tone-amber { --tone: #d97706; }
+.tone-violet { --tone: #7c3aed; }
+.tone-rose { --tone: #e11d48; }
+.tone-teal { --tone: #0d9488; }
+.tone-orange { --tone: #ea580c; }
+.tone-sky { --tone: #0284c7; }
+.tone-pink { --tone: #db2777; }
+.tone-slate { --tone: #475569; }
+
+// Thẻ đơn giản: nền trắng, viền xám nhạt, icon + tên. Logo thương hiệu của công ty là điểm nhấn duy nhất.
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 60px;
+  padding: 0 12px;
+  border: 1px solid var(--ep-border, #e8ecf1);
+  border-radius: 12px;
+  background: var(--ep-surface, #fff);
+  color: var(--ep-text, #0f172a);
+  text-decoration: none;
+  outline: none;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--ep-border-strong, #d5dce5);
+    background: var(--ep-hover, #f6f8fb);
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px rgb(37 99 235 / 35%);
+  }
+}
+
+// Phân hệ đang mở: viền xanh, nền xanh rất nhạt.
+.cardCurrent {
+  border-color: #93b4f5;
+  background: #f3f7ff;
+
+  &:hover {
+    border-color: #93b4f5;
+    background: #edf3ff;
+  }
+}
+
+// Phân hệ công ty chưa kích hoạt: vẫn hiện để biết là có, nhưng mờ và không bấm được.
+.cardInactive {
+  cursor: default;
+  opacity: 0.45;
+  filter: grayscale(1);
+
+  &:hover {
+    border-color: var(--ep-border, #e8ecf1);
+    background: var(--ep-surface, #fff);
+  }
+}
+
+.cardIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--tone);
+
+  svg {
+    display: block;
+  }
+}
+
+// Icon thương hiệu tự có nền và bo góc: hiện nguyên.
+.cardIconBrand svg {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.cardCode {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone) 12%, #fff);
+  color: var(--tone);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.cardName {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- kết quả tìm */
+
+.results {
+  padding-top: 8px;
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  color: var(--ep-text, #0f172a);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  outline: none;
+}
+
+.resultActive {
+  background: #eff6ff;
+}
+
+.resultText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+
+.note {
+  padding: 14px 6px;
+  color: var(--ep-text-muted, #64748b);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- icon */
+
+.icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+// Mã ngắn của phân hệ ("WS", "FIN") khi công ty chưa cấu hình icon thương hiệu.
+.iconText {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+
+// Icon thương hiệu của công ty tự có nền và bo góc: lấp đầy ô, bỏ màu nền mặc định.
+.iconBrand {
+  background: transparent !important;
+  box-shadow: none;
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.c-blue { background: #e0ecff; color: #2563eb; }
+.c-green { background: #dcfce7; color: #16a34a; }
+.c-amber { background: #fef3c7; color: #d97706; }
+.c-violet { background: #ede9fe; color: #7c3aed; }
+.c-rose { background: #ffe4e6; color: #e11d48; }
+.c-teal { background: #ccfbf1; color: #0d9488; }
+.c-orange { background: #ffedd5; color: #ea580c; }
+.c-sky { background: #e0f2fe; color: #0284c7; }
+.c-slate { background: #e2e8f0; color: #475569; }
+.c-pink { background: #fce7f3; color: #db2777; }
+
+/* ---------------------------------------------------------------- chân */
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--ep-border, #eef1f5);
+  font-size: 12.5px;
+}
+
+
+.footLink {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+@media (max-width: 380px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -171,12 +171,12 @@ export function PayrollOtDialog({ base, editing, onSubmit, onClose }: OtDialogPr
             )}
 
             <section aria-label="Giới hạn OT" className="space-y-3">
-              <GroupTitle icon={Timer} title="Giới hạn OT" hint="Số phút làm thêm tối đa theo từng chu kỳ." />
+              <GroupTitle icon={Timer} title="Giới hạn OT" />
               <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">{LIMIT_FIELDS.map(numberField)}</div>
             </section>
 
             <section aria-label="Hệ số OT" className="space-y-3">
-              <GroupTitle icon={Percent} title="Hệ số OT" hint="Hệ số nhân với đơn giá giờ thường (từ 1 đến 10)." />
+              <GroupTitle icon={Percent} title="Hệ số OT" hint="Từ 1 đến 10." />
               <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">{RATE_FIELDS.map(numberField)}</div>
             </section>
 

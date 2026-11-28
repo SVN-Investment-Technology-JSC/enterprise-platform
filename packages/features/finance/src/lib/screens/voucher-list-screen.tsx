@@ -504,7 +504,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                 type="button"
                 aria-pressed={Boolean(month)}
                 onClick={() => changeMonth(month || todayVn().slice(0, 7))}
-                className={cn('px-3 py-1 text-sm', month ? 'bg-accent-soft font-semibold text-accent-text' : 'text-slate-600 hover:bg-slate-50')}
+                className={cn('px-3 py-1.5 text-sm', month ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-slate-600 hover:bg-slate-50')}
               >
                 Theo tháng
               </button>
@@ -512,7 +512,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                 type="button"
                 aria-pressed={!month}
                 onClick={() => changeMonth('')}
-                className={cn('border-l border-slate-200 px-3 py-1 text-sm', !month ? 'bg-accent-soft font-semibold text-accent-text' : 'text-slate-600 hover:bg-slate-50')}
+                className={cn('border-l border-slate-200 px-3 py-1.5 text-sm', !month ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-slate-600 hover:bg-slate-50')}
               >
                 Tất cả
               </button>
@@ -536,7 +536,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                 <span className="ml-2 text-sm font-semibold text-slate-700">{monthLabel(month)}</span>
               </div>
             ) : (
-              <span className="text-sm text-slate-500">Toàn bộ thời gian; lọc theo ngày ở bên dưới.</span>
+              <span className="text-sm text-slate-500">Toàn bộ thời gian</span>
             )}
           </div>
 
@@ -565,7 +565,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                 }}
                 className={cn(
                   'border-b-2 px-3 py-2 text-sm',
-                  status === tab.id ? 'border-accent-strong font-semibold text-accent-text' : 'border-transparent text-slate-600 hover:text-slate-900',
+                  status === tab.id ? 'border-accent-strong font-semibold text-accent-text' : 'border-transparent font-medium text-slate-600 hover:text-slate-900',
                 )}
               >
                 {tab.label} ({tab.count})
@@ -622,7 +622,7 @@ export default function VoucherListScreen({ kind }: { kind: FinanceVoucherKind }
                       setScope(s.id);
                       setPage(1);
                     }}
-                    className={cn('rounded-full border px-3 py-1 text-xs', scope === s.id ? 'border-accent-strong bg-accent-soft text-accent-text' : 'border-slate-200 text-slate-600 hover:bg-slate-50')}
+                    className={cn('rounded-full border px-3 py-1.5 text-sm', scope === s.id ? 'border-accent-strong bg-accent-soft font-semibold text-accent-text' : 'border-slate-200 font-medium text-slate-600 hover:bg-slate-50')}
                   >
                     {s.label}
                   </button>

@@ -79,7 +79,6 @@ export function DocumentTypeSettings() {
           <Plus size={14} /> Thêm loại
         </button>
       </div>
-      <p className={styles.muted}>Loại đã tắt không được chọn cho tài liệu mới; tài liệu cũ vẫn giữ loại đó.</p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       <Table<CrmDocumentType> size="small" rowKey="id" loading={loading} columns={columns} dataSource={items} pagination={false} locale={{ emptyText: 'Chưa có loại tài liệu nào.' }} />
       {editing ? (

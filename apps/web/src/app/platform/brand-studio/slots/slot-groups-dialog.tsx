@@ -240,7 +240,7 @@ export function SlotGroupsDialog({ open, onOpenChange, groups, onCreated, onUpda
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="max-w-xl gap-0 overflow-hidden p-0" data-testid="slot-groups-dialog">
         <SlotDialogFrame
-          description="Nhóm chỉ để sắp xếp và lọc danh sách vị trí. Nhóm có sẵn là cố định; nhóm tùy chỉnh chỉ xoá được khi không còn vị trí nào."
+          description="Nhóm có sẵn là cố định; nhóm tùy chỉnh chỉ xoá được khi không còn vị trí nào."
           error={addError}
           footer={
             <Button onClick={() => onOpenChange(false)} type="button" variant="outline">

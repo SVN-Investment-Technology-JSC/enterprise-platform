@@ -251,8 +251,7 @@ export function EmployeeProfileContent({
                 }
               />
               <p className="text-xs text-slate-500">
-                Chỉ áp cho người này ở chức danh này. Chọn chức danh chứ không
-                chọn người, để không phải sửa lại khi đổi nhân sự.
+                Chỉ áp cho người này ở chức danh này.
               </p>
             </div>
           </section>

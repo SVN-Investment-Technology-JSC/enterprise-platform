@@ -611,7 +611,7 @@ export function QuoteEditor({
                 priceListsLoaded && !priceListOptions(priceLists, priceDate, chosenPriceList).length
                   ? NO_PRICE_LISTS_TEXT
                   : version.priceListId
-                    ? 'Đổi bảng giá thì đơn giá gốc của mọi dòng tính lại'
+                    ? undefined
                     : PICK_PRICE_LIST_FIRST
               }
             >
@@ -750,14 +750,11 @@ export function QuoteEditor({
         editable={editable}
         busy={busy}
         addBlockedText={editable && !version.priceListId ? PICK_PRICE_LIST_FIRST : undefined}
-        emptyText={editable ? 'Chưa có dòng nào. Bấm + để chọn mặt hàng trong bảng giá đã chọn.' : 'Không có dòng nào.'}
+        emptyText={editable ? 'Chưa có dòng nào.' : 'Không có dòng nào.'}
         discount={{
           // Theo mẫu đang chọn trên màn (đổi mẫu chưa lưu cũng tính): bấm khi còn thay đổi thì lưu trước rồi mới mở.
           enabled: shownDiscountMode === 'ORDER',
-          hint:
-            shownDiscountMode === 'ORDER'
-              ? 'Nhập chiết khấu một lần cho cả báo giá.'
-              : 'Mẫu báo giá này tính chiết khấu theo dòng; chọn mẫu tính theo tổng đơn để nhập chiết khấu tổng đơn.',
+          hint: shownDiscountMode === 'ORDER' ? undefined : 'Mẫu báo giá này tính chiết khấu theo dòng.',
           onOpen: openOrderDiscount,
         }}
         onAdd={(search) => setPicking({ search })}
@@ -1358,7 +1355,6 @@ function MaterialPicker({
       open
       wide
       title={beforeLineNo ? `Chèn dòng trước dòng ${beforeLineNo}` : 'Thêm dòng báo giá'}
-      subtitle="Chọn một hoặc nhiều mặt hàng trong bảng giá đã chọn của báo giá; mặt hàng chưa có giá thì nhập đơn giá ghi đè"
       submitLabel={addLinesLabel(picked.size, confirmingDuplicates)}
       submitting={saving}
       error={error ?? catalog.error}
@@ -1380,7 +1376,6 @@ function MaterialPicker({
       onSubmit={() => void save()}
     >
       <CatalogSearchBar catalog={catalog} />
-      {taxByOrder ? <p className={styles.muted}>{TAX_BY_ORDER_HINT}: thuế suất từng dòng không áp dụng.</p> : null}
       <div className={styles.muted}>
         Đã chọn {picked.size} mặt hàng
         {picked.size ? (
@@ -1507,7 +1502,7 @@ function LineDialog({
           label="Ghi đè chiết khấu (%)"
           hint={
             lockDiscountOverride
-              ? 'Mẫu báo giá tính chiết khấu theo tổng đơn: nhập chiết khấu ở phần cập nhật thông tin báo giá.'
+              ? 'Mẫu báo giá tính chiết khấu theo tổng đơn'
               : `Chính sách đề xuất ${formatPercent(line.policyPercent)}`
           }
         >
@@ -1525,7 +1520,7 @@ function LineDialog({
           hint={
             lockVatOverride
               ? TAX_BY_ORDER_HINT
-              : `Bỏ trống: theo bảng giá hoặc hợp đồng. Thuế suất hiện tại ${formatPercent(line.vatRate)}; sửa thuế suất không cần duyệt.`
+              : `Hiện tại ${formatPercent(line.vatRate)}; sửa không cần duyệt`
           }
         >
           <input

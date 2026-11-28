@@ -52,7 +52,7 @@ export function SlotDialogFrame({
   children,
 }: {
   title: string;
-  description: ReactNode;
+  description?: ReactNode;
   error?: string | null;
   footer: ReactNode;
   onSubmit?: (event: FormEvent<HTMLFormElement>) => void;
@@ -62,7 +62,7 @@ export function SlotDialogFrame({
     <>
       <DialogHeader className="border-b border-slate-200 bg-slate-50 py-4 pl-6 pr-14">
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
+        {description ? <DialogDescription>{description}</DialogDescription> : null}
       </DialogHeader>
 
       <div className="flex max-h-[calc(100vh-16rem)] flex-col gap-4 overflow-y-auto px-6 py-5">

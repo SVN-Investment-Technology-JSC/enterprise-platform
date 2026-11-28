@@ -270,12 +270,7 @@ export function SerialPickerDrawer({
             </div>
           )}
 
-          {inbound ? (
-            <p className="my-[0.35rem] text-[13px] text-slate-500">
-              Dòng nhập: serial mới được tạo khi ghi sổ; serial đã có của mặt
-              hàng bị từ chối.
-            </p>
-          ) : (
+          {inbound ? null : (
             <>
               <h4 className="mb-2 mt-4 text-sm font-bold text-slate-900">
                 Serial sẵn có ở kho {warehouse?.code ?? ''} (Trong kho, Đạt)
@@ -453,10 +448,6 @@ export function LotPickerDrawer({
           <DialogCloseButton onClick={onClose} />
         </SheetHeader>
         <SheetBody className="bg-white">
-          <p className="my-[0.35rem] text-[13px] text-slate-500">
-            Xếp theo hạn dùng gần nhất trước (FEFO). Lô hết hạn hoặc không ở
-            trạng thái Đạt không xuất được.
-          </p>
           {loadError ? <p className="mb-4 rounded-[0.65rem] border border-red-200 bg-red-50 px-4 py-[0.8rem] text-red-800">{loadError}</p> : null}
           {!options && !loadError ? (
             <p className="my-[0.35rem] text-[13px] text-slate-500">Đang tải lô…</p>

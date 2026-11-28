@@ -533,9 +533,8 @@ export function OrganizationTreeOutline({
       </div>
 
       {/* Footer Status */}
-      <div className="flex shrink-0 items-center justify-between border-t border-[#eef0f3] px-3.5 py-2.5 text-[12px] text-slate-500">
-        <span>Tổng cộng: <b className="text-[#18181b]">{nodes.length}</b> node</span>
-        <span className="text-slate-400">Bấm node để xem chi tiết</span>
+      <div className="shrink-0 border-t border-[#eef0f3] px-3.5 py-2.5 text-[12px] text-slate-500">
+        Tổng cộng: <b className="text-[#18181b]">{nodes.length}</b> node
       </div>
     </div>
   );

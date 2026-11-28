@@ -8,11 +8,8 @@ import {
   availableConflictModes,
 } from '../../hrm-work-schedule-model';
 
-const MODE_HINTS: Record<HrmScheduleConflictMode, string> = {
-  REPORT: 'Mặc định: nếu có ngày đã có lịch khác, hệ thống chỉ báo xung đột và không ghi gì.',
-  SKIP_EXISTING: 'Chỉ gán những ngày chưa có lịch; ngày đã có lịch giữ nguyên.',
-  OVERWRITE_KEEP_EXCEPTIONS: 'Thay lịch thường bằng lịch mới nhưng không đụng tới ngoại lệ và ngày lễ.',
-  OVERWRITE_ALL: 'Ghi đè mọi lịch, kể cả ngoại lệ. Cần quyền quản lý lịch lễ và ngoại lệ.',
+const MODE_HINTS: Partial<Record<HrmScheduleConflictMode, string>> = {
+  OVERWRITE_ALL: 'Cần quyền quản lý lịch lễ và ngoại lệ.',
 };
 
 const RULE_MODE_LABELS: Partial<Record<HrmScheduleConflictMode, string>> = {
@@ -21,10 +18,7 @@ const RULE_MODE_LABELS: Partial<Record<HrmScheduleConflictMode, string>> = {
   OVERWRITE_KEEP_EXCEPTIONS: 'Ghi đè theo thời gian: lịch mới thay lịch định kỳ và lịch từng ngày cũ',
 };
 const RULE_MODE_HINTS: Partial<Record<HrmScheduleConflictMode, string>> = {
-  REPORT: 'Nếu phạm vi đã có lịch định kỳ còn hiệu lực từ ngày bắt đầu, hệ thống chỉ báo và không ghi.',
-  SKIP_EXISTING: 'Phạm vi nào đã có lịch định kỳ thì giữ nguyên, chỉ tạo cho phạm vi chưa có.',
-  OVERWRITE_KEEP_EXCEPTIONS:
-    'Từ ngày bắt đầu trở đi, lịch mới thay lịch định kỳ cũ (kết thúc hoặc hủy) và các ngày đã phân ca từng ngày khác lịch mới ở những thứ có trong lịch tuần. Ngoại lệ và ngày lễ vẫn được giữ.',
+  OVERWRITE_KEEP_EXCEPTIONS: 'Ngoại lệ và ngày lễ vẫn được giữ.',
 };
 
 export function ConflictModePicker({
@@ -42,6 +36,7 @@ export function ConflictModePicker({
   openEnded?: boolean;
 }) {
   const name = useId();
+  const hintOf = (mode: HrmScheduleConflictMode) => (openEnded ? RULE_MODE_HINTS[mode] : MODE_HINTS[mode]);
   return (
     <fieldset className="flex flex-col gap-1.5">
       {compact ? null : (
@@ -68,11 +63,7 @@ export function ConflictModePicker({
             <span className="font-semibold text-slate-900">
               {openEnded ? (RULE_MODE_LABELS[mode] ?? CONFLICT_MODE_LABELS[mode]) : CONFLICT_MODE_LABELS[mode]}
             </span>
-            {compact ? null : (
-              <span className="block text-[12px] text-slate-500">
-                {openEnded ? (RULE_MODE_HINTS[mode] ?? MODE_HINTS[mode]) : MODE_HINTS[mode]}
-              </span>
-            )}
+            {compact || !hintOf(mode) ? null : <span className="block text-[12px] text-slate-500">{hintOf(mode)}</span>}
           </span>
         </label>
       ))}

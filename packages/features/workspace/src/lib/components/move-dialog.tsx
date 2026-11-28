@@ -98,10 +98,7 @@ export function MoveDialog({ item, items, onClose, onMove }: MoveDialogProps) {
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field
-        label="Chuyển vào dưới"
-        hint="Gõ mã hoặc tên để lọc."
-      >
+      <Field label="Chuyển vào dưới">
         <Choice
           label="Chuyển vào dưới"
           value={target}

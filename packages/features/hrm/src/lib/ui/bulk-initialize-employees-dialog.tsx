@@ -16,7 +16,6 @@ import { AlertCircle, ListChecks, Loader2, Search } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from './dialog';
@@ -282,16 +281,9 @@ export function BulkInitializeEmployeesDialog({
           <div className="size-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 mt-0.5 border border-blue-100">
             <ListChecks className="size-5" />
           </div>
-          <div className="space-y-1">
-            <DialogTitle className="text-base font-bold text-slate-900">
-              Nạp nhân sự từ Core
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500 leading-relaxed">
-              Tạo hồ sơ HRM cho nhiều người đã khai báo ở Core trong một lần.
-              Họ tên, email lấy từ Core; mã nhân viên và ngày vào làm có thể
-              chỉnh từng dòng.
-            </DialogDescription>
-          </div>
+          <DialogTitle className="text-base font-bold text-slate-900">
+            Nạp nhân sự từ Core
+          </DialogTitle>
         </DialogHeader>
         <form
           className="flex flex-col flex-1 min-h-0 overflow-hidden"

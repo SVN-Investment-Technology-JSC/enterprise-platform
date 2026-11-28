@@ -44,7 +44,7 @@ describe('QuotePromotionsPanel', () => {
 
   it('báo giá chưa có dự án: hướng dẫn gắn dự án, không gọi API', () => {
     renderPanel({ opportunityId: null });
-    expect(screen.getByText(/chưa thuộc dự án nào/)).toBeTruthy();
+    expect(screen.getByText(/Gắn báo giá vào dự án bán hàng/)).toBeTruthy();
     expect(mockProject).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'Lưu khuyến mãi' })).toBeNull();
   });

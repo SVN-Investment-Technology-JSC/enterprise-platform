@@ -11,7 +11,6 @@ import type {
   HrmCareerHistoryItem,
 } from '@enterprise-platform/contracts-hrm';
 import {
-  BadgeCheck,
   Briefcase,
   Building2,
   Calendar,
@@ -549,10 +548,6 @@ export default function HrmProfilePage() {
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Hồ sơ của tôi
           </h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Tra cứu thông tin cá nhân, hồ sơ bảo hiểm, quá trình công tác và tài
-            khoản ngân hàng chi trả lương.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <HubTabsSlot />
@@ -622,7 +617,7 @@ export default function HrmProfilePage() {
             <FieldLegend />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <ReadonlyField id="profile-full-name" label="Họ và tên" value={savedIdentity.fullName} hint="Do Core HRM quản lý" />
-              <ReadonlyField id="profile-employee-code" label="Mã nhân viên" value={profileMeta.employeeCode} mono hint="Do hệ thống cấp" />
+              <ReadonlyField id="profile-employee-code" label="Mã nhân viên" value={profileMeta.employeeCode} mono />
               <ReadonlyField
                 id="profile-date-of-birth"
                 label="Ngày sinh"
@@ -817,7 +812,7 @@ export default function HrmProfilePage() {
             </div>
             <p className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
               <ShieldCheck className="size-3.5 shrink-0 text-slate-400" />
-              Thông tin tài khoản ngân hàng được bảo mật và chỉ hiển thị cho các vai trò có thẩm quyền. Cần thay đổi vui lòng liên hệ phòng Nhân sự.
+              Cần thay đổi, liên hệ phòng Nhân sự.
             </p>
           </ProfileCard>
         </div>
@@ -885,25 +880,10 @@ export default function HrmProfilePage() {
           <SheetHeader className="shrink-0 border-b border-slate-200 bg-slate-50/70">
             <SheetTitle>Quá trình công tác và hợp đồng</SheetTitle>
             <SheetDescription>
-              Dữ liệu đồng bộ từ Core HRM, quản lý bởi Ban Nhân sự.
+              Đồng bộ từ Core HRM; thay đổi vị trí hoặc bổ nhiệm, liên hệ phòng Tổ chức - Cán bộ.
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 text-xs text-slate-700 flex items-start sm:items-center gap-3 shadow-sm">
-              <Info className="size-5 text-blue-700 shrink-0" />
-              <div className="flex-1">
-                <span className="font-bold text-slate-900">
-                  Thông báo quản trị:
-                </span>{' '}
-                Thông tin quá trình công tác được đồng bộ trực tiếp từ hệ thống
-                Core HRM và quản lý bởi Ban Nhân sự. Mọi thay đổi về vị trí hoặc
-                quyết định bổ nhiệm vui lòng liên hệ phòng Tổ chức - Cán bộ.
-              </div>
-              <Badge className="bg-blue-100 text-blue-800 border border-blue-200 shrink-0 hidden md:inline-flex gap-1 text-[11px]">
-                <BadgeCheck className="size-3.5" />
-                Đã xác thực
-              </Badge>
-            </div>
 
             {/* Cơ cấu tổ chức và vị trí công tác: chỉ hiển thị chữ, không hiện mã nội bộ */}
             <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
@@ -1049,7 +1029,6 @@ export default function HrmProfilePage() {
                           </span>
                         </div>
                         <p className="text-xs text-slate-600 mb-2">
-                          Được tiếp nhận và bổ nhiệm vị trí chính thức tại tổ chức.
                           Trạng thái lao động:{' '}
                           <strong>{profileMeta.employmentStatus || '----'}</strong>
                           .
@@ -1083,10 +1062,6 @@ export default function HrmProfilePage() {
                             {formatVnDate(profileMeta.joinDate)}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-600 mb-2">
-                          Ngày bắt đầu làm việc tại {companyName || 'công ty'} theo quyết
-                          định tiếp nhận nhân sự.
-                        </p>
                         <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 font-medium">
 
                         </div>
@@ -1096,8 +1071,7 @@ export default function HrmProfilePage() {
 
                   {!profileMeta.joinDate && !profileMeta.officialDate && (
                     <div className="text-xs text-slate-500 italic py-2">
-                      Chưa có dữ liệu lịch sử công tác được ghi nhận trong cơ sở dữ
-                      liệu.
+                      Chưa có lịch sử công tác.
                     </div>
                   )}
                 </div>

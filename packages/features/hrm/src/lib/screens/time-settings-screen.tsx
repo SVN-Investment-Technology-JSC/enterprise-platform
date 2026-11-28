@@ -286,7 +286,6 @@ export default function TimeSettingsScreen() {
           {meta ? (
             <PageTitle
               title={meta.title}
-              description={meta.description}
               badge={badge}
               actions={
                 <>
@@ -354,7 +353,6 @@ export default function TimeSettingsScreen() {
         <ConfigHistoryDrawer
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          description={meta.historyDescription}
           actionPrefixes={meta.historyPrefixes}
         />
       ) : null}

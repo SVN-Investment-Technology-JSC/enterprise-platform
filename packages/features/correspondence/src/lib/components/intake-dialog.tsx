@@ -177,7 +177,6 @@ export function IntakeDialog({
       open={open}
       wide
       title="Tiếp nhận công văn đến"
-      subtitle="Vào sổ, cấp số đến; sau đó văn thư phân loại và giao phòng ban xử lý. Bản quét lưu trong kho tài liệu của Hệ dùng chung."
       submitLabel="Vào sổ công văn"
       submitting={submitting}
       dirty={dirty}
@@ -258,7 +257,7 @@ export function IntakeDialog({
         <CheckGroup label="Thư gửi đích danh">
           <label className={styles.checkRow}>
             <input type="checkbox" checked={form.personal} onChange={(event) => set('personal', event.target.checked)} />
-            Thư riêng: không bóc bì, chuyển thẳng người nhận, không vào quy trình xử lý (người nhận trả văn thư được nếu là việc chung)
+            Thư riêng: không bóc bì, chuyển thẳng người nhận, không vào quy trình xử lý
           </label>
         </CheckGroup>
       ) : null}
@@ -271,14 +270,13 @@ export function IntakeDialog({
             clearable
             onChange={(value) => set('registerId', value ?? '')}
           />
-          <span className={styles.hint}>Văn bản có độ mật tự vào sổ mật (cấp số riêng); chọn sổ khác nếu cần.</span>
         </SelectField>
       ) : null}
       <div className={styles.formRow}>
         <Field label="Hạn xử lý">
           <input type="date" value={form.dueOn} min={form.receivedOn} onChange={(event) => set('dueOn', event.target.value)} />
         </Field>
-        <FilePickField label="Bản quét công văn" files={files} hint="PDF, ảnh hay tệp Word của công văn" onChange={setFiles} />
+        <FilePickField label="Bản quét công văn" files={files} onChange={setFiles} />
       </div>
       {form.personal ? null : (
         <WorkflowPicker config={config} direction="incoming" facts={facts} value={form.workflowId} directory={directory} onChange={(value) => set('workflowId', value)} />

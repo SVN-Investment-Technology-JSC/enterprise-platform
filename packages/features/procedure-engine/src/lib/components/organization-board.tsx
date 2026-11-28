@@ -232,7 +232,6 @@ export function OrganizationBoard({
           <div>
             <span>Cơ cấu tổ chức</span>
             <strong>{totalUnits}</strong>
-            <small>Phòng ban &amp; Chi nhánh</small>
           </div>
         </article>
 
@@ -248,7 +247,6 @@ export function OrganizationBoard({
           <div>
             <span>Lãnh đạo đơn vị</span>
             <strong>{appointedHeadsCount}</strong>
-            <small>Trưởng đơn vị đã bổ nhiệm</small>
           </div>
         </article>
       </div>
@@ -273,7 +271,7 @@ export function OrganizationBoard({
           ))}
           {roots.length === 0 ? (
             <p style={{ padding: '20px', color: 'var(--muted)', fontSize: '14px' }}>
-              Chưa có đơn vị tổ chức nào. Bấm &quot;Thêm đơn vị mới&quot; để khởi tạo.
+              Chưa có đơn vị tổ chức nào.
             </p>
           ) : null}
         </article>
@@ -435,14 +433,14 @@ export function OrganizationBoard({
                 ))}
                 {unitMembers.length === 0 ? (
                   <p style={{ color: 'var(--muted)', fontSize: '13px', padding: '12px 0' }}>
-                    Chưa có nhân sự nào được phân bổ vào đơn vị này.
+                    Chưa có nhân sự nào.
                   </p>
                 ) : null}
               </div>
             </>
           ) : (
             <p style={{ color: 'var(--muted)', fontSize: '14px' }}>
-              Chọn một đơn vị từ cây cơ cấu bên trái để xem và phân bổ nhân sự.
+              Chọn một đơn vị để xem chi tiết.
             </p>
           )}
         </article>

@@ -274,8 +274,7 @@ export function RulePreviewPanel({ preview }: { preview: HrmScheduleRulePreview 
         />
       </div>
       <p className="text-xs text-slate-600">
-        Lịch được lưu một lần và tự chạy đến khi kết thúc. Ngoại lệ và ngày lễ luôn được giữ. Ở chế độ ghi đè, lịch mới
-        thay các ngày đã phân ca từng ngày từ ngày bắt đầu; các chế độ khác giữ lịch từng ngày ưu tiên hơn lịch định kỳ.
+        Ngoại lệ và ngày lễ luôn được giữ. Chế độ ghi đè thay các ngày đã phân ca từ ngày bắt đầu.
       </p>
       {preview.lockedPeriods.length ? (
         <Notice tone="error" title="Có kỳ công đã khoá trong khoảng áp dụng">

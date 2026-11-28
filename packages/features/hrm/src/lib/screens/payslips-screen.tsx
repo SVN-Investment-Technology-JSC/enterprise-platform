@@ -66,9 +66,6 @@ export default function PayslipsScreen() {
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
             Phiếu lương của tôi
           </h1>
-          <p className="mt-0.5 max-w-[85ch] text-xs text-slate-500">
-            Xem chi tiết cấu thành thu nhập, các khoản khấu trừ bảo hiểm, thuế TNCN và thực lĩnh theo từng kỳ đã phát hành.
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <HubTabsSlot />
@@ -181,9 +178,6 @@ export default function PayslipsScreen() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold uppercase tracking-wider text-blue-900">
                       Bậc lương & Mức đóng áp dụng trong kỳ ({snapshot.salaryProfiles.length} giai đoạn)
-                    </span>
-                    <span className="text-[12px] text-blue-600 font-medium">
-                      Tự động tính phân đoạn theo ngày công thực tế (Prorated)
                     </span>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">

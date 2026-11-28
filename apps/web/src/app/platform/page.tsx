@@ -248,9 +248,6 @@ export default async function PlatformPage() {
               {issues.length === 0 ? 'Vận hành ổn định' : `${issues.length} mục cần chú ý`}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
-            Giám sát tổ chức, cơ sở dữ liệu và phân hệ trên toàn nền tảng.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -312,7 +309,7 @@ export default async function PlatformPage() {
           <section>
             <SectionTitle
               title="Tổ chức gần đây"
-              hint={`${listedTenants.length} trong ${total} tổ chức, sắp theo ngày tạo mới nhất.`}
+              hint={`${listedTenants.length} / ${total} tổ chức`}
               href="/platform/tenants"
             />
             <div className="mt-3 overflow-x-auto rounded-md bg-white ring-1 ring-slate-200">
@@ -419,7 +416,6 @@ export default async function PlatformPage() {
             <section>
               <SectionTitle
                 title="Phân hệ đang sử dụng"
-                hint="Số tổ chức bật từng phân hệ."
                 href="/platform/plans"
                 hrefLabel="Gói dịch vụ"
               />
@@ -455,10 +451,7 @@ export default async function PlatformPage() {
             </section>
 
             <section>
-              <SectionTitle
-                title="Tổ chức mới theo tháng"
-                hint={`${MONTH_COUNT} tháng gần nhất.`}
-              />
+              <SectionTitle title="Tổ chức mới theo tháng" />
               <div className="mt-3 flex h-36 items-end gap-3 border-b border-slate-200 px-1">
                 {months.map((item) => (
                   <div key={`${item.year}-${item.month}`} className="flex h-full flex-1 flex-col items-center justify-end gap-1">
@@ -529,7 +522,7 @@ export default async function PlatformPage() {
           </section>
 
           <section>
-            <SectionTitle title="Hạ tầng cơ sở dữ liệu" hint="PostgreSQL, mỗi tổ chức một database." />
+            <SectionTitle title="Hạ tầng cơ sở dữ liệu" />
             <dl className="mt-3 space-y-1.5 text-xs">
               <div className="flex justify-between">
                 <dt className="text-slate-600">Máy chủ</dt>

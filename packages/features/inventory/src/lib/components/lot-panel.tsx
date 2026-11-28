@@ -195,10 +195,6 @@ export function LotPanel({
             Lô hàng và hạn dùng
           </h4>
         </div>
-        <p className="m-0 mt-[3px] text-[13px] text-slate-500">
-          Lô được tạo khi lập phiếu nhập có khai báo lô; phiếu xuất gợi ý lô theo hạn dùng gần nhất (FEFO). Lô
-          không ở trạng thái Đạt không tính vào tồn khả dụng.
-        </p>
       </div>
 
       {error ? <p className="m-0 py-8 text-center text-slate-500">{error}</p> : null}
@@ -210,7 +206,7 @@ export function LotPanel({
         columns={columns}
         dataSource={lots}
         pagination={lots.length > 20 ? { pageSize: 20 } : false}
-        locale={{ emptyText: 'Chưa có lô nào cho vật tư này. Lập phiếu nhập có khai báo lô để tạo lô.' }}
+        locale={{ emptyText: 'Chưa có lô nào cho vật tư này.' }}
       />
 
       {editing ? (

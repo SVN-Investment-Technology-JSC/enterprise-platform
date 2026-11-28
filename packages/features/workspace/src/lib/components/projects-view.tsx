@@ -1437,17 +1437,15 @@ export function ProjectsView({
                   );
                 })}
               </div>
-              <Tooltip content="Xem trao đổi của mọi công việc trong dự án" side="bottom">
                 <button
                   type="button"
                   className={tab === CHATS_TAB ? styles.tabSideActive : styles.tabSide}
                   aria-pressed={tab === CHATS_TAB}
                   onClick={() => setTab(CHATS_TAB)}
                 >
-                  <MessageSquare size={14} aria-hidden />
+                  <MessageSquare size={16} aria-hidden />
                   Trao đổi công việc
                 </button>
-              </Tooltip>
               {/* Công tắc cách xem và thanh lọc của Trao đổi nằm ngay trên hàng tab, không tốn thêm hàng. */}
               {tab === CHATS_TAB ? <div ref={setChatToolsSlot} className={styles.tabRowTools} /> : null}
               </div>

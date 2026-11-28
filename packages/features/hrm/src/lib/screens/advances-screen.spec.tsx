@@ -71,10 +71,9 @@ beforeEach(() => {
 });
 
 describe('AdvancesScreen', () => {
-  it('đầu trang dùng tiêu đề mới của tab Ứng và thu hồi cùng mô tả quy trình', async () => {
+  it('đầu trang dùng tiêu đề mới của tab Ứng và thu hồi', async () => {
     render(<AdvancesScreen />);
     expect(screen.getByRole('heading', { name: 'Ứng và thu hồi' })).toBeTruthy();
-    expect(screen.getByText(/Quy trình khép kín/)).toBeTruthy();
     expect(await screen.findAllByText('Nguyễn Văn An')).not.toHaveLength(0);
   });
 

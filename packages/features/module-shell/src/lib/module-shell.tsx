@@ -111,7 +111,7 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
       >
         <div className={styles.brand}>
           <BrandLogo
-            alt="SVN DTS Logo"
+            alt="Logo"
             className={styles.brandLogo}
           />
           {collapsed ? null : (
@@ -193,13 +193,13 @@ function ClassicShell<TViewId extends string = string>(props: ModuleShellProps<T
         <header className={styles.topBar}>
           <div className={styles.headTitles}>
             {/*
-              Mỗi cấp trên breadcrumb là một lối tắt: "SVN DTS" về trang chủ
+              Mỗi cấp trên breadcrumb là một lối tắt: "Trang chủ" về trang chủ
               ứng dụng, tên module về trang đầu của module. Cấp cuối là trang
               đang đứng nên chỉ là chữ, không phải link.
             */}
             <nav className={styles.headBreadcrumb} aria-label="Breadcrumb">
-              <a className={styles.crumbLink} href={homeHref}>
-                SVN DTS
+              <a className={styles.crumbLink} href="/dashboard">
+                Trang chủ
               </a>
               <span className={styles.crumbSep} aria-hidden>/</span>
               {activeItem && firstItem && activeItem.id !== firstItem.id ? (

@@ -41,7 +41,6 @@ export default function CompOffScreen() {
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-1">
       <PageTitle
         title="Quỹ nghỉ bù"
-        description="Giờ làm thêm vượt trần của tháng đã chốt công được quy đổi thành ngày nghỉ bù. Nghỉ bù được dùng theo bước nửa ngày, lấy từ lô gần hết hạn trước."
       />
       {status && !status.fundEnabled ? (
         <Notice tone="warn">
@@ -62,8 +61,8 @@ export default function CompOffScreen() {
             aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             className={cn(
-              '-mb-px border-b-2 px-3 py-2 text-sm font-semibold',
-              tab === t.id ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-600 hover:text-slate-900',
+              '-mb-px border-b-2 px-3 py-2 text-sm',
+              tab === t.id ? 'border-blue-600 font-semibold text-blue-700' : 'border-transparent font-medium text-slate-600 hover:text-slate-900',
             )}
           >
             {t.label}

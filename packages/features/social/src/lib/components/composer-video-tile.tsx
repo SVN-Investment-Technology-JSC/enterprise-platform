@@ -113,19 +113,11 @@ export function ComposerVideoTile(props: ComposerVideoTileProps) {
           </>
         ) : null}
         {busyProcessing ? (
-          <>
-            <span className={styles.status} role="status">
-              {state === 'queued' ? 'Đang chờ xử lý video…' : 'Đang xử lý video…'}
-            </span>
-            <span className={styles.hint}>Bạn có thể đăng ngay hoặc chờ vài phút.</span>
-          </>
+          <span className={styles.status} role="status">
+            {state === 'queued' ? 'Đang chờ xử lý video…' : 'Đang xử lý video…'}
+          </span>
         ) : null}
-        {state === 'ready' ? (
-          <>
-            <span className={styles.status}>Video đã sẵn sàng</span>
-            {sources.length > 0 ? <span className={styles.hint}>Bấm vào hình để xem trước.</span> : null}
-          </>
-        ) : null}
+        {state === 'ready' ? <span className={styles.status}>Video đã sẵn sàng</span> : null}
         {state === 'failed' ? (
           <>
             <span className={styles.errorText} role="alert">

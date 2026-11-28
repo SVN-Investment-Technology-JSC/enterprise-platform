@@ -122,7 +122,6 @@ export function CreateGroupDialog({
         <div className={styles.dialogHead}>
           <div className={styles.dialogHeadInfo}>
             <h3 id="chat-create-group">Tạo nhóm chat</h3>
-            <p>Đặt tên nhóm và chọn người tham gia thảo luận.</p>
           </div>
           <button type="button" className={styles.iconButton} aria-label="Đóng" onClick={onClose}>
             <X aria-hidden="true" />

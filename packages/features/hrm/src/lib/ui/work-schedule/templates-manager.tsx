@@ -29,7 +29,7 @@ import {
 import { cn } from '../../utils';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { useCloseGuard } from '../use-close-guard';
 import { Input } from '../input';
 import { toast } from '../toast';
@@ -129,7 +129,7 @@ function TemplateForm({
         <WeeklyPatternEditor pattern={pattern} onChange={setPattern} shifts={shifts} />
         {template ? (
           <Notice tone="info">
-            Sửa mẫu không làm đổi lịch đã gán trước đó. Muốn áp mẫu mới cho lịch đã gán, dùng hành động Áp lại mẫu.
+            Sửa mẫu không đổi lịch đã gán; dùng Áp lại mẫu để cập nhật.
           </Notice>
         ) : null}
         {error ? <Notice tone="error">{error}</Notice> : null}
@@ -420,9 +420,6 @@ export function TemplatesManager({
       <DialogContent className="@container h-[min(88dvh,760px)] max-w-5xl" aria-label="Mẫu lịch tuần">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{title}</DialogTitle>
-          <DialogDescription>
-            Mẫu lịch tuần là cấu hình T2-CN dùng lại khi phân ca. Ca luôn lấy từ danh mục ca hiện có.
-          </DialogDescription>
         </DialogHeader>
 
         {view.name === 'edit' ? (
@@ -434,10 +431,6 @@ export function TemplatesManager({
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex shrink-0 flex-col gap-2 px-6 pt-4">
-              <Notice tone="info">
-                Sửa một mẫu lịch không làm thay đổi lịch đã được gán trước đó (lịch đã sinh sẵn từng ngày). Dùng Áp lại
-                để cập nhật lịch đã gán theo nội dung mới của mẫu.
-              </Notice>
               {actionError ? <Notice tone="error">{actionError}</Notice> : null}
               {error ? <Notice tone="error">{error}</Notice> : null}
             </div>

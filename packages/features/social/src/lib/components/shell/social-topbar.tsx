@@ -51,8 +51,7 @@ export function SocialTopBar({
               }}
             />
             <span>
-              <strong>SVN DTS</strong>
-              <small>Mạng nội bộ</small>
+              <strong>Mạng nội bộ</strong>
             </span>
           </SocialLink>
         </div>

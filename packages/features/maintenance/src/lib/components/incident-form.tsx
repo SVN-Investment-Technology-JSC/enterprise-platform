@@ -73,7 +73,6 @@ function IncidentFrame({
     <MinimalPopupForm
       isOpen
       title={FORM_TITLE}
-      subtitle="Ghi nhận hỏng hóc đột xuất và tạo phiếu xử lý ngay khi cần."
       onClose={onClose}
       maxWidth="680px"
       // Chiều cao cố định; màn thấp hơn thì popup tự co theo `max-height: 100%` của lớp nền. Phần dư cuộn dọc trong form.
@@ -287,11 +286,7 @@ export function IncidentForm({
               >
                 {asset ? asset.asset.name : 'Mã thiết bị chưa có trong danh mục'}
               </p>
-            ) : embedded ? null : (
-              <p className="m-0 text-[0.8125rem] font-medium leading-snug text-amber-600">
-                Gõ mã hoặc tên để chọn nhanh thiết bị
-              </p>
-            )}
+            ) : null}
           </div>
 
           <div className={FIELD_CLASS}>
@@ -400,7 +395,7 @@ export function IncidentForm({
               />
               {embedded ? null : (
                 <span className="text-xs text-slate-500">
-                  (Ảnh chụp hiện trường, biên bản, video ngắn - Tối đa 25MB)
+                  (Tối đa 25MB)
                 </span>
               )}
             </div>

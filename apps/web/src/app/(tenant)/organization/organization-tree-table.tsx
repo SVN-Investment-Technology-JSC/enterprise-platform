@@ -168,7 +168,6 @@ export function OrganizationTreeTable({
                       type="button"
                       className="flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] bg-[#18181b] px-3 text-[13px] font-semibold text-white hover:bg-[#2a2a2f]"
                       onClick={() => onOpenTree(item.id)}
-                      title="Vào xem và chỉnh sửa chi tiết cây sơ đồ"
                     >
                       <Eye className="size-3.5" />
                       Xem chi tiết
@@ -215,9 +214,6 @@ export function OrganizationTreeTable({
         <div className="rounded-[14px] border border-dashed border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
           <GitBranch className="mx-auto size-8 text-slate-300" />
           <p className="mt-2 font-medium">Không tìm thấy sơ đồ tổ chức nào.</p>
-          <p className="mt-0.5 text-xs text-slate-400">
-            Bấm &quot;Thêm sơ đồ mới&quot; để tạo sơ đồ đầu tiên.
-          </p>
         </div>
       ) : null}
 

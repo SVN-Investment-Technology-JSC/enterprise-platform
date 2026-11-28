@@ -183,11 +183,6 @@ export function PriceListsPage() {
             {NO_DEFAULT_LIST_HINT}
           </p>
         ) : null}
-        <p className={styles.muted}>
-          Giá gốc khi báo giá lấy theo thứ tự: giá hợp đồng, bảng giá người lập chọn ở báo giá hoặc đơn. Bảng giá mặc định
-          lấy mặt hàng, đơn vị tính, giá bán, thuế suất từ Kho; bảng giá mới tính theo tỷ lệ của bảng mặc định, nhập được giá
-          tay và thuế suất tay từng dòng.
-        </p>
         {error ? <p className={styles.alert}>{error}</p> : null}
         <Table<PriceListSummary>
           size="small"
@@ -308,7 +303,7 @@ export function PriceListDialog({
         open
         wide
         title={list ? 'Sửa bảng giá' : 'Thêm bảng giá'}
-        subtitle={list ? `Loại: ${priceListTypeLabel(list)}` : 'Bảng giá mới tính theo tỷ lệ của bảng giá mặc định; nhập giá tay từng dòng sau khi tạo.'}
+        subtitle={list ? `Loại: ${priceListTypeLabel(list)}` : undefined}
         submitting={submitting}
         error={error}
         onClose={onClose}
@@ -335,7 +330,7 @@ export function PriceListDialog({
             />
           </Field>
           {showRatio ? (
-            <Field label="Tỷ lệ giá so với bảng mặc định (%)" required error={fieldErrors.ratio} hint="Từ 0,01 đến 1000, tối đa 2 chữ số thập phân; 100 là bằng giá mặc định">
+            <Field label="Tỷ lệ giá so với bảng mặc định (%)" required error={fieldErrors.ratio} hint="100 là bằng giá mặc định">
               <input
                 className={styles.input}
                 inputMode="decimal"
@@ -636,7 +631,7 @@ function PasteDialog({
       open
       wide
       title="Dán dòng giá từ bảng tính"
-      subtitle="Mỗi dòng: Id mặt hàng, Mã, Tên, Đơn vị tính, Đơn giá, Thuế suất (không bắt buộc, mặc định 10). Dòng đã có cùng mặt hàng và đơn vị sẽ được cập nhật giá."
+      subtitle="Mỗi dòng: Id mặt hàng, Mã, Tên, Đơn vị tính, Đơn giá, Thuế suất (tuỳ chọn)"
       submitLabel={parsed.items.length ? `Nhập ${parsed.items.length} dòng` : 'Nhập'}
       submitting={submitting}
       error={error}

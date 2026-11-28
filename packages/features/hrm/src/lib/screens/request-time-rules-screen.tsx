@@ -114,14 +114,9 @@ export default function RequestTimeRulesScreen() {
     <div className="space-y-4" data-testid="request-time-rules">
       <PageTitle
         title="Quy tắc thời gian đơn"
-        description="Báo trước, tạo lùi và chuyển người duyệt dự phòng theo số ngày, đặt riêng cho từng loại đơn."
       />
 
-      <InfoNote>
-        Ô để trống là chưa dùng quy tắc đó. Báo trước và tạo lùi tính theo ngày bắt đầu ghi trên đơn, chặn ngay lúc tạo đơn
-        (kể cả đơn tạo hộ). Chuyển dự phòng: khi đặt, người giữ chức danh dự phòng chỉ được xử lý đơn sau khi đơn chờ đủ
-        số ngày; không đặt thì dự phòng xử lý ngay như hiện nay.
-      </InfoNote>
+      <InfoNote>Ô trống là không áp dụng. Báo trước và tạo lùi tính theo ngày bắt đầu trên đơn, chặn ngay khi tạo (kể cả đơn tạo hộ).</InfoNote>
 
       {error ? (
         <InfoNote tone="red" role="alert">

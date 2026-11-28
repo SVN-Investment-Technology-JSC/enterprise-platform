@@ -99,13 +99,12 @@ const DEFINITIONS_PER_PAGE = 10;
 const E_TASK_SOURCE_OPTIONS: readonly {
   readonly value: ETaskSource;
   readonly label: string;
-  readonly description: string;
 }[] = [
-    { value: 'manual', label: 'Tự khai báo khi thực hiện', description: 'Đơn vị thực hiện lập đầu việc khi quy trình được khởi chạy.' },
-    { value: 'task_list', label: 'Danh sách đầu việc mẫu', description: 'Dùng danh sách đầu việc được cấu hình sẵn.' },
-    { value: 'equipment_template', label: 'Mẫu theo loại thiết bị', description: 'Lấy đầu việc từ mẫu của loại thiết bị.' },
-    { value: 'inventory_asset', label: 'Theo thiết bị cụ thể', description: 'Lấy đầu việc từ thiết bị được gắn với hồ sơ.' },
-    { value: 'inventory_material', label: 'Theo vật tư', description: 'Lấy đầu việc từ vật tư được chọn.' },
+    { value: 'manual', label: 'Tự khai báo khi thực hiện' },
+    { value: 'task_list', label: 'Danh sách đầu việc mẫu' },
+    { value: 'equipment_template', label: 'Mẫu theo loại thiết bị' },
+    { value: 'inventory_asset', label: 'Theo thiết bị cụ thể' },
+    { value: 'inventory_material', label: 'Theo vật tư' },
   ];
 
 /**
@@ -821,7 +820,6 @@ export function RcsiBoard({
         type="button"
         className={styles.headBtn}
         onClick={() => setArchiveOpen(true)}
-        title="Danh sách quy trình đã lưu trữ"
       >
         <Archive size={15} aria-hidden="true" />
         Lưu trữ ({archivedDefinitions.length})
@@ -832,7 +830,6 @@ export function RcsiBoard({
           className={styles.headPrimary}
           onClick={() => setCreateModalOpen(true)}
           disabled={busy}
-          title="Thêm quy trình mới"
         >
           <Plus size={15} aria-hidden="true" />
           Thêm quy trình
@@ -886,7 +883,6 @@ export function RcsiBoard({
                     onClick={() => setTreeFilterOpen((prev) => !prev)}
                     aria-expanded={treeFilterOpen}
                     aria-haspopup="listbox"
-                    title="Chọn sơ đồ tổ chức để hiển thị trên ma trận"
                   >
                     <Layers className={styles.treeFilterTriggerIcon} />
                     <span className={styles.treeFilterTriggerLabel}>
@@ -1009,7 +1005,7 @@ export function RcsiBoard({
             </div>
 
             <div className={styles.toolbarRight}>
-              <label className={styles.positionSearch} title="Tìm chức danh trên ma trận (gõ không dấu được)">
+              <label className={styles.positionSearch}>
                 <Search size={14} aria-hidden="true" />
                 <input
                   value={positionQuery}
@@ -1027,7 +1023,6 @@ export function RcsiBoard({
                 type="button"
                 className={mode === 'compact' ? styles.filterOn : styles.filter}
                 onClick={() => setMode('compact')}
-                title="Chỉ hiện các chức danh có tham gia trong các quy trình đang mở."
               >
                 Đang tham gia
               </button>
@@ -1035,7 +1030,6 @@ export function RcsiBoard({
                 type="button"
                 className={mode === 'full' ? styles.filterOn : styles.filter}
                 onClick={() => setMode('full')}
-                title="Hiện tất cả chức danh trong tổ chức để gán vai trò mới."
               >
                 Tất cả chức danh
               </button>
@@ -1044,7 +1038,7 @@ export function RcsiBoard({
                 className={orgPaneOpen ? styles.orgToggleOn : styles.orgToggle}
                 aria-pressed={orgPaneOpen}
                 aria-label={orgPaneOpen ? 'Ẩn sơ đồ tổ chức' : 'Hiện sơ đồ tổ chức'}
-                title={orgPaneOpen ? 'Ẩn sơ đồ tổ chức' : 'Hiện sơ đồ tổ chức để gán việc'}
+                title={orgPaneOpen ? 'Ẩn sơ đồ tổ chức' : 'Hiện sơ đồ tổ chức'}
                 onClick={() => setOrgPaneOpen((open) => !open)}
               >
                 <AppIcon slot="nav.organization" fallback={Network} size={15} />
@@ -1110,7 +1104,7 @@ export function RcsiBoard({
                 <tr className={styles.emptyRow}>
                   <td colSpan={1 + Math.max(1, columns.length)} className={styles.empty}>
                     {activeDefinitions.length === 0
-                      ? 'Chưa có quy trình nào. Bấm “Thêm quy trình” để tạo quy trình đầu tiên.'
+                      ? 'Chưa có quy trình nào.'
                       : 'Không có quy trình nào thuộc nhóm đang lọc.'}
                   </td>
                 </tr>
@@ -1267,11 +1261,6 @@ export function RcsiBoard({
         return (
           <AttributeEditor
             title={step ? `Thuộc tính bước “${step.name}”` : `Thuộc tính quy trình “${definition.name}”`}
-            subtitle={
-              step
-                ? 'Người thực hiện bước nhập các trường này khi chạy hồ sơ. Điểm rẽ nhánh đặt sau bước dùng chúng làm điều kiện.'
-                : 'Dùng chung cho cả hồ sơ. Chọn bước nhập cho từng thuộc tính; không chọn thì nhập được ở mọi bước.'
-            }
             attributes={step ? step.attributes : definition.attributes}
             usedCodes={usedAttributeCodes(definition, attributeTarget.stepId)}
             entrySteps={
@@ -1635,9 +1624,6 @@ export function RcsiBoard({
                     <div className={styles.membersEmpty}>
                       <Users className={styles.membersEmptyIcon} />
                       <p className={styles.membersEmptyTitle}>Chưa có nhân sự</p>
-                      <p className={styles.membersEmptyDesc}>
-                        Chức danh này hiện chưa được bổ nhiệm nhân sự nào trong hệ thống.
-                      </p>
                     </div>
                   ) : (
                     previewData.members.map((member) => {
@@ -2222,7 +2208,6 @@ function DefinitionRows({
                 className={styles.rowToggle}
                 onClick={onToggle}
                 aria-expanded={open}
-                title={open ? 'Thu gọn các bước' : 'Sổ các bước và phân vai'}
               >
                 <span className={styles.expander} aria-hidden="true">
                   {open ? '−' : '+'}
@@ -2258,7 +2243,6 @@ function DefinitionRows({
                     type="button"
                     className={styles.flowToolBtn}
                     disabled={busy || !editable}
-                    title="Thuộc tính dùng chung của quy trình; chọn bước nhập cho từng thuộc tính"
                     onClick={() => onEditAttributes(null)}
                   >
                     Thuộc tính QT{definition.attributes?.length ? ` (${definition.attributes.length})` : ''}
@@ -2269,7 +2253,6 @@ function DefinitionRows({
                     type="button"
                     className={styles.flowToolBtn}
                     disabled={busy}
-                    title="Cho phép duyệt / không duyệt nhiều hồ sơ của quy trình này một lần ở Hồ sơ xử lý"
                     onClick={onEditBulkActions}
                   >
                     Hàng loạt
@@ -2313,7 +2296,7 @@ function DefinitionRows({
                     className={styles.squarePenBtn}
                     onClick={onRevise}
                     disabled={busy}
-                    title="Sửa quy trình (chuyển về bản nháp để sửa phân vai)"
+                    title="Sửa quy trình"
                     aria-label={`Sửa quy trình ${definition.name}`}
                   >
                     <SquarePen size={14} aria-hidden="true" />
@@ -2327,7 +2310,6 @@ function DefinitionRows({
                     className={styles.reactivateBtn}
                     onClick={onRevise}
                     disabled={busy}
-                    title="Tái kích hoạt quy trình (chuyển về bản nháp để chỉnh sửa và công bố lại)"
                   >
                     Tái kích hoạt
                   </button>
@@ -2340,7 +2322,7 @@ function DefinitionRows({
                       type="button"
                       className={styles.archiveIconBtn}
                       disabled={busy}
-                      title="Lưu trữ bản nháp này."
+                      title="Lưu trữ bản nháp"
                       aria-label={`Lưu trữ bản nháp ${definition.name}`}
                       onClick={handleDeleteClick}
                     >
@@ -2378,7 +2360,7 @@ function DefinitionRows({
                               {`Lưu trữ bản nháp “${definition.name}”?`}
                             </div>
                             <div className={styles.popconfirmDesc}>
-                              Bản nháp sẽ được chuyển vào danh mục Lưu trữ. Bạn có thể bấm “Tái kích hoạt” bất cứ lúc nào để tiếp tục thiết kế.
+                              Có thể tái kích hoạt lại bất cứ lúc nào.
                             </div>
                             <div className={styles.popconfirmActions}>
                               <button
@@ -2471,7 +2453,6 @@ function DefinitionRows({
                   <input
                     className={styles.stepNameInput}
                     defaultValue={step.name}
-                    title="Click để đổi tên bước trực tiếp trên bảng"
                     placeholder="Tên bước…"
                     onBlur={(event) => {
                       const val = event.target.value.trim();
@@ -2505,7 +2486,7 @@ function DefinitionRows({
                     <span className={styles.attrTag}>{dynamic.role}: QL trực tiếp</span>
                   ) : null}
                   {step.integration?.module === 'finance' ? (
-                    <span className={styles.attrTag} title="Bước Tài chính: kế toán ghi sổ phiếu thì bước mới đóng">
+                    <span className={styles.attrTag}>
                       Tài chính: {PROCEDURE_FINANCE_VOUCHER_KIND_LABELS[step.integration.voucherKind]}
                     </span>
                   ) : null}
@@ -2517,7 +2498,7 @@ function DefinitionRows({
                   className={styles.linkCorner}
                   title={`Nối tiếp quy trình “${
                     linkTargets.find((candidate) => candidate.id === step.linkedDefinitionId)?.name ?? 'khác'
-                  }” khi bước này xong`}
+                  }”`}
                 >
                   <Link2 size={12} aria-hidden="true" />
                 </span>
@@ -2555,9 +2536,9 @@ function DefinitionRows({
                         editable
                           ? `${column.label} · ${step.name}`
                           : definition.status === 'archived'
-                            ? `Quy trình đang lưu trữ không sửa được. Bấm nút “Tái kích hoạt” ở đầu dòng quy trình để đưa về nháp.`
+                            ? 'Quy trình đang lưu trữ: bấm “Tái kích hoạt” để sửa.'
                             : definition.status === 'published'
-                              ? `Quy trình đã công bố không sửa trực tiếp được. Bấm biểu tượng “Sửa” ở đầu dòng quy trình để đưa về nháp, sửa xong thì bấm “Công bố” lại.`
+                              ? 'Quy trình đã công bố: bấm “Sửa” ở đầu dòng để đưa về nháp.'
                               : `${column.label} · ${step.name}`
                       }
                       onClick={openCell}
@@ -2631,7 +2612,6 @@ function DefinitionRows({
                     type="submit"
                     className={styles.addStepButton}
                     disabled={busy}
-                    title="Thêm bước trực tiếp vào bảng"
                   >
                     <span aria-hidden="true">+</span> Thêm bước
                   </button>
@@ -2651,7 +2631,6 @@ function DefinitionRows({
                   className={styles.addStepReveal}
                   disabled={busy}
                   onClick={() => setTrunkAddOpen(true)}
-                  title="Thêm bước trên trục chính"
                 >
                   <span className={styles.addStepNumberBadge}>+{trunkCount + 1}</span>
                   Thêm bước
@@ -2913,9 +2892,6 @@ function RolePopover({
               disabled={busy}
               onChange={(value) => setETaskSource(value as ETaskSource)}
             />
-            <p className={styles.fieldHint}>
-              Chọn cách khởi tạo đầu việc cho đơn vị thực hiện ở bước này.
-            </p>
             <button
               type="button"
               className={styles.confirm}

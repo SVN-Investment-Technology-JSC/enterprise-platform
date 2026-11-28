@@ -73,9 +73,6 @@ export function AttachmentPanel({
       <header className={styles.panelHead}>
         <div>
           <h3 className={styles.panelTitle}>Tệp &amp; Tài liệu đính kèm</h3>
-          <p className={styles.panelSubtitle}>
-            {/* Toàn bộ tệp nộp ở từng giai đoạn của hồ sơ. Tài liệu tải lên lưu cùng hồ sơ và tải về qua liên kết bảo mật có thời hạn. */}
-          </p>
         </div>
 
         {canSupplement ? (
@@ -95,7 +92,6 @@ export function AttachmentPanel({
               type="button"
               className={styles.fileActionBtn}
               disabled={supplementing}
-              title="Bổ sung tài liệu cho đơn; tài liệu hiện thẻ Bổ sung"
               onClick={() => picker.current?.click()}
             >
               <FilePlus size={13} strokeWidth={2} />

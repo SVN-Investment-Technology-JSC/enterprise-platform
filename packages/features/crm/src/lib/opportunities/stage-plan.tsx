@@ -152,7 +152,7 @@ function AssigneeDialog({
   return (
     <CrmDialog open title={`Người đảm nhận: ${item.stage.name}`} submitting={submitting} error={error} onClose={onClose} onSubmit={() => void submit()}>
       <div className={styles.fieldGrid}>
-        <Field label="Người đảm nhận" hint="Bỏ trống để bỏ gán" wide>
+        <Field label="Người đảm nhận" wide>
           <SearchableSelect options={peopleOptions(people)} value={assignee} placeholder="Chọn người đảm nhận" emptyText="Không tìm thấy người" clearable onChange={setAssignee} />
         </Field>
         <Field label="Hạn hoàn thành" wide>

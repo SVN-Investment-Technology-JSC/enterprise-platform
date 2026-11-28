@@ -9,26 +9,10 @@ import { Field } from './common';
 import { ScopePicker } from './scope-picker';
 
 const SCOPE_CARDS: Record<ScopeDraft['type'], Omit<RadioCardOption<ScopeDraft['type']>, 'value'>> = {
-  EMPLOYEE: {
-    title: 'Một nhân viên',
-    description: 'Chỉ áp dụng cho một nhân viên được chọn',
-    icon: User,
-  },
-  EMPLOYEES: {
-    title: 'Nhiều nhân viên',
-    description: 'Chọn nhiều nhân viên cùng lúc',
-    icon: Users,
-  },
-  UNIT: {
-    title: 'Theo đơn vị',
-    description: 'Áp dụng cho nhân viên thuộc đơn vị được chọn',
-    icon: Building2,
-  },
-  COMPANY: {
-    title: 'Toàn bộ nhân viên',
-    description: 'Áp dụng cho tất cả nhân viên đang làm việc',
-    icon: UsersRound,
-  },
+  EMPLOYEE: { title: 'Một nhân viên', icon: User },
+  EMPLOYEES: { title: 'Nhiều nhân viên', icon: Users },
+  UNIT: { title: 'Theo đơn vị', icon: Building2 },
+  COMPANY: { title: 'Toàn bộ nhân viên', icon: UsersRound },
 };
 
 /**
@@ -132,7 +116,7 @@ export function ScopeSelect({
   const companyCount = employeeOptions.length - (openEnded ? 0 : value.excludeEmployeeIds.length);
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <Field label={label} required hint={SCOPE_CARDS[value.type].description}>
+      <Field label={label} required>
         <SearchableSelect
           height={36}
           options={options}

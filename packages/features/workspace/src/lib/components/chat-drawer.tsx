@@ -659,15 +659,7 @@ export function ChatDrawer({
   const minute = Math.floor(Date.now() / 60_000);
 
   const liveBadge = (
-    <Tooltip
-      content={
-        live
-          ? 'Đang nhận tin mới theo thời gian thực.'
-          : live === undefined
-            ? 'Đang kết nối kênh thời gian thực.'
-            : 'Mất kết nối thời gian thực. Tin mới vẫn được cập nhật định kỳ khoảng 30 giây; sẽ tự nối lại.'
-      }
-    >
+    <Tooltip content={live === false ? 'Tin mới cập nhật mỗi ~30 giây; sẽ tự nối lại.' : undefined}>
       <span
         className={styles.liveState}
         data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}

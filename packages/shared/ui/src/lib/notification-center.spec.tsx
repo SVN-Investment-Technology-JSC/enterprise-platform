@@ -685,13 +685,13 @@ describe('formatNotificationTime', () => {
 
   it('formats same-day notifications with hour and relative time', () => {
     const justNow = new Date(2026, 9, 28, 14, 29, 45).toISOString();
-    expect(formatNotificationTime(justNow, now)).toBe('14:29 · vừa xong');
+    expect(formatNotificationTime(justNow, now)).toBe('vừa xong');
 
     const minutesAgo = new Date(2026, 9, 28, 14, 15, 0).toISOString();
-    expect(formatNotificationTime(minutesAgo, now)).toBe('14:15 · 15 phút trước');
+    expect(formatNotificationTime(minutesAgo, now)).toBe('15 phút trước');
 
     const hoursAgo = new Date(2026, 9, 28, 11, 30, 0).toISOString();
-    expect(formatNotificationTime(hoursAgo, now)).toBe('11:30 · 3 giờ trước');
+    expect(formatNotificationTime(hoursAgo, now)).toBe('3 giờ trước');
   });
 
   it('formats yesterday notifications with hour and "hôm qua"', () => {

@@ -318,9 +318,6 @@ export function ContractFormDialog({
       open
       wide
       title={contract ? `Sửa hợp đồng ${contract.code}` : 'Lập hợp đồng'}
-      subtitle={
-        quotePreview ? 'Dòng hàng lấy từ báo giá đã chọn; đợt thanh toán nhập ở màn chi tiết' : 'Dòng giá khung và đợt thanh toán nhập ở màn chi tiết'
-      }
       submitLabel={contract ? 'Lưu' : 'Lập hợp đồng'}
       submitting={saving}
       error={error}
@@ -335,7 +332,7 @@ export function ContractFormDialog({
           <SearchableSelect options={customerOptions} value={customerId} placeholder="Chọn khách hàng" onChange={chooseCustomer} />
         </Field>
         {contract ? null : (
-          <Field label="Báo giá" wide hint="Không bắt buộc. Chọn báo giá khách đã chấp nhận để lấy dòng hàng của báo giá vào hợp đồng.">
+          <Field label="Báo giá" wide>
             <SearchableSelect
               options={quoteOptions}
               value={quoteId}
@@ -362,21 +359,17 @@ export function ContractFormDialog({
         </Field>
         <Field
           label="Giá trị hợp đồng (VND)"
-          hint={
-            quotePreview
-              ? `Bỏ trống: lấy tổng báo giá ${formatMoney(quotePreview.totalAmount)}`
-              : 'Bỏ trống: cộng thành tiền gồm VAT của các dòng có số lượng'
-          }
+          hint={quotePreview ? `Bỏ trống: lấy tổng báo giá ${formatMoney(quotePreview.totalAmount)}` : 'Bỏ trống: cộng thành tiền các dòng'}
         >
           <input className={styles.input} inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} />
         </Field>
         <Field label="Bảo hành (tháng)">
           <input className={styles.input} inputMode="numeric" value={warrantyMonths} onChange={(event) => setWarrantyMonths(event.target.value.replace(/[^\d]/g, ''))} />
         </Field>
-        <Field label="Kho giữ hàng mặc định" hint="Dòng không chọn kho riêng sẽ giữ hàng ở kho này khi xác nhận; chọn kho từng dòng ở bảng dòng hàng">
+        <Field label="Kho giữ hàng mặc định">
           <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>
-        <Field label="Người phụ trách" hint="Bỏ trống: chính bạn">
+        <Field label="Người phụ trách">
           <SearchableSelect options={peopleOptions(people)} value={ownerUserId} placeholder="Chính bạn" clearable onChange={setOwnerUserId} />
         </Field>
         <Field label="Ghi chú" wide>
@@ -387,8 +380,7 @@ export function ContractFormDialog({
         <section aria-label="Dòng hàng từ báo giá">
           <h3 className={styles.sectionTitle}>Dòng hàng từ báo giá {quotePreview.quoteCode}</h3>
           <p className={styles.muted}>
-            Hợp đồng nhận {quotePreview.lines.length} dòng của phiên bản {quotePreview.versionNo} khách đã chấp nhận (dòng trùng mặt hàng được gộp),
-            tổng báo giá {formatMoney(quotePreview.totalAmount)}. Bỏ chọn báo giá để lập hợp đồng không gắn báo giá.
+            {quotePreview.lines.length} dòng của phiên bản {quotePreview.versionNo} (dòng trùng mặt hàng được gộp), tổng {formatMoney(quotePreview.totalAmount)}.
           </p>
           <Table<ContractLine>
             size="small"

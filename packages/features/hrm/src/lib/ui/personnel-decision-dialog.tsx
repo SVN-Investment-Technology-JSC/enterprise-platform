@@ -422,8 +422,7 @@ export function PersonnelDecisionDialog({
           <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-600">
             <Info className="mt-0.5 size-4 shrink-0" />
             <span>
-              Quyết định chỉ được ghi vào lịch sử bổ nhiệm và công tác của nhân viên. Không thay đổi chức danh,
-              đơn vị, quản lý trực tiếp hay lương hiện tại.
+              Chỉ ghi vào lịch sử công tác; không đổi chức danh, đơn vị, quản lý trực tiếp hay lương hiện tại.
             </span>
           </div>
 

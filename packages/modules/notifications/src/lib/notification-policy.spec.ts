@@ -90,15 +90,15 @@ describe('NotificationPolicyRegistry', () => {
         directory,
       );
     const stage = await resolve({ kind: 'stage', waiting: 'duyệt' });
-    expect(stage?.template.title).toBe('Hồ sơ của bạn vừa được xử lý');
-    expect(stage?.template.body).toBe('PR-1 · Nga đã xử lý “Kế toán kiểm tra”, đang chờ duyệt.');
+    expect(stage?.template.title).toBe('Hồ sơ đã được xử lý');
+    expect(stage?.template.body).toBe('PR-1: Nga đã xử lý “Kế toán kiểm tra”, chờ duyệt.');
     expect(stage?.recipients).toEqual(['creator']);
     expect((await resolve({ kind: 'step', currentStepName: 'Lãnh đạo duyệt' }))?.template.body).toBe(
-      'PR-1 · Nga đã hoàn thành “Kế toán kiểm tra”, chuyển sang “Lãnh đạo duyệt”.',
+      'PR-1: Nga đã xong “Kế toán kiểm tra”, chuyển sang “Lãnh đạo duyệt”.',
     );
-    expect((await resolve({ kind: 'return', currentStepName: 'Tạo đơn' }))?.template.title).toBe('Hồ sơ của bạn bị trả lại');
+    expect((await resolve({ kind: 'return', currentStepName: 'Tạo đơn' }))?.template.title).toBe('Hồ sơ bị trả lại');
     expect((await resolve({ kind: 'withdraw' }))?.template.body).toBe(
-      'PR-1 · Nga đã hoàn duyệt, quay lại xử lý “Kế toán kiểm tra”.',
+      'PR-1: Nga đã hoàn duyệt, quay lại “Kế toán kiểm tra”.',
     );
   });
   it('báo người tạo hồ sơ khi hồ sơ được đổi dự án / công việc; không báo chính người đổi', async () => {
@@ -119,8 +119,8 @@ describe('NotificationPolicyRegistry', () => {
       },
       directory,
     );
-    expect(resolved?.template.title).toBe('Hồ sơ của bạn được đổi dự án');
-    expect(resolved?.template.body).toBe('PR-1 · Nga đã chuyển hồ sơ sang dự án Trạm Hà Nội, công việc CV009.');
+    expect(resolved?.template.title).toBe('Hồ sơ được đổi dự án');
+    expect(resolved?.template.body).toBe('PR-1: Nga đã chuyển sang dự án Trạm Hà Nội, công việc CV009.');
     expect(resolved?.template.deepLink).toBe('/modules/procedure#workspace/i1');
     expect(resolved?.recipients).toEqual(['creator']);
   });

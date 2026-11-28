@@ -34,7 +34,6 @@ export interface PostListProps {
   /** Đổi hàm này (đổi tab) thì danh sách tải lại; nên bọc `useCallback`. */
   readonly fetchPage: (cursor?: string) => Promise<SocialFeedPage>;
   readonly emptyTitle: string;
-  readonly emptyHint?: string;
   /** Khối thao tác dưới mỗi thẻ bài. */
   readonly renderActions?: (
     post: SocialPost,
@@ -105,7 +104,6 @@ function DraggableItem({
 export function PostList({
   fetchPage,
   emptyTitle,
-  emptyHint,
   renderActions,
   keep,
   onCountChange,
@@ -259,7 +257,6 @@ export function PostList({
           <p>
             <strong>{emptyTitle}</strong>
           </p>
-          {emptyHint ? <p>{emptyHint}</p> : null}
         </div>
       ) : null}
       {cursor ? (

@@ -110,7 +110,6 @@ const STATUS_CLASS: Record<ProcedureInstance['status'], string> = {
 
 function Group(props: {
   title: string;
-  hint?: string;
   items: readonly ProcedureInstance[];
   onOpen: (instanceId: string) => void;
   /** Nối tiếp thì đánh số để thấy rõ thứ tự; nhánh rẽ thì không có thứ tự nào. */
@@ -126,7 +125,6 @@ function Group(props: {
         <h4>{props.title}</h4>
         <span className={styles.stepBadge}>{items.length}</span>
       </header>
-      {props.hint ? <p className={styles.panelHint}>{props.hint}</p> : null}
       <ol className={props.ordered ? styles.linkedOrdered : styles.linkedList}>
         {items.map((child, index) => (
           <li key={child.id}>

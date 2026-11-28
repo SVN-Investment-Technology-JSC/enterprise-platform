@@ -150,7 +150,7 @@ export function OpportunityFormDialog({
           )}
         </Field>
         {!opportunity && pipelines.filter((item) => item.active).length > 1 ? (
-          <Field label="Luồng bán hàng" hint="Dự án vào giai đoạn đầu của luồng" wide>
+          <Field label="Luồng bán hàng" wide>
             <SearchableSelect
               options={pipelines.filter((item) => item.active).map((item) => ({ value: item.id, label: item.name }))}
               value={pipelineId || defaultPipeline(pipelines)?.id || ''}
@@ -181,7 +181,7 @@ export function OpportunityFormDialog({
           <SearchableSelect options={peopleOptions(people)} value={ownerUserId} placeholder="Chọn người phụ trách" clearable onChange={setOwnerUserId} />
         </Field>
         {!opportunity && skippableStartStages(pipelines.find((item) => item.id === (pipelineId || defaultPipeline(pipelines)?.id))).length ? (
-          <Field label="Bỏ qua giai đoạn" hint="Tuỳ chọn: giai đoạn không cần làm với dự án này; phải ghi lý do" wide>
+          <Field label="Bỏ qua giai đoạn" hint="Phải ghi lý do" wide>
             {skippableStartStages(pipelines.find((item) => item.id === (pipelineId || defaultPipeline(pipelines)?.id))).map((stage) => (
               <div key={stage.id}>
                 <label className={styles.checkbox}>

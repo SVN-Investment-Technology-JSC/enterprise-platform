@@ -276,7 +276,6 @@ export function AssetTree({
             variant="outline"
             size="sm"
             className="text-xs"
-            title="Mở danh sách thiết bị dạng bảng liệt kê (Popup)"
             onClick={() => setIsTableModalOpen(true)}
           >
             Dạng bảng

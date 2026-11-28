@@ -556,6 +556,24 @@ $fs-meta: 12px;
   color: #fff;
 }
 
+// Chip dùng làm tab / bộ lọc chuyển chế độ xem: chữ 14px, 500 → 600 khi chọn, cao tối thiểu 32px
+// (chip chèn mã số, nút thu phóng sổ giữ nguyên cỡ nhỏ).
+.tabs > .chip,
+.sheetTabs > .chip,
+.stageChips > .chip,
+.toolbar > .chip {
+  min-height: 32px;
+  font-size: $fs-body;
+  font-weight: 500;
+}
+
+.tabs > .chipOn,
+.sheetTabs > .chipOn,
+.stageChips > .chipOn,
+.toolbar > .chipOn {
+  font-weight: 600;
+}
+
 .search {
   @include input-base;
 

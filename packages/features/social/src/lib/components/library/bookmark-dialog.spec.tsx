@@ -129,7 +129,7 @@ describe('BookmarkDialog', () => {
     createFolder.mockResolvedValue({ id: 'n1', name: 'A', count: 0 });
     await renderDialog();
     await openSelect();
-    expect(screen.getByText('Chưa có thư mục. Nhập tên để tạo nhanh.')).toBeTruthy();
+    expect(screen.getByText('Chưa có thư mục.')).toBeTruthy();
     const add = screen.getByRole('button', { name: /Thêm thư mục/ });
     expect((add as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(screen.getByLabelText('Tên thư mục mới'), { target: { value: 'A' } });

@@ -411,9 +411,6 @@ export function AuthorizationWorkspace({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-[1_1_420px]">
           <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Vai trò &amp; Phân quyền</h1>
-          <p className="mt-1 text-[14px] text-slate-600">
-            Cấu hình quyền thao tác Core và module cho người dùng tenant; quyền vào module được suy ra từ các thao tác được cấp.
-          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -516,16 +513,16 @@ export function AuthorizationWorkspace({
                     aria-selected={active}
                     onClick={() => switchTab(value)}
                     className={cn(
-                      'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[13px] font-semibold',
+                      'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-sm font-medium',
                       active
-                        ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
+                        ? 'bg-white font-semibold text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
                         : 'text-slate-500 hover:text-[#18181b]',
                     )}
                   >
                     {label}
                     <span
                       className={cn(
-                        'rounded-full px-[7px] text-[12px]',
+                        'rounded-full px-[7px] text-xs font-semibold',
                         active ? 'bg-[#ffc90a] text-[#18181b]' : 'bg-slate-200 text-slate-600',
                       )}
                     >
@@ -620,9 +617,9 @@ export function AuthorizationWorkspace({
                     )}
                   >
                     <b className="text-[14px]">{item.name}</b>
-                    <span className="line-clamp-2 text-xs text-slate-500">
-                      {item.description || 'Không có mô tả chi tiết.'}
-                    </span>
+                    {item.description ? (
+                      <span className="line-clamp-2 text-xs text-slate-500">{item.description}</span>
+                    ) : null}
                     <span className="flex flex-wrap gap-1">
                       {isRole ? (
                         <>
@@ -650,9 +647,6 @@ export function AuthorizationWorkspace({
             <div className="flex flex-col items-center justify-center rounded-[14px] border border-dashed border-slate-200 bg-white p-8 text-center text-slate-400">
               <Search className="mb-2 size-8 opacity-30" />
               <p className="m-0 text-sm font-medium text-slate-600">Không tìm thấy dữ liệu</p>
-              <p className="m-0 mt-1 text-xs text-slate-400">
-                Thử tìm kiếm với từ khóa khác hoặc điều chỉnh bộ lọc.
-              </p>
             </div>
           )}
 
@@ -697,30 +691,15 @@ export function AuthorizationWorkspace({
               >
                 {tab === 'roles' ? <ShieldCheck className="size-4" /> : <KeyRound className="size-4" />}
               </span>
-              <div className="min-w-0 flex-1">
-                <h2 className="m-0 text-base font-bold">
-                  {editor.id ? 'Chỉnh sửa' : 'Tạo mới'}{' '}
-                  {tab === 'roles' ? 'vai trò người dùng' : 'permission'}
-                </h2>
-                <p className="m-0 mt-0.5 text-[13px] text-slate-500">
-                  {tab === 'roles'
-                    ? 'Khai báo thông tin định danh và chọn các quyền thao tác cho vai trò.'
-                    : 'Chọn các hành động Core hoặc module. Có bất kỳ hành động nào của module là vào được module đó.'}
-                </p>
-              </div>
+              <h2 className="m-0 min-w-0 flex-1 self-center text-base font-bold">
+                {editor.id ? 'Chỉnh sửa' : 'Tạo mới'}{' '}
+                {tab === 'roles' ? 'vai trò người dùng' : 'permission'}
+              </h2>
             </div>
 
             <fieldset disabled={busy} className="flex flex-col gap-[18px] px-5 py-[18px] text-[13px]">
               <div className="flex flex-col gap-2.5">
-                <FormHeading
-                  aside={
-                    <>
-                      Mục có dấu (<span className="text-red-600">*</span>) là bắt buộc
-                    </>
-                  }
-                >
-                  1. THÔNG TIN ĐỊNH DANH
-                </FormHeading>
+                <FormHeading>1. THÔNG TIN ĐỊNH DANH</FormHeading>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1">
                     <span className="font-semibold text-slate-700">
@@ -760,7 +739,7 @@ export function AuthorizationWorkspace({
                 {tab === 'permissions' ? (
                   <>
                     <p className="m-0 text-xs text-slate-500">
-                      Inventory/Maintenance: cấp thêm quyền Xem khi chọn quyền giao dịch hoặc xử lý đợt. Quyền Quản lý bao gồm Xem và xử lý. Có bất kỳ hành động nào của module là vào được module đó; không cần chọn module riêng.
+                      Có hành động nào của module là vào được module đó. Kho, Bảo trì: quyền giao dịch hoặc xử lý đợt tự kèm quyền Xem.
                     </p>
                     <PermissionPicker
                       label="Hành động Core và module"
@@ -857,9 +836,9 @@ export function AuthorizationWorkspace({
                         </button>
                       </span>
                     )}
-                    <p className="m-0 text-[14px] text-slate-600">
-                      {selected.description || 'Chưa thiết lập mô tả cho mục này.'}
-                    </p>
+                    {selected.description ? (
+                      <p className="m-0 text-[14px] text-slate-600">{selected.description}</p>
+                    ) : null}
                   </div>
 
                   {!role?.isSystem && (
@@ -904,8 +883,7 @@ export function AuthorizationWorkspace({
                 <div className="flex flex-col gap-[18px] px-5 py-[18px]">
                   {role?.key === 'tenant-admin' && (
                     <p className="m-0 rounded-[10px] bg-blue-50 px-3 py-2.5 text-[14px] text-blue-900">
-                      <b className="block">Vai trò Quản trị viên cấp cao (tenant-admin)</b>
-                      Sở hữu toàn bộ quyền thao tác Core và module đang kích hoạt cho tenant. Đây là vai trò hệ thống, không thể thay đổi hoặc xóa bỏ.
+                      Vai trò hệ thống có toàn bộ quyền, không sửa hoặc xóa được.
                     </p>
                   )}
 
@@ -930,16 +908,16 @@ export function AuthorizationWorkspace({
                             aria-selected={active}
                             onClick={() => setDetailPick({ id: role.id, tab: value })}
                             className={cn(
-                              'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-[13px] font-semibold',
+                              'flex h-8 cursor-pointer items-center gap-1.5 rounded-[7px] px-3 text-sm font-medium',
                               active
-                                ? 'bg-white text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
+                                ? 'bg-white font-semibold text-[#18181b] shadow-[0_1px_2px_rgba(0,0,0,.08)]'
                                 : 'text-slate-500 hover:text-[#18181b]',
                             )}
                           >
                             {label}
                             <span
                               className={cn(
-                                'rounded-full px-[7px] text-[12px]',
+                                'rounded-full px-[7px] text-xs font-semibold',
                                 active ? 'bg-[#ffc90a] text-[#18181b]' : 'bg-slate-200 text-slate-600',
                               )}
                             >
@@ -999,7 +977,7 @@ export function AuthorizationWorkspace({
                       </span>
                       {used > 0 && !role ? (
                         <p className="m-0 rounded-lg border border-amber-200 bg-[#fffbeb] px-2.5 py-2 text-[13px] text-amber-800">
-                          Permission này hiện đang được dùng trong <b>{used} vai trò</b>. Vui lòng gỡ permission khỏi các vai trò trước khi thực hiện xóa.
+                          Gỡ permission khỏi <b>{used} vai trò</b> trước khi xóa.
                         </p>
                       ) : null}
                     </div>
@@ -1011,9 +989,6 @@ export function AuthorizationWorkspace({
                 <Shield className="mb-2 size-10 opacity-30" />
                 <p className="m-0 text-sm font-medium text-slate-600">
                   Chọn một mục bên danh sách để xem chi tiết
-                </p>
-                <p className="m-0 mt-1 text-xs text-slate-400">
-                  Bạn có thể xem các quyền, module được cấp và danh sách người dùng được phân bổ.
                 </p>
               </div>
             )}

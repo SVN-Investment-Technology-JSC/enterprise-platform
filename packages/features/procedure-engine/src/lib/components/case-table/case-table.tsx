@@ -684,7 +684,6 @@ function ColumnHeaders({
               over?.key === key && (over.side === 'before' ? styles.dropBefore : styles.dropAfter),
             )}
             draggable={resizing === undefined && handleHot !== key}
-            title={`Kéo để đổi chỗ cột ${column.label} (hoặc Alt + mũi tên trái/phải)`}
             aria-sort={column.sortKey ? ariaSort(direction) : undefined}
             onKeyDown={(event) => onHeaderKeyDown(key, event)}
             onDragStart={(event) => {
@@ -731,7 +730,7 @@ function ColumnHeaders({
               aria-orientation="vertical"
               aria-label={`Độ rộng cột ${column.label}`}
               tabIndex={0}
-              title="Kéo để đổi độ rộng cột (hoặc mũi tên trái/phải)"
+              title="Kéo để đổi độ rộng cột"
               draggable={false}
               className={cx(styles.resizeHandle, resizing === key && styles.resizeHandleActive)}
               onMouseEnter={() => setHandleHot(key)}
@@ -802,7 +801,6 @@ export function ColumnSettings({ table }: { table: CaseTableState }) {
         className={cx(styles.toolButton, open && styles.toolButtonActive)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        title="Ẩn/hiện, sắp lại và đặt lại cột"
         onClick={() => setOpen((value) => !value)}
       >
         <Columns3 size={14} aria-hidden="true" />

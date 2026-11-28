@@ -168,4 +168,4 @@ export function sameIdSet(a: readonly string[], b: readonly string[]): boolean {
 }
 
 export const QUOTE_PROMOTIONS_NO_PROJECT =
-  'Báo giá chưa thuộc dự án nào nên chưa chọn được khuyến mãi. Hãy gắn báo giá vào một dự án bán hàng; khuyến mãi được thiết lập riêng theo từng dự án.';
+  'Gắn báo giá vào dự án bán hàng để chọn khuyến mãi.';

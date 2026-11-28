@@ -174,7 +174,7 @@ export function RequestTimeRange({
       </div>
       {kind === 'trip' && !dateOnly && !preview && !previewError && (
         <p className="text-[11px] text-slate-500">
-          Công tác chọn theo cả ngày (đủ khung ca hành chính) hoặc nửa ngày; ngày nghỉ và ngày lễ không tính.
+          Ngày nghỉ và ngày lễ không tính công tác.
         </p>
       )}
       {!ordered && (

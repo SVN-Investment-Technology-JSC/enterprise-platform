@@ -1474,9 +1474,7 @@ export function DocumentPanel({
                               </Tooltip>
                             ) : null}
                             {document.audience === 'customer' ? (
-                              <Tooltip content="Tài liệu khách hàng — hiện trên trang Khách hàng của dự án">
-                                <span className={styles.badgeCustomer}>Khách hàng</span>
-                              </Tooltip>
+                              <span className={styles.badgeCustomer}>Khách hàng</span>
                             ) : null}
                           </button>
                           </Tooltip>
@@ -1923,7 +1921,7 @@ export function UploadDialog({
         label={autoPath ? 'Thư mục gốc' : 'Thư mục'}
         hint={
           autoPath
-            ? 'Tệp được xếp vào <thư mục gốc>/<dự án>/<công việc>; thiếu cấp nào hệ thống tự tạo.'
+            ? 'Tự xếp vào <thư mục gốc>/<dự án>/<công việc>.'
             : undefined
         }
       >
@@ -1941,7 +1939,7 @@ export function UploadDialog({
 
       <Field
         label="Tệp"
-        hint={`Chọn được tối đa ${UPLOAD_BATCH_MAX} tệp một lượt, mỗi tệp tối đa ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB. Hỗ trợ PDF, Office, ảnh, CSV, ZIP.`}
+        hint={`Tối đa ${UPLOAD_BATCH_MAX} tệp, mỗi tệp ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB.`}
       >
         <FilePicker
           files={files}
@@ -2043,7 +2041,7 @@ function NewVersionDialog({
           disabled={submitting}
         />
       </Field>
-      <Field label="Ghi chú thay đổi" hint="Bắt buộc: người đọc sau cần biết đã đổi những gì.">
+      <Field label="Ghi chú thay đổi" required>
         <textarea
           rows={2}
           className="min-h-16 w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-[13px] outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2128,8 +2126,8 @@ function FolderDialog({
       title="Thư mục mới"
       subtitle={
         effectiveProjectId
-          ? `Thư mục chung của dự án ${projectTitles[effectiveProjectId] ?? 'đã chọn'} — mọi thành viên dự án đều tự tạo và quản lý được.`
-          : 'Thư mục cấp đơn vị, dùng chung cả đơn vị.'
+          ? `Dự án ${projectTitles[effectiveProjectId] ?? 'đã chọn'}`
+          : 'Thư mục cấp đơn vị'
       }
       submitLabel="Tạo thư mục"
       submitting={submitting}
@@ -2155,7 +2153,7 @@ function FolderDialog({
         />
       </Field>
       {!projectId && !parent?.projectId ? (
-        <Field label="Thuộc dự án" hint="Bỏ trống là thư mục cấp đơn vị.">
+        <Field label="Thuộc dự án">
           <Choice
             label="Thuộc dự án"
             value={scopeProjectId}
@@ -2410,7 +2408,7 @@ function AddToFolderDialog({
     <Dialog
       open
       title="Thêm vào thư mục"
-      subtitle={`"${document.name}" sẽ hiện thêm ở thư mục được chọn. Vẫn là một tài liệu: bản mới, khoá hay lưu trữ ở đâu cũng áp cho mọi nơi.`}
+      subtitle={`"${document.name}" · vẫn là một tài liệu, thay đổi áp cho mọi nơi`}
       submitLabel="Thêm"
       submitting={submitting}
       error={error}
@@ -2512,7 +2510,6 @@ function AttachDialog({
     <Dialog
       open={open}
       title="Gắn tài liệu có sẵn"
-      subtitle="Chọn từ tài liệu đã tải lên trong dự án."
       submitLabel="Gắn"
       centered
       submitting={submitting}

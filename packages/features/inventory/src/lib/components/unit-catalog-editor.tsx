@@ -67,8 +67,7 @@ export function UnitCatalogEditor({
               <span>{unit}</span>
               {inUse ? (
                 <span
-                  className="rounded-full border border-blue-200 bg-blue-100 px-[0.35rem] py-[0.05rem] text-xs font-semibold not-italic text-blue-800"
-                  title={`Đang có vật tư dùng ${noun} này`}>
+                  className="rounded-full border border-blue-200 bg-blue-100 px-[0.35rem] py-[0.05rem] text-xs font-semibold not-italic text-blue-800">
                   đang dùng
                 </span>
               ) : null}

@@ -163,7 +163,7 @@ function StepConditionFields({
           options={[
             { value: 'always', label: 'Luôn chạy' },
             { value: 'only', label: 'Chỉ khi công văn khớp điều kiện' },
-            { value: 'skip', label: 'Bỏ qua khi công văn khớp điều kiện', description: 'Ví dụ văn bản Hoả tốc bỏ qua bước Phó giám đốc' },
+            { value: 'skip', label: 'Bỏ qua khi công văn khớp điều kiện' },
           ]}
           value={mode}
           searchInDropdown
@@ -247,10 +247,6 @@ function RegisterManager({ config, onChanged }: { readonly config: Correspondenc
               <Plus size={13} /> Thêm sổ
             </button>
           </div>
-          <p className={styles.sectionNote}>
-            Mỗi sổ cấp số riêng, đếm lại từ 1 mỗi năm. Văn bản có độ mật vào sổ mật (cấp số riêng theo Nghị định 30); sổ ghi loại văn
-            bản thì chỉ nhận loại đó; còn lại vào sổ mặc định.{direction === 'incoming' ? ' Văn thư chọn được sổ khác lúc tiếp nhận.' : ' Văn thư chọn được sổ khác lúc ban hành.'}
-          </p>
           <div className={styles.list}>
             {config.registers
               .filter((register) => register.direction === direction)
@@ -694,20 +690,6 @@ function CatalogDialog({
 
 /* ---------------------------------------------------------------- quy trình */
 
-const DIRECTION_HELP: Readonly<Record<LetterDirection, string>> = {
-  incoming:
-    'Công văn đến bắt đầu ở văn thư tiếp nhận, kết thúc ở văn thư hoàn tất, lưu trữ. Các bước ở giữa (phòng ban xử lý, văn thư kiểm tra, duyệt) thêm, bớt, đổi thứ tự tuỳ quy trình.',
-  outgoing:
-    'Công văn đi bắt đầu ở phòng ban soạn thảo, kết thúc ở văn thư đánh số, ban hành, lưu trữ. Các bước ở giữa (văn thư kiểm tra, duyệt, phòng ban xử lý) thêm, bớt, đổi thứ tự tuỳ quy trình.',
-};
-
-const STEP_TYPE_HELP: Readonly<Record<StepType, string>> = {
-  process: 'Người làm bước liền trước chọn phòng ban; phòng ban gửi đủ kết quả là sang bước sau.',
-  check: 'Kiểm tra, rà soát rồi chuyển tiếp. Mặc định là người làm văn thư; chọn được người riêng (thư ký, phòng hành chính…).',
-  approve:
-    'Lãnh đạo xem xét rồi chuyển tiếp. Bước liền sau là Phòng ban xử lý thì chính lãnh đạo chọn phòng ban (phân công). Người duyệt theo luật dưới đây, lấy theo sơ đồ tổ chức lúc bước bắt đầu.',
-};
-
 function WorkflowManager({
   config,
   directory,
@@ -739,10 +721,7 @@ function WorkflowManager({
                 <Plus size={13} /> Thêm quy trình
               </button>
             </div>
-            <p className={styles.sectionNote}>
-              {DIRECTION_HELP[direction]} Quy trình lấy theo loại văn bản, không gắn thì dùng quy trình mặc định. Sửa quy trình không
-              đổi công văn đã chuyển bước.
-            </p>
+            <p className={styles.sectionNote}>Sửa quy trình không đổi công văn đã chuyển bước.</p>
             <div className={styles.list}>
               {items.length === 0 ? <p className={styles.muted}>Chưa có quy trình nào.</p> : null}
               {items.map((workflow) => (
@@ -962,8 +941,7 @@ function WorkflowDialog({
         disabled={!assignsNext(index) && form.steps.length >= MAX_WORKFLOW_STEPS}
         onChange={(event) => setAssignsNext(index, event.target.checked)}
       />
-      Giao phòng ban xử lý: {index < 0 ? 'văn thư' : 'người làm bước này'} chọn phòng ban, bước Phòng ban xử lý tự thêm ngay sau để
-      chính các phòng đó xử lý xong mới sang bước tiếp
+      Giao phòng ban xử lý ({index < 0 ? 'văn thư' : 'người làm bước này'} chọn phòng ban)
     </label>
   );
 
@@ -972,7 +950,6 @@ function WorkflowDialog({
       open
       wide
       title={`${workflow ? 'Sửa' : 'Thêm'} quy trình ${direction === 'incoming' ? 'công văn đến' : 'công văn đi'}`}
-      subtitle="Ô đầu và ô cuối luôn có; các bước ở giữa thêm, bớt, đổi thứ tự tuỳ ý. Không đạt thì trả về nơi cấu hình cho bước (mặc định bước liền trước)."
       submitLabel="Lưu quy trình"
       submitting={busy}
       submitDisabled={!dirty || !form.name.trim()}
@@ -1020,10 +997,7 @@ function WorkflowDialog({
           prefix="Áp dụng khi"
           onChange={(conditions) => setForm((current) => ({ ...current, conditions }))}
         />
-        <span className={styles.hint}>
-          Công văn khớp điều kiện dùng quy trình này trước quy trình gắn với loại văn bản và quy trình mặc định (ví dụ văn bản Mật
-          đi quy trình riêng).
-        </span>
+        <span className={styles.hint}>Khớp điều kiện thì dùng quy trình này trước quy trình theo loại văn bản.</span>
       </fieldset>
       <div className={styles.flowPreview} aria-label="Luồng xử lý">
         {preview.map((label, index, all) => (
@@ -1055,17 +1029,15 @@ function WorkflowDialog({
                   checked={form.autoStart}
                   onChange={(event) => setForm((current) => ({ ...current, autoStart: event.target.checked }))}
                 />
-                Vào sổ xong tự chuyển sang bước đầu (bước đầu là phòng ban xử lý thì giao phòng ban gợi ý của loại văn bản)
+                Vào sổ xong tự chuyển sang bước đầu
               </label>
               {assignNextRow(-1)}
             </CheckGroup>
-          ) : (
-            <p className={styles.sectionNote}>Người soạn gửi đi là sang bước đầu của quy trình.</p>
-          )}
+          ) : null}
         </div>
       </div>
       {form.steps.length === 0 ? (
-        <p className={styles.sectionNote}>Chưa có bước nào ở giữa: công văn đi thẳng từ ô đầu tới ô cuối.</p>
+        <p className={styles.sectionNote}>Chưa có bước nào ở giữa.</p>
       ) : null}
       {form.steps.map((step, index) => {
         const type = step.type ?? 'approve';
@@ -1101,7 +1073,7 @@ function WorkflowDialog({
           <div className={styles.formRow}>
             <SelectField label="Loại bước" required>
               <SearchableSelect
-                options={STEP_TYPES.map((value) => ({ value, label: STEP_TYPE_LABELS[value], description: STEP_TYPE_HELP[value] }))}
+                options={STEP_TYPES.map((value) => ({ value, label: STEP_TYPE_LABELS[value] }))}
                 value={type}
                 searchInDropdown
                 hideDropdownSearch
@@ -1125,7 +1097,6 @@ function WorkflowDialog({
               </SelectField>
               <RuleDetail
                 rule={step.approver}
-                direction={direction}
                 unitOptions={unitOptions}
                 positionOptions={positionOptions}
                 peopleOptions={peopleOptions}
@@ -1133,11 +1104,7 @@ function WorkflowDialog({
               />
               <SelectField label="Cách duyệt">
                 <SearchableSelect
-                  options={(['any', 'all'] as const).map((value) => ({
-                    value,
-                    label: APPROVE_MODE_LABELS[value],
-                    description: value === 'all' ? 'Mỗi người duyệt một lần; người cuối duyệt thì sang bước sau' : undefined,
-                  }))}
+                  options={(['any', 'all'] as const).map((value) => ({ value, label: APPROVE_MODE_LABELS[value] }))}
                   value={step.mode === 'all' ? 'all' : 'any'}
                   searchInDropdown
                   hideDropdownSearch
@@ -1152,8 +1119,7 @@ function WorkflowDialog({
                     checked={step.directs === true}
                     onChange={(event) => setStep(index, { directs: event.target.checked || undefined })}
                   />
-                  Bút phê: ý kiến chỉ đạo, phòng chủ trì, phối hợp và hạn lưu thành bút phê trên công văn và sổ đăng ký. Cần khi giữa
-                  bước này và bước phòng ban còn bước khác (ví dụ văn thư phân phối theo bút phê).
+                  Bút phê (ý kiến chỉ đạo, phòng chủ trì, phối hợp, hạn)
                 </label>
               </CheckGroup>
               {step.directs && !form.steps.slice(index + 1).some((later) => (later.type ?? 'approve') === 'process') ? (
@@ -1165,12 +1131,6 @@ function WorkflowDialog({
             </>
           ) : type === 'process' ? (
             <>
-              <p className={styles.sectionNote}>
-                {step.lockUnits && step.units?.length
-                  ? 'Luôn giao đúng các phòng cố định dưới đây, không ai chọn lại.'
-                  : `Phòng ban do "${preview[index]}" chọn khi chuyển sang bước này${step.units?.length ? ', gợi ý sẵn các phòng cố định dưới đây' : ''}.`}{' '}
-                Phòng nhận để biết chỉ xem, không phải gửi kết quả.
-              </p>
               <MultiPick
                 label="Phòng ban cố định (trống là không cố định)"
                 required={false}
@@ -1197,17 +1157,13 @@ function WorkflowDialog({
                       checked={step.lockUnits === true}
                       onChange={(event) => setStep(index, { lockUnits: event.target.checked || undefined })}
                     />
-                    Khoá: luôn giao đúng các phòng này, không ai chọn lại (phòng đầu chủ trì, các phòng sau phối hợp)
+                    Khoá: luôn giao đúng các phòng này (phòng đầu chủ trì)
                   </label>
                 </CheckGroup>
               ) : null}
               <SelectField label="Bước xong khi">
                 <SearchableSelect
-                  options={(['all', 'lead'] as const).map((value) => ({
-                    value,
-                    label: PROCESS_MODE_LABELS[value],
-                    description: value === 'lead' ? 'Phòng phối hợp chưa gửi thì bước vẫn sang bước sau' : undefined,
-                  }))}
+                  options={(['all', 'lead'] as const).map((value) => ({ value, label: PROCESS_MODE_LABELS[value] }))}
                   value={step.mode === 'lead' ? 'lead' : 'all'}
                   searchInDropdown
                   hideDropdownSearch
@@ -1239,15 +1195,12 @@ function WorkflowDialog({
               {step.approver ? (
                 <RuleDetail
                   rule={step.approver}
-                  direction={direction}
                   unitOptions={unitOptions}
                   positionOptions={positionOptions}
                   peopleOptions={peopleOptions}
                   onChange={(approver) => setStep(index, { approver })}
                 />
-              ) : (
-                <p className={styles.sectionNote}>{STEP_TYPE_HELP[type]}</p>
-              )}
+              ) : null}
               <CheckGroup label="Phân công">
                 {assignNextRow(index)}
               </CheckGroup>
@@ -1339,7 +1292,7 @@ function WorkflowDialog({
             <SelectField label="Người làm ô cuối">
               <SearchableSelect
                 options={[
-                  { value: 'clerk', label: 'Văn thư', description: 'Người làm văn thư (Cấu hình sổ) hoặc người có quyền văn thư' },
+                  { value: 'clerk', label: 'Văn thư' },
                   ...END_RULE_TYPES.map((value) => ({ value, label: APPROVER_RULE_LABELS[value] })),
                 ]}
                 value={form.endActor?.type ?? 'clerk'}
@@ -1359,7 +1312,6 @@ function WorkflowDialog({
             {form.endActor ? (
               <RuleDetail
                 rule={form.endActor}
-                direction={direction}
                 unitOptions={unitOptions}
                 positionOptions={positionOptions}
                 peopleOptions={peopleOptions}
@@ -1417,14 +1369,12 @@ function MultiPick({
 
 function RuleDetail({
   rule,
-  direction,
   unitOptions,
   positionOptions,
   peopleOptions,
   onChange,
 }: {
   readonly rule: ApproverRule;
-  readonly direction: LetterDirection;
   readonly unitOptions: readonly Option[];
   readonly positionOptions: readonly Option[];
   readonly peopleOptions: readonly Option[];
@@ -1473,13 +1423,7 @@ function RuleDetail({
     case 'unit_heads':
       return <MultiPick label="Đơn vị" options={unitOptions} values={rule.unitIds} onChange={(unitIds) => onChange({ type: 'unit_heads', unitIds })} />;
     default:
-      return (
-        <p className={styles.sectionNote}>
-          {direction === 'incoming'
-            ? 'Trưởng của từng phòng ban văn thư đã giao xử lý công văn (theo sơ đồ tổ chức).'
-            : 'Trưởng phòng ban soạn thảo công văn đi (theo sơ đồ tổ chức).'}
-        </p>
-      );
+      return null;
   }
 }
 
@@ -1500,7 +1444,7 @@ function OrganizationView({ directory }: { readonly directory?: CorrespondenceDi
       <div className={styles.cardHead}>
         <h2>Sơ đồ tổ chức</h2>
         <span className={styles.muted}>
-          Lấy từ Tenant Core; sửa ở trang Sơ đồ tổ chức của Tenant Portal
+          Sửa ở Tenant Portal
         </span>
       </div>
       {directory.degraded ? <p className={styles.notice}>Chưa đọc được sơ đồ tổ chức, đang hiện bản cũ (nếu có).</p> : null}

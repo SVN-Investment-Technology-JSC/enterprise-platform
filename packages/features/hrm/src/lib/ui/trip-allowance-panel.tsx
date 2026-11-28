@@ -53,7 +53,7 @@ export function TripAllowancePanel() {
     setAction({
       title: 'Thêm mức công tác phí',
       description:
-        'Mức mới có hiệu lực từ ngày chọn; phiên bản đang hiệu lực của cùng hình thức được kết thúc vào ngày trước đó. Tháng đã chốt công giữ nguyên số đã tính.',
+        'Phiên bản đang hiệu lực cùng hình thức kết thúc vào ngày trước đó; tháng đã chốt công giữ nguyên.',
       columns: 1,
       fields: [
         { key: 'tripType', label: 'Hình thức công tác', options: TRIP_TYPE_OPTIONS, value: tripType ?? 'DOMESTIC', required: true },
@@ -107,7 +107,6 @@ export function TripAllowancePanel() {
       icon={Plane}
       tone="green"
       title="Công tác phí"
-      description="Mức tiền mỗi ngày công tác theo hình thức, có phiên bản theo ngày hiệu lực."
       actions={
         <Button permission="hrm.payroll.configure" onClick={() => openCreate()} disabled={busy} className="h-9 gap-1.5 px-3 text-xs font-semibold">
           <Plus className="size-4" />
@@ -117,8 +116,7 @@ export function TripAllowancePanel() {
       bodyClassName="space-y-3"
     >
       <InfoNote tone="blue">
-        Tính theo ngày công tác thực tế của đơn đã duyệt, chốt cùng bảng công và cộng vào lương qua thành phần
-        TRIP_ALLOWANCE_AMOUNT trong công thức. Dự trù phụ phí trong đơn công tác không phải khoản trả.
+        Cộng vào lương qua thành phần TRIP_ALLOWANCE_AMOUNT; dự trù phụ phí trong đơn công tác không phải khoản trả.
       </InfoNote>
       {error && (
         <InfoNote tone="red" role="alert">
@@ -224,7 +222,7 @@ export function TripAllowancePanel() {
                 pageSize={6}
                 empty={
                   <p className="text-xs text-slate-500">
-                    Chưa cấu hình. Đơn công tác hình thức này sẽ báo lỗi khi tính lương cho tới khi có mức.
+                    Chưa cấu hình; tính lương cho đơn công tác hình thức này sẽ báo lỗi.
                   </p>
                 }
               />

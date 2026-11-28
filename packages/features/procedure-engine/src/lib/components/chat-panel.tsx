@@ -388,13 +388,7 @@ export function ChatPanel({
             className={styles.chatLive}
             data-state={live === undefined ? 'connecting' : live ? 'live' : 'offline'}
             role="status"
-            title={
-              live
-                ? 'Đang nhận tin mới theo thời gian thực.'
-                : live === undefined
-                  ? 'Đang kết nối kênh thời gian thực.'
-                  : 'Mất kết nối thời gian thực. Tin mới vẫn được cập nhật định kỳ khoảng 30 giây; sẽ tự nối lại.'
-            }
+            title={live === false ? 'Tin mới cập nhật mỗi ~30 giây; sẽ tự nối lại.' : undefined}
           >
             <i aria-hidden />
             {live ? 'Trực tiếp' : live === undefined ? 'Đang kết nối' : 'Mất kết nối'}

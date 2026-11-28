@@ -198,9 +198,9 @@ export function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void;
   }
 
   return (
-    <CrmDialog open title="Lập đơn bán" subtitle="Dòng hàng thêm ở màn chi tiết đơn" submitLabel="Lập đơn" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog open title="Lập đơn bán" submitLabel="Lập đơn" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
       <div className={styles.fieldGrid}>
-        <Field label="Từ hợp đồng" hint="Đơn dùng giá khung và khách của hợp đồng">
+        <Field label="Từ hợp đồng">
           <SearchableSelect
             options={contracts.map((item) => ({ value: item.id, label: item.title, badge: item.code, description: item.customerName }))}
             value={contractId}
@@ -223,11 +223,7 @@ export function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void;
           label="Bảng giá"
           required
           error={priceListError}
-          hint={
-            priceListsLoaded && !priceListOptions(priceLists, priceDate).length
-              ? NO_PRICE_LISTS_TEXT
-              : 'Mặt hàng ngoài giá hợp đồng lấy giá theo bảng này'
-          }
+          hint={priceListsLoaded && !priceListOptions(priceLists, priceDate).length ? NO_PRICE_LISTS_TEXT : undefined}
         >
           <PriceListSelect
             lists={priceLists}
@@ -239,7 +235,7 @@ export function CreateOrderDialog({ onClose, onCreated }: { onClose: () => void;
             }}
           />
         </Field>
-        <Field label="Kho giữ hàng mặc định" hint="Bỏ trống với đơn từ hợp đồng: dùng kho của hợp đồng. Chọn kho từng dòng ở bảng dòng hàng">
+        <Field label="Kho giữ hàng mặc định" hint="Bỏ trống: dùng kho của hợp đồng (nếu có)">
           <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>
         <Field label="Ngày giao dự kiến" hint="Hạn giữ hàng = ngày giao dự kiến + 2 ngày">

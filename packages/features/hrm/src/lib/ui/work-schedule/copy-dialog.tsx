@@ -19,7 +19,7 @@ import {
 import { copySchedule, type CopyScheduleResult } from '../../hrm-work-schedule-api';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { toast } from '../toast';
 import { useCloseGuard } from '../use-close-guard';
 import { ConflictModePicker } from './conflict-mode-picker';
@@ -164,9 +164,6 @@ export function CopyScheduleDialog({
       <DialogContent className="@container h-[min(88dvh,780px)] max-w-3xl" aria-label="Sao chép lịch">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">Sao chép lịch</DialogTitle>
-          <DialogDescription>
-            Lấy lịch của một nhân viên trong khoảng ngày và áp dụng cho nhóm nhân viên khác.
-          </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
           <Field label="Nhân viên nguồn">

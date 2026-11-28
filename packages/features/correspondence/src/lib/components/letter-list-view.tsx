@@ -181,7 +181,6 @@ export function LetterListView({
           <button
             type="button"
             className={styles.buttonGhost}
-            title={direction === 'incoming' ? 'Sổ đăng ký văn bản đến của danh sách đang lọc' : 'Sổ đăng ký văn bản đi (công văn đã ban hành) của danh sách đang lọc'}
             onClick={() =>
               void downloadRegister(direction, visible, today)
                 .then((count) => toast.success(`Đã xuất sổ đăng ký: ${count} văn bản.`))

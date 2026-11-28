@@ -625,7 +625,7 @@ export function TabRequests({
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={COLUMNS} className={styles.muted}>
-                    Dự án chưa có đơn từ nào. Đơn gửi từ HRM có chọn dự án này sẽ hiện ở đây.
+                    Dự án chưa có đơn từ nào.
                   </td>
                 </tr>
               ) : visible.length === 0 ? (
@@ -648,13 +648,7 @@ export function TabRequests({
                           </span>
                         </Tooltip>
                         {item.linkedViaKind ? (
-                          <Tooltip content="Đơn rơi vào thời gian công tác của dự án này nên tự hiện ở đây">
-                            <span
-                              className={styles.requestVia}
-                            >
-                              Theo đơn công tác {item.linkedViaCode ?? ''}
-                            </span>
-                          </Tooltip>
+                          <span className={styles.requestVia}>Theo đơn công tác {item.linkedViaCode ?? ''}</span>
                         ) : null}
                       </span>
                     </td>
@@ -712,7 +706,6 @@ export function TabRequests({
               <h3>
                 {selected.code} · {selected.requestTypeLabel}
               </h3>
-              <p>Đơn từ gửi từ module khác; duyệt ở module gốc, huỷ hiệu lực đơn đã duyệt được ngay tại đây.</p>
             </div>
             <button type="button" aria-label="Đóng" onClick={() => setSelected(undefined)}>
               <X size={16} />
@@ -923,8 +916,8 @@ function PriorityDialog({
       title="Thứ tự ưu tiên tính công"
       subtitle={
         editable
-          ? 'Kéo thả để đổi thứ tự; đơn ở trên cùng thắng khi nhiều đơn trùng một ngày.'
-          : 'Ngày có nhiều đơn trùng nhau chỉ tính theo đơn có ưu tiên cao nhất.'
+          ? 'Kéo thả để đổi thứ tự; đơn ở trên thắng khi trùng ngày.'
+          : 'Ngày trùng nhiều đơn tính theo đơn ưu tiên cao nhất.'
       }
       submitLabel={editable ? 'Lưu thay đổi' : 'Đã hiểu'}
       cancelLabel={editable ? 'Huỷ' : null}
@@ -1005,9 +998,7 @@ function PriorityDialog({
         </tbody>
       </table>
       <p className={styles.muted}>
-        Ví dụ: công tác ngày 1–3, nghỉ phép ngày 2 → ngày 1 và 3 tính theo công tác, ngày 2 tính theo
-        nghỉ phép. Chỉ đơn đã duyệt mới được tính; đơn làm thêm giờ, đổi ca, giải trình công không đổi
-        số công.{editable ? '' : ' Chỉ quản trị được sửa bảng này.'}
+        Chỉ tính đơn đã duyệt.{editable ? '' : ' Chỉ quản trị được sửa bảng này.'}
       </p>
     </Dialog>
   );
@@ -1085,7 +1076,6 @@ function WorkdayReportDrawer({
       <header className={styles.drawerHead}>
         <div>
           <h3>Báo cáo công tác</h3>
-          <p>Công theo thứ tự ưu tiên, chỉ tính đơn đã duyệt.</p>
         </div>
         <button type="button" aria-label="Đóng" onClick={onClose}>
           <X size={16} />
@@ -1139,8 +1129,7 @@ function WorkdayReportDrawer({
           </tbody>
         </table>
         <p className={styles.muted}>
-          "Bị ghi đè" là số ngày công tác trùng đơn có ưu tiên cao hơn (ví dụ nghỉ phép). File CSV
-          có mỗi hàng là một thành viên, mỗi cột là một ngày trong tháng.
+          "Bị ghi đè" là số ngày công tác trùng đơn có ưu tiên cao hơn.
         </p>
       </div>
     </aside>

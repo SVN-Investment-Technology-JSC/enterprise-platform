@@ -451,7 +451,6 @@ function ApprovalsContent() {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <h1 className="text-[26px] font-extrabold leading-tight tracking-tight text-slate-900">Đơn từ cần xử lý</h1>
-          <p className="text-[14px] text-slate-500">Theo dõi và phê duyệt các yêu cầu đang chờ xử lý.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => void load().catch((e) => setError(e.message))} className="gap-1.5">
@@ -544,7 +543,7 @@ function ApprovalsContent() {
       <div className="grid gap-3 xl:h-[calc(100dvh-320px)] xl:min-h-[520px] xl:grid-cols-[minmax(0,1fr)_430px]">
         <section className={`${CARD} flex min-h-[420px] min-w-0 flex-col overflow-hidden`} aria-label="Danh sách đơn">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3">
-            <div className="flex gap-1 text-[14px]" aria-label="Nhóm đơn">
+            <div className="flex gap-1 text-sm" aria-label="Nhóm đơn">
               {tabs.map((t) => (
                 <button
                   key={t.id}
@@ -552,7 +551,7 @@ function ApprovalsContent() {
                   aria-pressed={filter.tab === t.id}
                   data-testid={`tab-${t.id}`}
                   onClick={() => patch({ tab: t.id })}
-                  className={`-mb-px border-b-2 px-3 py-3 font-medium transition-colors ${filter.tab === t.id ? 'border-[#2563eb] text-[#2563eb]' : 'border-transparent text-slate-600 hover:text-slate-900'}`}
+                  className={`-mb-px border-b-2 px-3 py-2 transition-colors ${filter.tab === t.id ? 'border-[#2563eb] font-semibold text-[#2563eb]' : 'border-transparent font-medium text-slate-600 hover:text-slate-900'}`}
                 >
                   {t.label} ({t.count})
                 </button>
@@ -562,7 +561,7 @@ function ApprovalsContent() {
                   type="button"
                   data-testid="tab-card-filter"
                   onClick={() => patch({ tab: 'ALL' })}
-                  className="-mb-px border-b-2 border-[#2563eb] px-3 py-3 font-medium text-[#2563eb]"
+                  className="-mb-px border-b-2 border-[#2563eb] px-3 py-2 font-semibold text-[#2563eb]"
                   title="Bỏ lọc theo thẻ tổng quan"
                 >
                   {filter.tab === 'OVERDUE' ? `Quá hạn (${counts.overdue})` : `Đã xử lý tháng này (${counts.doneThisMonth})`} ×

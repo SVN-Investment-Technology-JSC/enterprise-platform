@@ -27,12 +27,11 @@ import { TaskTitleListEditor } from './task-title-list-editor';
  */
 
 /** Một thẻ cấu hình: đầu thẻ nền xám (tên và mô tả), thân trắng là các dòng ngăn bằng vạch mảnh. */
-function SettingsCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+function SettingsCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className={styles.gsCard} aria-label={title}>
       <header className={styles.gsHead}>
         <h3>{title}</h3>
-        <p>{description}</p>
       </header>
       <div className={styles.gsBody}>{children}</div>
     </section>
@@ -40,12 +39,12 @@ function SettingsCard({ title, description, children }: { title: string; descrip
 }
 
 /** Dòng cấu hình: nhãn và mô tả bên trái, nút gạt bên phải. */
-function SettingRow({ label, hint, control }: { label: string; hint: string; control: ReactNode }) {
+function SettingRow({ label, hint, control }: { label: string; hint?: string; control: ReactNode }) {
   return (
     <div className={styles.gsRow}>
       <div className={styles.gsRowText}>
         <strong>{label}</strong>
-        <span>{hint}</span>
+        {hint ? <span>{hint}</span> : null}
       </div>
       <div className={styles.gsRowControl}>{control}</div>
     </div>
@@ -85,12 +84,12 @@ function Switch({
 interface ChoiceOption<T extends string> {
   readonly value: T;
   readonly label: string;
-  readonly description: string;
+  readonly description?: string;
 }
 
 /**
- * Chọn một trong nhiều khả năng, dạng ô chọn kiểu shadcn "radio card": mỗi khả năng là một ô có nút tròn, tên và một dòng
- * giải thích hệ quả. Các ô xếp lưới tự co: còn chỗ thì 2, 3 ô một hàng, màn hẹp thì xuống từng hàng.
+ * Chọn một trong nhiều khả năng, dạng ô chọn kiểu shadcn "radio card": mỗi khả năng là một ô có nút tròn, tên và (nếu có)
+ * một dòng giải thích hệ quả. Các ô xếp lưới tự co: còn chỗ thì 2, 3 ô một hàng, màn hẹp thì xuống từng hàng.
  */
 function RadioChoices<T extends string>({
   name,
@@ -119,7 +118,7 @@ function RadioChoices<T extends string>({
           <span className={styles.gsRadioDot} aria-hidden="true" />
           <span className={styles.gsRadioText}>
             <strong>{option.label}</strong>
-            <span>{option.description}</span>
+            {option.description ? <span>{option.description}</span> : null}
           </span>
         </label>
       ))}
@@ -131,12 +130,10 @@ const REOPEN_PROJECT_OPTIONS: readonly ChoiceOption<ReopenProjectPolicy>[] = [
   {
     value: 'reactivate',
     label: 'Đưa dự án về "Đang chạy"',
-    description: 'Dự án rời Lưu trữ và quay lại trạng thái "Đang chạy" để làm tiếp.',
   },
   {
     value: 'keep',
     label: 'Giữ nguyên trạng thái "Hoàn thành"',
-    description: 'Chỉ bỏ dấu lưu trữ để chỉnh sửa; dự án vẫn ở trạng thái "Hoàn thành".',
   },
 ];
 
@@ -144,12 +141,10 @@ const REPORT_COMPLETE_STATUS_OPTIONS: readonly ChoiceOption<ProgressReportComple
   {
     value: 'done',
     label: 'Hoàn thành',
-    description: 'Công việc đóng ngay, tính vào tiến độ dự án và báo cáo là đã xong.',
   },
   {
     value: 'review',
     label: 'Chờ duyệt',
-    description: 'Công việc dừng ở 100% chờ người có quyền xác nhận Hoàn thành.',
   },
 ];
 
@@ -157,12 +152,10 @@ const CHAT_ON_ARCHIVED_OPTIONS: readonly ChoiceOption<ChatOnArchivedPolicy>[] = 
   {
     value: 'block',
     label: 'Chặn nhắn tin',
-    description: 'Không ai nhắn, sửa hay thu hồi tin được; chỉ đọc lại tin cũ.',
   },
   {
     value: 'allow',
     label: 'Vẫn cho nhắn tin',
-    description: 'Thành viên tiếp tục trao đổi dù dự án đã lưu trữ.',
   },
 ];
 
@@ -286,17 +279,10 @@ export function GeneralSettings() {
   const link = draft.procedureLink;
   return (
     <div className={styles.gsStack}>
-      <SettingsCard
-        title="Tạo dự án"
-        description="Công việc được tạo sẵn khi tạo dự án mới. Người tạo vẫn thêm hoặc bớt được cho từng dự án."
-      >
+      <SettingsCard title="Tạo dự án">
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
           <div className={styles.gsRowText}>
             <strong>Cách tính tiến độ dự án mặc định</strong>
-            <span>
-              Áp cho dự án mới; người tạo vẫn chọn lại được ở form tạo dự án. Tiến độ dự án luôn tự tính từ các công việc
-              cấp gốc, không nhập tay.
-            </span>
           </div>
           <RadioChoices
             name="default-progress-method"
@@ -308,7 +294,6 @@ export function GeneralSettings() {
         </div>
         <SettingRow
           label="Tự tạo sẵn công việc khi tạo dự án"
-          hint="Bật thì form tạo dự án điền sẵn danh sách mẫu bên dưới và tạo chúng cùng dự án. Tắt thì dự án mới trống."
           control={
             <Switch
               label="Tự tạo sẵn công việc"
@@ -321,13 +306,13 @@ export function GeneralSettings() {
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
           <div className={styles.gsRowText}>
             <strong>Danh sách công việc mẫu</strong>
-            <span>Mỗi dòng là một công việc cấp gốc, tạo theo đúng thứ tự này, chưa giao ai. Tối đa 30 công việc.</span>
+            <span>Tối đa 30 công việc cấp gốc, tạo theo thứ tự này.</span>
           </div>
           <TaskTitleListEditor
             idPrefix="Công việc mẫu"
             titles={draft.defaultTaskTitles}
             disabled={locked}
-            emptyText="Danh sách đang trống: bật tự tạo sẵn cũng không tạo công việc nào."
+            emptyText="Danh sách đang trống."
             onChange={(defaultTaskTitles) => update({ defaultTaskTitles })}
             extraActions={
               <Button
@@ -343,14 +328,11 @@ export function GeneralSettings() {
         </div>
       </SettingsCard>
 
-      <SettingsCard
-        title="Báo cáo tiến độ công việc"
-        description="Người làm báo tiến độ ở thanh tiến độ của công việc. Các lựa chọn dưới đây quyết định con số báo kéo theo trạng thái thế nào."
-      >
+      <SettingsCard title="Báo cáo tiến độ công việc">
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
           <div className={styles.gsRowText}>
             <strong>Khi báo tiến độ 100%</strong>
-            <span>Công việc chuyển sang trạng thái nào. Công việc có điều kiện hoàn thành vẫn phải bấm Hoàn thành để xác nhận điều kiện.</span>
+            <span>Việc có điều kiện hoàn thành vẫn phải bấm Hoàn thành.</span>
           </div>
           <RadioChoices
             name="report-complete-status"
@@ -362,7 +344,6 @@ export function GeneralSettings() {
         </div>
         <SettingRow
           label="Bắt buộc ghi mô tả khi báo hoàn thành"
-          hint="Bật thì báo 100% phải có mô tả kết quả. Báo dưới 100% không bắt buộc."
           control={
             <Switch
               label="Bắt buộc mô tả khi báo hoàn thành"
@@ -374,7 +355,6 @@ export function GeneralSettings() {
         />
         <SettingRow
           label="Tự chuyển sang Đang làm khi báo tiến độ"
-          hint="Bật thì công việc đang Chưa làm được báo trên 0% sẽ tự sang Đang làm. Tắt thì giữ Chưa làm đến khi có người bấm Bắt đầu."
           control={
             <Switch
               label="Tự chuyển sang Đang làm khi báo tiến độ"
@@ -386,13 +366,10 @@ export function GeneralSettings() {
         />
       </SettingsCard>
 
-      <SettingsCard
-        title="Lưu trữ dự án"
-        description="Dự án đã lưu trữ chỉ xem; muốn chỉnh sửa phải mở lưu trữ trước. Các lựa chọn dưới đây quyết định phần còn lại của vòng đời lưu trữ."
-      >
+      <SettingsCard title="Lưu trữ dự án">
         <SettingRow
           label="Tự đóng hồ sơ khi mọi công việc đã xong"
-          hint="Dự án có mọi công việc hoàn thành hoặc đã huỷ tự vào Lưu trữ. Đóng hồ sơ thủ công luôn dùng được, kể cả khi còn việc chưa xong."
+          hint="Đóng hồ sơ thủ công vẫn dùng được khi còn việc chưa xong."
           control={
             <Switch
               label="Tự đóng hồ sơ"
@@ -405,7 +382,6 @@ export function GeneralSettings() {
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
           <div className={styles.gsRowText}>
             <strong>{'Khi mở lưu trữ dự án đã "Hoàn thành"'}</strong>
-            <span>{'Dự án đã "Hoàn thành" luôn nằm trong Lưu trữ. Chọn điều gì xảy ra khi mở lại để chỉnh sửa.'}</span>
           </div>
           <RadioChoices
             name="reopen-project"
@@ -418,7 +394,6 @@ export function GeneralSettings() {
         <div className={`${styles.gsRow} ${styles.gsRowStack}`}>
           <div className={styles.gsRowText}>
             <strong>Trao đổi trong dự án đã lưu trữ</strong>
-            <span>Áp dụng cho trao đổi cấp dự án và cấp công việc.</span>
           </div>
           <RadioChoices
             name="chat-on-archived"

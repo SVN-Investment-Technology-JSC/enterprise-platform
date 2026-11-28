@@ -412,15 +412,10 @@ export function SubtaskPanel({
       <p className={styles.panelHint}>
         {template.length > 0 ? (
           <>
-            Thiết bị <strong>{eAssignment.eTaskConfig?.assetCode}</strong> có {template.length} đầu
-            việc, nạp từ hồ sơ thiết bị bên Kho. Giao từng đầu việc cho thành viên đơn vị bạn
-            phụ trách; đính kèm tài liệu là tuỳ chọn.
+            Thiết bị <strong>{eAssignment.eTaskConfig?.assetCode}</strong> có {template.length} đầu việc.
           </>
         ) : (
-          <>
-            Chưa có danh sách đầu việc. Chọn thiết bị ở trên để nạp từ Kho, hoặc tự nhập các
-            đầu việc và trọng số.
-          </>
+          'Chưa có danh sách đầu việc.'
         )}
       </p>
 
@@ -445,11 +440,9 @@ export function SubtaskPanel({
               ))}
             </select>
           </label>
-          <p className={styles.panelHint}>
-            {instance.assetCode
-              ? 'Đổi thiết bị sẽ nạp lại danh sách đầu việc theo thiết bị mới. Đầu việc đã phân rã không bị xoá — bấm “Sửa phân rã” nếu muốn làm lại.'
-              : 'Chọn thiết bị để nạp đầu việc từ hồ sơ thiết bị bên Kho. Phiếu do Bảo trì sinh ra đã có sẵn thiết bị.'}
-          </p>
+          {instance.assetCode ? (
+            <p className={styles.panelHint}>Đổi thiết bị sẽ nạp lại danh sách đầu việc; đầu việc đã phân rã giữ nguyên.</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -607,7 +600,6 @@ export function SubtaskPanel({
                       type="button"
                       className={styles.subtaskDoneBtn}
                       disabled={busy === `subtask-done:${subtask.id}`}
-                      title="Đánh dấu đầu việc đã xong. Đính kèm tài liệu là tuỳ chọn."
                       onClick={() => onComplete(subtask.id)}
                     >
                       Xong
@@ -663,10 +655,7 @@ export function SubtaskPanel({
           {remaining.length === 0 ? (
             /* Đã đặt hết. Muốn đặt thêm thì phải khai thêm vật tư cho đầu việc
                trước — nút hiện lại ngay khi có phần chưa đặt. */
-            <p className={styles.panelHint}>
-              Đã tạo đơn cho toàn bộ vật tư của bước. Khai thêm vật tư cho đầu việc thì nút tạo
-              đơn bổ sung sẽ hiện lại.
-            </p>
+            <p className={styles.panelHint}>Đã tạo đơn cho toàn bộ vật tư của bước.</p>
           ) : !ordering ? (
             <div className={styles.actionRow}>
               <button
@@ -689,11 +678,6 @@ export function SubtaskPanel({
             </div>
           ) : (
             <div className={styles.dispatchPicker}>
-              <p className={styles.panelHint}>
-                Kiểm lại số lượng rồi chọn quy trình. Sửa được trước khi tạo — số mặc định là phần
-                chưa đặt.
-              </p>
-
               <ul className={styles.orderLines}>
                 {remaining.map((line) => (
                   <li key={line.materialCode}>
@@ -719,8 +703,8 @@ export function SubtaskPanel({
 
               <p className={styles.panelHint}>
                 {shortLines.length > 0
-                  ? 'Có mã thiếu hàng nên sẽ mở HAI hồ sơ: một xuất/mượn cho phần đủ, một mua sắm cho phần thiếu.'
-                  : 'Đủ hàng cho mọi mã — chỉ mở một hồ sơ xuất/mượn kho.'}
+                  ? 'Có mã thiếu hàng nên sẽ mở hai hồ sơ: xuất/mượn cho phần đủ, mua sắm cho phần thiếu.'
+                  : 'Đủ hàng — chỉ mở một hồ sơ xuất/mượn kho.'}
               </p>
               <label>
                 <span>Phần đủ hàng — mượn/xuất kho</span>
@@ -789,10 +773,6 @@ export function SubtaskPanel({
             </div>
           )}
 
-          <p className={styles.panelHint}>
-            Đơn mở ra là để người thật đi làm thủ tục. Hệ thống không tự trừ kho — số lượng chỉ
-            đổi khi thủ kho thao tác trong module Kho.
-          </p>
         </section>
       ) : null}
 
@@ -815,7 +795,7 @@ export function SubtaskPanel({
                 <div>
                   <h3>Phân rã &amp; Giao việc</h3>
                   <p>
-                    {step.name} (Bước {step.order}) · Phân công cho các thành viên đơn vị
+                    {step.name} (Bước {step.order})
                   </p>
                 </div>
                 <div className={styles.subtaskEditorHeaderActions}>
@@ -843,11 +823,7 @@ export function SubtaskPanel({
                       {mode === 'parallel' ? 'Song song' : 'Tuần tự'}
                     </button>
                   ))}
-                  <em>
-                    {draftMode === 'parallel'
-                      ? 'Ai làm trước cũng được.'
-                      : 'Làm theo đúng thứ tự dưới đây; việc sau chỉ mở khi việc trước đã xong.'}
-                  </em>
+                  {draftMode === 'sequential' ? <em>Việc sau chỉ mở khi việc trước xong.</em> : null}
                 </div>
 
                 {draft.map((item, index) => (
@@ -926,9 +902,7 @@ export function SubtaskPanel({
 
                 {candidates.length === 0 ? (
                   <p className={styles.panelHint}>
-                    Không tìm thấy nhân sự nào để giao việc: bạn chưa được đặt làm người phụ trách đơn vị
-                    nào, và vai trò E ở bước này cũng không gán ở cấp đơn vị. Vẫn lưu được phân rã, nhưng
-                    bạn phải tự thực hiện.
+                    Không có nhân sự để giao việc; vẫn lưu được phân rã nhưng bạn tự thực hiện.
                   </p>
                 ) : null}
 
@@ -995,16 +969,11 @@ export function SubtaskPanel({
                   {mode === 'parallel' ? 'Song song' : 'Tuần tự'}
                 </button>
               ))}
-              <em>
-                {draftMode === 'parallel'
-                  ? 'Ai làm trước cũng được.'
-                  : 'Làm theo đúng thứ tự dưới đây; việc sau chỉ mở khi việc trước đã xong.'}
-              </em>
+              {draftMode === 'sequential' ? <em>Việc sau chỉ mở khi việc trước xong.</em> : null}
               <button
                 type="button"
                 className={styles.ghost}
                 onClick={() => setIsDrawer(true)}
-                title="Mở rộng khung để chỉnh sửa"
                 style={{
                   marginLeft: 'auto',
                   display: 'inline-flex',
@@ -1095,9 +1064,7 @@ export function SubtaskPanel({
 
             {candidates.length === 0 ? (
               <p className={styles.panelHint}>
-                Không tìm thấy nhân sự nào để giao việc: bạn chưa được đặt làm người phụ trách đơn vị
-                nào, và vai trò E ở bước này cũng không gán ở cấp đơn vị. Vẫn lưu được phân rã, nhưng
-                bạn phải tự thực hiện.
+                Không có nhân sự để giao việc; vẫn lưu được phân rã nhưng bạn tự thực hiện.
               </p>
             ) : null}
 
@@ -1152,7 +1119,6 @@ export function SubtaskPanel({
               className={styles.primary}
               disabled={busy === 'subtasks'}
               onClick={onSeed}
-              title="Tạo đầu việc theo danh sách của thiết bị, trọng số theo thời lượng."
             >
               Nạp {template.length} đầu việc từ thiết bị
             </button>
@@ -1161,7 +1127,6 @@ export function SubtaskPanel({
             type="button"
             className={styles.primary}
             onClick={() => openEditor(true)}
-            title="Mở khung phân rã và giao việc"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
             <PanelRightOpen size={14} />

@@ -31,12 +31,12 @@ import { errorText, Field, Notice } from '../ui/comp-off/comp-off-kit';
 
 const HISTORY_PREFIXES = ['OVERTIME_COMP_'] as const;
 
-const CONFLICT_OPTIONS: { value: HrmPolicyConflictMode; label: string; hint: string }[] = [
-  { value: 'REPORT', label: 'Chỉ báo xung đột, không ghi', hint: 'Mặc định: nếu khoảng mới giao với phiên bản đã có, hệ thống báo lỗi và không lưu gì.' },
+const CONFLICT_OPTIONS: { value: HrmPolicyConflictMode; label: string; hint?: string }[] = [
+  { value: 'REPORT', label: 'Chỉ báo xung đột, không ghi' },
   {
     value: 'OVERWRITE',
     label: 'Ghi đè theo thời gian',
-    hint: 'Phiên bản mới thay phần giao nhau: phiên bản bắt đầu trước được kết thúc vào ngày liền trước, phiên bản nằm trọn trong khoảng mới bị thay thế. Chỉ làm được với tháng chưa chốt công và phiên bản chưa có dữ liệu tham chiếu.',
+    hint: 'Chỉ với tháng chưa chốt công và phiên bản chưa có dữ liệu tham chiếu.',
   },
 ];
 
@@ -164,7 +164,6 @@ export default function OvertimeCompSettingsScreen() {
           ) : null
         }
         title="Làm thêm và nghỉ bù"
-        description="Cách phân loại làm thêm và ca đêm, trần giờ làm thêm tính lương và quy đổi giờ dư thành ngày nghỉ bù. Mỗi thay đổi là một phiên bản có hiệu lực từ mùng 1 của một tháng; tháng đã chốt công không đổi."
         badge={
           settings?.current ? (
             <Badge variant={settings.current.config.enabled || settings.current.config.fundEnabled ? 'default' : 'outline'}>
@@ -197,9 +196,8 @@ export default function OvertimeCompSettingsScreen() {
                 onChange={(v) => set('fundEnabled', v)}
               />
               <p className="pl-6 text-[12px] text-slate-500">
-                Đơn có lý do Nghỉ bù hiện số dư, giữ chỗ và bị chặn khi quỹ không đủ; duyệt đơn thì trừ quỹ, từ chối hoặc hủy thì hoàn.
-                Quỹ lấy từ Import Excel và điều chỉnh thủ công ở tab Quỹ nghỉ bù.
-                {form.enabled ? ' Đang bật công thức tính nên quỹ luôn được bật.' : ''}
+                Đơn Nghỉ bù bị chặn khi quỹ không đủ; duyệt thì trừ quỹ, từ chối hoặc hủy thì hoàn.
+                {form.enabled ? ' Đang bật công thức tính nên quỹ luôn bật.' : ''}
               </p>
             </div>
             {text('usageStepDays', 'Bước dùng tối thiểu khi tạo đơn (ngày)')}
@@ -214,11 +212,9 @@ export default function OvertimeCompSettingsScreen() {
                   setForm((f) => (f ? { ...f, enabled: v, fundEnabled: v ? true : f.fundEnabled } : f))
                 }
               />
-              <p className="pl-6 text-[12px] text-slate-500">
-                {form.enabled
-                  ? 'Giờ làm thêm vượt trần được quy đổi thành ngày nghỉ bù theo các thiết lập bên dưới; quỹ được cộng khi HR xác nhận hoặc tự động nếu bật ô bên dưới.'
-                  : 'Đang tắt: không cắt trần làm thêm, không đổi công thức lương và không tự cộng quỹ khi chốt công. Các thiết lập bên dưới chưa được áp dụng.'}
-              </p>
+              {form.enabled ? null : (
+                <p className="pl-6 text-[12px] text-slate-500">Đang tắt: các thiết lập bên dưới chưa được áp dụng.</p>
+              )}
             </div>
             <div className="space-y-1 sm:col-span-2 lg:col-span-3">
               <Check
@@ -229,8 +225,8 @@ export default function OvertimeCompSettingsScreen() {
               />
               <p className="pl-6 text-[12px] text-slate-500">
                 {form.enabled && form.autoAccrue
-                  ? 'Khi chốt công và ở tác vụ nền cuối tháng, hệ thống cộng quỹ ngay, không cần HR xác nhận.'
-                  : 'Đang tắt (khuyến nghị): sau khi chốt công, HR xem trước số ngày nghỉ bù từng nhân viên và bấm xác nhận thì quỹ mới được cộng.'}
+                  ? 'Cộng quỹ ngay khi chốt công, không cần HR xác nhận.'
+                  : 'HR xác nhận sau khi chốt công thì quỹ mới được cộng.'}
               </p>
             </div>
             {text('normalHoursPerDay', 'Số giờ chuẩn một ngày làm việc')}
@@ -270,7 +266,7 @@ export default function OvertimeCompSettingsScreen() {
             <section ref={saveSectionRef} className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
               <h2 className="text-sm font-bold text-slate-900">Phiên bản mới</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Hiệu lực từ tháng" hint="Áp dụng từ mùng 1 của tháng được chọn">
+                <Field label="Hiệu lực từ tháng" hint="Áp dụng từ mùng 1; tháng đã chốt công không đổi">
                   <MonthPickerInput
                     aria-label="Hiệu lực từ tháng"
                     height={36}
@@ -303,7 +299,7 @@ export default function OvertimeCompSettingsScreen() {
                       />
                       <span>
                         <span className="font-semibold text-slate-900">{o.label}</span>
-                        <span className="block text-[12px] text-slate-500">{o.hint}</span>
+                        {o.hint ? <span className="block text-[12px] text-slate-500">{o.hint}</span> : null}
                       </span>
                     </label>
                   ))}
@@ -385,7 +381,6 @@ export default function OvertimeCompSettingsScreen() {
           open={historyOpen}
           onOpenChange={setHistoryOpen}
           title="Lịch sử thay đổi làm thêm và nghỉ bù"
-          description="Các lần lưu phiên bản (kèm ghi đè) và xóa phiên bản, có người thực hiện và lý do (tối đa 100 bản ghi, mới nhất ở trên)."
           actionPrefixes={HISTORY_PREFIXES}
         />
       ) : null}

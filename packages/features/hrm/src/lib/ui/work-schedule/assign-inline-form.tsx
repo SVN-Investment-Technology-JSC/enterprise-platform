@@ -12,7 +12,6 @@ import {
   type SearchableSelectOption,
 } from '@enterprise-platform/shared-ui';
 import {
-  OPEN_ENDED_HINT,
   SCOPE_TYPE_LABELS,
   allowedScopeTypes,
   emptyAssignDraft,
@@ -25,7 +24,7 @@ import {
 } from '../../hrm-work-schedule-model';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { Input } from '../input';
 import { InfoNote, SettingsSection } from '../settings-kit';
 import { AssignPreviewSection, AssignResultSection, useAssignFlow } from './assign-flow';
@@ -180,7 +179,6 @@ export function AssignInlineForm({
         icon={Users}
         tone="blue"
         title="Thông tin phân ca"
-        description="Chọn đối tượng, ca làm việc và ngày hiệu lực áp dụng."
       >
         <div className="flex flex-col gap-4">
           <ScopeSelect
@@ -246,8 +244,6 @@ export function AssignInlineForm({
             </Field>
           </div>
 
-          {draft.openEnded ? <InfoNote tone="blue">{OPEN_ENDED_HINT}</InfoNote> : null}
-
           <div className="rounded-lg border border-slate-200">
             <div className="px-3 py-2.5 text-xs font-semibold text-slate-700">
               Tuỳ chọn nâng cao
@@ -258,7 +254,6 @@ export function AssignInlineForm({
                 <Field
                   label="Ca làm việc"
                   required
-                  hint="Ca lấy từ Danh mục ca; chọn ca cho từng thứ hoặc dùng một mẫu lịch tuần đã lưu."
                   className="max-w-sm"
                 >
                   <SearchableSelect
@@ -296,10 +291,7 @@ export function AssignInlineForm({
 
           {flow.stepError ? <Notice tone="error">{flow.stepError}</Notice> : null}
 
-          <div className="flex flex-wrap items-stretch gap-3">
-            <InfoNote tone="blue" className="min-w-0 flex-1 basis-64 items-center">
-              Ca mới sẽ áp dụng từ ngày hiệu lực đã chọn; lịch sử phân ca trước đó được lưu lại.
-            </InfoNote>
+          <div className="flex flex-wrap items-stretch justify-end gap-3">
             <div className="flex flex-wrap items-center justify-end gap-2">
               <Button variant="outline" size="lg" className="px-4" onClick={cancel} disabled={applying}>
                 Hủy
@@ -338,9 +330,6 @@ export function AssignInlineForm({
               <CalendarClock className="size-5 text-blue-600" aria-hidden />
               Tổng quan phân ca
             </DialogTitle>
-            <DialogDescription>
-              Kiểm tra lại phạm vi, kết quả xem trước và cách xử lý ngày đã có lịch trước khi lưu.
-            </DialogDescription>
           </DialogHeader>
 
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 @lg:px-6">

@@ -136,7 +136,7 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
     return (
       <aside aria-label="Chi tiết đơn" className="flex h-full min-h-[320px] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200/70 bg-white p-6 text-center text-sm text-slate-500">
         <FileText className="size-8 text-slate-300" />
-        Chọn một đơn trong danh sách để xem chi tiết, trao đổi và xử lý.
+        Chọn một đơn trong danh sách để xem chi tiết.
       </aside>
     );
 
@@ -251,14 +251,9 @@ export function ApprovalDetailPanel(props: ApprovalDetailPanelProps) {
                 ) : typeof val === 'number' && key.toLowerCase().includes('minutes') ? (
                   <span className="font-mono">{val} phút</span>
                 ) : key === 'workReference' && typeof val === 'object' && val ? (
-                  <div>
-                    <span className="font-semibold text-slate-900">
-                      {(val as any).code ? `${(val as any).code} · ` : ''}{(val as any).title || (val as any).name || (val as any).id || '—'}
-                    </span>
-                    <p className="mt-0.5 text-[11px] font-normal text-slate-500">
-                      Đầu việc / quy trình liên kết trong hệ thống để thực hiện chuyến công tác.
-                    </p>
-                  </div>
+                  <span className="font-semibold text-slate-900">
+                    {(val as any).code ? `${(val as any).code} · ` : ''}{(val as any).title || (val as any).name || (val as any).id || '—'}
+                  </span>
                 ) : typeof val === 'object' ? (
                   <pre className="overflow-x-auto rounded border border-slate-200 bg-slate-50 p-2 text-left font-mono text-[12px]">{JSON.stringify(val, null, 2)}</pre>
                 ) : (

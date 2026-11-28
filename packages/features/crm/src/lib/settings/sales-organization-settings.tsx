@@ -230,11 +230,6 @@ export function SalesOrganizationSettings() {
           </button>
         ) : null}
       </div>
-      <p className={styles.muted}>
-        Công ty con, pháp nhân phát hành báo giá. Người lập báo giá chọn tổ chức; đầu trang bản in lấy tên, địa chỉ, mã số
-        thuế, điện thoại, email và logo của tổ chức đó. Báo giá mới chọn sẵn tổ chức mặc định. Tổ chức đã có báo giá không
-        xoá được, chỉ tắt.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       <Table<SalesOrganizationSummary>
         size="small"
@@ -363,7 +358,7 @@ function SalesOrganizationForm({ saved, onClose, onSaved }: { saved?: SalesOrgan
             />
           </Field>
         ))}
-        <Field label={label('sortOrder')} hint="Số nhỏ đứng trước trong danh sách" error={fieldErrors.sortOrder}>
+        <Field label={label('sortOrder')} hint="Số nhỏ đứng trước" error={fieldErrors.sortOrder}>
           <input
             className={styles.input}
             inputMode="numeric"
@@ -410,7 +405,7 @@ function SalesOrganizationForm({ saved, onClose, onSaved }: { saved?: SalesOrgan
               {fieldErrors.logo}
             </span>
           ) : (
-            <span className={styles.fieldHint}>PNG hoặc JPEG; ảnh lớn được tự thu về rộng tối đa 1.600 px và nén JPEG dưới 300 KB.</span>
+            <span className={styles.fieldHint}>PNG hoặc JPEG</span>
           )}
         </div>
       </div>

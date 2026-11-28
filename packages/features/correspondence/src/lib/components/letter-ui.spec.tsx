@@ -856,7 +856,7 @@ describe('Ô cuối theo cấu hình', () => {
     render(<LetterActionPanel letter={closing} config={withWorkflow} onDone={jest.fn()} onDirtyChange={jest.fn()} />);
     expect(screen.getByRole('heading', { name: 'Pháp chế hoàn tất' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Hoàn tất' })).toBeTruthy();
-    expect(screen.getByText(/hoàn tất để đóng công văn/)).toBeTruthy();
+    expect(screen.queryByText(/cấp số hồ sơ/)).toBeNull();
   });
 });
 
@@ -888,13 +888,12 @@ describe('Cấu hình quy trình: giao phòng ban tự sinh bước phòng ban x
     expect(flow()).toBe('Văn thư tiếp nhậnGiao phòng banLãnh đạo duyệt và kýVăn thư hoàn tất, lưu trữ');
     // Bút phê mà chưa có bước phòng ban: cảnh báo ngay.
     expect(screen.getByText(/Sau bước này chưa có bước Phòng ban xử lý/)).toBeTruthy();
-    const give = () => screen.getAllByRole('checkbox', { name: /Giao phòng ban xử lý: người làm bước này/ })[0] as HTMLInputElement;
+    const give = () => screen.getAllByRole('checkbox', { name: /Giao phòng ban xử lý \(người làm bước này/ })[0] as HTMLInputElement;
     expect(give().checked).toBe(false);
     fireEvent.click(give());
     expect(flow()).toBe('Văn thư tiếp nhậnGiao phòng banPhòng ban xử lýLãnh đạo duyệt và kýVăn thư hoàn tất, lưu trữ');
     expect(give().checked).toBe(true);
     expect(screen.queryByText(/Sau bước này chưa có bước Phòng ban xử lý/)).toBeNull();
-    expect(screen.getByText(/Phòng ban do "Giao phòng ban" chọn khi chuyển sang bước này/)).toBeTruthy();
     // Bỏ tick: bỏ bước vừa thêm; tick lại để lưu.
     fireEvent.click(give());
     expect(flow()).toBe('Văn thư tiếp nhậnGiao phòng banLãnh đạo duyệt và kýVăn thư hoàn tất, lưu trữ');
@@ -1225,7 +1224,7 @@ describe('Phòng chủ trì tổng hợp ý kiến phối hợp', () => {
       ],
     });
     render(<AssignmentsSection letter={processing} onDone={jest.fn()} onDirtyChange={jest.fn()} onFilesChanged={jest.fn()} onPreview={jest.fn()} />);
-    expect(screen.getByText(/gửi kết quả sau khi Trung tâm Tư vấn gửi/)).toBeTruthy();
+    expect(screen.getByText(/Gửi kết quả sau khi Trung tâm Tư vấn gửi/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/Kết quả xử lý của Phòng Kinh doanh/), { target: { value: 'Bản tổng hợp nháp' } });
     expect((screen.getByRole('button', { name: 'Gửi kết quả' }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -1384,7 +1383,6 @@ describe('Chọn quy trình cho công văn lúc tạo, phân loại', () => {
     expect(items[1]).toContain('không áp dụng cho công văn này');
     expect(items[2]).toBe('TGĐ giao phòng banLãnh đạo duyệt / chỉ đạo · Nguyễn Văn An · bút phê');
     expect(items[3]).toContain('Phòng ban do người làm bước trước chọn');
-    expect(screen.getByText('Công văn này chạy đúng quy trình đã chọn.')).toBeTruthy();
   });
 
   it('văn thư đổi quy trình lúc phân loại: gửi kèm quy trình đã chọn', async () => {

@@ -291,6 +291,7 @@ export function ExportDialog({ open, onClose, docs, palette }: ExportDialogProps
                   {COPY_TABS.map((tab) => (
                     <Button
                       aria-selected={codeTab === tab.id}
+                      className={codeTab === tab.id ? 'font-semibold' : undefined}
                       key={tab.id}
                       onClick={() => {
                         setCodeTab(tab.id);

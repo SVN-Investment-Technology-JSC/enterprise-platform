@@ -52,28 +52,10 @@ describe('FinanceVoucherCard — người không dùng được Tài chính', ()
 });
 
 describe('FinanceWaitingNote', () => {
-  it('có phiếu và hai nút đang hiện thì chỉ người phụ trách tới "Mở nhanh" hoặc "Mở phiếu"; vẫn nói ở đây chỉ gửi trao đổi', () => {
-    mockAccess = 'allowed';
-    render(<FinanceWaitingNote step={step(posted)} />);
+  it('chỉ ghi một dòng: bước đóng khi kế toán ghi sổ phiếu', () => {
+    render(<FinanceWaitingNote />);
     const note = screen.getByText(/Bước này đóng khi kế toán ghi sổ phiếu ở phân hệ Tài chính/);
-    expect(note.textContent).toContain('"Mở nhanh" hoặc "Mở phiếu" ở trên');
-    expect(note.textContent).toContain('ở đây chỉ gửi trao đổi');
-    expect(note.textContent).not.toContain('module Tài chính');
-  });
-
-  it('không có nút nào (chưa có phiếu, đang hỏi quyền hoặc không dùng được Tài chính) thì không nhắc tới nút', () => {
-    for (const [access, voucher] of [
-      ['allowed', { state: 'requested' }],
-      ['checking', posted],
-      ['denied', posted],
-    ] as const) {
-      mockAccess = access;
-      const { unmount } = render(<FinanceWaitingNote step={step(voucher)} />);
-      const note = screen.getByText(/Bước này đóng khi kế toán ghi sổ phiếu/);
-      expect(note.textContent).not.toContain('Mở nhanh');
-      expect(note.textContent).toContain('Ở đây chỉ gửi trao đổi.');
-      unmount();
-    }
+    expect(note.textContent).not.toContain('Mở nhanh');
   });
 });
 

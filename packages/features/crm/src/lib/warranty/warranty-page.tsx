@@ -288,15 +288,15 @@ function IntakeDialog({
   }
 
   return (
-    <CrmDialog open title="Tiếp nhận yêu cầu bảo hành" subtitle="Hạn bảo hành tính từ ngày giao thực tế của serial" submitLabel="Tiếp nhận" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog open title="Tiếp nhận yêu cầu bảo hành" submitLabel="Tiếp nhận" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
       <div className={styles.fieldGrid}>
         <Field label="Nguyên nhân" required>
           <SearchableSelect options={labelOptions(WARRANTY_CAUSE_LABELS)} value={cause} placeholder="Chọn nguyên nhân" onChange={setCause} />
         </Field>
-        <Field label="Người xử lý" hint="Bỏ trống: bạn">
+        <Field label="Người xử lý">
           <SearchableSelect options={peopleOptions(people)} value={assigneeUserId} placeholder="Bạn" clearable onChange={setAssigneeUserId} />
         </Field>
-        <Field label="Serial" required hint="Mỗi dòng một serial; các serial phải cùng một khách" wide>
+        <Field label="Serial" required hint="Mỗi dòng một serial, cùng một khách" wide>
           <textarea className={styles.textarea} rows={4} maxLength={5000} value={serials} onChange={(event) => setSerials(event.target.value)} />
         </Field>
         <Field label="Mô tả lỗi, yêu cầu của khách" wide>
@@ -369,13 +369,13 @@ function WarrantySettingsDialog({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <CrmDialog open title="Kho bảo hành" subtitle="Chọn kho từ danh mục kho của phân hệ Kho" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog open title="Kho bảo hành" submitting={saving} error={error} onClose={onClose} onSubmit={() => void save()}>
       {warehouseError ? <p className={styles.alert}>{warehouseError}</p> : null}
       <div className={styles.fieldGrid}>
-        <Field label="Kho cách ly" required hint="Hàng bảo hành nhận về, Chờ kiểm định">
+        <Field label="Kho cách ly" required>
           {select(quarantine, setQuarantine, 'Chọn kho cách ly')}
         </Field>
-        <Field label="Kho hàng lỗi" required hint="Hàng kiểm định Lỗi chuyển sang">
+        <Field label="Kho hàng lỗi" required>
           {select(defect, setDefect, 'Chọn kho hàng lỗi')}
         </Field>
         <Field label="Kho nhập lại hàng Đạt" hint="Dùng khi không biết kho đã xuất serial, dòng hàng">

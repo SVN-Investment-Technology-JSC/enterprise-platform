@@ -5,7 +5,7 @@ import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmEmployeeOptions, hrmFetch } from '../hrm-api';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { PageTitle } from '../ui/page-title';
 import { InfoNote } from '../ui/settings-kit';
@@ -201,7 +201,6 @@ export default function RequestProxyScreen() {
     <div className="space-y-4" data-testid="request-proxy">
       <PageTitle
         title="Tạo đơn hộ"
-        description="Quy định ai được tạo hộ nghỉ phép, tăng ca, công tác cho nhân viên nào."
         actions={
           <Button size="sm" className="gap-1" onClick={() => openDraft(emptyDraft())}>
             <Plus className="size-3.5" />
@@ -210,9 +209,7 @@ export default function RequestProxyScreen() {
         }
       />
       <InfoNote>
-        Người cần được cấp quyền <b>Tạo đơn hộ</b> ở màn Quyền và vai trò. Chưa có cấu hình nào áp cho một người thì họ chỉ tạo
-        hộ cho cấp dưới theo sơ đồ tổ chức. Nhiều cấu hình cùng áp thì lấy hợp các phạm vi. Người tạo hộ không duyệt được đơn do
-        chính mình tạo hộ.
+        Người tạo hộ cần quyền <b>Tạo đơn hộ</b>; chưa có cấu hình nào áp cho họ thì chỉ tạo hộ cho cấp dưới.
       </InfoNote>
       {error ? (
         <InfoNote tone="red" role="alert">
@@ -290,7 +287,6 @@ export default function RequestProxyScreen() {
             <div className="flex flex-col">
               <DialogHeader className="border-b border-slate-200 bg-slate-50 p-5">
                 <DialogTitle className="text-base font-bold">{draft.id ? 'Sửa cấu hình tạo hộ' : 'Thêm cấu hình tạo hộ'}</DialogTitle>
-                <DialogDescription className="text-xs text-slate-500">Chọn người được tạo hộ, loại đơn và phạm vi nhân viên.</DialogDescription>
               </DialogHeader>
               <div className="max-h-[65vh] space-y-4 overflow-y-auto p-5 text-xs">
                 <div className="space-y-1">

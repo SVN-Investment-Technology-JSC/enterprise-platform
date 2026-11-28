@@ -164,11 +164,7 @@ export function ProcedureFieldMappingsDialog({
         <DialogHeader>
           <DialogTitle>Ánh xạ trường HRM vào thuộc tính quy trình</DialogTitle>
         </DialogHeader>
-        <p className="text-xs text-slate-600 leading-relaxed">
-          Chọn trường HRM cấp giá trị cho từng thuộc tính để cổng điều kiện ở bước S
-          dùng được (ví dụ số ngày nghỉ, phòng ban). Thuộc tính đã ánh xạ chế độ ghi đè
-          sẽ ẩn khỏi form tạo đơn.
-        </p>
+        <p className="text-xs text-slate-600">Thuộc tính ánh xạ chế độ ghi đè sẽ ẩn khỏi form tạo đơn.</p>
         {error && (
           <div role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
             {error}

@@ -99,9 +99,6 @@ export function EstimatePanel({
           {comparison.costDelta !== null ? `Giá vốn lệch ${formatMoney(comparison.costDelta)}.` : ''}
         </p>
       ) : null}
-      <p className={styles.muted}>
-        Để đính file dự toán, tải lên ở khối Tài liệu bên dưới và chọn loại tài liệu &quot;Dự toán&quot;.
-      </p>
       {canEdit ? (
         <div className={styles.toolbar}>
           <button type="button" className={styles.buttonGhost} onClick={open}>

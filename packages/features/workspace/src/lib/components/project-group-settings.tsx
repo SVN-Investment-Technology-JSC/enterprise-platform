@@ -58,11 +58,7 @@ export function ProjectGroupSettings() {
   return (
     <div className={styles.roleSettings}>
       <div className={styles.roleSettingsHead}>
-        <p className={styles.muted}>
-          {canEdit
-            ? 'Chọn nhóm cho dự án khi tạo, hoặc dùng "Chuyển nhóm" trên trang Dự án.'
-            : 'Chỉ quản trị viên được thêm hoặc sửa nhóm dự án.'}
-        </p>
+        {canEdit ? <span /> : <p className={styles.muted}>Chỉ quản trị viên được thêm hoặc sửa nhóm dự án.</p>}
         {canEdit ? (
           <Button type="button" onClick={() => setEditing(null)}>
             <Plus aria-hidden /> Thêm nhóm
@@ -223,7 +219,7 @@ function GroupFormDialog({
       </Field>
       <Field
         label="Mã viết tắt"
-        hint="Dùng cho {NHOM} trong quy tắc mã dự án (Cài đặt > Mã dự án). Tự đặt, tối đa 16 ký tự, vd DVTN. Đổi mã không đổi mã các dự án đã tạo."
+        hint="Dùng cho {NHOM} trong mã dự án; đổi mã không đổi mã các dự án đã tạo."
       >
         <Input
           value={code}

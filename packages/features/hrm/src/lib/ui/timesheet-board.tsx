@@ -165,10 +165,10 @@ export function TimesheetBoard({
                 data-testid={`board-filter-${f.id}`}
                 title={f.id === 'ALL' ? 'Tổng số nhân viên của bộ lọc tìm kiếm' : 'Số nhân viên khớp trong cả tháng'}
                 onClick={() => onFilterChange(f.id)}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition ${
                   active
-                    ? 'border-blue-300 bg-blue-50 text-blue-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700'
+                    ? 'border-blue-300 bg-blue-50 font-semibold text-blue-700'
+                    : 'border-slate-200 bg-white font-medium text-slate-600 hover:border-blue-200 hover:text-blue-700'
                 }`}
               >
                 {dotClass[f.id] && <span aria-hidden="true" className={`inline-block size-2 rounded-full ${dotClass[f.id]}`} />}

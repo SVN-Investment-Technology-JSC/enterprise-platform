@@ -73,7 +73,7 @@ export function DynamicApproverEditor({
     <MinimalPopupForm
       isOpen
       title="Quản lý trực tiếp của người khởi tạo"
-      subtitle={`Bước “${stepName}”: người duyệt được tính lúc bước bắt đầu, theo quan hệ “Báo cáo cho” của chức danh người khởi tạo. Chức danh trống thì hệ thống tự leo lên cấp trên.`}
+      subtitle={`Bước “${stepName}”`}
       maxWidth="560px"
       onClose={onClose}
     >
