@@ -4,6 +4,7 @@ export * from './lib/stock-document.model';
 export * from './lib/stock-movement.model';
 export { TradeItemsPage } from './lib/components/trade-items-page';
 export { WarehouseStockTab } from './lib/components/warehouse-stock-tab';
+export { SerialHub } from './lib/components/serial-hub';
 export { CustodyPanel, custodyStateOf } from './lib/components/custody-panel';
 export { StocktakeHub, isSelfApprovalBlocked } from './lib/components/stocktake-hub';
 export { InventoryPermissionsContext } from './lib/inventory-permissions';
@@ -48,3 +49,17 @@ export {
   type ImportSheet,
   type ValueDecision,
 } from './lib/trade-import.model';
+
+export { StorageLocationPanel } from './lib/components/storage-location-panel';
+export { StorageLocationBulkImportDialog } from './lib/components/storage-location-bulk-import-dialog';
+export {
+  SUGGESTED_LOCATION_LEVELS,
+  describeLevels,
+  draftText,
+  draftsSignature,
+  effectiveLevels,
+  splitLocationText,
+  summarizePrimary,
+  toDraft,
+  toInputs,
+} from './lib/storage-location.model';

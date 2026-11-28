@@ -131,6 +131,7 @@ function mapLine(row: Row): StocktakeLine {
     materialName: str(row.material_name),
     unit: str(row.material_unit),
     binLocation: opt(row.bin_location),
+    binLocationOriginal: opt(row.bin_location_original),
     isSerialized: Boolean(row.is_serialized),
     isLotTracked: Boolean(row.is_lot_tracked),
     systemQuantity: num(row.system_quantity),
@@ -313,10 +314,10 @@ export class PostgresStocktakeStore implements StocktakeStore {
       }
       await client.query(
         `INSERT INTO inventory_schema.stocktake_lines
-           (session_id, material_id, system_quantity, unit_cost, lot_allocations, serial_allocations, status)
-         SELECT $1, x.material_id, x.system_quantity, x.unit_cost, x.lot_allocations, x.serial_allocations, 'UNCOUNTED'
+           (session_id, material_id, bin_location, bin_location_original, system_quantity, unit_cost, lot_allocations, serial_allocations, status)
+         SELECT $1, x.material_id, x.bin_location, x.bin_location, x.system_quantity, x.unit_cost, x.lot_allocations, x.serial_allocations, 'UNCOUNTED'
            FROM jsonb_to_recordset($2::jsonb) AS x(
-             material_id uuid, system_quantity numeric, unit_cost numeric,
+             material_id uuid, bin_location text, system_quantity numeric, unit_cost numeric,
              lot_allocations jsonb, serial_allocations jsonb)`,
         [current.id, JSON.stringify(snapshot)],
       );
@@ -347,7 +348,7 @@ export class PostgresStocktakeStore implements StocktakeStore {
 
       const existing = await client.query<Row>(
         `SELECT id, system_quantity, unit_cost, count_round_1, count_round_2, actual_quantity,
-                reason, note, lot_allocations, serial_allocations
+                reason, note, lot_allocations, serial_allocations, bin_location
            FROM inventory_schema.stocktake_lines
           WHERE session_id = $1 AND id = ANY($2::uuid[])
           FOR UPDATE`,
@@ -370,6 +371,8 @@ export class PostgresStocktakeStore implements StocktakeStore {
         const reason = update.reason !== undefined ? update.reason || null : (opt(row.reason) ?? null);
         const note = update.note !== undefined ? update.note || null : (opt(row.note) ?? null);
         const actualChanged = actual !== undefined && actual !== previousActual;
+        const binLocation =
+          update.binLocation !== undefined ? update.binLocation.trim() || null : (opt(row.bin_location) ?? null);
 
         await client.query(
           `UPDATE inventory_schema.stocktake_lines
@@ -378,6 +381,7 @@ export class PostgresStocktakeStore implements StocktakeStore {
                   lot_allocations = $8::jsonb, serial_allocations = $9::jsonb,
                   counted_by = CASE WHEN $10 THEN $11::uuid ELSE counted_by END,
                   counted_at = CASE WHEN $10 THEN now() ELSE counted_at END,
+                  bin_location = $12,
                   updated_at = now()
             WHERE id = $1`,
           [
@@ -392,6 +396,7 @@ export class PostgresStocktakeStore implements StocktakeStore {
             JSON.stringify(update.serialAllocations ?? row.serial_allocations ?? null),
             actualChanged,
             actor.id,
+            binLocation,
           ],
         );
         if (actualChanged && actual !== undefined) {
@@ -447,6 +452,7 @@ export class PostgresStocktakeStore implements StocktakeStore {
           );
           break;
         case 'APPROVED':
+          await this.syncLocationsOnApproval(client, current, change.actorId);
           await client.query(
             `UPDATE inventory_schema.stocktake_sessions
                 SET status = 'APPROVED', approved_by = $2, approved_at = now(), updated_at = now()
@@ -610,6 +616,13 @@ export class PostgresStocktakeStore implements StocktakeStore {
         ORDER BY st.material_id, st.serial_number`,
       [session.warehouseId, materialIds],
     );
+    const locations = await client.query<Row>(
+      `SELECT msl.material_id, msl.location_text
+         FROM inventory_schema.material_storage_locations msl
+        WHERE msl.warehouse_id = $1 AND msl.material_id = ANY($2::uuid[]) AND msl.is_primary = true`,
+      [session.warehouseId, materialIds],
+    );
+    const locationsByMaterial = new Map(locations.rows.map((row) => [str(row.material_id), str(row.location_text)]));
     const lotsByMaterial = groupBy(lots.rows, (row) => str(row.material_id));
     const serialsByMaterial = groupBy(serials.rows, (row) => str(row.material_id));
 
@@ -620,6 +633,7 @@ export class PostgresStocktakeStore implements StocktakeStore {
       const serialRows = serialsByMaterial.get(id);
       return {
         material_id: id,
+        bin_location: locationsByMaterial.get(id) ?? null,
         system_quantity: quantity,
         unit_cost: num(row.avg_cost),
         // Số đếm của từng lô và từng serial khởi đầu bằng số sổ sách: người đếm chỉ sửa chỗ lệch.
@@ -637,10 +651,94 @@ export class PostgresStocktakeStore implements StocktakeStore {
       };
     });
   }
+
+  /**
+   * Đồng bộ ngược vị trí lưu trữ khi duyệt kiểm kê (mục 4.5.1).
+   * Dòng có vị trí đếm khác vị trí ban đầu (và không rỗng) được cập nhật ngược vào danh mục lưu trữ.
+   */
+  private async syncLocationsOnApproval(
+    client: Queryable,
+    session: StocktakeSession,
+    actorId: string,
+  ): Promise<void> {
+    const changed = await client.query<Row>(
+      `SELECT l.id, l.material_id, l.bin_location, l.bin_location_original, l.actual_quantity
+         FROM inventory_schema.stocktake_lines l
+        WHERE l.session_id = $1
+          AND l.status <> 'UNCOUNTED'
+          AND l.bin_location IS NOT NULL
+          AND btrim(l.bin_location) <> ''
+          AND lower(btrim(l.bin_location)) <> lower(btrim(COALESCE(l.bin_location_original, '')))`,
+      [session.id],
+    );
+
+    for (const row of changed.rows) {
+      const materialId = str(row.material_id);
+      const newLoc = str(row.bin_location).trim();
+      const origLoc = opt(row.bin_location_original)?.trim();
+
+      const primaryRes = await client.query<Row>(
+        `SELECT id, location_text
+           FROM inventory_schema.material_storage_locations
+          WHERE warehouse_id = $1 AND material_id = $2 AND is_primary = true`,
+        [session.warehouseId, materialId],
+      );
+
+      if (!primaryRes.rows[0]) {
+        await client.query(
+          `INSERT INTO inventory_schema.material_storage_locations
+             (warehouse_id, material_id, location_text, is_primary, updated_by)
+           VALUES ($1, $2, $3, true, $4)
+           ON CONFLICT (warehouse_id, material_id, (lower(btrim(location_text))))
+           DO UPDATE SET is_primary = true, updated_at = now(), updated_by = $4`,
+          [session.warehouseId, materialId, newLoc, actorId],
+        );
+      } else {
+        const currentPrimaryText = str(primaryRes.rows[0].location_text).trim();
+        if (!origLoc || currentPrimaryText.toLowerCase() === origLoc.toLowerCase()) {
+          await client.query(
+            `UPDATE inventory_schema.material_storage_locations
+                SET location_text = $2, updated_at = now(), updated_by = $3
+              WHERE id = $1`,
+            [primaryRes.rows[0].id, newLoc, actorId],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO inventory_schema.material_storage_locations
+               (warehouse_id, material_id, location_text, is_primary, note, updated_by)
+             VALUES ($1, $2, $3, false, $4, $5)
+             ON CONFLICT (warehouse_id, material_id, (lower(btrim(location_text))))
+             DO UPDATE SET note = EXCLUDED.note, updated_at = now(), updated_by = $5`,
+            [
+              session.warehouseId,
+              materialId,
+              newLoc,
+              `Vị trí phát hiện qua kiểm kê đợt ${session.code}`,
+              actorId,
+            ],
+          );
+        }
+      }
+
+      const actualQty = num(row.actual_quantity);
+      await client.query(
+        `INSERT INTO inventory_schema.stocktake_line_audits
+           (line_id, previous_quantity, new_quantity, operator, reason)
+         VALUES ($1, $2, $2, $3, $4)`,
+        [
+          str(row.id),
+          actualQty,
+          `Kiểm kê duyệt (${actorId})`,
+          `Đổi vị trí lưu trữ: "${origLoc || '(trống)'}" -> "${newLoc}"`,
+        ],
+      );
+    }
+  }
 }
 
 interface SnapshotLine {
   readonly material_id: string;
+  readonly bin_location: string | null;
   readonly system_quantity: number;
   readonly unit_cost: number;
   readonly lot_allocations: readonly StocktakeLotAllocation[] | null;

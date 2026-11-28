@@ -13,10 +13,12 @@ import type {
   InventoryTransaction,
   Material,
   MaterialInventory,
+  MaterialTrackingMode,
   Reservation,
   SerialTracking,
   AssetBomLine,
   SettingsEntry,
+  ApprovalPolicyChange,
   TransactionType,
   UpdateAssetRequest,
   UpdateMaterialRequest,
@@ -26,6 +28,7 @@ import type {
   AuditorCandidate,
 } from '@enterprise-platform/contracts-inventory';
 import type { InventoryActor } from './inventory.application.js';
+import type { LegacySupplierValue } from '../domain/supplier-catalog.js';
 
 /** Ledger entry to append. Balances are derived from these, never written directly. */
 export interface AppendTransactionInput {
@@ -93,7 +96,11 @@ export interface InventoryStore {
     findByCode(tenantId: string, code: string): Promise<Material | null>;
     /** Gồm cả vật tư đã ngừng hoạt động; dùng khi cần kiểm mã trùng. */
     findAnyByCode(tenantId: string, code: string): Promise<Material | null>;
-    list(tenantId: string, includeInactive?: boolean): Promise<Material[]>;
+    list(
+      tenantId: string,
+      includeInactive?: boolean,
+      filter?: { readonly locationText?: string },
+    ): Promise<Material[]>;
     create(
       tenantId: string,
       input: CreateMaterialRequest,
@@ -112,6 +119,22 @@ export interface InventoryStore {
     countTransactions(tenantId: string, code: string): Promise<number>;
     /** Có dòng tồn, giữ hàng hay serial nào không; chặn đổi loại hàng hoá, dịch vụ. */
     hasStockFootprint(tenantId: string, code: string): Promise<boolean>;
+    /**
+     * Có dòng tồn, bút toán, chứng từ, giữ hàng, serial hay lô nào không; chặn đổi cách theo dõi.
+     * Rộng hơn `hasStockFootprint` ở chỗ tính cả lô.
+     */
+    hasTrackingFootprint(tenantId: string, code: string): Promise<boolean>;
+    /** Đổi `tracking_mode` và ghi `material_tracking_history` trong một transaction. */
+    changeTrackingMode(
+      tenantId: string,
+      code: string,
+      change: {
+        readonly from: MaterialTrackingMode;
+        readonly to: MaterialTrackingMode;
+        readonly changedBy?: string;
+        readonly reason?: string;
+      },
+    ): Promise<void>;
     /**
      * Kho có tồn mà số serial Trong kho tại kho đó không khớp tồn (ISS-BE-005):
      * rỗng nghĩa là bật theo dõi serial không làm lệch sổ.
@@ -313,8 +336,13 @@ export interface InventoryStore {
       tenantId: string,
       materialCode: string,
       serialNumber: string,
-      patch: { currentStatus?: string; locationType?: string; internalCode?: string },
+      patch: { currentStatus?: string; locationType?: string; internalCode?: string; newSerialNumber?: string },
     ): Promise<SerialTracking | null>;
+    /**
+     * Xoá serial khai ở danh mục mà chưa phát sinh gì (chưa vào sổ kho, không có lịch sử, không nằm
+     * trên chứng từ nháp). Trả `in_use` khi đã phát sinh, `not_found` khi không có.
+     */
+    remove(tenantId: string, materialCode: string, serialNumber: string): Promise<'deleted' | 'not_found' | 'in_use'>;
   };
 
   taskTemplate: {
@@ -374,7 +402,19 @@ export interface InventoryStore {
       value: unknown,
       updatedBy: string,
       expectedVersion?: number,
+      /** Ghi nhật ký đổi chính sách cùng giao dịch với việc lưu (chỉ `documents.approval`). */
+      audit?: { readonly previous: unknown; readonly reason: string },
     ): Promise<SettingsEntry<unknown> | null>;
+    /** Các lần đổi chính sách duyệt gần nhất, mới nhất trước. */
+    listApprovalPolicyLog(tenantId: string, limit: number): Promise<RawApprovalPolicyChange[]>;
+  };
+
+  suppliers: {
+    /**
+     * Nhà cung cấp chữ tự do đang có trong dữ liệu, mỗi cách viết một dòng kèm số bản ghi dùng nó, từ hồ sơ
+     * mặt hàng, lô và bút toán sổ cái loại nhà cung cấp. Chỉ đọc; chưa chuẩn hóa hay gộp.
+     */
+    listLegacyValues(tenantId: string): Promise<LegacySupplierValue[]>;
   };
 
   /** Danh sách nhân sự có thể tham gia tổ kiểm kê kèm cờ phân quyền kho hasWarehouseAccess */
@@ -382,3 +422,9 @@ export interface InventoryStore {
 }
 
 export const INVENTORY_STORE = 'INVENTORY_STORE';
+
+/** Dòng nhật ký đổi chính sách duyệt như lưu trong DB; tầng application chuẩn hoá `previous`, `current`. */
+export type RawApprovalPolicyChange = Omit<ApprovalPolicyChange, 'previous' | 'current'> & {
+  readonly previous: unknown;
+  readonly current: unknown;
+};

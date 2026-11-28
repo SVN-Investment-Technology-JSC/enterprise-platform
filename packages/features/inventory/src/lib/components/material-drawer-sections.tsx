@@ -70,33 +70,33 @@ export function MaterialStockSection({
         <TableHead>
           <TableRow>
             <TableHeaderCell>Kho</TableHeaderCell>
-            <TableHeaderCell className="text-right">Tồn thực tế</TableHeaderCell>
-            <TableHeaderCell className="text-right">Đã giữ</TableHeaderCell>
-            <TableHeaderCell className="text-right">Khả dụng</TableHeaderCell>
+            <TableHeaderCell className="text-left">Tồn thực tế</TableHeaderCell>
+            <TableHeaderCell className="text-left">Đã giữ</TableHeaderCell>
+            <TableHeaderCell className="text-left">Khả dụng</TableHeaderCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.id}>
               <TableCell>{warehouseName(row.warehouseId)}</TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-left">
                 {formatNumber(row.quantity)} {material.unit}
               </TableCell>
-              <TableCell className="text-right">{formatNumber(row.quantityReserved)}</TableCell>
-              <TableCell className="text-right">{formatNumber(row.available)}</TableCell>
+              <TableCell className="text-left">{formatNumber(row.quantityReserved)}</TableCell>
+              <TableCell className="text-left">{formatNumber(row.available)}</TableCell>
             </TableRow>
           ))}
           <TableRow>
             <TableCell>
               <strong>Tổng</strong>
             </TableCell>
-            <TableCell className="text-right">
+            <TableCell className="text-left">
               <strong>
                 {formatNumber(total)} {material.unit}
               </strong>
             </TableCell>
-            <TableCell className="text-right" />
-            <TableCell className="text-right">
+            <TableCell className="text-left" />
+            <TableCell className="text-left">
               <strong>{formatNumber(available)}</strong>
             </TableCell>
           </TableRow>
@@ -166,7 +166,7 @@ export function MaterialHistorySection({
           <TableRow>
             <TableHeaderCell>Thời gian</TableHeaderCell>
             <TableHeaderCell>Loại</TableHeaderCell>
-            <TableHeaderCell className="text-right">Số lượng</TableHeaderCell>
+            <TableHeaderCell className="text-left">Số lượng</TableHeaderCell>
             <TableHeaderCell>Kho</TableHeaderCell>
             <TableHeaderCell>Số phiếu</TableHeaderCell>
             <TableHeaderCell>Người thực hiện</TableHeaderCell>
@@ -177,7 +177,7 @@ export function MaterialHistorySection({
             <TableRow key={row.id}>
               <TableCell>{formatDateTime(row.createdAt)}</TableCell>
               <TableCell>{TRANSACTION_TYPE_LABEL[row.type] ?? row.type}</TableCell>
-              <TableCell className="text-right">
+              <TableCell className="text-left">
                 {row.quantity > 0 ? '+' : ''}
                 {formatNumber(row.quantity)} {material.unit}
               </TableCell>

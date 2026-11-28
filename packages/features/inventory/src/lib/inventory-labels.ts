@@ -3,8 +3,11 @@ import type {
   AssetStatus,
   AssetType,
   MaterialCategory,
+  MaterialTrackingMode,
   QualityStatus,
   ReservationStatus,
+  SerialMovementType,
+  SerialStockState,
   TransactionType,
   WarehouseType,
 } from '@enterprise-platform/contracts-inventory';
@@ -42,6 +45,26 @@ export const QUALITY_STATUS_LABEL: Readonly<Record<QualityStatus, string>> = {
   PENDING_INSPECTION: 'Chờ kiểm định',
 };
 
+/** Serial nằm ở đâu theo sổ kho. Không có giá trị nghĩa là mới khai ở danh mục, chưa vào kho. */
+export const SERIAL_STOCK_STATE_LABEL: Readonly<Record<SerialStockState, string>> = {
+  IN_STOCK: 'Trong kho',
+  ISSUED: 'Đã xuất',
+  IN_TRANSIT: 'Đang chuyển',
+  SCRAPPED: 'Đã huỷ',
+};
+
+/** Mỗi dòng vòng đời của serial, nói theo việc đã xảy ra. */
+export const SERIAL_MOVEMENT_LABEL: Readonly<Record<SerialMovementType, string>> = {
+  RECEIPT: 'Nhập kho',
+  ISSUE: 'Xuất kho',
+  TRANSFER: 'Chuyển kho',
+  RETURN: 'Trả lại kho',
+  WARRANTY_ISSUE: 'Xuất bảo hành',
+  ADJUSTMENT: 'Điều chỉnh sổ kho',
+  REVERSAL: 'Đảo chứng từ',
+  QUALITY_CHANGE: 'Đổi chất lượng',
+};
+
 export const QUALITY_STATUS_BADGE: Readonly<Record<QualityStatus, { bg: string; text: string; border: string }>> = {
   PASSED: { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
   QUARANTINE: { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
@@ -66,6 +89,12 @@ export const MATERIAL_CATEGORY_LABEL: Readonly<Record<MaterialCategory, string>>
   CONSUMABLE: 'Vật tư tiêu hao',
   TOOL: 'Dụng cụ',
   ROTABLE: 'Vật tư luân chuyển',
+};
+
+export const MATERIAL_TRACKING_LABEL: Readonly<Record<MaterialTrackingMode, string>> = {
+  NONE: 'Thông thường (theo số lượng)',
+  LOT: 'Theo lô',
+  SERIAL: 'Theo serial',
 };
 
 export const TRANSACTION_TYPE_LABEL: Readonly<Record<TransactionType, string>> = {

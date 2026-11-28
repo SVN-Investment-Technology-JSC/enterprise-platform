@@ -171,7 +171,6 @@ const quantityColumn = <TRow extends object>(
   title,
   dataIndex: key,
   key,
-  align: 'right',
   width: 110,
   render: (value: number) => <span className="tabular-nums">{formatNumber(value)}</span>,
 });
@@ -719,7 +718,6 @@ const LINE_COLUMNS: TableColumnsType<StockMovementLine> = [
     title: 'Số lượng',
     dataIndex: 'quantity',
     key: 'quantity',
-    align: 'right',
     width: 100,
     render: (value: number) => (
       <span className={cn('tabular-nums font-bold', value < 0 ? 'text-red-700' : 'text-green-700')}>

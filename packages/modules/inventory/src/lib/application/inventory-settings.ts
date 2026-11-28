@@ -1,11 +1,28 @@
 import {
   COSTING_METHODS,
+  DEFAULT_TRACKING_BY_CATEGORY,
+  INVENTORY_APPROVAL_GROUPS,
   INVENTORY_SETTINGS_KEYS,
+  isMaterialTrackingMode,
+  SUPPLIER_CATALOG_MAX_ITEMS,
+  SUPPLIER_INPUT_MODES,
+  SUPPLIER_NAME_MAX_LENGTH,
   type CostingMethod,
+  type InventoryApprovalGroup,
+  type InventoryApproverKey,
+  type InventoryApproverRoute,
+  type InventoryApprovalMode,
   type InventoryCatalogSettings,
+  type InventoryDocumentApprovalSettings,
   type InventorySettings,
   type InventorySettingsKey,
+  type MaterialCategory,
+  type MaterialTrackingMode,
+  type SupplierInputMode,
+  type TrackingDefaultsByCategory,
 } from '@enterprise-platform/contracts-inventory';
+import { normalizeLevelNames } from '../domain/storage-location-policy.js';
+import { normalizeSupplierKey } from '../domain/supplier-catalog.js';
 
 /**
  * Mặc định BẬT giá và bảo hành.
@@ -66,10 +83,18 @@ export const INVENTORY_SETTINGS_DEFAULTS: InventorySettings = {
     serviceCategories: [],
     usageModes: ['Chỉ bán', 'Có thể bán và quà tặng', 'Chỉ tặng', 'Đi kèm combo', 'Chỉ dùng nội bộ'],
   },
+  // Danh mục nhà cung cấp không có giá trị dựng sẵn: mỗi tenant có nhà cung cấp riêng.
+  'catalog.supplier': { suppliers: [] },
+  // Chỉ chọn từ danh mục, nhưng chỉ có hiệu lực khi danh mục không rỗng (xem buildSupplierPolicy).
+  'supplier.input': { mode: 'CATALOG_ONLY' },
   // Q5: mặc định không tự duyệt, giống Tài chính.
-  'documents.approval': { allowSelfApproval: false },
+  'documents.approval': { allowSelfApproval: false, mode: 'FIXED_APPROVER', overrides: {}, approvers: {} },
   // D4: bình quân gia quyền tức thời. FIFO làm ở P2.
   'costing.method': { method: 'MOVING_AVERAGE' },
+  // Không có cấp dựng sẵn: vị trí nhập thành một chuỗi cho tới khi tenant khai tên cấp (giao diện gợi ý mẫu Khu vực,
+  // Dãy, Kệ, Tầng, Ô chứa để chọn nhanh).
+  'warehouse.location.levels': { levels: [] },
+  'tracking.defaultByCategory': DEFAULT_TRACKING_BY_CATEGORY,
 };
 
 export function isInventorySettingsKey(value: string): value is InventorySettingsKey {
@@ -91,6 +116,28 @@ function normalizeStringList(value: unknown, max: number): string[] {
   return [...seen];
 }
 
+/**
+ * Danh mục nhà cung cấp: cắt khoảng trắng, bỏ mục rỗng, quá dài, và mục trùng khóa so sánh (khác hoa thường,
+ * dấu, dấu câu), giữ mục đứng trước. Trùng theo khóa chứ không theo chữ, vì hai mục "Công ty A" và "CÔNG TY A"
+ * trong danh mục sẽ làm việc nhận diện tên chuẩn mơ hồ.
+ */
+function normalizeSupplierList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const name = entry.trim().replace(/\s+/g, ' ');
+    if (!name || name.length > SUPPLIER_NAME_MAX_LENGTH) continue;
+    const key = normalizeSupplierKey(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+    if (result.length >= SUPPLIER_CATALOG_MAX_ITEMS) break;
+  }
+  return result;
+}
+
 function normalizeCatalog(value: unknown): InventoryCatalogSettings {
   const raw = (value ?? {}) as Partial<InventoryCatalogSettings>;
   return {
@@ -103,6 +150,21 @@ function normalizeCatalog(value: unknown): InventoryCatalogSettings {
     priceFieldsEnabled: raw.priceFieldsEnabled !== false,
     warrantyFieldsEnabled: raw.warrantyFieldsEnabled !== false,
   };
+}
+
+const TRACKING_CATEGORIES: readonly MaterialCategory[] = ['SPARE_PART', 'CONSUMABLE', 'TOOL', 'ROTABLE'];
+
+/** Mỗi nhóm một cách theo dõi hợp lệ; nhóm thiếu hoặc giá trị lạ rơi về mặc định của nhóm đó. */
+function normalizeTrackingDefaults(value: unknown): TrackingDefaultsByCategory {
+  const raw = (value ?? {}) as Partial<Record<MaterialCategory, unknown>>;
+  const next = {} as Record<MaterialCategory, MaterialTrackingMode>;
+  for (const category of TRACKING_CATEGORIES) {
+    const candidate = raw[category];
+    next[category] = isMaterialTrackingMode(candidate)
+      ? candidate
+      : DEFAULT_TRACKING_BY_CATEGORY[category];
+  }
+  return next;
 }
 
 /**
@@ -138,9 +200,25 @@ const NORMALIZERS: {
       usageModes: normalizeStringList(raw.usageModes, 64),
     };
   },
+  'catalog.supplier': (value) => ({
+    suppliers: normalizeSupplierList((value as { suppliers?: unknown } | null)?.suppliers),
+  }),
+  // Giá trị lạ rơi về mặc định CATALOG_ONLY.
+  'supplier.input': (value) => {
+    const mode = (value as { mode?: unknown } | null)?.mode;
+    return {
+      mode: (SUPPLIER_INPUT_MODES as readonly unknown[]).includes(mode)
+        ? (mode as SupplierInputMode)
+        : 'CATALOG_ONLY',
+    };
+  },
   // Chỉ `true` thật mới bật; payload thiếu hay hỏng rơi về chặn tự duyệt.
+  // Chỉ `NOT_APPLICABLE` thật mới bỏ bước duyệt (mặc định hoặc riêng từng nhóm); payload thiếu hay lạ rơi về REQUIRED (giữ ISS-BE-006).
   'documents.approval': (value) => ({
     allowSelfApproval: (value as { allowSelfApproval?: unknown } | null)?.allowSelfApproval === true,
+    mode: normalizeApprovalMode((value as { mode?: unknown } | null)?.mode) ?? 'FIXED_APPROVER',
+    overrides: normalizeApprovalOverrides((value as { overrides?: unknown } | null)?.overrides),
+    approvers: normalizeApprovers((value as { approvers?: unknown } | null)?.approvers),
   }),
   // Giá trị lạ rơi về bình quân: chỉ phương pháp có trong union đóng mới được lưu.
   'costing.method': (value) => {
@@ -151,6 +229,11 @@ const NORMALIZERS: {
         : 'MOVING_AVERAGE',
     };
   },
+  // Số cấp không giới hạn; chỉ cắt tên quá dài và bỏ mục rỗng.
+  'warehouse.location.levels': (value) => ({
+    levels: normalizeLevelNames((value as { levels?: unknown } | null)?.levels),
+  }),
+  'tracking.defaultByCategory': normalizeTrackingDefaults,
 };
 
 /**
@@ -165,4 +248,41 @@ export function normalizeInventorySetting<K extends InventorySettingsKey>(
   value: unknown,
 ): InventorySettings[K] {
   return NORMALIZERS[key](value);
+}
+
+/** Chỉ giữ nhóm và chế độ hợp lệ; giá trị lạ bị bỏ để nhóm đó theo mặc định. */
+function normalizeApprovalOverrides(value: unknown): InventoryDocumentApprovalSettings['overrides'] {
+  const result: Partial<Record<InventoryApprovalGroup, InventoryApprovalMode>> = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const group of INVENTORY_APPROVAL_GROUPS) {
+    const mode = (value as Record<string, unknown>)[group];
+    const normalized = normalizeApprovalMode(mode);
+    if (normalized) result[group] = normalized;
+  }
+  return result;
+}
+
+/** `REQUIRED` là tên cũ của `FIXED_APPROVER` (đã lưu trước khi đổi tên). Giá trị lạ là không có. */
+function normalizeApprovalMode(value: unknown): InventoryApprovalMode | undefined {
+  if (value === 'REQUIRED') return 'FIXED_APPROVER';
+  return value === 'FIXED_APPROVER' || value === 'PROCEDURE' || value === 'NOT_APPLICABLE' ? value : undefined;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Chỉ giữ khoá hợp lệ và chức danh có dạng id; chức danh dự phòng trùng chức danh chính thì bỏ. */
+function normalizeApprovers(value: unknown): InventoryDocumentApprovalSettings['approvers'] {
+  const result: Partial<Record<InventoryApproverKey, InventoryApproverRoute>> = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const key of ['DEFAULT', ...INVENTORY_APPROVAL_GROUPS] as const) {
+    const entry = (value as Record<string, unknown>)[key];
+    const positionId = (entry as { positionId?: unknown } | null)?.positionId;
+    if (typeof positionId !== 'string' || !UUID_PATTERN.test(positionId)) continue;
+    const fallback = (entry as { fallbackPositionId?: unknown }).fallbackPositionId;
+    result[key] =
+      typeof fallback === 'string' && UUID_PATTERN.test(fallback) && fallback !== positionId
+        ? { positionId, fallbackPositionId: fallback }
+        : { positionId };
+  }
+  return result;
 }

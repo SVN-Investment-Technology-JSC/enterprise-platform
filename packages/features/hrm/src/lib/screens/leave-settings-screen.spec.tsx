@@ -262,10 +262,27 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       startOffsetMonths: 2,
       advanceAllowed: true,
       seniorityTiers: [{ minYears: 5, bonusDays: 1 }],
+      maxCarryoverDays: 0,
       effectiveFrom: `${new Date().getFullYear() + 1}-01-01`,
       expectedUpdatedAt: policyUpdatedAt,
     });
     expect(await screen.findByText('Đã lưu chính sách phép năm.')).toBeTruthy();
+  });
+
+  it('bật lũy kế: nhập số ngày tối đa và số tháng được dùng rồi gửi kèm khi lưu', async () => {
+    mockActions.add('hrm.leave.manage');
+    renderScreen();
+    await openPolicyForm();
+    expect(screen.queryByLabelText(/Số tháng được dùng phép lũy kế/)).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Lũy kế phép dư sang năm mới/ }));
+    fireEvent.change(field(/Số ngày lũy kế tối đa/), { target: { value: '5' } });
+    fireEvent.change(field(/Số tháng được dùng phép lũy kế/), { target: { value: '6' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu thay đổi' }));
+    await waitFor(() => expect(calls('PUT', '/annual-leave-policy')).toHaveLength(1));
+    expect(calls('PUT', '/annual-leave-policy')[0]).toMatchObject({
+      maxCarryoverDays: 5,
+      carryoverExpiryMonth: 6,
+    });
   });
 
   it('chỉ còn căn cứ ngày ký HĐLĐ và một chu kỳ thâm niên; đổi chu kỳ gửi đúng nội dung', async () => {
@@ -349,6 +366,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     const body = calls('PUT', '/annual-leave-policy')[0];
     expect(body).toEqual({
       leaveTypeId: 'lt2',
+      maxCarryoverDays: 0,
       accrualBasis: 'CONTRACT_SIGN_DATE',
       annualDays: 13,
       startOffsetMonths: 0,

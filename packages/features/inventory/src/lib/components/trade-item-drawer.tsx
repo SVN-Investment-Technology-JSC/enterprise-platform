@@ -6,12 +6,14 @@ import type {
   UpdateMaterialRequest,
   Warehouse,
 } from '@enterprise-platform/contracts-inventory';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import { CloseGuard, Popconfirm, SearchableSelect, VnNumberInput } from '@enterprise-platform/shared-ui';
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { formatDateTime } from '../inventory-labels';
 import { useUserLabel } from '../user-names';
 import {
   DEFAULT_SALE_VAT_RATE,
+  TRACKING_MODE_DISPLAY_LABEL,
   TRADE_GROUP_LABEL,
   VAT_RATE_INVALID_MESSAGE,
   categoriesOf,
@@ -30,6 +32,7 @@ import {
   type StockRow,
 } from './material-drawer-sections';
 import { FormError, submitErrorMessage, useFormSubmit } from './form-error';
+import { StorageLocationPanel } from './storage-location-panel';
 import { TradeStatusBadge } from './trade-status-badge';
 import { Button } from '../ui/button';
 import { DialogCloseButton } from '../ui/dialog';
@@ -37,6 +40,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Sheet, SheetBody, SheetContent, SheetHeader } from '../ui/sheet';
+import { cn } from '../ui/cn';
 
 /** Dáng ô nhập của `Input`, cho `VnNumberInput` (không đi qua component `Input`). */
 const NUMBER_INPUT_CLASS =
@@ -102,6 +106,7 @@ export function TradeItemDrawer({
   busy,
   catalog,
   units = [],
+  locationLevels,
   onSave,
   onRetire,
   onReactivate,
@@ -116,6 +121,8 @@ export function TradeItemDrawer({
   catalog?: InventoryTradeCatalog;
   /** Danh mục đơn vị tính khai ở Cài đặt; rỗng thì cho gõ tự do. */
   units?: readonly string[];
+  /** Mẫu tên cấp vị trí của tenant khai ở Cài đặt; kho không có tên cấp riêng thì dùng mẫu này. */
+  locationLevels?: readonly string[];
   /** Lưu phần sửa; từ chối (reject) khi Kho báo lỗi để drawer hiện lý do và giữ dữ liệu đã nhập. */
   onSave: (patch: UpdateMaterialRequest) => Promise<void> | void;
   /** Ngừng dùng mã; không có đường xoá vì sổ cái trỏ vào mã. Từ chối (reject) khi Kho báo lỗi. */
@@ -405,6 +412,22 @@ export function TradeItemDrawer({
                 <DrawerField label="Trạng thái">
                   <TradeStatusBadge active={item.isActive} />
                 </DrawerField>
+                {group !== 'SERVICE' ? (
+                  <DrawerField label="Cách theo dõi">
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold',
+                        resolveTrackingMode(item) === 'SERIAL'
+                          ? 'border border-purple-200 bg-purple-50 text-purple-700'
+                          : resolveTrackingMode(item) === 'LOT'
+                          ? 'border border-amber-200 bg-amber-50 text-amber-700'
+                          : 'border border-slate-200 bg-slate-100 text-slate-700',
+                      )}
+                    >
+                      {TRACKING_MODE_DISPLAY_LABEL[resolveTrackingMode(item)]}
+                    </span>
+                  </DrawerField>
+                ) : null}
                 {editing ? (
                   <EditField label="Mô tả" htmlFor="trade-edit-description">
                     <Textarea
@@ -459,6 +482,15 @@ export function TradeItemDrawer({
 
           <DrawerSection title="Tồn kho">
             <MaterialStockSection material={item} stock={stock} warehouses={warehouses} />
+          </DrawerSection>
+
+          <DrawerSection title="Vị trí lưu trữ">
+            <StorageLocationPanel
+              material={item}
+              warehouses={warehouses}
+              templateLevels={locationLevels}
+              canManage={canManage && item.isActive}
+            />
           </DrawerSection>
         </SheetBody>
       </SheetContent>

@@ -7,6 +7,12 @@ import type {
   MovementCounterparty,
 } from '@enterprise-platform/contracts-inventory';
 import {
+  MATERIAL_TRACKING_MODES,
+  resolveTrackingMode,
+  type MaterialTrackingMode,
+  type SerialCoverage,
+} from '@enterprise-platform/contracts-inventory';
+import {
   X,
   Paperclip,
   Upload,
@@ -20,7 +26,8 @@ import {
   Info,
   FileSpreadsheet,
 } from 'lucide-react';
-import { SearchableSelect, VnNumberInput, formatDate, CloseGuard } from '@enterprise-platform/shared-ui';
+import { SearchableSelect, VnNumberInput, formatDate, CloseGuard, toast } from '@enterprise-platform/shared-ui';
+import { SupplierField } from '../supplier-input';
 import { DatePickerInput } from '@enterprise-platform/shared-ui/date-picker';
 import { useMemo, useRef, useState, useEffect, type FormEvent } from 'react';
 import type {
@@ -28,9 +35,10 @@ import type {
   ProcedureOption,
   ProcedureWorkOrder,
 } from '../inventory-api';
-import { loadLots, loadSerials, loadWarehouseStock } from '../inventory-api';
+import { loadLots, loadSerialCoverage, loadSerials, loadStorageLocations, loadWarehouseStock } from '../inventory-api';
 import { QUALITY_STATUS_LABEL, formatNumber, getUnitQuantityConfig } from '../inventory-labels';
 import { ExcelImportDialog } from './excel-import-dialog';
+import { SerialEnableDialog } from './serial-enable-dialog';
 import {
   buildStockLevels,
   checkOutboundLines,
@@ -46,6 +54,18 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from '../ui/table';
 import { Textarea } from '../ui/textarea';
+
+/** Ô nhập số trong bảng dòng phiếu: có viền và nền rõ để nhận ra đây là ô nhập, số căn trái cùng phía với chữ. */
+const NUMBER_FIELD_CLASS =
+  'h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-[13px] outline-none placeholder:text-slate-400 focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:bg-slate-100 disabled:opacity-60';
+
+const TRACKING_SHORT_LABEL: Record<MaterialTrackingMode, string> = {
+  NONE: 'Thông thường',
+  LOT: 'Theo lô',
+  SERIAL: 'Theo serial',
+};
+
+const TRACKING_OPTIONS = MATERIAL_TRACKING_MODES.map((value) => ({ value, label: TRACKING_SHORT_LABEL[value] }));
 
 /** Khối một nhãn và một ô nhập của phiếu. */
 const FIELD_BLOCK = 'flex min-w-0 flex-col gap-1 [&>div]:min-w-0';
@@ -98,6 +118,8 @@ export interface MovementLineItem {
     readonly maxStock?: number;
     readonly barcode?: string;
     readonly manufacturer?: string;
+    /** Cách theo dõi chọn lúc khai mã mới; trống là theo dõi thông thường. */
+    readonly trackingMode?: MaterialTrackingMode;
   };
 }
 /** Đối tượng nhận khi xuất kho. */
@@ -144,6 +166,7 @@ export interface MovementInput {
     readonly type?: string;
     readonly unit: string;
     readonly minStock: number;
+    readonly trackingMode?: MaterialTrackingMode;
   };
 }
 
@@ -200,6 +223,26 @@ function parseSerials(draft: string): string[] {
   ];
 }
 
+/** Như `parseSerials` nhưng giữ nguyên số lần xuất hiện, để báo được serial bị gõ trùng thay vì lặng lẽ gộp. */
+function parseSerialTokens(draft: string): string[] {
+  return draft
+    .split(/[\n,;]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+/** Serial xuất hiện từ hai lần trở lên (không phân biệt hoa thường), theo cách viết lần đầu. */
+function repeatedSerials(tokens: readonly string[]): string[] {
+  const seen = new Map<string, { first: string; count: number }>();
+  for (const token of tokens) {
+    const key = token.toUpperCase();
+    const entry = seen.get(key);
+    if (entry) entry.count += 1;
+    else seen.set(key, { first: token, count: 1 });
+  }
+  return [...seen.values()].filter((entry) => entry.count > 1).map((entry) => entry.first);
+}
+
 /** Mỗi vật tư chỉ có một cách định danh: sê-ri, lô, hoặc theo dõi số lượng thuần. */
 /**
  * Lô chọn được tại một kho, theo hạn dùng gần nhất trước (FEFO). Phiếu xuất chỉ
@@ -218,14 +261,6 @@ function lotChoices(lots: readonly Lot[], warehouseCode: string, kind: string): 
       (kind === 'transfer' || (lot.qualityStatus === 'PASSED' && !(lot.expiresOn && lot.expiresOn < today))),
     )
     .sort((left, right) => (left.lot.expiresOn ?? '9999-12-31').localeCompare(right.lot.expiresOn ?? '9999-12-31'));
-}
-
-function getTrackingMode(material?: Material): 'SERIAL' | 'LOT' | 'NONE' {
-  if (!material) return 'NONE';
-  if (material.isSerialized) return 'SERIAL';
-  return material.category === 'CONSUMABLE' || material.code.includes('DAU') || material.code.includes('CAP') || material.code === 'VT-001'
-    ? 'LOT'
-    : 'NONE';
 }
 
 /**
@@ -249,7 +284,8 @@ function SearchableMaterialCombobox({
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const availableMaterials = useMemo(() => {
-    const active = materials.filter((m) => m.isActive !== false);
+    // Dịch vụ không có tồn: không đưa vào phiếu nhập, xuất, chuyển kho.
+    const active = materials.filter((m) => m.isActive !== false && m.kind !== 'SERVICE');
     if (!excludedCodes || excludedCodes.length === 0) return active;
     const excludedSet = new Set(excludedCodes);
     return active.filter((m) => !excludedSet.has(m.code));
@@ -416,6 +452,7 @@ export function MovementForm({
   initialOpenExcelImport = false,
   onCancel,
   onSubmit,
+  onMaterialTrackingChanged,
 }: {
   workspace: InventoryWorkspace;
   initialKind?: MovementKind;
@@ -441,6 +478,8 @@ export function MovementForm({
   onCancel: () => void;
   /** Từ chối (reject) khi Kho báo lỗi để phiếu hiện lý do và giữ dữ liệu đã nhập. */
   onSubmit: (input: MovementInput) => Promise<void> | void;
+  /** Gọi sau khi bật theo dõi serial cho một mã có sẵn, để màn chính tải lại danh mục. */
+  onMaterialTrackingChanged?: () => void;
 }) {
   const { error, submit: send } = useFormSubmit('Không ghi sổ được phiếu.');
   const [kind, setKind] = useState<MovementKind>(initialKind);
@@ -505,6 +544,8 @@ export function MovementForm({
   /** Phiếu xuất, chuyển: serial Trong kho, Đạt tại kho nguồn để chọn (ISS-BE-005). */
   const [serialCandidates, setSerialCandidates] = useState<readonly string[]>([]);
   const serialRequest = useRef(0);
+  /** Serial của mã đang mở đã nằm trong sổ kho (Trong kho, đã xuất...): nhập lại là trùng, server sẽ từ chối. */
+  const [bookedSerials, setBookedSerials] = useState<ReadonlySet<string>>(new Set());
   const [lotModalIndex, setLotModalIndex] = useState<number | null>(null);
   const [lotsByMaterial, setLotsByMaterial] = useState<Record<string, Lot[]>>({});
   const [lotDraft, setLotDraft] = useState<Record<string, number>>({});
@@ -518,9 +559,20 @@ export function MovementForm({
     type: '',
     unit: units[0] || 'Cái',
     minStock: '0',
+    tracking: 'NONE' as MaterialTrackingMode,
   });
+  const [enableSerialFor, setEnableSerialFor] = useState<{
+    code: string;
+    name: string;
+    coverage: SerialCoverage[];
+  }>();
 
   const outbound = kind === 'issue' || kind === 'transfer';
+
+  /** Mã khai mới trên phiếu chưa có trong danh mục: lấy cách theo dõi người dùng đã chọn cho dòng đó. */
+  const trackingOf = (item: MovementLineItem): MaterialTrackingMode =>
+    item.newMaterial?.trackingMode ??
+    resolveTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode));
 
   /**
    * Tồn thực của kho phiếu, đọc từ server mỗi khi đổi kho hoặc loại phiếu xuất.
@@ -533,6 +585,25 @@ export function MovementForm({
   >();
   const [stockReloadKey, setStockReloadKey] = useState(0);
   const [warehouseNotice, setWarehouseNotice] = useState<string>();
+  const [sourceLocations, setSourceLocations] = useState<ReadonlyMap<string, string>>(new Map());
+
+  useEffect(() => {
+    if (!outbound || !warehouseCode) {
+      setSourceLocations(new Map());
+      return;
+    }
+    loadStorageLocations({ warehouseCode, limit: 1000 })
+      .then((locs) => {
+        const map = new Map<string, string>();
+        for (const loc of locs) {
+          if (loc.isPrimary || !map.has(loc.materialCode)) {
+            map.set(loc.materialCode, loc.locationText);
+          }
+        }
+        setSourceLocations(map);
+      })
+      .catch(() => setSourceLocations(new Map()));
+  }, [outbound, warehouseCode]);
 
   useEffect(() => {
     if (!outbound || !warehouseCode) {
@@ -648,13 +719,18 @@ export function MovementForm({
     const it = items[index];
     setSerialDraft(it?.serialNumbers?.join('\n') ?? '');
     setSerialCandidates([]);
-    if (!outbound || !it) return;
+    setBookedSerials(new Set());
+    if (!it) return;
+    // Mã mới chưa có trong danh mục nên chưa có serial nào để so.
+    if (it.newMaterial) return;
     // Chỉ gợi ý serial đang Trong kho, Đạt tại kho xuất của dòng; server vẫn kiểm lại lúc ghi sổ.
     const sourceId = workspace.warehouses.find((w) => w.code === (it.warehouseCode || warehouseCode))?.id;
     const request = ++serialRequest.current;
     void loadSerials(it.materialCode)
       .then((rows) => {
         if (request !== serialRequest.current) return;
+        setBookedSerials(new Set(rows.filter((row) => row.stockState != null).map((row) => row.serialNumber.toUpperCase())));
+        if (!outbound) return;
         setSerialCandidates(
           rows
             .filter(
@@ -667,12 +743,47 @@ export function MovementForm({
         );
       })
       .catch(() => {
-        if (request === serialRequest.current) setSerialCandidates([]);
+        if (request === serialRequest.current) {
+          setSerialCandidates([]);
+          setBookedSerials(new Set());
+        }
       });
+  };
+
+  /** Lỗi của ô khai serial: gõ trùng, trùng dòng khác của phiếu, hoặc (phiếu nhập) đã nằm trong sổ kho. */
+  const serialProblems = (index: number | null, draft: string): string[] => {
+    if (index === null) return [];
+    const item = items[index];
+    if (!item) return [];
+    const tokens = parseSerialTokens(draft);
+    const problems: string[] = [];
+    const repeated = repeatedSerials(tokens);
+    if (repeated.length > 0) {
+      problems.push(`Số sê-ri bị nhập trùng: ${repeated.join(', ')}. Mỗi sê-ri chỉ khai một lần.`);
+    }
+    const mine = new Set(tokens.map((token) => token.toUpperCase()));
+    const elsewhere = new Set(
+      items
+        .filter((other, position) => position !== index && other.materialCode === item.materialCode)
+        .flatMap((other) => other.serialNumbers ?? [])
+        .map((serial) => serial.toUpperCase()),
+    );
+    const inOtherLines = tokens.filter((token, position) => elsewhere.has(token.toUpperCase()) && tokens.indexOf(token) === position);
+    if (inOtherLines.length > 0) {
+      problems.push(`Sê-ri đã khai ở dòng khác của phiếu: ${inOtherLines.join(', ')}.`);
+    }
+    if (kind === 'receipt') {
+      const booked = [...mine].filter((serial) => bookedSerials.has(serial));
+      if (booked.length > 0) {
+        problems.push(`Sê-ri đã có trong sổ kho của mã này: ${booked.join(', ')}. Không nhập lại được.`);
+      }
+    }
+    return problems;
   };
 
   const handleSaveSerials = () => {
     if (serialModalIndex === null) return;
+    if (serialProblems(serialModalIndex, serialDraft).length > 0) return;
     const serials = parseSerials(serialDraft);
     setItems((prev) =>
       prev.map((it, idx) => {
@@ -719,6 +830,32 @@ export function MovementForm({
     setLotModalIndex(null);
   };
 
+  /** Đổi cách theo dõi của dòng mã mới trước khi mã được tạo; số lô, serial đã nhập theo cách cũ bị bỏ. */
+  const handleSetNewMaterialTracking = (index: number, mode: MaterialTrackingMode) => {
+    setItems((previous) =>
+      previous.map((line, position) =>
+        position === index && line.newMaterial
+          ? {
+              ...line,
+              newMaterial: { ...line.newMaterial, trackingMode: mode },
+              serialNumbers: [],
+              lotAllocations: undefined,
+              receiptLot: undefined,
+            }
+          : line,
+      ),
+    );
+  };
+
+  /** Mã có sẵn đang theo dõi thông thường: mở hộp thoại bật serial, kèm serial cho tồn hiện có ở từng kho. */
+  const handleEnableSerial = (item: MovementLineItem) => {
+    void loadSerialCoverage(item.materialCode)
+      .then((coverage) => setEnableSerialFor({ code: item.materialCode, name: item.materialName, coverage }))
+      .catch((cause: unknown) =>
+        toast.error(cause instanceof Error ? cause.message : 'Không đọc được tồn của mã này.'),
+      );
+  };
+
   // Tạo nhanh vật tư mới
   const handleCreateNewMaterial = () => {
     if (!draftMaterial.code.trim() || !draftMaterial.name.trim()) return;
@@ -748,11 +885,12 @@ export function MovementForm({
           type: newType,
           unit: newUnit,
           minStock,
+          trackingMode: draftMaterial.tracking,
         },
       },
     ]);
 
-    setDraftMaterial({ code: '', name: '', type: '', unit: units[0] || 'Cái', minStock: '0' });
+    setDraftMaterial({ code: '', name: '', type: '', unit: units[0] || 'Cái', minStock: '0', tracking: 'NONE' });
     setShowNewMaterialModal(false);
   };
 
@@ -832,11 +970,11 @@ export function MovementForm({
       ? 'Tạo mã vật tư, khai sê-ri và xuất lắp đặt cần quyền quản lý kho.'
       : undefined;
   const hasInvalidSerialSelection = items.some((item) =>
-    getTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) === 'SERIAL' &&
+    trackingOf(item) === 'SERIAL' &&
     (item.serialNumbers?.length ?? 0) !== item.quantity,
   );
   const hasInvalidLotAllocation = items.some((item) => {
-    if (getTrackingMode(workspace.materials.find((candidate) => candidate.code === item.materialCode)) !== 'LOT') return false;
+    if (trackingOf(item) !== 'LOT') return false;
     if (kind === 'receipt') return !item.receiptLot?.lotNumber;
     // Phần không phân bổ xuất từ tồn không theo lô; server từ chối nếu phần đó không đủ.
     return (item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0) > item.quantity;
@@ -1207,10 +1345,9 @@ export function MovementForm({
             <>
               <div className={FIELD_BLOCK}>
                 <Label>Nhà cung cấp / Đơn vị giao hàng</Label>
-                <Input
-                  type="text"
+                <SupplierField
                   value={supplierName}
-                  onChange={(e) => setSupplierName(e.target.value)}
+                  onChange={setSupplierName}
                   disabled={busy}
                   maxLength={255}
                   placeholder="Tên nhà cung cấp…"
@@ -1388,16 +1525,16 @@ export function MovementForm({
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-10 text-center">STT</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-50">Mã &amp; Tên vật tư</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-[65px] text-center">ĐVT</TableHeaderCell>
-                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-22.5 text-right">Số lượng</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-28">Số lượng</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-32.5">Thuộc nhóm</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-35">Tình trạng kho</TableHeaderCell>
                   {kind === 'receipt' ? (
                     <>
-                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-27.5 text-right">Đơn giá (VNĐ)</TableHeaderCell>
-                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-30 text-right">Thành tiền</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-44">Đơn giá (VNĐ)</TableHeaderCell>
+                      <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-52">Thành tiền</TableHeaderCell>
                     </>
                   ) : null}
-                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-29.5 text-center">Theo dõi định danh</TableHeaderCell>
+                  <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-[290px] text-left">Theo dõi định danh</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 min-w-32.5">Ghi chú dòng</TableHeaderCell>
                   <TableHeaderCell className="whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-[9px] text-[12px] font-bold uppercase tracking-[0.04em] text-slate-600 w-12.5 text-center">Xoá</TableHeaderCell>
                 </TableRow>
@@ -1409,7 +1546,7 @@ export function MovementForm({
                   const serialCount = item.serialNumbers?.length || 0;
                   const lotCount = item.lotAllocations?.length || (item.receiptLot ? 1 : 0);
                   const allocatedLotQuantity = item.lotAllocations?.reduce((sum, lot) => sum + lot.quantity, 0) ?? 0;
-                  const trackingMode = getTrackingMode(workspace.materials.find((material) => material.code === item.materialCode));
+                  const trackingMode = trackingOf(item);
                   const itemUnitConfig = getUnitQuantityConfig(item.unit);
                   const itemMaterial = workspace.materials.find((m) => m.code === item.materialCode);
                   const itemType = item.materialType || itemMaterial?.type || '—';
@@ -1437,6 +1574,11 @@ export function MovementForm({
                           <span className="text-[13px] text-slate-600">
                             {item.materialName}
                           </span>
+                          {outbound && sourceLocations.get(item.materialCode) ? (
+                            <span className="mt-0.5 w-fit rounded bg-blue-50/80 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">
+                              Vị trí: <strong>{sourceLocations.get(item.materialCode)}</strong>
+                            </span>
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center text-slate-600 text-[13px]">
@@ -1445,7 +1587,8 @@ export function MovementForm({
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                         <VnNumberInput
                           maxDecimals={itemUnitConfig.step === '1' ? 0 : 2}
-                          className={cn('h-8 px-2 text-[13px] text-right', analysis?.isOverdraw && 'border-red-500 bg-white')}
+                          className={cn(NUMBER_FIELD_CLASS, 'font-semibold', analysis?.isOverdraw && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-100')}
+                          placeholder="Nhập SL"
                           value={item.quantity === 0 ? '' : String(item.quantity)}
                           onChange={(value) => handleUpdateQuantity(index, Number(value))}
                         />
@@ -1476,51 +1619,80 @@ export function MovementForm({
                           <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                             <VnNumberInput
                               placeholder="0"
-                              className="h-8 px-2 text-[13px]"
+                              className={NUMBER_FIELD_CLASS}
                               value={item.unitCost === undefined ? '' : String(item.unitCost)}
                               onChange={(value) => handleUpdateUnitCost(index, value ? Number(value) : undefined)}
                             />
                           </TableCell>
-                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-right font-semibold text-slate-800 text-[13px]">
+                          <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] whitespace-nowrap font-semibold text-slate-800 text-[13px]">
                             {formatNumber(lineTotal)} đ
                           </TableCell>
                         </>
                       ) : null}
-                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa] text-center">
-                        {trackingMode === 'LOT' ? (
-                          <>
-                            <Button
-                              type="button"
-                              onClick={() => handleOpenLotModal(index)}
-                              variant="outline"
-                              size="xs"
-                              className={cn(
-                                'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
-                                lotCount > 0 ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-slate-50 text-slate-500',
-                              )}
-                            >
-                              <Layers size={13} />
-                              <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
-                            </Button>
-                            {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div className="mt-[3px] text-[12px] text-amber-700">Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
-                          </>
-                        ) : trackingMode === 'SERIAL' ? (
-                          <Button
-                            type="button"
-                            onClick={() => handleOpenSerialModal(index)}
-                            variant="outline"
-                            size="xs"
-                            className={cn(
-                              'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
-                              serialCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-slate-50 text-slate-500',
+                      <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
+                        {/* Hai khe cố định: [cách theo dõi | nút nhập] để mọi dòng thẳng hàng dù thông thường, lô hay serial. */}
+                        <div className="flex items-center gap-2">
+                          <div className="w-[150px] shrink-0">
+                            {item.newMaterial ? (
+                              <SearchableSelect
+                                options={TRACKING_OPTIONS}
+                                value={trackingMode}
+                                placeholder="Cách theo dõi"
+                                onChange={(value) => handleSetNewMaterialTracking(index, (value || 'NONE') as MaterialTrackingMode)}
+                                clearable={false}
+                                height={32}
+                                className="w-full"
+                              />
+                            ) : (
+                              <span className="block truncate text-[13px] text-slate-600">{TRACKING_SHORT_LABEL[trackingMode]}</span>
                             )}
-                          >
-                            <Barcode size={13} />
-                            <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
-                          </Button>
-                        ) : (
-                          <span className="text-[12px] text-slate-400">Không theo dõi</span>
-                        )}
+                          </div>
+                          <div className="flex w-[104px] shrink-0 flex-col items-start justify-center">
+                            {trackingMode === 'LOT' ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  onClick={() => handleOpenLotModal(index)}
+                                  variant="outline"
+                                  size="xs"
+                                  className={cn(
+                                    'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
+                                    lotCount > 0 ? 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100' : 'bg-slate-50 text-slate-500',
+                                  )}
+                                  title={kind === 'receipt' ? 'Khai báo lô hàng nhận vào' : 'Chọn lô hàng để xuất / điều chuyển'}
+                                >
+                                  <Layers size={13} />
+                                  <span>{lotCount > 0 ? `${lotCount} lô` : 'Lô hàng'}</span>
+                                </Button>
+                                {outbound && lotCount > 0 && allocatedLotQuantity !== item.quantity ? <div className="mt-[3px] text-[12px] text-amber-700">Theo lô {formatNumber(allocatedLotQuantity)}/{formatNumber(item.quantity)}</div> : null}
+                              </>
+                            ) : trackingMode === 'SERIAL' ? (
+                              <Button
+                                type="button"
+                                onClick={() => handleOpenSerialModal(index)}
+                                variant="outline"
+                                size="xs"
+                                className={cn(
+                                  'h-auto gap-1 rounded-sm px-2 py-[3px] text-[12px] font-semibold',
+                                  serialCount > 0 ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100' : 'bg-slate-50 text-slate-500',
+                                )}
+                                title="Nhập danh sách số sê-ri / barcode cho dòng này"
+                              >
+                                <Barcode size={13} />
+                                <span>{serialCount > 0 ? `${serialCount} Sê-ri` : 'Sê-ri'}</span>
+                              </Button>
+                            ) : !item.newMaterial && workspace.permissions?.canManage && itemMaterial && itemMaterial.kind !== 'SERVICE' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleEnableSerial(item)}
+                                className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-blue-600 hover:underline"
+                                title="Bật theo dõi theo serial cho mã này (kèm serial cho tồn hiện có)"
+                              >
+                                Bật serial
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell className="border-b border-slate-100 bg-white px-2.5 py-2 align-middle group-hover/row:bg-[#fafafa]">
                         <Input
@@ -1665,12 +1837,10 @@ export function MovementForm({
                 </div>
                 <div className={`flex min-w-0 flex-col gap-1 [&>div]:min-w-0 col-span-full`}>
                   <Label>Nhà cung cấp</Label>
-                  <Input
+                  <SupplierField
                     value={newLotDraft.supplier}
                     placeholder="VD: Schneider Electric, ABB…"
-                    onChange={(event) =>
-                      setNewLotDraft((draft) => ({ ...draft, supplier: event.target.value }))
-                    }
+                    onChange={(supplier) => setNewLotDraft((draft) => ({ ...draft, supplier }))}
                   />
                 </div>
               </div>
@@ -1679,7 +1849,7 @@ export function MovementForm({
                 {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).map(({ lot, available }) => (
                   <div key={lot.id} className="grid grid-cols-[1fr_110px] gap-3 items-center p-2.5 border border-slate-200 rounded-md bg-slate-50">
                     <div><strong className="text-violet-800">{lot.lotNo}</strong><div className="text-slate-500 text-[12px] mt-0.5">Khả dụng: {formatNumber(available)} {items[lotModalIndex].unit}{lot.expiresOn ? ` · HSD ${formatDate(lot.expiresOn)}` : ''}{lot.qualityStatus !== 'PASSED' ? ` · ${QUALITY_STATUS_LABEL[lot.qualityStatus]}` : ''}</div></div>
-                    <Input type="number" min={0} max={available} className="h-8 px-2 text-[13px] text-right"  value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
+                    <Input type="number" min={0} max={available} className="h-8 px-2 text-[13px]"  value={lotDraft[lot.id] ?? ''} placeholder="0" onChange={(event) => setLotDraft((draft) => ({ ...draft, [lot.id]: Math.min(available, Math.max(0, Number(event.target.value) || 0)) }))} />
                   </div>
                 ))}
                 {lotChoices(lotsByMaterial[items[lotModalIndex].materialCode] ?? [], items[lotModalIndex].warehouseCode || warehouseCode, kind).length === 0 ? <p className="my-2 mx-0 text-slate-500 text-[14px]">Chưa có lô dùng được tại kho này. Phần không chọn lô sẽ lấy từ tồn không theo lô.</p> : null}
@@ -1740,26 +1910,47 @@ export function MovementForm({
               />
               <div className="flex justify-between items-center text-[13px] text-slate-500">
                 <span>
-                  Đã nhận diện: <strong>{parseSerials(serialDraft).length}</strong> sê-ri / Cần: <strong>{items[serialModalIndex].quantity}</strong> cái
+                  Đã nhận diện: <strong>{parseSerialTokens(serialDraft).length}</strong> sê-ri / Cần: <strong>{items[serialModalIndex].quantity}</strong> cái
                 </span>
-                {parseSerials(serialDraft).length !== items[serialModalIndex].quantity ? (
+                {parseSerialTokens(serialDraft).length !== items[serialModalIndex].quantity ? (
                   <span className="text-amber-600 text-[12px]">
                     ℹ Lưu sẽ tự động đồng bộ số lượng dòng
                   </span>
                 ) : null}
               </div>
+              {serialProblems(serialModalIndex, serialDraft).map((problem) => (
+                <p key={problem} role="alert" className="m-0 text-[13px] text-red-600">
+                  {problem}
+                </p>
+              ))}
             </DialogBody>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setSerialModalIndex(null)}>
                 Huỷ
               </Button>
-              <Button type="button" onClick={handleSaveSerials}>
+              <Button type="button" disabled={serialProblems(serialModalIndex, serialDraft).length > 0} onClick={handleSaveSerials}>
                 Xác nhận lưu sê-ri
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      ) : null}
+
+      {enableSerialFor ? (
+        <SerialEnableDialog
+          materialCode={enableSerialFor.code}
+          materialName={enableSerialFor.name}
+          coverage={enableSerialFor.coverage}
+          className="z-1100"
+          backdropClassName="z-1100"
+          onCancel={() => setEnableSerialFor(undefined)}
+          onDone={(count) => {
+            setEnableSerialFor(undefined);
+            toast.success(count > 0 ? `Đã bật theo dõi serial và gắn ${count} serial.` : 'Đã bật theo dõi serial.');
+            onMaterialTrackingChanged?.();
+          }}
+        />
       ) : null}
 
       {/* Modal Con: Tạo Nhanh Vật Tư Mới */}
@@ -1823,6 +2014,24 @@ export function MovementForm({
                   onChange={(val) => setDraftMaterial((prev) => ({ ...prev, type: val }))}
                   clearable={false}
                 />
+              </div>
+
+              <div className={cn(FIELD_BLOCK, 'col-span-2')}>
+                <Label>Cách theo dõi</Label>
+                <SearchableSelect
+                  options={TRACKING_OPTIONS}
+                  value={draftMaterial.tracking}
+                  placeholder="Chọn cách theo dõi..."
+                  onChange={(val) => setDraftMaterial((prev) => ({ ...prev, tracking: (val || 'NONE') as MaterialTrackingMode }))}
+                  clearable={false}
+                />
+                <span className="text-[12px] text-slate-500">
+                  {draftMaterial.tracking === 'SERIAL'
+                    ? 'Nhập kho phải kèm đủ số serial cho từng cái.'
+                    : draftMaterial.tracking === 'LOT'
+                      ? 'Nhập kho khai số lô, hạn dùng; xuất theo lô gần hết hạn trước.'
+                      : 'Chỉ đếm số lượng. Chọn lúc tạo; có tồn rồi thì khó đổi.'}
+                </span>
               </div>
 
               <div className={cn(FIELD_BLOCK, 'col-span-2')}>

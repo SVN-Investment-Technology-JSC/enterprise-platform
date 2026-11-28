@@ -43,11 +43,19 @@ const POLICY_CHANGE_NOTE = 'Cập nhật chính sách phép năm';
 
 const round2 = (value: number) => Math.round(value * 100) / 100;
 
-const NO_CARRYOVER: AnnualLeaveCarryover = {
-  allowed: false,
-  maxDays: 0,
-  expiryMonth: DEFAULT_CARRYOVER_EXPIRY_MONTH,
-};
+/** Chuyển phép sang năm sau của lý do phép năm, đọc từ cột `leave_types`; `allowed` = `maxDays > 0`. */
+function carryoverOf(type: Record<string, any>): AnnualLeaveCarryover {
+  const maxDays = round2(Number(type.max_carryover_days ?? 0));
+  const month = Number(type.carryover_expiry_month);
+  return {
+    allowed: Boolean(type.carryover_allowed) && maxDays > 0,
+    maxDays,
+    expiryMonth:
+      Number.isInteger(month) && month >= 1 && month <= 12
+        ? month
+        : DEFAULT_CARRYOVER_EXPIRY_MONTH,
+  };
+}
 
 /** Gọi trong giao dịch: chỉ lý do phép năm mới được tạo/sửa lịch cộng phép (409 nếu không). */
 export async function assertAnnualLeaveType(
@@ -74,8 +82,8 @@ export interface AnnualLeavePolicyInput {
   readonly advanceAllowed: boolean;
   readonly seniorityTiers: readonly HrmLeaveSeniorityTier[];
   readonly effectiveFrom?: string;
-  /** Phép năm không chuyển sang năm sau: luôn là 0. */
-  readonly maxCarryoverDays: number;
+  /** Số ngày tối đa chuyển sang năm sau; 0 là không chuyển phép (tắt lũy kế). Bỏ trống: giữ giá trị hiện có. */
+  readonly maxCarryoverDays?: number;
   readonly carryoverExpiryMonth?: number;
   readonly expectedUpdatedAt?: string;
 }
@@ -152,9 +160,11 @@ export function validateAnnualLeavePolicyInput(
   }
   if (
     body.maxCarryoverDays !== undefined &&
-    body.maxCarryoverDays !== 0
+    (!Number.isFinite(body.maxCarryoverDays) ||
+      body.maxCarryoverDays < 0 ||
+      body.maxCarryoverDays > MAX_DAYS)
   )
-    invalid('Phép năm không chuyển sang năm sau (số ngày chuyển luôn là 0)');
+    invalid(`Số ngày phép chuyển sang năm sau phải từ 0 đến ${MAX_DAYS}`);
   if (
     body.carryoverExpiryMonth !== undefined &&
     (!Number.isInteger(body.carryoverExpiryMonth) ||
@@ -177,7 +187,8 @@ export function validateAnnualLeavePolicyInput(
     advanceAllowed: body.advanceAllowed,
     seniorityTiers: tiers as HrmLeaveSeniorityTier[],
     effectiveFrom: body.effectiveFrom,
-    maxCarryoverDays: 0,
+    maxCarryoverDays:
+      body.maxCarryoverDays === undefined ? undefined : round2(body.maxCarryoverDays),
     carryoverExpiryMonth: body.carryoverExpiryMonth,
     expectedUpdatedAt: body.expectedUpdatedAt,
   };
@@ -271,7 +282,7 @@ export async function readAnnualLeavePolicy(
         minYears: Number(t.min_years),
         bonusDays: Number(t.bonus_days),
       })),
-      carryover: NO_CARRYOVER,
+      carryover: carryoverOf(type),
       updatedAt: policyVersion(type, schedules),
     };
   }
@@ -452,12 +463,18 @@ export async function saveAnnualLeavePolicy(
       );
   }
   const before = await readAnnualLeavePolicy(db, tenant);
-  // Phép năm không chuyển sang năm sau: ép tắt chuyển phép, số ngày chuyển luôn 0.
-  const expiryMonth = DEFAULT_CARRYOVER_EXPIRY_MONTH;
+  // Chuyển phép sang năm sau: bỏ trống thì giữ cấu hình hiện có; lý do mới chọn làm phép năm bắt đầu từ tắt.
+  const currentCarry = existing ? carryoverOf(existing) : null;
+  const maxCarryDays = input.maxCarryoverDays ?? currentCarry?.maxDays ?? 0;
+  const carryAllowed = maxCarryDays > 0;
+  const expiryMonth =
+    input.carryoverExpiryMonth ??
+    currentCarry?.expiryMonth ??
+    DEFAULT_CARRYOVER_EXPIRY_MONTH;
   try {
     await db.query(
-      `UPDATE hrm_schema.leave_types SET is_annual=true,paid=true,deduct_balance=true,active=true,carryover_allowed=false,max_carryover_days=0,carryover_expiry_month=$3,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2`,
-      [tenant, type.id, expiryMonth],
+      `UPDATE hrm_schema.leave_types SET is_annual=true,paid=true,deduct_balance=true,active=true,carryover_allowed=$4,max_carryover_days=$5,carryover_expiry_month=$3,updated_at=GREATEST(clock_timestamp(),updated_at+interval '1 millisecond') WHERE tenant_id=$1 AND id=$2`,
+      [tenant, type.id, expiryMonth, carryAllowed, maxCarryDays],
     );
   } catch (error) {
     if ((error as { code?: string })?.code === '23505')

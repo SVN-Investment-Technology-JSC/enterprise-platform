@@ -18,7 +18,10 @@ import {
   Settings2,
   Upload,
 } from 'lucide-react';
-import type { HrmLeaveBalanceListItem } from '@enterprise-platform/contracts-hrm';
+import type {
+  AnnualLeavePolicyResponse,
+  HrmLeaveBalanceListItem,
+} from '@enterprise-platform/contracts-hrm';
 import { hrmFetch } from '../hrm-api';
 import { downloadStyledXlsx } from '../hrm-xlsx';
 import { employeeInitials, normalizeSearchText } from '../hrm-employee-view';
@@ -213,6 +216,30 @@ function SignDateNote({ row }: { row: Row }) {
   );
 }
 
+/** Phép dư năm cũ đã chuyển sang năm này; ghi chú phần còn lại và hạn dùng khi có. */
+function CarryoverCell({ row }: { row: Row }) {
+  const carried = Number(row.carryover || 0);
+  if (carried <= 0) return DASH;
+  const left = Number(row.carryoverRemaining || 0);
+  return (
+    <span
+      className="inline-flex flex-col items-end"
+      title={
+        row.carryoverExpiryDate
+          ? `Hết hạn ${dateVn(row.carryoverExpiryDate)}`
+          : undefined
+      }
+    >
+      {formatLeaveNumber(carried)}
+      {left !== carried ? (
+        <span className="text-[11px] font-normal text-slate-500">
+          còn {formatLeaveNumber(left)}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function ColumnHeader({
   label,
   help,
@@ -264,7 +291,7 @@ function sortByDepartment(rows: readonly Row[]): Row[] {
 }
 
 const TH = 'px-3 py-2.5';
-const COLUMN_COUNT = 9;
+const BASE_COLUMN_COUNT = 9;
 const DASH = <span className="text-slate-400">—</span>;
 
 /**
@@ -281,6 +308,8 @@ export default function LeaveBalancesScreen() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('ALL');
   const [rows, setRows] = useState<Row[]>([]);
+  /** Tháng hết hạn phép lũy kế khi chính sách bật lũy kế; null = tắt (không hiện cột Lũy kế). */
+  const [carryoverMonths, setCarryoverMonths] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('ALL');
@@ -307,10 +336,18 @@ export default function LeaveBalancesScreen() {
     setBusy(true);
     setError('');
     try {
-      const result = await hrmFetch<{ data: Row[] }>(
-        `/leave-balances?year=${year}&annual_only=1`,
-      );
-      if (seq === loadSeq.current) setRows(result.data);
+      const [result, policy] = await Promise.all([
+        hrmFetch<{ data: Row[] }>(`/leave-balances?year=${year}&annual_only=1`),
+        // Cột Lũy kế phụ thuộc chính sách; không đọc được chính sách thì chỉ ẩn cột, không chặn danh sách.
+        hrmFetch<AnnualLeavePolicyResponse>('/annual-leave-policy').catch(
+          () => null,
+        ),
+      ]);
+      if (seq === loadSeq.current) {
+        setRows(result.data);
+        const carry = policy?.policy?.carryover;
+        setCarryoverMonths(carry?.allowed ? carry.expiryMonth : null);
+      }
     } catch (e) {
       if (seq === loadSeq.current) {
         setRows([]);
@@ -325,6 +362,9 @@ export default function LeaveBalancesScreen() {
     if (!canRead) return;
     void load();
   }, [canRead, load]);
+
+  const showCarryover = carryoverMonths !== null;
+  const columnCount = BASE_COLUMN_COUNT + (showCarryover ? 1 : 0);
 
   const filtered = useMemo(() => {
     const needle = normalizeSearchText(search);
@@ -396,6 +436,7 @@ export default function LeaveBalancesScreen() {
       'Họ và tên',
       'Phòng ban',
       'Năm',
+      ...(showCarryover ? ['Lũy kế'] : []),
       'Còn tồn',
       'Đã dùng',
       'Có thể ứng',
@@ -417,6 +458,7 @@ export default function LeaveBalancesScreen() {
             r.employeeName,
             department,
             r.year,
+            ...(showCarryover ? [hasNoBalance(r) ? '' : Number(r.carryover || 0)] : []),
             hasNoBalance(r) ? '' : leaveBalanceFigures(r).stock,
             hasNoBalance(r) ? '' : leaveBalanceFigures(r).used,
             hasNoBalance(r) ? '' : leaveBalanceFigures(r).advance,
@@ -580,6 +622,13 @@ export default function LeaveBalancesScreen() {
                       </th>
                       <th className={TH}>Tên nhân viên</th>
                       <th className={TH}>Phòng ban</th>
+                      {showCarryover ? (
+                        <ColumnHeader
+                          className={`${TH} text-right`}
+                          label="Lũy kế"
+                          help={`Phép dư của năm cũ, hết hạn sau ${carryoverMonths} tháng.`}
+                        />
+                      ) : null}
                       <ColumnHeader
                         className={`${TH} text-right`}
                         label="Còn tồn"
@@ -616,7 +665,7 @@ export default function LeaveBalancesScreen() {
                     {filtered.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={COLUMN_COUNT}
+                          colSpan={columnCount}
                           className="p-8 text-center text-slate-400"
                         >
                           {emptyText}
@@ -670,6 +719,11 @@ export default function LeaveBalancesScreen() {
                             <td className="px-3 py-2.5 text-slate-700">
                               {departmentOf(r)}
                             </td>
+                            {showCarryover ? (
+                              <td className="px-3 py-2.5 text-right">
+                                {none ? DASH : <CarryoverCell row={r} />}
+                              </td>
+                            ) : null}
                             <td className="px-3 py-2.5 text-right">
                               {none ? DASH : <StockCell value={f.stock} />}
                             </td>

@@ -90,6 +90,26 @@ describe('inventory module capabilities', () => {
     await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
     expect(reader.request.inventoryActor).toMatchObject({ canWriteQuality: false });
   });
+  it('vị trí lưu trữ: sửa dùng chung quyền sửa danh mục (inventory.manage), đọc chỉ cần quyền đọc', async () => {
+    const paths: [string, string][] = [
+      ['PUT', '/materials/VT-001/storage-locations/KHO-A'],
+      ['PUT', '/warehouses/KHO-A/location-levels'],
+    ];
+    for (const [method, path] of paths) {
+      // Người ghi phát sinh tồn kho không đủ quyền sửa danh mục.
+      const writer = setup(['inventory.read', 'inventory.transaction.write'], path, method);
+      await expect(writer.guard.canActivate(writer.context)).rejects.toMatchObject({ status: 403 });
+      const readOnly = setup(['inventory.read'], path, method);
+      await expect(readOnly.guard.canActivate(readOnly.context)).rejects.toMatchObject({ status: 403 });
+      const manager = setup(['inventory.read', 'inventory.manage'], path, method);
+      await expect(manager.guard.canActivate(manager.context)).resolves.toBe(true);
+      expect(manager.request.inventoryActor).toMatchObject({ canManage: true });
+    }
+    for (const path of ['/materials/VT-001/storage-locations', '/warehouses/KHO-A/storage-locations', '/storage-locations']) {
+      const reader = setup(['inventory.read'], path, 'GET');
+      await expect(reader.guard.canActivate(reader.context)).resolves.toBe(true);
+    }
+  });
   it('reversing a stock document needs document.approve, not transaction.write (ISS-BE-006)', async () => {
     const writer = setup(['inventory.read', 'inventory.transaction.write'], '/stock-documents/abc/reverse');
     await expect(writer.guard.canActivate(writer.context)).rejects.toMatchObject({

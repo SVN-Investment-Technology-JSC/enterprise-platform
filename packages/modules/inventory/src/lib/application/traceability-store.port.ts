@@ -2,6 +2,7 @@ import type {
   Lot,
   LotDetail,
   QualityStatus,
+  SerialCoverage,
   SerialHistory,
 } from '@enterprise-platform/contracts-inventory';
 import type { LotCandidate } from '../domain/traceability-policy.js';
@@ -29,6 +30,40 @@ export interface TraceabilityStore {
    * thì 409; không có thì null.
    */
   serialHistory(tenantId: string, serial: string, materialCode?: string): Promise<SerialHistory | null>;
+  /** Mức phủ serial theo kho của một mặt hàng; ném 404 khi không có mặt hàng. */
+  serialCoverage(tenantId: string, materialCode: string): Promise<SerialCoverage[]>;
+  /**
+   * Gắn serial cho hàng đã có trong tồn của một kho, trong một transaction: khoá dòng tồn,
+   * kiểm số serial không vượt phần chưa gắn, ghi serial Trong kho và lịch sử ADJUSTMENT.
+   */
+  assignSerialsToStock(
+    tenantId: string,
+    input: {
+      materialCode: string;
+      warehouseCode: string;
+      serials: readonly string[];
+      actorId: string;
+      defaultStatus: string;
+      defaultLocationType: string;
+    },
+  ): Promise<{ assigned: number; coverage: SerialCoverage }>;
+  /**
+   * Bật theo dõi serial cho mặt hàng NONE kèm serial cho toàn bộ tồn ở mọi kho, trong MỘT transaction: đổi
+   * `tracking_mode` sang SERIAL, ghi `material_tracking_history`, ghi serial Trong kho và lịch sử ADJUSTMENT.
+   * Từ chối khi mặt hàng là dịch vụ, đã theo lô hoặc serial, có lô, đang giữ hàng, hoặc số serial từng kho
+   * không khớp tồn. Lỗi thì không đổi gì.
+   */
+  enableSerialTracking(
+    tenantId: string,
+    input: {
+      materialCode: string;
+      assignments: readonly { warehouseCode: string; serials: readonly string[] }[];
+      actorId: string;
+      reason?: string;
+      defaultStatus: string;
+      defaultLocationType: string;
+    },
+  ): Promise<{ assigned: number; coverage: SerialCoverage[] }>;
   /** Khoá serial, gọi `decide`, cập nhật tồn không Đạt và ghi lịch sử trong một transaction. */
   changeSerialQuality(
     tenantId: string,

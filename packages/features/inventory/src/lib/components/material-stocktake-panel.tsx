@@ -277,9 +277,9 @@ export function MaterialStocktakePanel(props: {
               <TableHead>
                 <tr>
                   <TableHeaderCell className="px-[10px] py-[6px]">Số Lô</TableHeaderCell>
-                  <TableHeaderCell className="px-[10px] py-[6px] text-right">Sổ sách</TableHeaderCell>
-                  <TableHeaderCell className="px-[10px] py-[6px] text-right">Thực đếm</TableHeaderCell>
-                  <TableHeaderCell className="px-[10px] py-[6px] text-right">Chênh lệch</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px]">Sổ sách</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px]">Thực đếm</TableHeaderCell>
+                  <TableHeaderCell className="px-[10px] py-[6px]">Chênh lệch</TableHeaderCell>
                   <TableHeaderCell className="px-[10px] py-[6px]">Hạn sử dụng</TableHeaderCell>
                 </tr>
               </TableHead>
@@ -291,11 +291,11 @@ export function MaterialStocktakePanel(props: {
                       <TableCell className="px-[10px] py-[6px]">
                         <strong>{lot.lotNumber}</strong>
                       </TableCell>
-                      <TableCell className="px-[10px] py-[6px] text-right">{formatNumber(lot.systemQty)} {unit}</TableCell>
-                      <TableCell className="px-[10px] py-[6px] text-right">{formatNumber(lot.actualQty)} {unit}</TableCell>
+                      <TableCell className="px-[10px] py-[6px]">{formatNumber(lot.systemQty)} {unit}</TableCell>
+                      <TableCell className="px-[10px] py-[6px]">{formatNumber(lot.actualQty)} {unit}</TableCell>
                       <TableCell
                         className={cn(
-                          'px-[10px] py-[6px] text-right font-bold',
+                          'px-[10px] py-[6px] font-bold',
                           lotDiff > 0 ? 'text-blue-700' : lotDiff < 0 ? 'text-red-700' : 'text-green-700',
                         )}
                       >

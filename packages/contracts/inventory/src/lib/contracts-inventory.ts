@@ -99,7 +99,13 @@ export interface CreateMaterialRequest {
   readonly unit: string;
   readonly minStock?: number;
   readonly maxStock?: number;
+  /** Cờ cũ, tương đương `trackingMode = 'SERIAL'`. Gửi cả hai thì phải khớp nhau. */
   readonly isSerialized?: boolean;
+  /**
+   * Cách theo dõi tồn, chọn riêng cho từng mặt hàng (không có công tắc toàn tenant). Bỏ trống: `SERIAL` nếu
+   * `isSerialized`, ngược lại `NONE`.
+   */
+  readonly trackingMode?: MaterialTrackingMode;
   readonly barcode?: string;
   /** Số sê-ri của vật tư cá thể; tuỳ chọn. */
   readonly serialNumber?: string;
@@ -179,8 +185,15 @@ export interface UpdateMaterialRequest {
   /** Tình trạng và vị trí sử dụng — cùng hai cột với vật tư đã lắp. */
   readonly status?: AssetStatus;
   readonly usageState?: string;
-  /** Bật theo dõi theo cá thể. Khai sê-ri lần đầu tự bật cờ này. */
+  /** Bật theo dõi theo cá thể. Khai sê-ri lần đầu tự bật cờ này. Gửi cùng `trackingMode` thì phải khớp. */
   readonly isSerialized?: boolean;
+  /**
+   * Đổi cách theo dõi. Chỉ đổi được khi mã chưa có tồn, bút toán, chứng từ, giữ hàng, lô hay serial.
+   * Mỗi lần đổi ghi `material_tracking_history`.
+   */
+  readonly trackingMode?: MaterialTrackingMode;
+  /** Lý do đổi cách theo dõi, lưu vào lịch sử; tuỳ chọn. */
+  readonly trackingChangeReason?: string;
   readonly name?: string;
   readonly category?: MaterialCategory;
   readonly unit?: string;
@@ -434,6 +447,52 @@ export type WarehouseType = 'PHYSICAL' | 'VIRTUAL_IN_TRANSIT';
 export type MaterialCategory = 'SPARE_PART' | 'CONSUMABLE' | 'TOOL' | 'ROTABLE';
 
 /**
+ * Cách theo dõi tồn của một mặt hàng. Ba giá trị loại trừ nhau.
+ *
+ * - `NONE`: chỉ đếm số lượng (đinh, vít, ốc không cần truy xuất).
+ * - `LOT`: theo lô (nhiều lần nhập cùng thông tin gom thành một lô; có hạn dùng, kiểm định).
+ * - `SERIAL`: theo từng cá thể có số serial riêng (máy bơm, động cơ, thiết bị đo).
+ *
+ * Độc lập với nhóm (`MaterialCategory`): nhóm chỉ gợi ý giá trị điền sẵn lúc tạo mặt hàng, không quyết định.
+ */
+export const MATERIAL_TRACKING_MODES = ['NONE', 'LOT', 'SERIAL'] as const;
+export type MaterialTrackingMode = (typeof MATERIAL_TRACKING_MODES)[number];
+
+export function isMaterialTrackingMode(value: unknown): value is MaterialTrackingMode {
+  return (MATERIAL_TRACKING_MODES as readonly unknown[]).includes(value);
+}
+
+/**
+ * Nơi duy nhất quyết định một mặt hàng theo dõi thế nào. Bản ghi từ API luôn có `trackingMode`; hàm này còn
+ * phục vụ dữ liệu cũ hơn (chỉ có cờ `isSerialized`) và dữ liệu dựng tay trong test.
+ */
+export function resolveTrackingMode(material?: {
+  readonly trackingMode?: MaterialTrackingMode;
+  readonly isSerialized?: boolean;
+}): MaterialTrackingMode {
+  if (!material) return 'NONE';
+  if (isMaterialTrackingMode(material.trackingMode)) return material.trackingMode;
+  return material.isSerialized ? 'SERIAL' : 'NONE';
+}
+
+/** Gợi ý cách theo dõi theo nhóm, điền sẵn lúc TẠO mặt hàng. Tenant sửa được ở `tracking.defaultByCategory`. */
+export type TrackingDefaultsByCategory = Readonly<Record<MaterialCategory, MaterialTrackingMode>>;
+
+export const DEFAULT_TRACKING_BY_CATEGORY: TrackingDefaultsByCategory = {
+  SPARE_PART: 'NONE',
+  CONSUMABLE: 'NONE',
+  TOOL: 'SERIAL',
+  ROTABLE: 'SERIAL',
+};
+
+export function suggestTrackingMode(
+  category: MaterialCategory | undefined,
+  defaults: TrackingDefaultsByCategory = DEFAULT_TRACKING_BY_CATEGORY,
+): MaterialTrackingMode {
+  return (category && defaults[category]) || 'NONE';
+}
+
+/**
  * Loại mặt hàng trong danh mục vật tư. SERVICE (dịch vụ, phần mềm) có trong danh
  * mục để Bán hàng chọn nhưng không có dòng tồn; chứng từ kho và giữ hàng từ chối
  * (D6). Thiết bị (`ASSET`) đi đường riêng, không nằm trong union này.
@@ -473,6 +532,11 @@ export interface Warehouse {
   readonly orgUnitId?: string;
   readonly managerUserId?: string;
   readonly location?: string;
+  /**
+   * Tên các cấp vị trí của riêng kho này (ví dụ Khu, Kệ, Ngăn). Không có nghĩa là dùng mẫu của tenant
+   * (`warehouse.location.levels`); mảng rỗng nghĩa là kho này nhập vị trí thành một chuỗi, không chia cấp.
+   */
+  readonly locationLevels?: readonly string[];
   readonly isActive: boolean;
 }
 
@@ -505,6 +569,99 @@ export interface WarehouseLocation {
   readonly qrCode?: string;
 }
 
+// ============================================================================
+// VỊ TRÍ LƯU TRỮ CỦA MẶT HÀNG THEO KHO
+// ============================================================================
+
+/** Độ dài tối đa của chuỗi vị trí và của tên một cấp. */
+export const STORAGE_LOCATION_TEXT_MAX = 255;
+export const STORAGE_LOCATION_LEVEL_NAME_MAX = 50;
+/** Ký tự nối các cấp khi ghép `locationText` từ `segments`. */
+export const STORAGE_LOCATION_SEPARATOR = ' / ';
+
+/**
+ * Một vị trí lưu trữ của mặt hàng trong một kho. Chỉ là thông tin tùy chọn (chuỗi tự do): không ràng buộc với
+ * `WarehouseLocation`, không đổi cách tính tồn. Một cặp (kho, mặt hàng) có thể có nhiều vị trí, đúng một vị trí chính.
+ */
+export interface MaterialStorageLocation {
+  readonly id: string;
+  readonly warehouseCode: string;
+  readonly warehouseName: string;
+  readonly materialCode: string;
+  readonly materialName: string;
+  /** Chuỗi hiển thị và tìm kiếm, ví dụ `Khu A / Kệ 3 / Ngăn 2`. */
+  readonly locationText: string;
+  /** Các phần theo từng cấp, chỉ để form chia ô; lệch với `locationText` thì `locationText` thắng. */
+  readonly segments?: readonly string[];
+  readonly isPrimary: boolean;
+  readonly note?: string;
+  readonly updatedAt: string;
+  readonly updatedBy?: string;
+}
+
+/** Một vị trí khai báo. Thiếu `locationText` thì ghép từ `segments`; cả hai trống thì dòng bị bỏ qua. */
+export interface StorageLocationInput {
+  readonly locationText?: string;
+  readonly segments?: readonly string[];
+  readonly isPrimary?: boolean;
+  readonly note?: string;
+}
+
+/**
+ * Thay toàn bộ danh sách vị trí của một mặt hàng ở một kho trong một lần ghi. Danh sách rỗng là xóa hết vị trí của
+ * cặp đó. Không có vị trí nào đánh dấu chính thì vị trí đầu tiên là vị trí chính.
+ */
+export interface ReplaceStorageLocationsRequest {
+  readonly locations: readonly StorageLocationInput[];
+}
+
+export interface BulkStorageLocationItem {
+  readonly materialCode: string;
+  readonly warehouseCode: string;
+  readonly locationText: string;
+  readonly isPrimary?: boolean;
+  readonly note?: string;
+}
+
+export interface BulkStorageLocationsRequest {
+  readonly items: readonly BulkStorageLocationItem[];
+  /** Cập nhật vị trí chính theo file; mặc định false. */
+  readonly overwritePrimary?: boolean;
+}
+
+export interface BulkStorageLocationsResult {
+  readonly successCount: number;
+  readonly errorCount: number;
+  readonly errors: readonly {
+    readonly materialCode: string;
+    readonly warehouseCode: string;
+    readonly message: string;
+  }[];
+}
+
+export interface StorageLocationQuery {
+  /** Tìm theo chuỗi vị trí, mã hoặc tên mặt hàng. */
+  readonly q?: string;
+  readonly warehouseCode?: string;
+  readonly materialCode?: string;
+  readonly limit?: number;
+}
+
+/** Khai tên cấp của một kho. `levels: null` bỏ ghi đè, kho quay về dùng mẫu của tenant. */
+export interface UpdateWarehouseLocationLevelsRequest {
+  readonly levels: readonly string[] | null;
+}
+
+export interface WarehouseLocationLevels {
+  readonly warehouseCode: string;
+  readonly levels: readonly string[] | null;
+}
+
+/** Mẫu tên cấp của tenant (khoá cài đặt `warehouse.location.levels`). Rỗng là không chia cấp. */
+export interface WarehouseLocationLevelsSettings {
+  readonly levels: readonly string[];
+}
+
 export interface Material {
   readonly type?: AssetType;
   readonly status?: AssetStatus;
@@ -517,6 +674,11 @@ export interface Material {
   readonly minStock: number;
   readonly maxStock: number;
   readonly isSerialized: boolean;
+  /**
+   * Cách theo dõi tồn. API luôn trả; kiểu để tuỳ chọn cho dữ liệu dựng tay, đọc qua `resolveTrackingMode`.
+   * Với hàng theo serial, `isSerialized` luôn khớp (`true`).
+   */
+  readonly trackingMode?: MaterialTrackingMode;
   readonly barcode?: string;
   /**
    * Số sê-ri của chính mã vật tư này. TUỲ CHỌN.
@@ -740,6 +902,55 @@ export interface SerialHistory {
   readonly movements: readonly SerialMovement[];
 }
 
+/**
+ * Mức phủ serial của một mặt hàng tại một kho: tồn trên sổ kho, số serial đã
+ * gắn, số còn thiếu. `unassigned` > 0 nghĩa là còn hàng chưa có số serial.
+ */
+export interface SerialCoverage {
+  readonly warehouseCode: string;
+  readonly warehouseName?: string;
+  /** Tồn trên sổ kho. */
+  readonly quantity: number;
+  /** Số serial đang Trong kho tại kho này. */
+  readonly serialized: number;
+  /** `quantity - serialized`, không âm. */
+  readonly unassigned: number;
+}
+
+/** Gắn số serial cho hàng đã có trong tồn của một kho (hàng nhập từ API, tồn đầu kỳ, không kèm serial). */
+export interface AssignSerialsRequest {
+  readonly materialCode: string;
+  readonly warehouseCode: string;
+  readonly serialNumbers: readonly string[];
+}
+
+export interface AssignSerialsResult {
+  readonly assigned: number;
+  readonly coverage: SerialCoverage;
+}
+
+/** Serial của một kho khi bật theo dõi serial cho mặt hàng đang có tồn. */
+export interface EnableSerialWarehouseInput {
+  readonly warehouseCode: string;
+  readonly serialNumbers: readonly string[];
+}
+
+/**
+ * Bật theo dõi serial cho mặt hàng đang theo dõi thông thường (không theo lô), kèm số serial cho toàn bộ tồn hiện có
+ * ở MỌI kho trong cùng một thao tác: kho nào có tồn thì phải khai đủ đúng bằng số lượng tồn, kho không có tồn thì
+ * không khai. Mặt hàng chưa có tồn thì `assignments` để trống.
+ */
+export interface EnableSerialTrackingRequest {
+  readonly materialCode: string;
+  readonly assignments: readonly EnableSerialWarehouseInput[];
+  readonly reason?: string;
+}
+
+export interface EnableSerialTrackingResult {
+  readonly assigned: number;
+  readonly coverage: readonly SerialCoverage[];
+}
+
 /** Thông tin lô trên dòng nhập: tạo lô mới hoặc cộng vào lô đã có cùng số lô. */
 export interface StockDocumentLotInput {
   readonly lotNo: string;
@@ -857,6 +1068,8 @@ export interface RegisterSerialsRequest {
 
 /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
 export interface UpdateSerialRequest {
+  /** Đổi số serial; chỉ khi serial chưa phát sinh (chưa vào kho, chưa có lịch sử). */
+  readonly serialNumber?: string;
   readonly currentStatus?: string;
   readonly locationType?: string;
   readonly internalCode?: string;
@@ -1199,8 +1412,12 @@ export const INVENTORY_SETTINGS_KEYS = [
   'catalog.asset',
   'catalog.unit',
   'catalog.trade',
+  'catalog.supplier',
+  'supplier.input',
   'documents.approval',
   'costing.method',
+  'warehouse.location.levels',
+  'tracking.defaultByCategory',
 ] as const;
 
 export type InventorySettingsKey = (typeof INVENTORY_SETTINGS_KEYS)[number];
@@ -1259,6 +1476,64 @@ export interface InventoryTradeCatalog {
   readonly usageModes: readonly string[];
 }
 
+/** Trần số nhà cung cấp trong danh mục và độ dài tên (khớp `materials.supplier` varchar 180). */
+export const SUPPLIER_CATALOG_MAX_ITEMS = 500;
+export const SUPPLIER_NAME_MAX_LENGTH = 180;
+
+/**
+ * Danh mục nhà cung cấp của tenant, khai ở Cài đặt.
+ *
+ * Trước đây nhà cung cấp là chữ tự do ở bốn nơi (hồ sơ mặt hàng, lô, bút toán sổ cái), nên "Cty A" và
+ * "Công ty A" là hai nhà khác nhau. Danh mục là danh sách tên chuẩn để chọn; không phải bảng đối tác.
+ */
+export interface InventorySupplierCatalog {
+  readonly suppliers: readonly string[];
+}
+
+/**
+ * Cách nhập nhà cung cấp.
+ * - `CATALOG_ONLY` (mặc định): chỉ chọn từ danh mục. Chỉ có hiệu lực khi danh mục có ít nhất một nhà cung cấp;
+ *   danh mục rỗng thì vẫn nhập tự do, để tenant chưa khai danh mục không bị chặn nhập kho.
+ * - `CATALOG_OR_FREE`: chọn từ danh mục hoặc gõ tự do.
+ */
+export const SUPPLIER_INPUT_MODES = ['CATALOG_ONLY', 'CATALOG_OR_FREE'] as const;
+export type SupplierInputMode = (typeof SUPPLIER_INPUT_MODES)[number];
+
+export interface InventorySupplierInputSettings {
+  readonly mode: SupplierInputMode;
+}
+
+/**
+ * Quy tắc "chỉ chọn từ danh mục" có hiệu lực không: chọn `CATALOG_ONLY` VÀ danh mục có ít nhất một mục.
+ *
+ * Danh mục rỗng thì nhập tự do. Mặc định của tenant là `CATALOG_ONLY` nên nếu rỗng mà vẫn chặn thì mọi lần
+ * nhập kho có nhà cung cấp ở tenant hiện có sẽ lỗi ngay sau khi nâng cấp. Server và giao diện cùng gọi hàm
+ * này để không lệch nhau.
+ */
+export function isSupplierCatalogEnforced(
+  suppliers: readonly string[],
+  mode: SupplierInputMode,
+): boolean {
+  return mode === 'CATALOG_ONLY' && suppliers.some((name) => name.trim() !== '');
+}
+
+/** Một nhà cung cấp tìm thấy trong dữ liệu cũ (chữ tự do), đã gộp các biến thể viết khác nhau. */
+export interface LegacySupplierCandidate {
+  /** Tên đề xuất đưa vào danh mục: biến thể được dùng nhiều nhất. */
+  readonly name: string;
+  /** Các cách viết khác nhau đã gộp vào mục này (gồm cả `name`). */
+  readonly variants: readonly string[];
+  readonly materialCount: number;
+  readonly lotCount: number;
+  readonly transactionCount: number;
+  /** Đã có trong danh mục (so sánh sau chuẩn hóa) nên không cần thêm. */
+  readonly inCatalog: boolean;
+}
+
+export interface LegacySupplierCandidatesResponse {
+  readonly candidates: readonly LegacySupplierCandidate[];
+}
+
 /**
  * Quy tắc duyệt chứng từ kho (nhập khác, xuất khác, điều chỉnh).
  *
@@ -1267,6 +1542,76 @@ export interface InventoryTradeCatalog {
  */
 export interface InventoryDocumentApprovalSettings {
   readonly allowSelfApproval: boolean;
+  /**
+   * `FIXED_APPROVER` (mặc định): loại chứng từ phải duyệt thì chỉ ghi sổ khi Đã duyệt (ISS-BE-006).
+   * `NOT_APPLICABLE`: tenant không áp dụng bước duyệt, tạo chứng từ là ghi sổ ngay.
+   */
+  readonly mode: InventoryApprovalMode;
+  /** Chế độ riêng theo nhóm chứng từ; nhóm không có ở đây thì theo `mode` mặc định. */
+  readonly overrides: Partial<Record<InventoryApprovalGroup, InventoryApprovalMode>>;
+  /**
+   * Người duyệt cố định theo chức danh, áp cho cách duyệt `FIXED_APPROVER`. Khoá `DEFAULT` là của dòng mặc định;
+   * nhóm có chọn riêng cách duyệt dùng khoá của chính nó. Không có khai báo thì ai có quyền duyệt kho đều duyệt được.
+   */
+  readonly approvers: Partial<Record<InventoryApproverKey, InventoryApproverRoute>>;
+}
+
+export type InventoryApproverKey = 'DEFAULT' | InventoryApprovalGroup;
+
+/** Chức danh duyệt và chức danh dự phòng (tuỳ chọn), như cấu hình duyệt trực tiếp của HRM. */
+export interface InventoryApproverRoute {
+  readonly positionId: string;
+  readonly fallbackPositionId?: string;
+}
+
+/** Chức danh trong sơ đồ tổ chức, để chọn làm người duyệt. */
+export interface ApprovalPositionOption {
+  readonly id: string;
+  readonly name: string;
+}
+
+/**
+ * Cách duyệt: `FIXED_APPROVER` người có quyền duyệt kho duyệt trong Kho (mặc định, giữ ISS-BE-006);
+ * `PROCEDURE` duyệt qua Procedure Engine (chưa dùng được); `NOT_APPLICABLE` không áp dụng, tạo phiếu là ghi sổ ngay.
+ */
+export const INVENTORY_APPROVAL_MODES = ['FIXED_APPROVER', 'PROCEDURE', 'NOT_APPLICABLE'] as const;
+export type InventoryApprovalMode = (typeof INVENTORY_APPROVAL_MODES)[number];
+
+/** Nhóm chứng từ cấu hình duyệt riêng, giống từng loại đơn ở cấu hình duyệt của HRM. */
+export const INVENTORY_APPROVAL_GROUPS = ['RECEIPT', 'ISSUE', 'TRANSFER', 'ADJUSTMENT'] as const;
+export type InventoryApprovalGroup = (typeof INVENTORY_APPROVAL_GROUPS)[number];
+
+export const INVENTORY_APPROVAL_GROUP_LABEL: Readonly<Record<InventoryApprovalGroup, string>> = {
+  RECEIPT: 'Phiếu nhập kho',
+  ISSUE: 'Phiếu xuất kho',
+  TRANSFER: 'Phiếu chuyển kho',
+  ADJUSTMENT: 'Phiếu điều chỉnh tồn',
+};
+
+/** Nhóm duyệt của một loại chứng từ. Chuyển kho (cả hai vế) là nhóm riêng, không tính vào nhập hay xuất. */
+export function approvalGroupOf(docType: string): InventoryApprovalGroup {
+  if (docType === 'TRANSFER' || docType === 'ISSUE_TRANSFER' || docType === 'RECEIPT_TRANSFER') return 'TRANSFER';
+  if (docType === 'ADJUSTMENT') return 'ADJUSTMENT';
+  return docType.startsWith('RECEIPT_') ? 'RECEIPT' : 'ISSUE';
+}
+
+/** Khai báo người duyệt áp cho một loại chứng từ, nếu cách duyệt là người duyệt cố định và có khai báo chức danh. */
+export function approverRouteFor(
+  settings: Pick<InventoryDocumentApprovalSettings, 'mode' | 'overrides' | 'approvers'>,
+  docType: string,
+): InventoryApproverRoute | undefined {
+  const group = approvalGroupOf(docType);
+  const own = settings.overrides[group];
+  if ((own ?? settings.mode) !== 'FIXED_APPROVER') return undefined;
+  return settings.approvers[own ? group : 'DEFAULT'];
+}
+
+/** Chế độ áp dụng cho một loại chứng từ: riêng theo nhóm nếu có, không thì mặc định. */
+export function approvalModeFor(
+  settings: Pick<InventoryDocumentApprovalSettings, 'mode' | 'overrides'>,
+  docType: string,
+): InventoryApprovalMode {
+  return settings.overrides[approvalGroupOf(docType)] ?? settings.mode;
 }
 
 /**
@@ -1286,8 +1631,12 @@ export interface InventorySettings {
   readonly 'catalog.asset': InventoryCatalogSettings;
   readonly 'catalog.unit': InventoryUnitCatalog;
   readonly 'catalog.trade': InventoryTradeCatalog;
+  readonly 'catalog.supplier': InventorySupplierCatalog;
+  readonly 'supplier.input': InventorySupplierInputSettings;
   readonly 'documents.approval': InventoryDocumentApprovalSettings;
   readonly 'costing.method': InventoryCostingSettings;
+  readonly 'warehouse.location.levels': WarehouseLocationLevelsSettings;
+  readonly 'tracking.defaultByCategory': TrackingDefaultsByCategory;
 }
 
 export interface SettingsEntry<TValue> {
@@ -1307,6 +1656,18 @@ export interface UpdateSettingsRequest<TValue> {
   readonly value: TValue;
   /** Version đã đọc; lệch thì trả 409. Bỏ trống là ghi đè bất chấp. */
   readonly expectedVersion?: number;
+  /** Lý do đổi, bắt buộc (10 đến 500 ký tự) khi đổi chính sách duyệt chứng từ `documents.approval`. */
+  readonly reason?: string;
+}
+
+/** Một lần đổi chính sách duyệt chứng từ, để hiển thị lịch sử ở Cài đặt. */
+export interface ApprovalPolicyChange {
+  readonly id: string;
+  readonly previous: InventoryDocumentApprovalSettings;
+  readonly current: InventoryDocumentApprovalSettings;
+  readonly reason: string;
+  readonly changedBy?: string;
+  readonly changedAt: string;
 }
 
 // ------------------------------------------------- Tài liệu đính kèm thiết bị
@@ -1414,6 +1775,7 @@ export interface StocktakeLine {
   readonly materialName: string;
   readonly unit: string;
   readonly binLocation?: string;
+  readonly binLocationOriginal?: string;
   readonly isSerialized?: boolean;
   readonly isLotTracked?: boolean;
   readonly systemQuantity: number;
@@ -1521,6 +1883,7 @@ export interface CreateStocktakeRequest {
 
 export interface UpdateStocktakeLineInput {
   readonly lineId: string;
+  readonly binLocation?: string;
   readonly countRound1?: number;
   readonly countRound2?: number;
   readonly actualQuantity?: number;

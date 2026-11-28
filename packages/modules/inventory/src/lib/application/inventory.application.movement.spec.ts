@@ -5,6 +5,8 @@ import type { NewStockDocumentInput, PostOptions, StockDocumentStore } from './s
 
 /** Danh mục giả: mã bắt đầu bằng `SR` theo dõi serial, mã khác là hàng thường. */
 const catalog = {
+  // Đối tác loại SUPPLIER được kiểm theo danh mục nhà cung cấp; danh mục trống nghĩa là nhập tự do.
+  settings: { get: async () => null },
   material: {
     findAnyByCode: jest.fn(async (_tenantId: string, code: string) =>
       ({ code, kind: 'STOCK', isSerialized: code.startsWith('SR') }),

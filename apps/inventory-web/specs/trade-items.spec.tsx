@@ -31,6 +31,10 @@ jest.mock('../../../packages/features/inventory/src/lib/inventory-api', () => ({
   reactivateMaterial: (code: string) => mockReactivate(code),
   deleteMaterial: (code: string) => mockDelete(code),
   loadMaterialHistory: (code: string) => mockHistory(code),
+  // Nhóm Vị trí lưu trữ của drawer và ô tìm theo vị trí: mặc định chưa có vị trí nào.
+  loadMaterialStorageLocations: () => Promise.resolve([]),
+  replaceMaterialStorageLocations: () => Promise.resolve([]),
+  loadStorageLocations: () => Promise.resolve([]),
 }));
 jest.mock('@enterprise-platform/shared-ui', () => ({
   // Các hàm và ô nhập dùng chung là mã thuần, dùng bản thật để test khớp hành vi trên giao diện.
@@ -166,9 +170,9 @@ describe('trade-items.model', () => {
     expect(paginate([], 1, 15)).toMatchObject({ pageCount: 1, from: 0, to: 0, total: 0 });
   });
 
-  it('xuất đủ tám cột, mã sử dụng cũ thành nhãn', () => {
+  it('xuất đủ chín cột, mã sử dụng cũ thành nhãn', () => {
     const [row] = toExportRows([ITEMS[0]] as never);
-    expect(Object.keys(row)).toEqual(['Mã', 'Tên', 'Barcode', 'Nhóm', 'Phân loại', 'Đơn vị', 'Sử dụng', 'Giá bán']);
+    expect(Object.keys(row)).toEqual(['Mã', 'Tên', 'Barcode', 'Nhóm', 'Phân loại', 'Đơn vị', 'Cách theo dõi', 'Sử dụng', 'Giá bán']);
     expect(row['Sử dụng']).toBe('Chỉ bán');
     expect(row['Nhóm']).toBe('Hàng hóa');
     expect(row['Phân loại']).toBe('Dây dẫn');

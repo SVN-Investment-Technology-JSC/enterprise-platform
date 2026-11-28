@@ -15,6 +15,8 @@ const catalog = {
       ({ code, kind: 'STOCK', isSerialized: code.startsWith('SR') }),
     ),
   },
+  // Chưa lưu cài đặt nào: duyệt chứng từ theo mặc định (REQUIRED).
+  settings: { get: jest.fn(async () => undefined) },
 } as unknown as InventoryStore;
 
 const actor: InventoryActor = {

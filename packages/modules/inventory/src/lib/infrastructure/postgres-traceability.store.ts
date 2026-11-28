@@ -8,6 +8,7 @@ import type {
   LotBalance,
   LotDetail,
   QualityStatus,
+  SerialCoverage,
   SerialHistory,
   SerialLastIssue,
   SerialMovement,
@@ -154,6 +155,320 @@ export class PostgresTraceabilityStore implements TraceabilityStore {
     const pool = await this.poolFor(tenantId);
     const row = await this.findSerial(pool, serial, materialCode, false);
     return row ? this.history(pool, row) : null;
+  }
+
+  async serialCoverage(tenantId: string, materialCode: string): Promise<SerialCoverage[]> {
+    const pool = await this.poolFor(tenantId);
+    const materialId = await this.materialId(pool, materialCode);
+    return this.coverage(pool, materialId, undefined);
+  }
+
+  async assignSerialsToStock(
+    tenantId: string,
+    input: {
+      materialCode: string;
+      warehouseCode: string;
+      serials: readonly string[];
+      actorId: string;
+      defaultStatus: string;
+      defaultLocationType: string;
+    },
+  ): Promise<{ assigned: number; coverage: SerialCoverage }> {
+    const pool = await this.poolFor(tenantId);
+    return inTransaction(pool, async (client) => {
+      const material = await client.query<Row>(
+        `SELECT id, kind, tracking_mode FROM inventory_schema.materials WHERE code = $1 FOR UPDATE`,
+        [input.materialCode],
+      );
+      const row = material.rows[0];
+      if (!row) throw new MaterialNotFoundError(input.materialCode);
+      if (str(row.kind) === 'SERVICE') {
+        throw new InventoryError('SERVICE_MATERIAL_NOT_STOCKED', `Mặt hàng dịch vụ không quản lý tồn (${input.materialCode}).`);
+      }
+      if (str(row.tracking_mode) === 'LOT') {
+        throw new InventoryError(
+          'VALIDATION',
+          `Mã ${input.materialCode} đang theo dõi theo lô nên không gắn serial. Hãy đổi cách theo dõi trước.`,
+        );
+      }
+      const materialId = str(row.id);
+      const warehouse = await client.query<Row>(
+        `SELECT id FROM inventory_schema.warehouses WHERE code = $1`,
+        [input.warehouseCode],
+      );
+      if (!warehouse.rows[0]) throw new WarehouseNotFoundError(input.warehouseCode);
+      const warehouseId = str(warehouse.rows[0].id);
+
+      // Khoá dòng tồn để hai người gắn cùng lúc không cùng lấp một chỗ trống.
+      await client.query(
+        `SELECT id FROM inventory_schema.material_inventory
+          WHERE warehouse_id = $1 AND material_id = $2 FOR UPDATE`,
+        [warehouseId, materialId],
+      );
+      const before = (await this.coverage(client, materialId, warehouseId))[0];
+      const room = before?.unassigned ?? 0;
+      if (input.serials.length > room) {
+        throw new InventoryError(
+          'SERIAL_EXCEEDS_STOCK',
+          `Kho ${input.warehouseCode} còn ${room} cái chưa có serial nhưng bạn nhập ${input.serials.length}. ` +
+            'Số serial không được vượt tồn; muốn thêm hàng, lập phiếu nhập kho.',
+          409,
+        );
+      }
+
+      const assigned = await this.placeSerials(client, {
+        materialId,
+        warehouseId,
+        serials: input.serials,
+        actorId: input.actorId,
+        defaultStatus: input.defaultStatus,
+        defaultLocationType: input.defaultLocationType,
+        reason: 'Gắn serial cho hàng đã có trong tồn',
+      });
+
+      // Gắn serial là tuyên bố mã này theo dõi theo cá thể.
+      await client.query(
+        `UPDATE inventory_schema.materials SET tracking_mode = 'SERIAL', is_serialized = true WHERE id = $1`,
+        [materialId],
+      );
+      const coverage = (await this.coverage(client, materialId, warehouseId))[0] as SerialCoverage;
+      return { assigned, coverage };
+    });
+  }
+
+  /**
+   * Ghi serial Trong kho cho tồn đã có của một kho: nhận lại serial đã khai ở danh mục mà chưa vào sổ kho, hoặc tạo
+   * mới, rồi ghi lịch sử ADJUSTMENT. Người gọi giữ transaction và đã khoá dòng tồn.
+   */
+  private async placeSerials(
+    client: Queryable,
+    input: {
+      materialId: string;
+      warehouseId: string;
+      serials: readonly string[];
+      actorId: string;
+      defaultStatus: string;
+      defaultLocationType: string;
+      reason: string;
+    },
+  ): Promise<number> {
+    const { materialId, warehouseId } = input;
+    let assigned = 0;
+    for (const serial of input.serials) {
+      const existing = await client.query<Row>(
+        `SELECT id, stock_state, current_warehouse_id FROM inventory_schema.serial_tracking
+          WHERE material_id = $1 AND upper(btrim(serial_number)) = upper(btrim($2)) FOR UPDATE`,
+        [materialId, serial],
+      );
+      let serialId: string;
+      const found = existing.rows[0];
+      if (found) {
+        // Chỉ nhận lại serial đã khai ở danh mục mà chưa vào sổ kho.
+        if (found.stock_state != null) {
+          throw new InventoryError(
+            'SERIAL_DUPLICATE',
+            `Serial ${serial} đã có trong hệ thống (đang ở sổ kho). Không gắn lại được.`,
+            409,
+          );
+        }
+        serialId = str(found.id);
+        await client.query(
+          `UPDATE inventory_schema.serial_tracking
+              SET stock_state = 'IN_STOCK', current_warehouse_id = $2, updated_at = now()
+            WHERE id = $1`,
+          [serialId, warehouseId],
+        );
+      } else {
+        const created = await client.query<Row>(
+          `INSERT INTO inventory_schema.serial_tracking
+             (id, material_id, serial_number, current_status, location_type, stock_state, current_warehouse_id)
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, 'IN_STOCK', $5) RETURNING id`,
+          [materialId, serial, input.defaultStatus, input.defaultLocationType, warehouseId],
+        );
+        serialId = str(created.rows[0].id);
+      }
+      await client.query(
+        `INSERT INTO inventory_schema.serial_movements
+           (serial_id, material_id, serial_number, movement_type, to_warehouse_id,
+            stock_state, quality_status, reason, actor_id)
+         VALUES ($1, $2, $3, 'ADJUSTMENT', $4, 'IN_STOCK', 'PASSED', $5, $6)`,
+        [serialId, materialId, serial, warehouseId, input.reason, input.actorId],
+      );
+      assigned += 1;
+    }
+    return assigned;
+  }
+
+  async enableSerialTracking(
+    tenantId: string,
+    input: {
+      materialCode: string;
+      assignments: readonly { warehouseCode: string; serials: readonly string[] }[];
+      actorId: string;
+      reason?: string;
+      defaultStatus: string;
+      defaultLocationType: string;
+    },
+  ): Promise<{ assigned: number; coverage: SerialCoverage[] }> {
+    const pool = await this.poolFor(tenantId);
+    return inTransaction(pool, async (client) => {
+      const material = await client.query<Row>(
+        `SELECT id, kind, tracking_mode FROM inventory_schema.materials WHERE code = $1 FOR UPDATE`,
+        [input.materialCode],
+      );
+      const row = material.rows[0];
+      if (!row) throw new MaterialNotFoundError(input.materialCode);
+      if (str(row.kind) !== 'STOCK') {
+        throw new InventoryError(
+          'VALIDATION',
+          `Mã ${input.materialCode} không phải hàng hoá quản lý tồn nên không bật theo dõi serial.`,
+        );
+      }
+      const mode = str(row.tracking_mode);
+      if (mode === 'SERIAL') {
+        throw new InventoryError('VALIDATION', `Mã ${input.materialCode} đã theo dõi theo serial.`);
+      }
+      if (mode === 'LOT') {
+        throw new InventoryError(
+          'VALIDATION',
+          `Mã ${input.materialCode} đang theo dõi theo lô; không chuyển sang serial được vì lô đã ghi số liệu theo từng lô.`,
+        );
+      }
+      const materialId = str(row.id);
+
+      const lots = await client.query<Row>(
+        `SELECT 1 FROM inventory_schema.lots WHERE material_id = $1 LIMIT 1`,
+        [materialId],
+      );
+      if (lots.rows[0]) {
+        throw new InventoryError('VALIDATION', `Mã ${input.materialCode} đã có lô; không chuyển sang theo dõi serial được.`);
+      }
+
+      // Khoá mọi dòng tồn của mã để không ai nhập, xuất xen vào giữa lúc đếm và gắn serial.
+      const stock = await client.query<Row>(
+        `SELECT mi.warehouse_id, w.code AS warehouse_code, mi.quantity, mi.quantity_reserved
+           FROM inventory_schema.material_inventory mi
+           JOIN inventory_schema.warehouses w ON w.id = mi.warehouse_id
+          WHERE mi.material_id = $1 AND (mi.quantity <> 0 OR mi.quantity_reserved <> 0)
+          ORDER BY w.code
+          FOR UPDATE OF mi`,
+        [materialId],
+      );
+      for (const line of stock.rows) {
+        if (num(line.quantity_reserved) > 0) {
+          throw new InventoryError(
+            'VALIDATION',
+            `Kho ${str(line.warehouse_code)} đang giữ hàng cho ${input.materialCode}; huỷ hoặc hoàn tất việc giữ hàng trước khi bật theo dõi serial.`,
+            409,
+          );
+        }
+        const quantity = num(line.quantity);
+        if (quantity < 0 || !Number.isInteger(quantity)) {
+          throw new InventoryError(
+            'VALIDATION',
+            `Kho ${str(line.warehouse_code)} có tồn ${quantity} của ${input.materialCode}; hàng theo serial cần số lượng nguyên không âm. Điều chỉnh tồn trước.`,
+          );
+        }
+      }
+
+      // Mỗi kho có tồn phải khai đủ đúng bằng tồn; kho không có tồn thì không khai.
+      const needByWarehouse = new Map<string, { id: string; need: number }>(
+        stock.rows.map((line) => [str(line.warehouse_code), { id: str(line.warehouse_id), need: num(line.quantity) }]),
+      );
+      const seen = new Set<string>();
+      for (const assignment of input.assignments) {
+        const target = needByWarehouse.get(assignment.warehouseCode);
+        if (!target) {
+          throw new InventoryError(
+            'SERIAL_EXCEEDS_STOCK',
+            `Kho ${assignment.warehouseCode} không có tồn của ${input.materialCode}, không khai serial cho kho này.`,
+            409,
+          );
+        }
+        for (const serial of assignment.serials) {
+          const key = serial.trim().toUpperCase();
+          if (seen.has(key)) {
+            throw new InventoryError('SERIAL_DUPLICATE', `Serial ${serial} bị khai trùng trong cùng yêu cầu.`, 409);
+          }
+          seen.add(key);
+        }
+      }
+      for (const [warehouseCode, target] of needByWarehouse) {
+        const given = input.assignments.find((item) => item.warehouseCode === warehouseCode)?.serials.length ?? 0;
+        if (given !== target.need) {
+          throw new InventoryError(
+            'SERIALS_REQUIRED',
+            `Kho ${warehouseCode} tồn ${target.need} ${input.materialCode}; cần khai đủ ${target.need} serial (đang có ${given}).`,
+            400,
+          );
+        }
+      }
+
+      await client.query(
+        `UPDATE inventory_schema.materials SET tracking_mode = 'SERIAL', is_serialized = true WHERE id = $1`,
+        [materialId],
+      );
+      await client.query(
+        `INSERT INTO inventory_schema.material_tracking_history (material_id, from_mode, to_mode, reason, changed_by)
+         VALUES ($1, 'NONE', 'SERIAL', $2, $3::uuid)`,
+        [materialId, input.reason?.trim() || 'Bật theo dõi serial kèm serial cho tồn hiện có', input.actorId],
+      );
+
+      let assigned = 0;
+      for (const assignment of input.assignments) {
+        const target = needByWarehouse.get(assignment.warehouseCode) as { id: string; need: number };
+        assigned += await this.placeSerials(client, {
+          materialId,
+          warehouseId: target.id,
+          serials: assignment.serials,
+          actorId: input.actorId,
+          defaultStatus: input.defaultStatus,
+          defaultLocationType: input.defaultLocationType,
+          reason: 'Bật theo dõi serial: gắn serial cho tồn hiện có',
+        });
+      }
+      return { assigned, coverage: await this.coverage(client, materialId, undefined) };
+    });
+  }
+
+  /** Mức phủ theo kho; có `warehouseId` thì chỉ kho đó. Kho không có tồn lẫn serial thì bỏ qua. */
+  private async coverage(
+    client: Queryable,
+    materialId: string,
+    warehouseId: string | undefined,
+  ): Promise<SerialCoverage[]> {
+    const result = await client.query<Row>(
+      `SELECT w.code, w.name,
+              COALESCE(i.quantity, 0) AS quantity,
+              COALESCE(s.serialized, 0) AS serialized
+         FROM inventory_schema.warehouses w
+         LEFT JOIN (
+           SELECT warehouse_id, SUM(quantity) AS quantity
+             FROM inventory_schema.material_inventory
+            WHERE material_id = $1 GROUP BY warehouse_id
+         ) i ON i.warehouse_id = w.id
+         LEFT JOIN (
+           SELECT current_warehouse_id AS warehouse_id, COUNT(*) AS serialized
+             FROM inventory_schema.serial_tracking
+            WHERE material_id = $1 AND stock_state = 'IN_STOCK'
+            GROUP BY current_warehouse_id
+         ) s ON s.warehouse_id = w.id
+        WHERE ($2::uuid IS NULL OR w.id = $2)
+          AND (COALESCE(i.quantity, 0) > 0 OR COALESCE(s.serialized, 0) > 0)
+        ORDER BY w.code`,
+      [materialId, warehouseId ?? null],
+    );
+    return result.rows.map((row) => {
+      const quantity = num(row.quantity);
+      const serialized = num(row.serialized);
+      return {
+        warehouseCode: str(row.code),
+        warehouseName: opt(row.name),
+        quantity,
+        serialized,
+        unassigned: Math.max(round3(quantity - serialized), 0),
+      };
+    });
   }
 
   async changeSerialQuality(

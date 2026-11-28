@@ -72,7 +72,10 @@ export function requiresApprovalWithoutSource(docType: StockDocumentType): boole
 /** Chứng từ cụ thể có phải qua bước duyệt trước khi ghi sổ không (xét cả chứng từ nguồn). */
 export function documentRequiresApproval(
   document: Pick<StockDocument, 'docType' | 'sourceId'>,
+  approvalWaived = false,
 ): boolean {
+  // Tenant chọn không áp dụng bước duyệt (cài đặt `documents.approval.mode = NOT_APPLICABLE`): không chứng từ nào phải duyệt.
+  if (approvalWaived) return false;
   if (APPROVAL_REQUIRED.has(document.docType)) return true;
   return APPROVAL_REQUIRED_WITHOUT_SOURCE.has(document.docType) && !document.sourceId?.trim();
 }
@@ -130,10 +133,10 @@ export function isExemptOrigin(document: PostableDocument, origin: PostingOrigin
  */
 export function assertPostable(
   document: PostableDocument,
-  context: { readonly origin?: PostingOrigin } = {},
+  context: { readonly origin?: PostingOrigin; readonly approvalWaived?: boolean } = {},
 ): void {
   if (document.status === 'APPROVED') return;
-  if (!documentRequiresApproval(document)) return;
+  if (!documentRequiresApproval(document, context.approvalWaived)) return;
   if (isExemptOrigin(document, context.origin)) return;
   throw new StockDocumentApprovalRequiredError();
 }
@@ -156,9 +159,10 @@ export function canTransition(
   from: StockDocumentStatus,
   to: StockDocumentStatus,
   sourceId?: string,
+  approvalWaived = false,
 ): boolean {
   if (!STOCK_DOCUMENT_TRANSITIONS[from].includes(to)) return false;
-  if (from === 'DRAFT' && to === 'POSTED' && documentRequiresApproval({ docType, sourceId })) {
+  if (from === 'DRAFT' && to === 'POSTED' && documentRequiresApproval({ docType, sourceId }, approvalWaived)) {
     return false;
   }
   return true;
@@ -167,8 +171,9 @@ export function canTransition(
 export function assertTransition(
   document: Pick<StockDocument, 'docType' | 'status'> & Partial<Pick<StockDocument, 'sourceId'>>,
   to: StockDocumentStatus,
+  approvalWaived = false,
 ): void {
-  if (canTransition(document.docType, document.status, to, document.sourceId)) return;
+  if (canTransition(document.docType, document.status, to, document.sourceId, approvalWaived)) return;
   const from = STOCK_DOCUMENT_STATUS_LABELS[document.status];
   if (document.status === 'POSTED') {
     throw new InvalidStockDocumentTransitionError(

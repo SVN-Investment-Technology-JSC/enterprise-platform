@@ -390,6 +390,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
     tenantId: string,
     key: string,
     decide: (current: StockDocument) => StockDocumentChange,
+    options: PostOptions = {},
   ): Promise<PostedStockDocument> {
     const pool = await this.poolFor(tenantId);
     return inTransaction(pool, async (client) => {
@@ -410,7 +411,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
           [current.id, change.to, change.actorId, change.reason ?? null],
         );
       } else {
-        transactions = await this.postLocked(client, tenantId, current, change.actorId);
+        transactions = await this.postLocked(client, tenantId, current, change.actorId, options);
       }
       const document = await this.load(client, current.id, false);
       if (!document) throw new StockDocumentNotFoundError(key);
@@ -435,7 +436,7 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       }
       // Chứng từ cần duyệt (ISS-BE-006): không ghi sổ ngay, chỉ gửi duyệt. Gọi
       // lại cùng khoá thì trả chứng từ ở trạng thái hiện tại.
-      if (documentRequiresApproval(created) && !isExemptOrigin(created, options.origin)) {
+      if (documentRequiresApproval(created, options.approvalWaivedFor?.(created.docType)) && !isExemptOrigin(created, options.origin)) {
         if (created.status === 'DRAFT') {
           await client.query(
             `UPDATE inventory_schema.stock_documents
@@ -1015,7 +1016,10 @@ export class PostgresStockDocumentStore implements StockDocumentStore {
       throw new InventoryError('VALIDATION', 'Chứng từ không có dòng nào để ghi sổ.');
     }
     // Mọi đường ghi sổ (ghi ngay, ghi chứng từ đã duyệt, đảo) cùng kiểm duyệt ở đây.
-    assertPostable(document, { origin: options.origin });
+    assertPostable(document, {
+      origin: options.origin,
+      approvalWaived: options.approvalWaivedFor?.(document.docType),
+    });
     const isReversal = Boolean(document.reversesDocumentId);
     await this.assertPostableMaterials(client, document);
 

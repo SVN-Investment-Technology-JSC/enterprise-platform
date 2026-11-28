@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react';
 import { formatNumber } from '../inventory-labels';
 import { PAGE_SIZES, fold, paginate } from '../trade-items.model';
 import { DrawerField, DrawerSection, MaterialHistorySection, MaterialStockSection, type StockRow } from './material-drawer-sections';
+import { SerialPanel } from './serial-panel';
 import { TablePager } from './table-pager';
 import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
@@ -53,6 +54,8 @@ export function WarehouseStockTab({
   onOpenMovement,
   onOpenStocktake,
   onOpenBulkImport,
+  statuses = [],
+  usageStates = [],
 }: {
   materials: readonly Material[];
   warehouses: readonly Warehouse[];
@@ -61,6 +64,9 @@ export function WarehouseStockTab({
   onOpenMovement?: (init: { kind: 'receipt' | 'issue'; materialCode?: string }) => void;
   onOpenStocktake?: (init?: { warehouseCode?: string }) => void;
   onOpenBulkImport?: () => void;
+  /** Danh mục tình trạng và vị trí sử dụng của serial, theo cấu hình admin. */
+  statuses?: readonly string[];
+  usageStates?: readonly string[];
 }) {
   const [search, setSearch] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
@@ -69,6 +75,7 @@ export function WarehouseStockTab({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [selectedKey, setSelectedKey] = useState<string>();
+  const warehouseCodeById = useMemo(() => new Map(warehouses.map((w) => [w.id, w.code])), [warehouses]);
 
   const rows = useMemo<Row[]>(() => {
     const materialById = new Map(materials.map((material) => [material.id, material]));
@@ -217,7 +224,7 @@ export function WarehouseStockTab({
                 <TableHeaderCell>Tên</TableHeaderCell>
                 <TableHeaderCell>Kho</TableHeaderCell>
                 <TableHeaderCell>Đơn vị</TableHeaderCell>
-                <TableHeaderCell className="text-right">Số lượng</TableHeaderCell>
+                <TableHeaderCell className="text-left">Số lượng</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -235,7 +242,7 @@ export function WarehouseStockTab({
                   <TableCell>{material.name}</TableCell>
                   <TableCell>{warehouse?.name ?? '—'}</TableCell>
                   <TableCell>{material.unit}</TableCell>
-                  <TableCell className="text-right">{formatNumber(line.quantity)}</TableCell>
+                  <TableCell className="text-left">{formatNumber(line.quantity)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -311,6 +318,18 @@ export function WarehouseStockTab({
                   <DrawerField label="Tồn tối đa">{selected.material.maxStock > 0 ? formatNumber(selected.material.maxStock) : ''}</DrawerField>
                 </div>
               </DrawerSection>
+
+              {selected.material.isSerialized || selected.material.trackingMode === 'SERIAL' ? (
+                <DrawerSection title="Serial tại kho này">
+                  <SerialPanel
+                    material={selected.material}
+                    statuses={statuses}
+                    usageStates={usageStates}
+                    warehouseCode={selected.warehouse?.code}
+                    warehouseCodeById={warehouseCodeById}
+                  />
+                </DrawerSection>
+              ) : null}
 
               <DrawerSection title="Lịch sử xuất nhập tại kho này">
                 <MaterialHistorySection

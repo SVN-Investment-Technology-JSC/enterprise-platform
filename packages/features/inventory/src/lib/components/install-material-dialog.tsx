@@ -12,7 +12,8 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { getUnitQuantityConfig } from '../inventory-labels';
 import type { LotAllocation } from '../stock-document.model';
-import { LotPickerDrawer, SerialPickerDrawer } from './stock-document-parts';
+import { SerialCheckboxSelect } from './serial-checkbox-select';
+import { LotPickerDrawer } from './stock-document-parts';
 import { FormError, useFormSubmit } from './form-error';
 import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
@@ -65,7 +66,7 @@ export function InstallMaterialDialog({
   // tự chọn theo FEFO. Đổi vật tư, kho hay số lượng thì chọn lại.
   const [serials, setSerials] = useState<string[]>([]);
   const [lots, setLots] = useState<LotAllocation[]>([]);
-  const [picker, setPicker] = useState<'serial' | 'lot'>();
+  const [picker, setPicker] = useState<'lot'>();
   useEffect(() => {
     setSerials([]);
     setLots([]);
@@ -376,16 +377,28 @@ export function InstallMaterialDialog({
           </div>
 
           {/* Serial hoặc lô xuất lắp: theo đúng sổ kho, như chứng từ xuất */}
-          {materialCode && warehouseCode && valid ? (
+          {materialCode && warehouseCode && valid && serialized ? (
             <div className="flex flex-col gap-[5px]">
-              <Label required={serialized}>{serialized ? 'Serial lắp' : 'Lô xuất'}</Label>
+              <Label required>Serial lắp</Label>
+              <SerialCheckboxSelect
+                materialCode={materialCode}
+                warehouse={pickedWarehouse}
+                limit={amount}
+                value={serials}
+                onChange={setSerials}
+              />
+              {serialsMissing ? (
+                <span className="text-[13px] text-red-700">
+                  Vật tư theo dõi theo serial: chọn đủ {amount} serial đang trong kho {warehouseCode}.
+                </span>
+              ) : null}
+            </div>
+          ) : materialCode && warehouseCode && valid ? (
+            <div className="flex flex-col gap-[5px]">
+              <Label>Lô xuất</Label>
               <div className="flex flex-wrap items-center gap-2.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setPicker(serialized ? 'serial' : 'lot')}
-                >
-                  {serialized ? `Chọn serial (${serials.length}/${amount})` : 'Chọn lô'}
+                <Button type="button" variant="outline" onClick={() => setPicker('lot')}>
+                  Chọn lô
                 </Button>
                 <span className={cn('text-[13px]', serialsMissing ? 'text-red-700' : 'text-slate-600')}>
                   {serialized
@@ -394,7 +407,7 @@ export function InstallMaterialDialog({
                       : `Vật tư theo dõi theo serial: chọn đủ ${amount} serial đang trong kho ${warehouseCode}.`
                     : lots.length > 0
                       ? lots.map((lot) => `${lot.lotNo}: ${lot.quantity}`).join('; ')
-                      : 'Không chọn lô: hệ thống tự lấy lô hạn dùng gần nhất trước (FEFO).'}
+                      : 'Không chọn lô: nếu vật tư quản lý theo lô, hệ thống tự lấy lô hạn dùng gần nhất trước (FEFO).'}
                 </span>
               </div>
             </div>
@@ -434,25 +447,6 @@ export function InstallMaterialDialog({
             </Button>
           </DialogFooter>
         </form>
-      {picker === 'serial' && picked ? (
-        <div onClick={(event) => event.stopPropagation()}>
-          <SerialPickerDrawer
-            open
-            materialCode={picked.code}
-            materialName={picked.name}
-            warehouse={pickedWarehouse}
-            quantity={amount}
-            value={serials}
-            inbound={false}
-            zIndex={PICKER_Z_INDEX}
-            onApply={(next) => {
-              setSerials(next);
-              setPicker(undefined);
-            }}
-            onClose={() => setPicker(undefined)}
-          />
-        </div>
-      ) : null}
       {picker === 'lot' && picked ? (
         <div onClick={(event) => event.stopPropagation()}>
           <LotPickerDrawer

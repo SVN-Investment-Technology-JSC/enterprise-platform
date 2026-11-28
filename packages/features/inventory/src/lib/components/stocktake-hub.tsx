@@ -36,6 +36,8 @@ import {
   AlertTriangle,
   RotateCcw,
   Sparkles,
+  MapPin,
+  X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SearchableSelect, Popconfirm, VnNumberInput, formatCurrencyVn } from '@enterprise-platform/shared-ui';
@@ -104,6 +106,8 @@ export function StocktakeHub({
   // Filter Detail Table
   const [gridSearch, setGridSearch] = useState('');
   const [gridFilter, setGridFilter] = useState<'all' | 'uncounted' | 'diff' | 'lot_serial'>('all');
+  const [sortByLocation, setSortByLocation] = useState(false);
+  const [viewChangedLocations, setViewChangedLocations] = useState(false);
 
   // Modals & Drawers
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
@@ -205,7 +209,7 @@ export function StocktakeHub({
 
   // Lọc Grid lines
   const filteredLines = useMemo(() => {
-    return lines.filter((l) => {
+    const list = lines.filter((l) => {
       if (gridFilter === 'uncounted' && l.actualQuantity !== undefined && l.actualQuantity !== null) {
         return false;
       }
@@ -219,11 +223,29 @@ export function StocktakeHub({
         const q = gridSearch.toLowerCase();
         const matchCode = l.materialCode.toLowerCase().includes(q);
         const matchName = l.materialName.toLowerCase().includes(q);
-        if (!matchCode && !matchName) return false;
+        const matchLoc = (l.binLocation || '').toLowerCase().includes(q);
+        if (!matchCode && !matchName && !matchLoc) return false;
       }
       return true;
     });
-  }, [lines, gridFilter, gridSearch]);
+
+    if (sortByLocation) {
+      return [...list].sort(
+        (a, b) =>
+          (a.binLocation || '').localeCompare(b.binLocation || '') || a.materialCode.localeCompare(b.materialCode),
+      );
+    }
+    return list;
+  }, [lines, gridFilter, gridSearch, sortByLocation]);
+
+  const locationChangedLines = useMemo(() => {
+    return lines.filter(
+      (l) =>
+        l.status !== 'UNCOUNTED' &&
+        Boolean(l.binLocation?.trim()) &&
+        l.binLocation?.trim().toLowerCase() !== (l.binLocationOriginal?.trim().toLowerCase() ?? ''),
+    );
+  }, [lines]);
 
   // Handler cập nhật số lượng trực tiếp trên dòng
   const handleLineCountChange = (lineId: string, val: string) => {
@@ -248,6 +270,13 @@ export function StocktakeHub({
           status,
         };
       }),
+    );
+    setDirty(true);
+  };
+
+  const handleLineLocationChange = (lineId: string, binLocation: string) => {
+    setLines((prev) =>
+      prev.map((l) => (l.id === lineId ? { ...l, binLocation } : l)),
     );
     setDirty(true);
   };
@@ -693,7 +722,11 @@ export function StocktakeHub({
                     ) : (
                       <Popconfirm
                         title="Phê duyệt & Ghi sổ cân kho?"
-                        description={`Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Hệ thống sẽ tự động tạo bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`}
+                        description={
+                          locationChangedLines.length > 0
+                            ? `Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Có ${locationChangedLines.length} mặt hàng thay đổi vị trí sẽ được tự động đồng bộ vào danh mục lưu trữ của kho ${selectedSession.warehouseCode}, cùng bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`
+                            : `Xác nhận phê duyệt đợt kiểm kê ${selectedSession.code}. Hệ thống sẽ tự động tạo bút toán điều chỉnh tồn kho cho ${selectedSession.differenceItems} mặt hàng có chênh lệch và khóa hồ sơ chỉ đọc.`
+                        }
                         okText="Duyệt & Ghi sổ"
                         cancelText="Hủy"
                         okType="primary"
@@ -709,6 +742,18 @@ export function StocktakeHub({
                         </Button>
                       </Popconfirm>
                     )}
+                    {locationChangedLines.length > 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setViewChangedLocations(true)}
+                        className="border-amber-300 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                        title="Xem danh sách các mặt hàng có vị trí thực tế khác so với danh mục"
+                      >
+                        {locationChangedLines.length} vị trí đổi
+                      </Button>
+                    ) : null}
                   </>
                 ) : null}
 
@@ -816,15 +861,26 @@ export function StocktakeHub({
                 </Button>
               </div>
 
-              <div className="relative w-[240px]">
-                <Search size={13} className="pointer-events-none absolute left-2 top-[10px] text-slate-400" />
-                <Input
-                  type="text"
-                  placeholder="Tìm mã hoặc tên VT..."
-                  value={gridSearch}
-                  onChange={(e) => setGridSearch(e.target.value)}
-                  className="h-8 pl-[26px] text-[13px]"
-                />
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={sortByLocation}
+                    onChange={(e) => setSortByLocation(e.target.checked)}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Sắp xếp theo vị trí kệ</span>
+                </label>
+                <div className="relative w-[220px]">
+                  <Search size={13} className="pointer-events-none absolute left-2 top-[10px] text-slate-400" />
+                  <Input
+                    type="text"
+                    placeholder="Tìm mã, tên VT, vị trí..."
+                    value={gridSearch}
+                    onChange={(e) => setGridSearch(e.target.value)}
+                    className="h-8 pl-[26px] text-[13px]"
+                  />
+                </div>
               </div>
             </div>
 
@@ -836,7 +892,7 @@ export function StocktakeHub({
                     <TableHeaderCell className="w-[130px] px-3 py-[10px]">Mã VT</TableHeaderCell>
                     <TableHeaderCell className="px-3 py-[10px]">Tên vật tư &amp; Quy cách</TableHeaderCell>
                     <TableHeaderCell className="w-[65px] px-2 py-[10px] text-center">ĐVT</TableHeaderCell>
-                    <TableHeaderCell className="w-[90px] px-2 py-[10px]">Vị trí kệ</TableHeaderCell>
+                    <TableHeaderCell className="w-[130px] px-2 py-[10px]">Vị trí kệ</TableHeaderCell>
                     <TableHeaderCell className="w-[90px] bg-slate-100 px-2 py-[10px] text-center">Tồn sổ</TableHeaderCell>
                     <TableHeaderCell className="w-[110px] px-2 py-[10px] text-center">Thực đếm</TableHeaderCell>
                     <TableHeaderCell className="w-[85px] px-2 py-[10px] text-center">Lệch</TableHeaderCell>
@@ -884,7 +940,45 @@ export function StocktakeHub({
                         <TableCell className="p-2 text-center text-slate-500">{line.unit}</TableCell>
 
                         {/* Vị trí kệ */}
-                        <TableCell className="p-2 text-[13px] text-slate-600">{line.binLocation || '-----'}</TableCell>
+                        <TableCell className="p-2 text-[13px] text-slate-600">
+                          {isReadOnly ? (
+                            <div className="flex items-center gap-1">
+                              <span>{line.binLocation || '-----'}</span>
+                              {line.binLocation &&
+                              line.binLocationOriginal &&
+                              line.binLocation.trim().toLowerCase() !==
+                                line.binLocationOriginal.trim().toLowerCase() ? (
+                                <span
+                                  className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800 whitespace-nowrap"
+                                  title={`Gốc: ${line.binLocationOriginal}`}
+                                >
+                                  Đổi VT
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={line.binLocation || ''}
+                                placeholder="Vị trí kệ"
+                                onChange={(e) => handleLineLocationChange(line.id, e.target.value)}
+                                className="h-8 w-24 min-w-0 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[12px] font-medium outline-none focus-visible:border-blue-600 focus-visible:ring-1 focus-visible:ring-blue-100"
+                              />
+                              {line.binLocation &&
+                              line.binLocationOriginal &&
+                              line.binLocation.trim().toLowerCase() !==
+                                line.binLocationOriginal.trim().toLowerCase() ? (
+                                <span
+                                  className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800 whitespace-nowrap"
+                                  title={`Gốc: ${line.binLocationOriginal}`}
+                                >
+                                  Đổi VT
+                                </span>
+                              ) : null}
+                            </div>
+                          )}
+                        </TableCell>
 
                         {/* Tồn sổ sách */}
                         <TableCell className="bg-slate-50 p-2 text-center font-bold text-slate-700">
@@ -915,7 +1009,7 @@ export function StocktakeHub({
                               placeholder="Nhập SL"
                               onChange={(value) => handleLineCountChange(line.id, value)}
                               className="h-8 w-20 min-w-0 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-[13px] font-bold outline-none focus-visible:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-100"
-                              style={{ textAlign: 'right' }}
+                              style={{ textAlign: 'left' }}
                             />
                           )}
                         </TableCell>
@@ -1172,6 +1266,75 @@ export function StocktakeHub({
                 className="bg-amber-700 font-bold text-white hover:bg-amber-800"
               >
                 Xác nhận Yêu cầu đếm lại
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* DIALOG XEM DANH SÁCH VỊ TRÍ THAY ĐỔI */}
+      {viewChangedLocations ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[3px]">
+          <div className="flex max-h-[85vh] w-full max-w-[650px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div className="flex items-center gap-2">
+                <MapPin size={18} className="text-amber-600" />
+                <h3 className="m-0 text-base font-bold text-slate-900">
+                  Danh sách vị trí thay đổi ({locationChangedLines.length} mặt hàng)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewChangedLocations(false)}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="Đóng"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <p className="mb-3 text-xs text-slate-500">
+                Khi phê duyệt đợt kiểm kê, các vị trí mới dưới đây sẽ được tự động đồng bộ vào danh mục vị trí lưu trữ của kho{' '}
+                <strong>{selectedSession?.warehouseCode}</strong>.
+              </p>
+              <TableWrap className="rounded-md border border-slate-200">
+                <Table className="text-[13px]">
+                  <TableHead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
+                      <TableHeaderCell className="px-3 py-2">Mã VT</TableHeaderCell>
+                      <TableHeaderCell className="px-3 py-2">Tên vật tư</TableHeaderCell>
+                      <TableHeaderCell className="px-3 py-2">Vị trí gốc</TableHeaderCell>
+                      <TableHeaderCell className="px-3 py-2">Vị trí mới</TableHeaderCell>
+                      <TableHeaderCell className="px-3 py-2">Thao tác đồng bộ</TableHeaderCell>
+                    </tr>
+                  </TableHead>
+                  <TableBody>
+                    {locationChangedLines.map((line) => (
+                      <TableRow key={line.id} className="hover:bg-slate-50">
+                        <TableCell className="px-3 py-2 font-mono font-bold text-blue-700">
+                          {line.materialCode}
+                        </TableCell>
+                        <TableCell className="px-3 py-2 text-slate-800">
+                          {line.materialName}
+                        </TableCell>
+                        <TableCell className="px-3 py-2 text-slate-500">
+                          {line.binLocationOriginal || <span className="italic text-slate-400">(Trống)</span>}
+                        </TableCell>
+                        <TableCell className="px-3 py-2 font-semibold text-emerald-700">
+                          {line.binLocation}
+                        </TableCell>
+                        <TableCell className="px-3 py-2 text-xs text-slate-600">
+                          {line.binLocationOriginal ? 'Cập nhật vị trí chính' : 'Gán vị trí chính mới'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableWrap>
+            </div>
+            <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <Button type="button" onClick={() => setViewChangedLocations(false)}>
+                Đóng
               </Button>
             </div>
           </div>

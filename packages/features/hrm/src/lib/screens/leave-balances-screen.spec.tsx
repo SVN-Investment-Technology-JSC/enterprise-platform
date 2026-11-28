@@ -158,8 +158,10 @@ const transactions = [
   },
 ];
 
-function route(rows: unknown[] = balances) {
+function route(rows: unknown[] = balances, carryover?: { allowed: boolean; expiryMonth: number }) {
   fetchMock.mockImplementation((async (path: string, init?: RequestInit) => {
+    if (path === '/annual-leave-policy')
+      return { policy: carryover ? { carryover: { maxDays: 5, ...carryover } } : null };
     if (path.startsWith('/leave-balances')) return { data: rows };
     if (path.startsWith('/leave-transactions/') && init?.method === 'POST')
       return { data: {} };
@@ -185,6 +187,27 @@ beforeEach(() => {
 });
 
 describe('LeaveBalancesScreen', () => {
+  it('chính sách tắt lũy kế: không có cột Lũy kế', async () => {
+    mockActions.add('hrm.leave.read');
+    route(balances, { allowed: false, expiryMonth: 3 });
+    render(<LeaveBalancesScreen />);
+    await screen.findByText('Nguyễn Văn An');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).not.toContain('Lũy kế');
+  });
+
+  it('chính sách bật lũy kế: có cột Lũy kế, hiện phép dư năm cũ và gắn giải thích hết hạn sau X tháng', async () => {
+    mockActions.add('hrm.leave.read');
+    route(
+      [balance({ carryover: 2, carryoverRemaining: 1, carryoverExpiryDate: '2026-06-30' })],
+      { allowed: true, expiryMonth: 6 },
+    );
+    render(<LeaveBalancesScreen />);
+    await screen.findByText('Nguyễn Văn An');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toContain('Lũy kế');
+    expect(screen.getByRole('button', { name: 'Giải thích Lũy kế' })).toBeTruthy();
+    expect(within(screen.getByTestId('leave-row-e1')).getByText('còn 1')).toBeTruthy();
+  });
+
   it('giữ ngày ký HĐLĐ làm căn cứ tính phép; ngày ký HĐLĐ hiện dưới tên nhân viên', async () => {
     mockActions.add('hrm.leave.read');
     route([

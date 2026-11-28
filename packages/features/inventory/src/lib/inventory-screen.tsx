@@ -25,14 +25,24 @@ import {
   Settings,
   Warehouse,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ApprovalPolicySection } from './components/approval-policy-section';
 import { InventoryDashboard } from './components/inventory-dashboard';
 import { TransactionHub } from './components/transaction-hub';
 import { StocktakeHub } from './components/stocktake-hub';
+import { SerialHub } from './components/serial-hub';
 import { AssetDetail } from './components/asset-detail';
 import { AssetCatalogEditor } from './components/asset-catalog-editor';
 import { ItemProfileDialog } from './components/item-profile-dialog';
+import { LocationLevelsEditor } from './components/location-levels-editor';
 import { UnitCatalogEditor } from './components/unit-catalog-editor';
+import {
+  TrackingSettingsEditor,
+  trackingDraftFromSettings,
+  type TrackingSettingsDraft,
+} from './components/tracking-settings-editor';
+import { SupplierCatalogSection, supplierCatalogSectionKey } from './components/supplier-catalog-section';
+import { SupplierInputProvider, supplierInputState } from './supplier-input';
 import { WarehouseEditor } from './components/warehouse-editor';
 import { AssetForm } from './components/asset-form';
 import { AssetTree } from './components/asset-tree';
@@ -69,6 +79,7 @@ import {
   loadReservations,
   loadTenantHomePath,
   receiveStock,
+  replaceMaterialStorageLocations,
   issueStock,
   uninstallMaterial,
   saveInventorySetting,
@@ -100,11 +111,12 @@ type Tab =
   | 'settings';
 
 /** Năm tab con của trang Kho hàng. */
-type StockSubTab = 'goods' | 'warehouse' | 'movements' | 'history' | 'stocktakes';
+type StockSubTab = 'goods' | 'warehouse' | 'serials' | 'movements' | 'history' | 'stocktakes';
 
 const STOCK_SUB_TABS: readonly { id: StockSubTab; label: string }[] = [
   { id: 'goods', label: 'Hàng hóa' },
   { id: 'warehouse', label: 'Nhà kho' },
+  { id: 'serials', label: 'Serial' },
   { id: 'movements', label: 'Xuất/nhập kho' },
   { id: 'history', label: 'Lịch sử xuất nhập' },
   { id: 'stocktakes', label: 'Lịch sử kiểm đếm' },
@@ -142,18 +154,62 @@ const LEGACY_TAB: Readonly<Record<string, Tab>> = {
   vouchers: 'stock',
 };
 
+const LAST_STOCK_SUB_TAB_KEY = 'inventory:last-stock-subtab';
+
+function isStockSubTab(value: string): value is StockSubTab {
+  return STOCK_SUB_TABS.some((tab) => tab.id === value);
+}
+
+function getStoredStockSubTab(): StockSubTab | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const val = sessionStorage.getItem(LAST_STOCK_SUB_TAB_KEY);
+    if (val && isStockSubTab(val)) return val;
+  } catch {
+    // sessionStorage có thể không truy cập được trong một số môi trường kiểm thử
+  }
+  return undefined;
+}
+
+function setStoredStockSubTab(subTab: StockSubTab): void {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(LAST_STOCK_SUB_TAB_KEY, subTab);
+  } catch {
+    // Bỏ qua
+  }
+}
+
 /**
  * Trang Kho hàng gộp ba trang cũ; link cũ mở đúng tab con tương ứng.
- * Đọc hash thô vì `useHashView` đã đổi hash cũ sang `stock`.
+ * Lưu lại dấu vết subtab cũ đã truy cập thay vì luôn mặc định về subtab đầu tiên.
  */
 function initialStockSubTab(): StockSubTab {
   if (typeof window === 'undefined') return 'goods';
   if (movementHashTarget(window.location.hash)) return 'movements';
-  const raw = window.location.hash.replace(/^#/, '').split('/')[0];
-  if (raw === 'transactions') return 'history';
-  if (raw === 'items' || raw === 'overview' || raw === 'materials' || raw === 'warehouses' || raw === 'serials') {
+
+  const parts = window.location.hash.replace(/^#/, '').split('/');
+  const head = parts[0];
+  const second = parts[1];
+
+  // Hash mới dạng #stock/warehouse, #stock/goods, #stock/movements, #stock/history, #stock/stocktakes
+  if (head === 'stock') {
+    if (second && isStockSubTab(second)) return second;
+    const stored = getStoredStockSubTab();
+    if (stored) return stored;
+    return 'goods';
+  }
+
+  // Hash cũ
+  if (head === 'transactions') return 'history';
+  if (head === 'items' || head === 'overview' || head === 'materials' || head === 'warehouses') {
     return 'warehouse';
   }
+  if (head === 'serials') return 'serials';
+
+  const stored = getStoredStockSubTab();
+  if (stored) return stored;
+
   return 'goods';
 }
 
@@ -168,6 +224,50 @@ export function InventoryScreen() {
     legacy: LEGACY_TAB,
   });
   const [stockSubTab, setStockSubTab] = useState<StockSubTab>(initialStockSubTab);
+  const lastStockSubTabRef = useRef<StockSubTab>(stockSubTab);
+
+  const handleSelectSubTab = useCallback(
+    (subId: StockSubTab) => {
+      setStockSubTab(subId);
+      lastStockSubTabRef.current = subId;
+      setStoredStockSubTab(subId);
+      navigate('stock', subId);
+    },
+    [navigate],
+  );
+
+  const handleViewChange = useCallback(
+    (nextView: Tab) => {
+      if (nextView === 'stock') {
+        const remembered = lastStockSubTabRef.current || getStoredStockSubTab() || stockSubTab || 'goods';
+        navigate('stock', remembered);
+      } else {
+        navigate(nextView);
+      }
+    },
+    [navigate, stockSubTab],
+  );
+
+  // Đồng bộ subtab khi hash đổi (qua điều hướng, nút back/forward trình duyệt, hoặc link trực tiếp)
+  useEffect(() => {
+    if (tab !== 'stock') return;
+    if (hashAsset) {
+      const subKey = hashAsset.split('/')[0];
+      if (isStockSubTab(subKey)) {
+        setStockSubTab(subKey);
+        lastStockSubTabRef.current = subKey;
+        setStoredStockSubTab(subKey);
+      }
+    } else if (typeof window !== 'undefined' && (window.location.hash === '#stock' || window.location.hash === '#stock/')) {
+      // Khi URL hash chỉ là #stock (không có subtab)
+      const remembered = lastStockSubTabRef.current || getStoredStockSubTab();
+      if (remembered && remembered !== 'goods') {
+        setStockSubTab(remembered);
+        navigate('stock', remembered);
+      }
+    }
+  }, [tab, hashAsset, navigate]);
+
   const [movementTarget, setMovementTarget] = useState<MovementHashTarget | undefined>(() =>
     typeof window === 'undefined' ? undefined : movementHashTarget(window.location.hash),
   );
@@ -179,6 +279,8 @@ export function InventoryScreen() {
       if (!target) return;
       setMovementTarget(target);
       setStockSubTab('movements');
+      lastStockSubTabRef.current = 'movements';
+      setStoredStockSubTab('movements');
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -231,7 +333,10 @@ export function InventoryScreen() {
   const [settingsSection, setSettingsSection] = useState('dashboard');
   const [assetCatalogDraft, setAssetCatalogDraft] = useState<InventoryCatalogSettings>();
   const [unitDraft, setUnitDraft] = useState<readonly string[]>([]);
+  /** Mẫu tên cấp vị trí lưu trữ của tenant (thứ tự có ý nghĩa: cấp đầu là lớn nhất). */
+  const [levelsDraft, setLevelsDraft] = useState<readonly string[]>([]);
   const [tradeDraft, setTradeDraft] = useState<InventoryTradeCatalog>();
+  const [trackingDraft, setTrackingDraft] = useState<TrackingSettingsDraft>();
   /** Vật tư đang lắp trên các thiết bị — lá của cây, suy từ sổ cái. */
   const [installed, setInstalled] = useState<InstalledMaterial[]>([]);
   /** Đơn vị đang chờ chọn kho để tháo về, kèm số đang lắp. */
@@ -458,6 +563,7 @@ export function InventoryScreen() {
             unit: item.newMaterial.unit,
             minStock: item.newMaterial.minStock,
             category: 'SPARE_PART',
+            trackingMode: item.newMaterial.trackingMode,
           });
         }
       }
@@ -636,6 +742,7 @@ export function InventoryScreen() {
             minStock: item.newMaterial.minStock,
             maxStock: item.newMaterial.maxStock,
             category: 'SPARE_PART',
+            trackingMode: item.newMaterial.trackingMode,
             barcode: item.newMaterial.barcode,
             manufacturer: item.newMaterial.manufacturer,
             purchasePrice: item.unitCost,
@@ -658,7 +765,16 @@ export function InventoryScreen() {
         });
         if (isPendingStockMovement(result)) pendingCodes.push(result.document.code);
         else importedCodes.push(result.transactionCode);
-      }
+        if (item.locationId?.trim()) {
+          try {
+            await replaceMaterialStorageLocations(item.materialCode, wh, [
+              { locationText: item.locationId.trim(), isPrimary: true },
+            ]);
+          } catch {
+            // Không chặn nhập tồn nếu lưu vị trí kệ gặp lỗi
+          }
+        }
+              }
 
       return movementOutcomeMessage(
         `Đã bổ sung ${importedCodes.length} vật tư vào hệ thống kho`,
@@ -679,7 +795,8 @@ export function InventoryScreen() {
   useEffect(() => {
     // Tab Tài sản cũng cần cấu hình: nó quyết định trường nào được hiện. Kho hàng cần danh mục
     // phân loại và sử dụng của hàng hóa.
-    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets' && tab !== 'stock') return;
+    // Form hàng hóa cần công tắc lô, serial và bảng gợi ý theo nhóm, nên cũng nạp khi mở form.
+    if (tab !== 'dashboard' && tab !== 'settings' && tab !== 'assets' && tab !== 'stock' && form !== 'material') return;
     if (settings) return;
     void loadInventorySettings()
       .then((loaded) => {
@@ -687,10 +804,12 @@ export function InventoryScreen() {
         setCardDraft(loaded['dashboard.cards'].value.cardIds);
         setAssetCatalogDraft(loaded['catalog.asset'].value);
         setUnitDraft(loaded['catalog.unit'].value.units ?? []);
+        setLevelsDraft(loaded['warehouse.location.levels']?.value.levels ?? []);
         setTradeDraft(loaded['catalog.trade']?.value);
+        setTrackingDraft(trackingDraftFromSettings(loaded));
       })
       .catch(() => setSettings(undefined));
-  }, [tab, settings]);
+  }, [tab, form, settings]);
 
   const materialByCode = useMemo(() => {
     const map = new Map<string, Material>();
@@ -792,6 +911,31 @@ export function InventoryScreen() {
     }
   };
 
+  const saveLocationLevels = async () => {
+    if (!settings) return;
+    setSavingCards(true);
+    try {
+      const saved = await saveInventorySetting(
+        'warehouse.location.levels',
+        { levels: levelsDraft },
+        settings['warehouse.location.levels']?.version ?? 0,
+      );
+      setSettings({
+        ...settings,
+        'warehouse.location.levels': saved as InventorySettingsSnapshot['warehouse.location.levels'],
+      });
+      setLevelsDraft((saved as InventorySettingsSnapshot['warehouse.location.levels']).value.levels ?? []);
+      setError(undefined);
+    } catch (cause) {
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được mẫu cấp vị trí.');
+    } finally {
+      setSavingCards(false);
+    }
+  };
+
+  const levelsDirty =
+    JSON.stringify(levelsDraft) !== JSON.stringify(settings?.['warehouse.location.levels']?.value.levels ?? []);
+
   const saveTradeCatalog = async () => {
     if (!settings || !tradeDraft) return;
     setSavingCards(true);
@@ -813,6 +957,32 @@ export function InventoryScreen() {
       setSavingCards(false);
     }
   };
+
+  const saveTracking = async () => {
+    if (!settings || !trackingDraft) return;
+    setSavingCards(true);
+    let next = settings;
+    try {
+      // Chỉ còn bảng gợi ý theo nhóm; cách theo dõi do từng mặt hàng tự chọn, không còn công tắc toàn tenant.
+      const writes = [['tracking.defaultByCategory', trackingDraft.defaults]] as const;
+      for (const [key, value] of writes) {
+        if (JSON.stringify(value) === JSON.stringify(next[key]?.value)) continue;
+        const saved = await saveInventorySetting(key, value, next[key]?.version);
+        next = { ...next, [key]: saved } as InventorySettingsSnapshot;
+      }
+      setTrackingDraft(trackingDraftFromSettings(next));
+      setError(undefined);
+    } catch (cause) {
+      notifyError(cause instanceof Error ? cause.message : 'Không lưu được gợi ý cách theo dõi.');
+    } finally {
+      setSettings(next);
+      setSavingCards(false);
+    }
+  };
+
+  const trackingDirty =
+    trackingDraft !== undefined &&
+    JSON.stringify(trackingDraft) !== JSON.stringify(trackingDraftFromSettings(settings));
 
   const tradeDirty =
     tradeDraft !== undefined &&
@@ -841,6 +1011,9 @@ export function InventoryScreen() {
     [workspace],
   );
 
+  /** Quy tắc nhập nhà cung cấp cho các form (nhập kho, lô): chọn từ danh mục hay gõ tự do. */
+  const supplierInput = useMemo(() => supplierInputState(settings), [settings]);
+
   const catalogDirty =
     assetCatalogDraft !== undefined &&
     JSON.stringify(assetCatalogDraft) !== JSON.stringify(settings?.['catalog.asset'].value);
@@ -852,13 +1025,14 @@ export function InventoryScreen() {
 
   return (
     <InventoryPermissionsContext.Provider value={uiPermissions}>
+    <SupplierInputProvider value={supplierInput}>
     <ModuleShell<Tab>
       moduleKey="inventory"
       appearance="light"
       title="Kho & Tài sản"
       nav={NAV}
       view={tab}
-      onViewChange={navigate}
+      onViewChange={handleViewChange}
       homeHref={homePath}
       actions={null}
       banner={
@@ -1052,7 +1226,7 @@ export function InventoryScreen() {
               onSubmit={async (input) => {
                 const created = await createStocktakeSession(input, workspace);
                 const { session } = await startStocktakeCounting(created.id, workspace);
-                setStockSubTab('stocktakes');
+                handleSelectSubTab('stocktakes');
                 setShowStocktakeDialog(false);
                 setStocktakeInit(undefined);
                 notify(`Đã tạo đợt kiểm kê ${session.code} và bắt đầu phiên đếm.`);
@@ -1069,6 +1243,7 @@ export function InventoryScreen() {
               initialItems={movementInit?.initialItems}
               isDialog={true}
               busy={busy}
+              onMaterialTrackingChanged={() => void reload()}
               onCancel={() => {
                 setForm(undefined);
                 setMovementInit(undefined);
@@ -1088,6 +1263,7 @@ export function InventoryScreen() {
               units={settings?.['catalog.unit'].value.units ?? []}
               types={settings?.['catalog.asset'].value.types ?? []}
               catalog={settings?.['catalog.trade']?.value}
+              trackingDefaults={settings?.['tracking.defaultByCategory']?.value}
               busy={busy}
               onCancel={() => {
                 setForm(undefined);
@@ -1135,8 +1311,7 @@ export function InventoryScreen() {
               cardSelection={settings ? settings['dashboard.cards'].value.cardIds : undefined}
               onNavigate={(target) => {
                 if (target === 'transactions') {
-                  setStockSubTab('history');
-                  navigate('stock');
+                  handleSelectSubTab('history');
                   return;
                 }
                 navigate(target);
@@ -1181,8 +1356,26 @@ export function InventoryScreen() {
                   id: 'warehouses',
                   label: 'Kho',
                   description:
-                    'Sửa xong là lưu ngay, không cần bấm Lưu.',
-                  render: () => <WarehouseEditor disabled={!canManage || savingCards} />,
+                    'Danh sách kho cho phiếu nhập/xuất chọn. Sửa xong là lưu ngay, không cần bấm Lưu. Kho còn hàng thì không ngừng dùng được.',
+                  render: () => (
+                    <WarehouseEditor
+                      disabled={!canManage || savingCards}
+                      templateLevels={settings?.['warehouse.location.levels']?.value.levels ?? []}
+                    />
+                  ),
+                },
+                {
+                  id: 'location-levels',
+                  label: 'Cấp vị trí kho',
+                  description:
+                    'Mẫu tên các cấp vị trí lưu trữ (Khu vực, Dãy, Kệ, Tầng, Ô chứa...) dùng cho mọi kho. Mỗi kho có thể đặt tên cấp riêng ở mục Kho. Không giới hạn số cấp; đổi tên cấp không đổi vị trí đã nhập.',
+                  render: () => (
+                    <LocationLevelsEditor
+                      levels={levelsDraft}
+                      disabled={!canManage || savingCards}
+                      onChange={setLevelsDraft}
+                    />
+                  ),
                 },
                 {
                   id: 'units',
@@ -1193,6 +1386,40 @@ export function InventoryScreen() {
                       usedUnits={usedUnits}
                       disabled={!canManage || savingCards}
                       onChange={setUnitDraft}
+                    />
+                  ),
+                },
+                {
+                  id: 'approval',
+                  label: 'Duyệt chứng từ',
+                  description:
+                    'Chọn bắt buộc duyệt hoặc không áp dụng duyệt cho chứng từ kho, và có cho người lập tự duyệt hay không. Mọi thay đổi ghi nhật ký kèm lý do.',
+                  render: () => (
+                    <ApprovalPolicySection
+                      key={settings?.['documents.approval']?.version ?? 0}
+                      settings={settings}
+                      canManage={canManage}
+                      onSaved={(message) => {
+                        notify(message);
+                        void loadInventorySettings().then(setSettings).catch(() => undefined);
+                      }}
+                    />
+                  ),
+                },
+                {
+                  id: 'suppliers',
+                  label: 'Nhà cung cấp',
+                  description:
+                    'Danh mục nhà cung cấp cho form nhập kho và lô. Chỉ chọn từ danh mục thì "Công ty A" và "CÔNG TY A" không thành hai nhà khác nhau khi tìm và truy xuất.',
+                  render: () => (
+                    <SupplierCatalogSection
+                      key={supplierCatalogSectionKey(settings)}
+                      settings={settings}
+                      canManage={canManage}
+                      onSaved={(message) => {
+                        notify(message);
+                        void loadInventorySettings().then(setSettings).catch(() => undefined);
+                      }}
                     />
                   ),
                 },
@@ -1238,6 +1465,20 @@ export function InventoryScreen() {
                       </div>
                     ) : null,
                 },
+                {
+                  id: 'tracking',
+                  label: 'Gợi ý cách theo dõi',
+                  description:
+                    'Lô và serial là thuộc tính của từng mặt hàng, chọn khi tạo mặt hàng. Bảng này chỉ điền sẵn cách theo dõi theo nhóm; người dùng vẫn đổi được.',
+                  render: () =>
+                    trackingDraft ? (
+                      <TrackingSettingsEditor
+                        value={trackingDraft}
+                        disabled={!canManage || savingCards}
+                        onChange={setTrackingDraft}
+                      />
+                    ) : null,
+                },
               ]}
               activeSectionId={settingsSection}
               readOnly={!canManage}
@@ -1245,36 +1486,48 @@ export function InventoryScreen() {
               /* Khối Kho tự lưu ngay khi sửa nên không bao giờ "bẩn": để nó
                  dùng chung nút Lưu sẽ hiện một nút không làm gì. */
               dirty={
-                settingsSection === 'warehouses'
-                  ? false
-                  : settingsSection === 'asset-fields'
+                settingsSection === 'tracking'
+                  ? trackingDirty
+                  : settingsSection === 'warehouses' || settingsSection === 'suppliers' || settingsSection === 'approval'
+                    ? false
+                    : settingsSection === 'asset-fields'
                     ? catalogDirty
                     : settingsSection === 'units'
                       ? unitsDirty
-                      : settingsSection === 'trade'
-                        ? tradeDirty
-                        : cardsDirty
+                      : settingsSection === 'location-levels'
+                        ? levelsDirty
+                        : settingsSection === 'trade'
+                          ? tradeDirty
+                          : cardsDirty
               }
               saving={savingCards}
               onSave={
-                settingsSection === 'warehouses'
-                  ? () => undefined
-                  : settingsSection === 'asset-fields'
+                settingsSection === 'tracking'
+                  ? saveTracking
+                  : settingsSection === 'warehouses' || settingsSection === 'suppliers' || settingsSection === 'approval'
+                    ? () => undefined
+                    : settingsSection === 'asset-fields'
                     ? saveAssetCatalog
                     : settingsSection === 'units'
                       ? saveUnits
-                      : settingsSection === 'trade'
-                        ? saveTradeCatalog
-                        : saveCards
+                      : settingsSection === 'location-levels'
+                        ? saveLocationLevels
+                        : settingsSection === 'trade'
+                          ? saveTradeCatalog
+                          : saveCards
               }
               onReset={() =>
-                settingsSection === 'asset-fields'
+                settingsSection === 'tracking'
+                  ? setTrackingDraft(trackingDraftFromSettings(settings))
+                  : settingsSection === 'asset-fields'
                   ? setAssetCatalogDraft(settings?.['catalog.asset'].value)
                   : settingsSection === 'units'
                     ? setUnitDraft(settings?.['catalog.unit'].value.units ?? [])
-                    : settingsSection === 'trade'
-                      ? setTradeDraft(settings?.['catalog.trade']?.value)
-                      : setCardDraft(storedCards)
+                    : settingsSection === 'location-levels'
+                      ? setLevelsDraft(settings?.['warehouse.location.levels']?.value.levels ?? [])
+                      : settingsSection === 'trade'
+                        ? setTradeDraft(settings?.['catalog.trade']?.value)
+                        : setCardDraft(storedCards)
               }
             />
           ) : null}
@@ -1293,7 +1546,7 @@ export function InventoryScreen() {
                         ? 'bg-primary font-semibold text-primary-foreground'
                         : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                     )}
-                    onClick={() => setStockSubTab(sub.id)}
+                    onClick={() => handleSelectSubTab(sub.id)}
                   >
                     {sub.label}
                   </button>
@@ -1307,6 +1560,7 @@ export function InventoryScreen() {
                   stock={workspace.stock}
                   catalog={settings?.['catalog.trade']?.value}
                   units={settings?.['catalog.unit']?.value.units}
+                  locationLevels={settings?.['warehouse.location.levels']?.value.levels}
                   onChanged={() => void reload()}
                   onCatalogChanged={() => void loadInventorySettings().then(setSettings).catch(() => undefined)}
                 />
@@ -1317,6 +1571,8 @@ export function InventoryScreen() {
                   materials={workspace.materials}
                   warehouses={workspace.warehouses}
                   stock={workspace.stock}
+                  statuses={settings?.['catalog.asset']?.value.enabledStatuses ?? []}
+                  usageStates={settings?.['catalog.asset']?.value.usageStates ?? []}
                   onOpenBulkImport={canWriteTransactions ? () => setShowBulkImport(true) : undefined}
                   onOpenStocktake={
                     canCreateStocktake
@@ -1334,6 +1590,15 @@ export function InventoryScreen() {
                         }
                       : undefined
                   }
+                />
+              ) : null}
+
+              {stockSubTab === 'serials' ? (
+                <SerialHub
+                  materials={workspace.materials}
+                  warehouses={workspace.warehouses}
+                  statuses={settings?.['catalog.asset']?.value.enabledStatuses ?? []}
+                  usageStates={settings?.['catalog.asset']?.value.usageStates ?? []}
                 />
               ) : null}
 
@@ -1489,6 +1754,7 @@ export function InventoryScreen() {
         </>
       )}
     </ModuleShell>
+    </SupplierInputProvider>
     </InventoryPermissionsContext.Provider>
   );
 }

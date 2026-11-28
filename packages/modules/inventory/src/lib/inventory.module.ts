@@ -3,6 +3,8 @@ import { Module } from '@nestjs/common';
 import { AssetDocumentService } from './application/asset-document.service.js';
 import { InventoryApplication } from './application/inventory.application.js';
 import { INVENTORY_STORE, type InventoryStore } from './application/inventory-store.port.js';
+import { INVENTORY_ORGANIZATION, type InventoryOrganizationPort } from './application/organization.port.js';
+import { HttpInventoryOrganizationReader } from './infrastructure/http-organization.reader.js';
 import { StockDocumentService } from './application/stock-document.service.js';
 import {
   STOCK_DOCUMENT_STORE,
@@ -39,6 +41,13 @@ import { StockMovementService } from './application/stock-movement.service.js';
 import { STOCK_MOVEMENT_STORE, type StockMovementStore } from './application/stock-movement-store.port.js';
 import { PostgresStockMovementStore } from './infrastructure/postgres-stock-movement.store.js';
 import { StockMovementController } from './presentation/stock-movement.controller.js';
+import { StorageLocationService } from './application/storage-location.service.js';
+import {
+  STORAGE_LOCATION_STORE,
+  type StorageLocationStore,
+} from './application/storage-location-store.port.js';
+import { PostgresStorageLocationStore } from './infrastructure/postgres-storage-location.store.js';
+import { StorageLocationController } from './presentation/storage-location.controller.js';
 import { RequisitionFulfilmentService } from './application/requisition-fulfilment.service.js';
 import {
   PROCEDURE_INSTANCE_READER,
@@ -61,6 +70,7 @@ import { LinkableController } from './presentation/linkable.controller.js';
     InternalDocumentsController,
     InventoryReportsController,
     StockMovementController,
+    StorageLocationController,
     RequisitionController,
     LinkableController,
   ],
@@ -82,15 +92,20 @@ import { LinkableController } from './presentation/linkable.controller.js';
     },
     {
       provide: InventoryApplication,
-      useFactory: (store: InventoryStore, documents: StockDocumentStore, traceability: TraceabilityStore) =>
-        new InventoryApplication(store, documents, traceability),
-      inject: [INVENTORY_STORE, STOCK_DOCUMENT_STORE, TRACEABILITY_STORE],
+      useFactory: (
+        store: InventoryStore,
+        documents: StockDocumentStore,
+        traceability: TraceabilityStore,
+        organization: InventoryOrganizationPort,
+      ) => new InventoryApplication(store, documents, traceability, organization),
+      inject: [INVENTORY_STORE, STOCK_DOCUMENT_STORE, TRACEABILITY_STORE, INVENTORY_ORGANIZATION],
     },
+    { provide: INVENTORY_ORGANIZATION, useFactory: () => new HttpInventoryOrganizationReader() },
     {
       provide: StockDocumentService,
-      useFactory: (documents: StockDocumentStore, store: InventoryStore) =>
-        new StockDocumentService(documents, store),
-      inject: [STOCK_DOCUMENT_STORE, INVENTORY_STORE],
+      useFactory: (documents: StockDocumentStore, store: InventoryStore, organization: InventoryOrganizationPort) =>
+        new StockDocumentService(documents, store, organization),
+      inject: [STOCK_DOCUMENT_STORE, INVENTORY_STORE, INVENTORY_ORGANIZATION],
     },
     {
       provide: STOCKTAKE_STORE,
@@ -153,6 +168,17 @@ import { LinkableController } from './presentation/linkable.controller.js';
       useFactory: (store: StockMovementStore) => new StockMovementService(store),
       inject: [STOCK_MOVEMENT_STORE],
     },
+    {
+      provide: STORAGE_LOCATION_STORE,
+      useFactory: (references: TenantDatabaseRegistry, pools: PostgresPoolRegistry) =>
+        new PostgresStorageLocationStore(references, pools),
+      inject: [TenantDatabaseRegistry, PostgresPoolRegistry],
+    },
+    {
+      provide: StorageLocationService,
+      useFactory: (store: StorageLocationStore) => new StorageLocationService(store),
+      inject: [STORAGE_LOCATION_STORE],
+    },
     // Cấp vật tư theo yêu cầu Quy trình (ISS-BE-031): hỏi Quy trình qua API nội bộ (PROCEDURE_API_URL).
     { provide: PROCEDURE_INSTANCE_READER, useFactory: () => new HttpProcedureInstanceReader() },
     {
@@ -175,6 +201,7 @@ import { LinkableController } from './presentation/linkable.controller.js';
     QualityService,
     InventoryReportService,
     StockMovementService,
+    StorageLocationService,
     RequisitionFulfilmentService,
     AssetDocumentService,
     TenantDatabaseRegistry,

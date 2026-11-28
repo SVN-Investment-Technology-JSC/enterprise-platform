@@ -3,6 +3,7 @@ import {
   TenantDatabaseRegistry,
   inTransaction,
 } from '@enterprise-platform/adapter-database';
+import { resolveTrackingMode } from '@enterprise-platform/contracts-inventory';
 import type {
   CreateWarehouseRequest,
   UpdateWarehouseRequest,
@@ -19,6 +20,7 @@ import type {
   InventoryTransaction,
   Material,
   MaterialInventory,
+  MaterialTrackingMode,
   Reservation,
   ReservationItem,
   ReservationShortage,
@@ -39,6 +41,7 @@ import type {
   CreateReservationInput,
   InstalledTracking,
   InventoryStore,
+  RawApprovalPolicyChange,
 } from '../application/inventory-store.port.js';
 import {
   IdempotencyKeyConflictError,
@@ -49,6 +52,8 @@ import {
   ServiceMaterialNotStockedError,
   WarehouseNotFoundError,
 } from '../domain/inventory.error.js';
+import { likePattern } from '../domain/stock-movement.js';
+import type { LegacySupplierValue } from '../domain/supplier-catalog.js';
 import { reservationCreatedEvent } from './inventory-reservation-events.js';
 import {
   OPEN_RESERVATION_STATUSES,
@@ -104,6 +109,9 @@ function mapWarehouse(row: Row): Warehouse {
     orgUnitId: opt(row.org_unit_id),
     managerUserId: opt(row.manager_user_id),
     location: opt(row.location),
+    locationLevels: Array.isArray(row.location_levels)
+      ? row.location_levels.map((name) => String(name))
+      : undefined,
     isActive: Boolean(row.is_active),
   };
 }
@@ -118,6 +126,11 @@ function mapMaterial(row: Row): Material {
     minStock: num(row.min_stock),
     maxStock: num(row.max_stock),
     isSerialized: Boolean(row.is_serialized),
+    // Dòng thiếu cột (câu SELECT liệt kê cột) rơi về suy từ cờ cũ, nên không bao giờ trả giá trị lạ.
+    trackingMode: resolveTrackingMode({
+      trackingMode: row.tracking_mode as MaterialTrackingMode | undefined,
+      isSerialized: Boolean(row.is_serialized),
+    }),
     barcode: opt(row.barcode),
     serialNumber: opt(row.serial_number),
     manufactureYear: row.manufacture_year === null || row.manufacture_year === undefined
@@ -407,13 +420,25 @@ export class PostgresInventoryStore implements InventoryStore {
       return result.rows[0] ? mapMaterial(result.rows[0]) : null;
     },
 
-    list: async (tenantId: string, includeInactive = false): Promise<Material[]> => {
+    list: async (
+      tenantId: string,
+      includeInactive = false,
+      filter?: { readonly locationText?: string },
+    ): Promise<Material[]> => {
       const pool = await this.poolFor(tenantId);
       const whereClause = includeInactive
         ? `WHERE kind IN ('STOCK', 'SERVICE')`
         : `WHERE kind IN ('STOCK', 'SERVICE') AND is_active = true`;
+      const locationText = filter?.locationText?.trim();
+      // Lọc theo vị trí lưu trữ (0026): mặt hàng có ít nhất một vị trí ở kho nào đó khớp chuỗi.
+      const locationClause = locationText
+        ? `AND EXISTS (
+             SELECT 1 FROM inventory_schema.material_storage_locations l
+              WHERE l.material_id = materials.id AND l.location_text ILIKE $1)`
+        : '';
       const result = await pool.query<Row>(
-        `SELECT * FROM inventory_schema.materials ${whereClause} ORDER BY code`,
+        `SELECT * FROM inventory_schema.materials ${whereClause} ${locationClause} ORDER BY code`,
+        locationText ? [likePattern(locationText)] : [],
       );
       return result.rows.map(mapMaterial);
     },
@@ -431,9 +456,9 @@ export class PostgresInventoryStore implements InventoryStore {
             serial_number, manufacture_year, supplier, manufacturer,
             purchase_price, currency, is_active, kind, warranty_months,
             assigned_employee_id, assigned_at, asset_category, trade_mode, sale_price, created_by,
-            trade_category, description, created_at, vat_rate)
+            trade_category, description, created_at, vat_rate, tracking_mode)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $16, $17, $18, $19,
-                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()), $28)
+                 $20, $21, $22, $23, $24, $25, COALESCE($27::timestamptz, now()), $28, $29)
       RETURNING *`,
         [
           input.code,
@@ -464,6 +489,8 @@ export class PostgresInventoryStore implements InventoryStore {
           history?.isActive ?? true,
           history?.createdAt ?? null,
           input.vatRate ?? null,
+          // Trigger `materials_sync_tracking_mode` giữ is_serialized khớp; app đã tính sẵn hai giá trị khớp nhau.
+          resolveTrackingMode(input),
         ],
       );
       return mapMaterial(result.rows[0]);
@@ -578,6 +605,59 @@ export class PostgresInventoryStore implements InventoryStore {
         [code],
       );
       return Boolean(result.rows[0]?.used);
+    },
+
+    hasTrackingFootprint: async (tenantId: string, code: string): Promise<boolean> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT EXISTS (SELECT 1 FROM inventory_schema.material_inventory b WHERE b.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.inventory_transactions t WHERE t.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.reservation_items r WHERE r.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.serial_tracking s WHERE s.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.stock_document_lines l WHERE l.material_id = m.id)
+             OR EXISTS (SELECT 1 FROM inventory_schema.lots l WHERE l.material_id = m.id)
+             AS used
+           FROM inventory_schema.materials m
+          WHERE m.code = $1`,
+        [code],
+      );
+      return Boolean(result.rows[0]?.used);
+    },
+
+    changeTrackingMode: async (
+      tenantId: string,
+      code: string,
+      change: {
+        readonly from: MaterialTrackingMode;
+        readonly to: MaterialTrackingMode;
+        readonly changedBy?: string;
+        readonly reason?: string;
+      },
+    ): Promise<void> => {
+      const pool = await this.poolFor(tenantId);
+      await inTransaction(pool, async (client) => {
+        // Điều kiện `tracking_mode = from`: hai người đổi cùng lúc thì người sau không ghi đè lịch sử của người trước.
+        const changed = await client.query<Row>(
+          `UPDATE inventory_schema.materials
+              SET tracking_mode = $2
+            WHERE code = $1 AND kind IN ('STOCK', 'SERVICE') AND tracking_mode = $3
+        RETURNING id`,
+          [code, change.to, change.from],
+        );
+        const id = changed.rows[0]?.id;
+        if (!id) {
+          throw new InventoryError(
+            'VALIDATION',
+            `Cách theo dõi của mã ${code} vừa được người khác thay đổi. Hãy tải lại rồi thử lại.`,
+          );
+        }
+        await client.query(
+          `INSERT INTO inventory_schema.material_tracking_history
+             (material_id, from_mode, to_mode, reason, changed_by)
+           VALUES ($1, $2, $3, $4, $5::uuid)`,
+          [id, change.from, change.to, change.reason?.trim() || null, change.changedBy ?? null],
+        );
+      });
     },
 
     unserializedStock: async (
@@ -1842,14 +1922,27 @@ export class PostgresInventoryStore implements InventoryStore {
       tenantId: string,
       materialCode: string,
       serialNumber: string,
-      patch: { currentStatus?: string; locationType?: string; internalCode?: string },
+      patch: { currentStatus?: string; locationType?: string; internalCode?: string; newSerialNumber?: string },
     ): Promise<SerialTracking | null> => {
       const pool = await this.poolFor(tenantId);
+      // Sửa số serial chỉ khi chưa phát sinh: số đã vào sổ kho còn nằm trong lịch sử và chứng từ.
+      if (patch.newSerialNumber && patch.newSerialNumber !== serialNumber) {
+        const usage = await this.serialUsage(pool, materialCode, serialNumber);
+        if (usage === 'not_found') return null;
+        if (usage === 'in_use') {
+          throw new InventoryError(
+            'SERIAL_IN_USE',
+            `Serial ${serialNumber} đã phát sinh (vào kho, có lịch sử hoặc nằm trên chứng từ) nên không sửa số. Sai thì dùng chứng từ đảo hoặc điều chỉnh.`,
+            409,
+          );
+        }
+      }
       const result = await pool.query<Row>(
         `UPDATE inventory_schema.serial_tracking s
             SET current_status = COALESCE($3, s.current_status),
                 location_type  = COALESCE($4, s.location_type),
-                internal_code  = COALESCE($5, s.internal_code)
+                internal_code  = COALESCE($5, s.internal_code),
+                serial_number  = COALESCE($6, s.serial_number)
            FROM inventory_schema.materials m
           WHERE m.id = s.material_id AND m.code = $1 AND s.serial_number = $2
       RETURNING s.*, m.code AS material_code`,
@@ -1859,9 +1952,29 @@ export class PostgresInventoryStore implements InventoryStore {
           patch.currentStatus ?? null,
           patch.locationType ?? null,
           patch.internalCode ?? null,
+          patch.newSerialNumber ?? null,
         ],
       );
       return result.rows[0] ? mapSerial(result.rows[0]) : null;
+    },
+
+    remove: async (
+      tenantId: string,
+      materialCode: string,
+      serialNumber: string,
+    ): Promise<'deleted' | 'not_found' | 'in_use'> => {
+      const pool = await this.poolFor(tenantId);
+      const usage = await this.serialUsage(pool, materialCode, serialNumber);
+      if (usage !== 'free') return usage;
+      const result = await pool.query(
+        `DELETE FROM inventory_schema.serial_tracking s
+          USING inventory_schema.materials m
+          WHERE m.id = s.material_id AND m.code = $1 AND s.serial_number = $2
+            AND s.stock_state IS NULL
+            AND NOT EXISTS (SELECT 1 FROM inventory_schema.serial_movements mv WHERE mv.serial_id = s.id)`,
+        [materialCode, serialNumber],
+      );
+      return (result.rowCount ?? 0) > 0 ? 'deleted' : 'in_use';
     },
   };
 
@@ -2056,6 +2169,35 @@ export class PostgresInventoryStore implements InventoryStore {
     },
   };
 
+  suppliers = {
+    listLegacyValues: async (tenantId: string): Promise<LegacySupplierValue[]> => {
+      const pool = await this.poolFor(tenantId);
+      // Ba nơi còn lưu nhà cung cấp bằng chữ tự do; gộp theo từng cách viết, chuẩn hóa để ở tầng ứng dụng.
+      const result = await pool.query<Row>(
+        `SELECT btrim(supplier) AS name, 'MATERIAL' AS source, count(*)::int AS count
+           FROM inventory_schema.materials
+          WHERE supplier IS NOT NULL AND btrim(supplier) <> ''
+          GROUP BY btrim(supplier)
+         UNION ALL
+         SELECT btrim(supplier), 'LOT', count(*)::int
+           FROM inventory_schema.lots
+          WHERE supplier IS NOT NULL AND btrim(supplier) <> ''
+          GROUP BY btrim(supplier)
+         UNION ALL
+         SELECT btrim(counterparty_name), 'TRANSACTION', count(*)::int
+           FROM inventory_schema.inventory_transactions
+          WHERE counterparty_type = 'SUPPLIER'
+            AND counterparty_name IS NOT NULL AND btrim(counterparty_name) <> ''
+          GROUP BY btrim(counterparty_name)`,
+      );
+      return result.rows.map((row) => ({
+        name: String(row.name),
+        source: row.source as LegacySupplierValue['source'],
+        count: Number(row.count),
+      }));
+    },
+  };
+
   settings = {
     list: async (tenantId: string): Promise<SettingsEntry<unknown>[]> => {
       const pool = await this.poolFor(tenantId);
@@ -2085,12 +2227,13 @@ export class PostgresInventoryStore implements InventoryStore {
       value: unknown,
       updatedBy: string,
       expectedVersion?: number,
+      audit?: { readonly previous: unknown; readonly reason: string },
     ): Promise<SettingsEntry<unknown> | null> => {
       const pool = await this.poolFor(tenantId);
       // Mệnh đề WHERE nằm trên nhánh DO UPDATE: dòng chưa tồn tại thì INSERT đi
       // thẳng, dòng đã tồn tại mà version lệch thì không update và không trả
       // dòng nào — bên gọi đọc "không có dòng" thành xung đột version.
-      const result = await pool.query<Row>(
+      const upsert = (db: Pick<Pool, 'query'>) => db.query<Row>(
         `INSERT INTO inventory_schema.module_settings (key, value, version, updated_at, updated_by)
          VALUES ($1, $2::jsonb, 1, now(), $3)
          ON CONFLICT (key) DO UPDATE
@@ -2102,11 +2245,74 @@ export class PostgresInventoryStore implements InventoryStore {
          RETURNING key, value, version, updated_at, updated_by`,
         [key, JSON.stringify(value), updatedBy, expectedVersion ?? null],
       );
-      return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
+      if (!audit) {
+        const result = await upsert(pool);
+        return result.rows[0] ? mapSettingsEntry(result.rows[0]) : null;
+      }
+      // Có nhật ký: lưu và ghi nhật ký cùng một giao dịch, xung đột version thì không ghi gì.
+      return inTransaction(pool, async (client) => {
+        const result = await upsert(client);
+        if (!result.rows[0]) return null;
+        await client.query(
+          `INSERT INTO inventory_schema.approval_policy_log (setting_key, previous, current, reason, changed_by)
+           VALUES ($1, $2::jsonb, $3::jsonb, $4, $5)`,
+          [key, JSON.stringify(audit.previous), JSON.stringify(value), audit.reason, updatedBy],
+        );
+        return mapSettingsEntry(result.rows[0]);
+      });
+    },
+
+    listApprovalPolicyLog: async (tenantId: string, limit: number): Promise<RawApprovalPolicyChange[]> => {
+      const pool = await this.poolFor(tenantId);
+      const result = await pool.query<Row>(
+        `SELECT id, previous, current, reason, changed_by, changed_at
+           FROM inventory_schema.approval_policy_log
+          ORDER BY changed_at DESC
+          LIMIT $1`,
+        [limit],
+      );
+      return result.rows.map((row) => ({
+        id: String(row['id']),
+        previous: row['previous'],
+        current: row['current'],
+        reason: String(row['reason']),
+        changedBy: row['changed_by'] ? String(row['changed_by']) : undefined,
+        changedAt: new Date(row['changed_at'] as string).toISOString(),
+      }));
     },
   };
 
   /** Đổi mã kho, mã vật tư của các dòng giữ hàng sang id; mã không có thì 404. */
+  /**
+   * Serial có đang được dùng không: đã vào sổ kho, đã có lịch sử, đang gắn thiết bị, hoặc nằm trên
+   * chứng từ chưa ghi sổ. `free` mới được sửa số hay xoá.
+   */
+  private async serialUsage(
+    pool: Pool,
+    materialCode: string,
+    serialNumber: string,
+  ): Promise<'free' | 'in_use' | 'not_found'> {
+    const result = await pool.query<Row>(
+      `SELECT s.stock_state, s.current_asset_id,
+              EXISTS (SELECT 1 FROM inventory_schema.serial_movements mv WHERE mv.serial_id = s.id) AS has_history,
+              EXISTS (
+                SELECT 1 FROM inventory_schema.stock_document_lines l
+                 WHERE l.material_id = s.material_id
+                   AND l.serial_numbers IS NOT NULL
+                   AND upper(btrim($2)) = ANY (SELECT upper(btrim(x)) FROM unnest(l.serial_numbers) AS x)
+              ) AS on_document
+         FROM inventory_schema.serial_tracking s
+         JOIN inventory_schema.materials m ON m.id = s.material_id
+        WHERE m.code = $1 AND s.serial_number = $2`,
+      [materialCode, serialNumber],
+    );
+    const row = result.rows[0];
+    if (!row) return 'not_found';
+    return row.stock_state != null || row.current_asset_id != null || row.has_history || row.on_document
+      ? 'in_use'
+      : 'free';
+  }
+
   private async resolveReservationLines(
     client: PoolClient,
     items: CreateReservationInput['items'],

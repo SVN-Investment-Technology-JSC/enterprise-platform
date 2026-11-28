@@ -1099,6 +1099,10 @@ export function ExcelImportDialog({
       const existingMaterial =
         materialMap.get(normalizedCode) || materialMap.get(normalize(rawCode));
       const isNew = !existingMaterial && Boolean(rawCode);
+      // Dịch vụ không có tồn nên không nằm trong phiếu nhập, xuất, chuyển kho (server cũng từ chối).
+      if (movementKind && existingMaterial?.kind === 'SERVICE') {
+        errors.push('Mã này là dịch vụ, không có tồn nên không đưa vào phiếu nhập, xuất, chuyển kho');
+      }
       if (isNew && movementKind && movementKind !== 'receipt') {
         errors.push(
           'Mã vật tư chưa có trong danh mục nên không thể xuất hoặc chuyển kho',
@@ -1953,7 +1957,7 @@ export function ExcelImportDialog({
                       <th className="py-[8px] px-[10px] text-center w-[65px]">
                         ĐVT
                       </th>
-                      <th className="py-[8px] px-[10px] text-right w-[85px]">
+                      <th className="py-[8px] px-[10px] w-[85px]">
                         Số lượng
                       </th>
                       <th className="py-[8px] px-[10px] text-left min-w-[130px]">
@@ -1962,7 +1966,7 @@ export function ExcelImportDialog({
                       <th className="py-[8px] px-[10px] text-left min-w-[120px]">
                         Hãng SX
                       </th>
-                      <th className="py-[8px] px-[10px] text-right w-[110px]">
+                      <th className="py-[8px] px-[10px] w-[110px]">
                         Đơn giá vốn
                       </th>
                       <th className="py-[8px] px-[10px] text-left min-w-[140px]">
@@ -2016,7 +2020,7 @@ export function ExcelImportDialog({
                         <td className="py-[8px] px-[10px] text-center text-[#475569]">
                           {r.unit}
                         </td>
-                        <td className="py-[8px] px-[10px] text-right font-semibold text-[#0f172a]">
+                        <td className="py-[8px] px-[10px] font-semibold text-[#0f172a]">
                           {r.quantity > 0 ? formatQuantityVn(r.quantity) : '—'}
                         </td>
                         <td className="py-[8px] px-[10px] text-[#475569]">
@@ -2027,7 +2031,7 @@ export function ExcelImportDialog({
                         <td className="py-[8px] px-[10px] text-[#475569] text-[12px]">
                           {r.manufacturer || '—'}
                         </td>
-                        <td className="py-[8px] px-[10px] text-right text-[#475569]">
+                        <td className="py-[8px] px-[10px] text-[#475569]">
                           {r.unitCost !== undefined
                             ? formatCurrencyVn(r.unitCost)
                             : '—'}

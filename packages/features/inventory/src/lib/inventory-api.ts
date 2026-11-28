@@ -3,6 +3,8 @@ import type {
   Asset,
   AssetBomLine,
   AssetDocument,
+  BulkStorageLocationsRequest,
+  BulkStorageLocationsResult,
   ChangeQualityRequest,
   CreateAssetDocumentResponse,
   CreateAssetRequest,
@@ -18,12 +20,19 @@ import type {
   InventorySettingsKey,
   InventorySettingsSnapshot,
   InventoryTransaction,
+  LegacySupplierCandidatesResponse,
   Lot,
   LotDetail,
   LotSuggestion,
   Material,
   MaterialInventory,
+  MaterialStorageLocation,
   RegisterSerialsRequest,
+  AssignSerialsRequest,
+  AssignSerialsResult,
+  EnableSerialTrackingRequest,
+  EnableSerialTrackingResult,
+  SerialCoverage,
   Reservation,
   MaterialDeleteResult,
   RetireResult,
@@ -31,6 +40,8 @@ import type {
   SerialHistory,
   SerialTracking,
   SettingsEntry,
+  ApprovalPolicyChange,
+  ApprovalPositionOption,
   IssueStockRequest,
   MovementBatchRequest,
   PendingStockMovement,
@@ -68,6 +79,9 @@ import type {
   StockMovementReportQuery,
   StockReport,
   StockReportQuery,
+  StorageLocationInput,
+  StorageLocationQuery,
+  WarehouseLocationLevels,
 } from '@enterprise-platform/contracts-inventory';
 import { authFetch } from '@enterprise-platform/shared-ui';
 
@@ -460,6 +474,34 @@ export function registerSerials(
   });
 }
 
+/** Mọi serial của tenant, cho màn quản lý serial. */
+export function loadAllSerials(): Promise<SerialTracking[]> {
+  return request<SerialTracking[]>('/serials');
+}
+
+/** Xoá serial mới khai mà chưa phát sinh; đã phát sinh thì server từ chối. */
+export function deleteSerial(materialCode: string, serialNumber: string): Promise<{ deleted: true }> {
+  return request<{ deleted: true }>(
+    `/serials/${encodeURIComponent(materialCode)}/${encodeURIComponent(serialNumber)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** Mức phủ serial theo kho: tồn, đã gắn serial, còn thiếu. */
+export function loadSerialCoverage(materialCode: string): Promise<SerialCoverage[]> {
+  return request<SerialCoverage[]>(`/serials/coverage?materialCode=${encodeURIComponent(materialCode)}`);
+}
+
+/** Bật theo dõi serial cho mặt hàng đang có tồn, kèm serial cho tồn ở mọi kho. */
+export function enableSerialTracking(input: EnableSerialTrackingRequest): Promise<EnableSerialTrackingResult> {
+  return request<EnableSerialTrackingResult>('/serials/enable', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Gắn serial cho hàng đã có trong tồn của một kho (không đổi số lượng tồn). */
+export function assignSerials(input: AssignSerialsRequest): Promise<AssignSerialsResult> {
+  return request<AssignSerialsResult>('/serials/assign', { method: 'POST', body: JSON.stringify(input) });
+}
+
 /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
 export function updateSerial(
   materialCode: string,
@@ -661,6 +703,55 @@ export function updateWarehouse(
   });
 }
 
+/** Mọi vị trí lưu trữ của một mặt hàng, ở mọi kho. */
+export function loadMaterialStorageLocations(materialCode: string): Promise<MaterialStorageLocation[]> {
+  return request<MaterialStorageLocation[]>(`/materials/${encodeURIComponent(materialCode)}/storage-locations`);
+}
+
+/** Thay toàn bộ vị trí của một mặt hàng ở một kho; danh sách rỗng là xóa hết. */
+export function replaceMaterialStorageLocations(
+  materialCode: string,
+  warehouseCode: string,
+  locations: readonly StorageLocationInput[],
+): Promise<MaterialStorageLocation[]> {
+  return request<MaterialStorageLocation[]>(
+    `/materials/${encodeURIComponent(materialCode)}/storage-locations/${encodeURIComponent(warehouseCode)}`,
+    { method: 'PUT', body: JSON.stringify({ locations }) },
+  );
+}
+
+/** Tìm vị trí lưu trữ toàn tenant theo chuỗi vị trí, mã hoặc tên mặt hàng. */
+export function loadStorageLocations(query: StorageLocationQuery = {}): Promise<MaterialStorageLocation[]> {
+  const params = new URLSearchParams();
+  if (query.q) params.set('q', query.q);
+  if (query.warehouseCode) params.set('warehouseCode', query.warehouseCode);
+  if (query.materialCode) params.set('materialCode', query.materialCode);
+  if (query.limit) params.set('limit', String(query.limit));
+  const qs = params.toString();
+  return request<MaterialStorageLocation[]>(`/storage-locations${qs ? `?${qs}` : ''}`);
+}
+
+/** Khai tên cấp vị trí của một kho; `levels: null` để kho dùng lại mẫu của tenant. */
+export function setWarehouseLocationLevels(
+  warehouseCode: string,
+  levels: readonly string[] | null,
+): Promise<WarehouseLocationLevels> {
+  return request<WarehouseLocationLevels>(
+    `/warehouses/${encodeURIComponent(warehouseCode)}/location-levels`,
+    { method: 'PUT', body: JSON.stringify({ levels }) },
+  );
+}
+
+/** Nạp danh sách vị trí lưu trữ hàng loạt (từ Excel hoặc đồng bộ). */
+export function bulkUpsertStorageLocations(
+  body: BulkStorageLocationsRequest,
+): Promise<BulkStorageLocationsResult> {
+  return request<BulkStorageLocationsResult>('/storage-locations/bulk', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+}
+
 export function loadReservations(): Promise<InventoryReservationRow[]> {
   return request<InventoryReservationRow[]>('/reservations');
 }
@@ -806,10 +897,25 @@ export const saveInventorySetting = (
   key: InventorySettingsKey,
   value: unknown,
   expectedVersion: number,
+  reason?: string,
 ) =>
   request<SettingsEntry<unknown>>(`/settings/${encodeURIComponent(key)}`, {
     method: 'PUT',
-    body: JSON.stringify({ value, expectedVersion }),
+    body: JSON.stringify({ value, expectedVersion, ...(reason ? { reason } : {}) }),
+  });
+
+/** Chức danh trong sơ đồ tổ chức, để chọn làm người duyệt cố định (cần quyền quản trị Kho). */
+export const loadApprovalPositions = () =>
+  request<ApprovalPositionOption[]>('/settings-approval-positions', { cache: 'no-store' });
+
+/** Lịch sử đổi chính sách duyệt chứng từ kho (cần quyền quản trị Kho). */
+export const loadApprovalPolicyLog = () =>
+  request<ApprovalPolicyChange[]>('/settings-approval-policy-log', { cache: 'no-store' });
+
+/** Nhà cung cấp chữ tự do trong dữ liệu cũ, đã gộp biến thể, để quản trị viên duyệt vào danh mục. */
+export const loadLegacySupplierCandidates = () =>
+  request<LegacySupplierCandidatesResponse>('/settings/suppliers/legacy-candidates', {
+    cache: 'no-store',
   });
 
 /** Phụ tùng tiêu chuẩn của một thiết bị. */
@@ -1146,13 +1252,15 @@ function hasCountData(line: StocktakeLine): boolean {
     line.countRound1 !== undefined ||
     line.countRound2 !== undefined ||
     Boolean(line.reason?.trim()) ||
-    Boolean(line.note?.trim())
+    Boolean(line.note?.trim()) ||
+    (line.binLocation?.trim() || '') !== (line.binLocationOriginal?.trim() || '')
   );
 }
 
 function toLineUpdate(line: StocktakeLine): UpdateStocktakeLineInput {
   return {
     lineId: line.id,
+    binLocation: line.binLocation,
     countRound1: line.countRound1,
     countRound2: line.countRound2,
     actualQuantity: line.actualQuantity,

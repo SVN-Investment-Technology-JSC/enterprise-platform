@@ -254,7 +254,6 @@ function MovementList({
       dataIndex: 'quantityTotal',
       key: 'quantityTotal',
       width: 100,
-      align: 'right',
       render: (value: number) => formatNumber(value),
     },
     {

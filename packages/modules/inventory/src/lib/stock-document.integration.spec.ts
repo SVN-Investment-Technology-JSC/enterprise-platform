@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
+import { normalizeInventorySetting } from './application/inventory-settings.js';
 import { InventoryApplication, type InventoryActor } from './application/inventory.application.js';
 import { StockDocumentService } from './application/stock-document.service.js';
 import { PostgresInventoryStore } from './infrastructure/postgres-inventory-store.js';
@@ -142,15 +143,139 @@ integration('Chứng từ kho trên PostgreSQL (INV-01, INV-02)', () => {
     const self = await rejection(documents.approve(keeper, draft.id));
     expect([self.statusCode, self.message]).toEqual([403, 'Không được tự duyệt chứng từ do mình lập.']);
 
-    await app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: true } });
+    await app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: true }, reason: 'Kiểm thử cho phép tự duyệt' });
     try {
       await documents.approve(keeper, draft.id);
     } finally {
-      await app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: false } });
+      await app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: false }, reason: 'Kiểm thử trả về chặn tự duyệt' });
     }
     expect(await onHand('KHO-C', 'VT-1')).toEqual(before);
     await documents.post(keeper, draft.id);
     expect((await onHand('KHO-C', 'VT-1')).quantity).toBe(before.quantity + 10);
+  });
+
+  it('ISS-BE-006: tenant chọn "không áp dụng" thì nhập khác ghi sổ ngay; trả về mặc định thì lại phải duyệt', async () => {
+    const before = await onHand('KHO-C', 'VT-1');
+    await app.updateSetting(admin, 'documents.approval', {
+      value: { allowSelfApproval: false, mode: 'NOT_APPLICABLE' },
+      reason: 'Kiểm thử không áp dụng duyệt',
+    });
+    try {
+      const draft = await documents.create(keeper, {
+        docType: 'RECEIPT_OTHER',
+        warehouseCode: 'KHO-C',
+        lines: [{ materialCode: 'VT-1', quantity: 4 }],
+      });
+      const posted = await documents.post(keeper, draft.id);
+      expect(posted.document.status).toBe('POSTED');
+      expect((await onHand('KHO-C', 'VT-1')).quantity).toBe(before.quantity + 4);
+      // Gửi duyệt khi không áp dụng duyệt cũng ghi sổ luôn, không có Chờ duyệt.
+      const second = await documents.create(keeper, {
+        docType: 'RECEIPT_OTHER',
+        warehouseCode: 'KHO-C',
+        lines: [{ materialCode: 'VT-1', quantity: 1 }],
+      });
+      expect((await documents.submit(keeper, second.id)).status).toBe('POSTED');
+    } finally {
+      await app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: false }, reason: 'Kiểm thử trả về chặn tự duyệt' });
+    }
+    const blocked = await documents.create(keeper, {
+      docType: 'RECEIPT_OTHER',
+      warehouseCode: 'KHO-C',
+      lines: [{ materialCode: 'VT-1', quantity: 1 }],
+    });
+    expect((await rejection(documents.post(keeper, blocked.id))).statusCode).toBe(409);
+  });
+
+  it('không áp dụng duyệt riêng cho nhóm nhập: nhập ghi sổ ngay, xuất vẫn phải duyệt', async () => {
+    await app.updateSetting(admin, 'documents.approval', {
+      value: { allowSelfApproval: false, mode: 'FIXED_APPROVER', overrides: { RECEIPT: 'NOT_APPLICABLE' } },
+      reason: 'Kiểm thử cấu hình theo nhóm',
+    });
+    try {
+      const receipt = await documents.create(keeper, {
+        docType: 'RECEIPT_OTHER',
+        warehouseCode: 'KHO-C',
+        lines: [{ materialCode: 'VT-1', quantity: 2 }],
+      });
+      expect((await documents.post(keeper, receipt.id)).document.status).toBe('POSTED');
+      const issue = await documents.create(keeper, {
+        docType: 'ISSUE_OTHER',
+        warehouseCode: 'KHO-C',
+        lines: [{ materialCode: 'VT-1', quantity: 1 }],
+      });
+      expect((await rejection(documents.post(keeper, issue.id))).statusCode).toBe(409);
+    } finally {
+      await app.updateSetting(admin, 'documents.approval', {
+        value: { allowSelfApproval: false, mode: 'FIXED_APPROVER', overrides: {} },
+        reason: 'Trả về bắt buộc duyệt sau kiểm thử',
+      });
+    }
+  });
+
+  it('cách duyệt "Theo quy trình" chưa dùng được: server từ chối; giá trị cũ REQUIRED vẫn đọc thành người duyệt cố định', async () => {
+    const error = await rejection(
+      app.updateSetting(admin, 'documents.approval', {
+        value: { allowSelfApproval: false, mode: 'FIXED_APPROVER', overrides: { ISSUE: 'PROCEDURE' } },
+        reason: 'Thử chọn theo quy trình',
+      }),
+    );
+    expect([error.statusCode, error.code]).toEqual([400, 'VALIDATION']);
+    expect(normalizeInventorySetting('documents.approval', { mode: 'REQUIRED', overrides: { RECEIPT: 'REQUIRED' } })).toMatchObject({
+      mode: 'FIXED_APPROVER',
+      overrides: { RECEIPT: 'FIXED_APPROVER' },
+    });
+  });
+
+  it('khai báo người duyệt cố định cần sơ đồ tổ chức: chưa kết nối thì server từ chối, không lưu', async () => {
+    const error = await rejection(
+      app.updateSetting(admin, 'documents.approval', {
+        value: {
+          allowSelfApproval: false,
+          mode: 'FIXED_APPROVER',
+          overrides: {},
+          approvers: { DEFAULT: { positionId: randomUUID() } },
+        },
+        reason: 'Chỉ định chức danh duyệt',
+      }),
+    );
+    expect([error.statusCode, error.code]).toEqual([503, 'ORGANIZATION_UNAVAILABLE']);
+  });
+
+  it('đổi chính sách duyệt phải có lý do và vào nhật ký; lưu cùng giá trị thì không cần lý do', async () => {
+    const noReason = await rejection(
+      app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: false, mode: 'NOT_APPLICABLE' } }),
+    );
+    expect([noReason.statusCode, noReason.code]).toEqual([400, 'VALIDATION']);
+    const short = await rejection(
+      app.updateSetting(admin, 'documents.approval', {
+        value: { allowSelfApproval: false, mode: 'NOT_APPLICABLE' },
+        reason: 'ngắn',
+      }),
+    );
+    expect(short.statusCode).toBe(400);
+    // Chưa đổi gì: không ghi nhật ký, chính sách vẫn bắt duyệt.
+    const logBefore = (await app.listApprovalPolicyLog(admin)).length;
+    await app.updateSetting(admin, 'documents.approval', { value: { allowSelfApproval: false, mode: 'FIXED_APPROVER' } });
+    expect((await app.listApprovalPolicyLog(admin)).length).toBe(logBefore);
+
+    await app.updateSetting(admin, 'documents.approval', {
+      value: { allowSelfApproval: false, mode: 'NOT_APPLICABLE' },
+      reason: 'Kho nhỏ chưa có người duyệt',
+    });
+    try {
+      const log = await app.listApprovalPolicyLog(admin);
+      expect(log[0]).toMatchObject({
+        reason: 'Kho nhỏ chưa có người duyệt',
+        previous: { mode: 'FIXED_APPROVER' },
+        current: { mode: 'NOT_APPLICABLE' },
+      });
+    } finally {
+      await app.updateSetting(admin, 'documents.approval', {
+        value: { allowSelfApproval: false, mode: 'FIXED_APPROVER' },
+        reason: 'Trả về bắt buộc duyệt sau kiểm thử',
+      });
+    }
   });
 
   it('TC-INV-05: xuất theo đơn bán ghi sổ thẳng từ Nháp', async () => {

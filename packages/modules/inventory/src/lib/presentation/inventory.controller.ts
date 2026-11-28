@@ -12,6 +12,8 @@ import type {
   IssueStockRequest,
   MovementBatchRequest,
   RegisterSerialsRequest,
+  AssignSerialsRequest,
+  EnableSerialTrackingRequest,
   ReturnItemToStockRequest,
   StockDocumentLotInput,
   TransferStockRequest,
@@ -95,9 +97,15 @@ export class InventoryController {
   }
 
   @Get('materials')
-  listMaterials(@Req() request: InventoryRequest, @Query('all') all?: string) {
+  listMaterials(
+    @Req() request: InventoryRequest,
+    @Query('all') all?: string,
+    @Query('locationText') locationText?: string,
+  ) {
     const includeInactive = all === 'true' || all === '1';
-    return this.execute(() => this.app.listMaterials(this.actor(request), includeInactive));
+    return this.execute(() =>
+      this.app.listMaterials(this.actor(request), includeInactive, { locationText }),
+    );
   }
 
   @Get('materials/:code')
@@ -330,6 +338,36 @@ export class InventoryController {
     return this.execute(() => this.app.registerSerials(this.actor(request), body));
   }
 
+  /** Mức phủ serial theo kho của một mã. */
+  @Get('serials/coverage')
+  serialCoverage(@Req() request: InventoryRequest, @Query('materialCode') materialCode: string) {
+    return this.execute(() => this.app.serialCoverage(this.actor(request), materialCode));
+  }
+
+  /** Gắn serial cho hàng đã có trong tồn của một kho. */
+  @Post('serials/assign')
+  @HttpCode(200)
+  assignSerials(@Req() request: InventoryRequest, @Body() body: AssignSerialsRequest) {
+    return this.execute(() => this.app.assignSerialsToStock(this.actor(request), body));
+  }
+
+  /** Bật theo dõi serial cho mặt hàng đang có tồn, kèm serial cho tồn ở mọi kho. */
+  @Post('serials/enable')
+  @HttpCode(200)
+  enableSerialTracking(@Req() request: InventoryRequest, @Body() body: EnableSerialTrackingRequest) {
+    return this.execute(() => this.app.enableSerialTracking(this.actor(request), body));
+  }
+
+  /** Xoá serial khai ở danh mục mà chưa phát sinh. */
+  @Delete('serials/:materialCode/:serialNumber')
+  deleteSerial(
+    @Req() request: InventoryRequest,
+    @Param('materialCode') materialCode: string,
+    @Param('serialNumber') serialNumber: string,
+  ) {
+    return this.execute(() => this.app.deleteSerial(this.actor(request), materialCode, serialNumber));
+  }
+
   /** Sửa tình trạng / vị trí sử dụng của MỘT cá thể. */
   @Patch('serials/:materialCode/:serialNumber')
   updateSerial(
@@ -499,6 +537,25 @@ export class InventoryController {
   @Get('settings')
   getSettings(@Req() request: InventoryRequest) {
     return this.execute(() => this.app.getSettings(this.actor(request)));
+  }
+
+  /**
+   * Nhà cung cấp chữ tự do trong dữ liệu cũ, để quản trị viên duyệt rồi thêm vào danh mục. Đường dẫn nằm dưới
+   * `settings/` nên guard xếp vào quyền đọc; quyền quản lý kiểm ở tầng ứng dụng.
+   */
+  @Get('settings/suppliers/legacy-candidates')
+  listLegacySupplierCandidates(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listLegacySupplierCandidates(this.actor(request)));
+  }
+
+  @Get('settings-approval-positions')
+  approvalPositions(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listApprovalPositions(this.actor(request)));
+  }
+
+  @Get('settings-approval-policy-log')
+  approvalPolicyLog(@Req() request: InventoryRequest) {
+    return this.execute(() => this.app.listApprovalPolicyLog(this.actor(request)));
   }
 
   @Put('settings/:key')

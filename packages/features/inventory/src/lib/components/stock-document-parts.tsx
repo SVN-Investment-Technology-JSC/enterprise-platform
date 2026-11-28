@@ -464,8 +464,8 @@ export function LotPickerDrawer({
                   <tr>
                     <TableHeaderCell>Số lô</TableHeaderCell>
                     <TableHeaderCell>Hạn dùng</TableHeaderCell>
-                    <TableHeaderCell className="text-right">Khả dụng</TableHeaderCell>
-                    <TableHeaderCell className="text-right">Lấy</TableHeaderCell>
+                    <TableHeaderCell className="text-left">Khả dụng</TableHeaderCell>
+                    <TableHeaderCell className="text-left">Lấy</TableHeaderCell>
                   </tr>
                 </TableHead>
                 <TableBody>
@@ -490,16 +490,16 @@ export function LotPickerDrawer({
                           ? formatDate(option.expiresOn)
                           : 'Không thời hạn'}
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
+                      <TableCell className="tabular-nums">
                         {formatNumber(option.available)}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-left">
                         <Input
                           type="number"
                           min={0}
                           step="any"
                           aria-label={`Số lượng lấy từ lô ${option.lotNo}`}
-                          className="h-8 text-right text-[13px] tabular-nums"
+                          className="h-8 text-[13px] tabular-nums"
                           disabled={Boolean(option.blockedReason)}
                           value={amounts[option.lotNo] ?? ''}
                           onChange={(event) =>
