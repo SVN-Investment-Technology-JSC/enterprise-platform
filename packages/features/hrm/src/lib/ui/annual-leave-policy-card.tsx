@@ -50,6 +50,12 @@ export interface PolicyForm {
   annualDays: string;
   startOffsetMonths: string;
   advanceAllowed: boolean;
+  /** Lũy kế: chuyển phần phép dư của năm cũ sang năm mới. */
+  carryoverEnabled: boolean;
+  /** Số ngày tối đa được lũy kế sang năm mới. */
+  carryoverMaxDays: string;
+  /** Số tháng được dùng phép lũy kế; hết tháng này của năm mới thì hết hạn. */
+  carryoverMonths: string;
   tiers: TierRow[];
   /** Năm áp dụng (luôn từ 01/01) hoặc rỗng để hệ thống tự chọn. */
   effectiveYear: string;
@@ -64,6 +70,11 @@ function toForm(data: AnnualLeavePolicyResponse | null): PolicyForm {
     annualDays: String(policy?.annualDays ?? 12),
     startOffsetMonths: String(policy?.startOffsetMonths ?? 0),
     advanceAllowed: policy?.advanceAllowed ?? false,
+    carryoverEnabled: policy?.carryover.allowed ?? false,
+    carryoverMaxDays: String(
+      policy?.carryover.allowed ? policy.carryover.maxDays : 5,
+    ),
+    carryoverMonths: String(policy?.carryover.expiryMonth ?? 3),
     // Phép thâm niên chỉ có MỘT chu kỳ lặp lại (dòng trống = không áp dụng).
     tiers: policy
       ? policy.seniorityTiers.slice(0, 1).map((t) => ({
@@ -104,6 +115,16 @@ export function buildPolicyRequest(
     tiers.push({ minYears, bonusDays });
   }
   tiers.sort((a, b) => a.minYears - b.minYears);
+  let maxCarryoverDays = 0;
+  let carryoverExpiryMonth: number | undefined;
+  if (form.carryoverEnabled) {
+    maxCarryoverDays = toNumber(form.carryoverMaxDays);
+    carryoverExpiryMonth = toNumber(form.carryoverMonths);
+    if (!(maxCarryoverDays > 0))
+      return { error: 'Cần nhập Số ngày lũy kế tối đa lớn hơn 0' };
+    if (!Number.isInteger(carryoverExpiryMonth))
+      return { error: 'Cần nhập Số tháng được dùng phép lũy kế' };
+  }
   const request: SaveAnnualLeavePolicyRequest = {
     ...(data.leaveType ? {} : { leaveTypeId: form.leaveTypeId }),
     accrualBasis: form.accrualBasis,
@@ -111,6 +132,8 @@ export function buildPolicyRequest(
     startOffsetMonths,
     advanceAllowed: form.advanceAllowed,
     seniorityTiers: tiers,
+    maxCarryoverDays,
+    ...(carryoverExpiryMonth === undefined ? {} : { carryoverExpiryMonth }),
     ...(form.effectiveYear ? { effectiveFrom: `${form.effectiveYear}-01-01` } : {}),
     ...(data.policy ? { expectedUpdatedAt: data.policy.updatedAt } : {}),
   };
@@ -126,7 +149,7 @@ export interface PolicySummary {
 
 /**
  * Tóm tắt chính sách từ giá trị đang có trong biểu mẫu (nạp từ chính sách hiện hành, đổi theo khi sửa).
- * Phép năm không chuyển sang năm sau: tác vụ chốt cuối năm reset phần còn lại về 0.
+ * Tắt lũy kế: phép năm không chuyển sang năm sau, tác vụ chốt cuối năm reset phần còn lại về 0.
  */
 export function buildPolicySummary(form: PolicyForm): PolicySummary {
   const days = toNumber(form.annualDays);
@@ -162,7 +185,9 @@ export function buildPolicySummary(form: PolicyForm): PolicySummary {
         ? `${basis}, sau ${offset} tháng`
         : basis,
     seniority,
-    carryover: 'Không chuyển sang năm sau',
+    carryover: form.carryoverEnabled
+      ? `Lũy kế tối đa ${form.carryoverMaxDays || '?'} ngày, hết hạn sau ${form.carryoverMonths || '?'} tháng`
+      : 'Không chuyển sang năm sau',
   };
 }
 
@@ -564,6 +589,80 @@ export function AnnualLeavePolicyCard({
                   </p>
                 </div>
               </div>
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 cursor-pointer accent-blue-600 disabled:cursor-not-allowed"
+                    disabled={!editable}
+                    checked={form.carryoverEnabled}
+                    onChange={(e) =>
+                      patch({ carryoverEnabled: e.target.checked })
+                    }
+                  />
+                  <span>
+                    <span className="block text-xs font-semibold text-slate-800">
+                      Lũy kế phép dư sang năm mới
+                    </span>
+                    <span className="block text-[12px] leading-snug text-slate-500">
+                      {form.carryoverEnabled
+                        ? 'Phép còn dư cuối năm được chuyển sang năm sau và hết hạn theo số tháng bên dưới.'
+                        : 'Phép còn dư cuối năm bị reset về 0.'}
+                    </span>
+                  </span>
+                </label>
+                {form.carryoverEnabled ? (
+                  <div className="grid gap-3 pl-7 sm:grid-cols-2">
+                    <LeaveField
+                      label="Số ngày lũy kế tối đa"
+                      htmlFor={`${uid}-carry-days`}
+                    >
+                      <div className="relative">
+                        <Input
+                          id={`${uid}-carry-days`}
+                          type="number"
+                          min={0.5}
+                          max={366}
+                          step="0.5"
+                          className="h-9 pr-14 text-xs"
+                          disabled={!editable}
+                          value={form.carryoverMaxDays}
+                          onChange={(e) =>
+                            patch({ carryoverMaxDays: e.target.value })
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                          ngày
+                        </span>
+                      </div>
+                    </LeaveField>
+                    <LeaveField
+                      label="Số tháng được dùng phép lũy kế"
+                      htmlFor={`${uid}-carry-months`}
+                      hint="Ví dụ 6: sau 6 tháng phép lũy kế hết hạn và bị trừ khỏi số còn lại."
+                    >
+                      <div className="relative">
+                        <Input
+                          id={`${uid}-carry-months`}
+                          type="number"
+                          min={1}
+                          max={12}
+                          step="1"
+                          className="h-9 pr-14 text-xs"
+                          disabled={!editable}
+                          value={form.carryoverMonths}
+                          onChange={(e) =>
+                            patch({ carryoverMonths: e.target.value })
+                          }
+                        />
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                          tháng
+                        </span>
+                      </div>
+                    </LeaveField>
+                  </div>
+                ) : null}
+              </div>
             </section>
 
             <section className={cardClass} aria-labelledby={`${uid}-tiers`}>
@@ -751,8 +850,9 @@ export function AnnualLeavePolicyCard({
                   <Info className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
                   <span>
                     Chính sách này áp dụng cho toàn bộ nhân viên trong công ty.
-                    Phép năm không chuyển sang năm sau: phần còn lại cuối năm
-                    được reset về 0.
+                    {form.carryoverEnabled
+                      ? ' Phép dư cuối năm được lũy kế sang năm mới, hết hạn sau số tháng đã đặt; phần vượt mức tối đa được reset về 0.'
+                      : ' Phép năm không chuyển sang năm sau: phần còn lại cuối năm được reset về 0.'}
                   </span>
                 </p>
                 {data.leaveType ? (
