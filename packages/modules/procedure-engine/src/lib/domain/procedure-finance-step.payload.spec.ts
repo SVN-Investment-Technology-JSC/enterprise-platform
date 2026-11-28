@@ -61,6 +61,14 @@ describe('buildFinanceVoucherRequestedPayload — dự án và công việc gử
 
   it('hồ sơ sinh từ công việc Workspace: dùng công việc nguồn như trước', () => {
     const payload = buildFinanceVoucherRequestedPayload(
+      instanceOf({ sourceType: 'workspace_work_item', sourceId: SOURCE_ITEM }),
+      step,
+    );
+    expect(payload.workItemId).toBe(SOURCE_ITEM);
+  });
+
+  it('hồ sơ sinh từ công việc Workspace đã đổi dự án / công việc: dùng công việc mới, công việc nguồn đã xoá', () => {
+    const payload = buildFinanceVoucherRequestedPayload(
       instanceOf({
         sourceType: 'workspace_work_item',
         sourceId: SOURCE_ITEM,
@@ -68,7 +76,7 @@ describe('buildFinanceVoucherRequestedPayload — dự án và công việc gử
       }),
       step,
     );
-    expect(payload.workItemId).toBe(SOURCE_ITEM);
+    expect(payload.workItemId).toBe(ITEM);
   });
 
   it('hồ sơ không gắn dự án: không gửi dự án hay công việc', () => {

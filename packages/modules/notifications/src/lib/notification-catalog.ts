@@ -118,12 +118,55 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
     actorField: 'actorUserId',
     template: ({ payload, event }) => ({
-      title: 'Bạn có bước quy trình mới',
+      title: 'Đến lượt bạn xử lý quy trình',
       body: text(payload, 'title', 'Một bước quy trình đang chờ bạn xử lý.'),
       deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
       sourceType: 'procedure_instance',
       sourceId: `${id(payload, 'instanceId')}:${id(payload, 'stepInstanceId')}:${event.id}`,
     }),
+  }),
+  directPolicy({
+    // Người tạo hồ sơ luôn biết hồ sơ của mình vừa được xử lý ở bước nào: xong một pha, xong cả bước, bị trả lại, hoặc
+    // được hoàn duyệt (hồ sơ kết thúc đã có "Quy trình đã kết thúc" riêng).
+    eventType: 'procedure.step.processed',
+    module: 'procedure',
+    category: 'result',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => {
+      const code = text(payload, 'instanceCode', '');
+      const actor = text(payload, 'actorName', 'Một người xử lý');
+      const step = text(payload, 'stepName', 'Bước');
+      const current = text(payload, 'currentStepName', '');
+      const kind = text(payload, 'kind', 'stage');
+      const copy =
+        kind === 'step'
+          ? {
+              title: 'Hồ sơ của bạn vừa qua một bước',
+              body: `${code} · ${actor} đã hoàn thành “${step}”${current ? `, chuyển sang “${current}”` : ''}.`,
+            }
+          : kind === 'return'
+            ? {
+                title: 'Hồ sơ của bạn bị trả lại',
+                body: `${code} · ${actor} đã trả hồ sơ${current ? ` về “${current}”` : ''}.`,
+              }
+            : kind === 'withdraw'
+              ? {
+                  title: 'Hồ sơ của bạn được hoàn duyệt',
+                  body: `${code} · ${actor} đã hoàn duyệt, quay lại xử lý “${step}”.`,
+                }
+              : {
+                  title: 'Hồ sơ của bạn vừa được xử lý',
+                  body: `${code} · ${actor} đã xử lý “${step}”, đang chờ ${text(payload, 'waiting', 'xử lý tiếp')}.`,
+                };
+      return {
+        ...copy,
+        deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
+        sourceType: 'procedure_instance',
+        sourceId: `${id(payload, 'instanceId')}:${id(payload, 'stepInstanceId')}:${event.id}`,
+      };
+    },
   }),
   directPolicy({
     eventType: 'procedure.instance.completed',
@@ -139,6 +182,27 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       sourceType: 'procedure_instance',
       sourceId: id(payload, 'instanceId'),
     }),
+  }),
+  directPolicy({
+    // Người tạo hồ sơ (và người tạo hộ) được báo khi người khác đổi dự án / công việc liên kết của hồ sơ; Quy trình đã
+    // loại người đổi khỏi danh sách nhận.
+    eventType: 'procedure.instance.relinked',
+    module: 'procedure',
+    category: 'result',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => {
+      const project = text(payload, 'projectName', text(payload, 'projectCode', 'dự án khác'));
+      const item = text(payload, 'workItemCode', '');
+      return {
+        title: 'Hồ sơ của bạn được đổi dự án',
+        body: `${text(payload, 'instanceCode', 'Hồ sơ')} · ${text(payload, 'actorName', 'Một người xử lý')} đã chuyển hồ sơ sang dự án ${project}${item ? `, công việc ${item}` : ''}.`,
+        deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
+        sourceType: 'procedure_instance',
+        sourceId: `${id(payload, 'instanceId')}:relinked:${event.id}`,
+      };
+    },
   }),
   directPolicy({
     eventType: 'procedure.instance.reversed',
@@ -566,6 +630,26 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
       sourceType: 'workspace_work_item_completed',
       // Mở lại rồi đóng lần nữa là một lần hoàn thành mới (xem changeStatus), nên khoá theo từng sự kiện.
+      sourceId: `${id(payload, 'workItemId')}:${event.id}`,
+    }),
+  }),
+  directPolicy({
+    eventType: 'workspace.work-item.reopened',
+    module: 'workspace',
+    category: 'result',
+    priority: 'informational',
+    recipients: { kind: 'payload', fields: ['recipientUserIds'] },
+    actorField: 'actorUserId',
+    template: ({ payload, event }) => ({
+      title: 'Công việc được mở lại',
+      body: `${text(payload, 'code', '')} · ${text(payload, 'title', 'Một công việc')}: ${text(
+        payload,
+        'reason',
+        'Công việc đã hoàn thành được chuyển về "Đang làm".',
+      )}`,
+      deepLink: workspaceTargetLink(payload, 'work-item', 'workItemId'),
+      sourceType: 'workspace_work_item_reopened',
+      // Một việc có thể bị mở lại nhiều lần, mỗi lần là một thông báo riêng.
       sourceId: `${id(payload, 'workItemId')}:${event.id}`,
     }),
   }),

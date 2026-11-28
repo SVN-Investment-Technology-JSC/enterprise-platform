@@ -10,6 +10,7 @@ import type { FinanceActor } from './domain/finance.access.js';
 import { FakeFinanceStorage, TestFinanceDatabase, dropTestDatabase } from './finance-test-support.js';
 import { todayVn } from './infrastructure/finance.database.js';
 import { isFinanceProcedureEvent, receiveFinanceProcedureEvent } from './infrastructure/procedure-events.js';
+import { listProjectVouchers } from './infrastructure/vouchers.store.js';
 
 const integration = process.env.FINANCE_TEST_ADMIN_URL ? describe : describe.skip;
 
@@ -122,15 +123,19 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
   let accountId: string;
   let reasonId: string;
   let groupId: string;
+  /** Kế toán nhập phần kế toán; nội dung và số tiền gửi lại đúng như hồ sơ (form gửi lại toàn bộ phiếu). */
   const accountantInput = (over: Partial<SaveFinanceVoucherRequest> = {}): SaveFinanceVoucherRequest => ({
     kind: 'PAYMENT',
     voucherDate: today,
     postingDate: today,
-    content: 'Client cố sửa nội dung',
+    content: 'Thanh toán tiền in ấn',
     reasonId,
     accountId,
     counterpartyGroupId: groupId,
-    lines: [{ description: 'Client cố sửa dòng', quantity: 1, unitAmount: 1, total: 1 }],
+    counterpartyName: 'Công ty In Nhanh',
+    counterpartyAccountNo: '0123456789',
+    counterpartyBank: 'VCB',
+    lines: [{ description: 'Thanh toán tiền in ấn', quantity: 1, unitAmount: 2_500_000, total: 0 }],
     ...over,
   });
 
@@ -246,20 +251,32 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
     expect(own.permissions.sourced.canPost).toBe(false);
     await rejects(app.submit(requester, id), 'FINANCE_SOURCE_MANAGED');
     await rejects(app.deleteVoucher(requester, id), 'FINANCE_SOURCE_MANAGED');
-    await rejects(app.cancel(requester, {}, id, 'x'), 'FINANCE_SOURCE_MANAGED');
+    await rejects(app.cancel(requester, {}, id, 'x'), 'FINANCE_FORBIDDEN'); // Huỷ phiếu có nguồn: chỉ kế toán được giao bước
     await rejects(app.updateVoucher(requester, id, accountantInput()), 'FINANCE_FORBIDDEN');
     await rejects(app.approve(cashierA, id), 'FINANCE_VOUCHER_STATE');
+    // Người tạo phiếu từ quy trình là người khởi tạo hồ sơ; phiếu nháp báo trước phần kế toán còn thiếu.
+    const seen = await app.voucher(cashierA, id);
+    expect(seen).toMatchObject({ createdBy: requester.userId, createdByName: requester.displayName });
+    expect(seen.missingFields).toEqual(['reason', 'account', 'counterpartyGroup']);
+    // Duyệt hàng loạt đi đường ghi sổ của phiếu có nguồn: phiếu còn thiếu thông tin bị bỏ qua kèm danh sách trường thiếu.
+    const bulk = await app.bulkApprove(cashierA, { ids: [id] });
+    expect(bulk).toEqual({ approved: [], failed: [{ id, code: seen.code, reason: 'INCOMPLETE', message: expect.stringMatching(/Còn thiếu/) }] });
   });
 
-  it('ghi sổ: trường lấy từ hồ sơ giữ nguyên, khoá mềm, nhận xử lý thay, cấp mã chính thức, báo posted; ghi sổ lần hai bị chặn', async () => {
+  it('ghi sổ: lưu phần kế toán, khoá mềm, nhận xử lý thay, cấp mã chính thức, báo posted; ghi sổ lần hai bị chặn', async () => {
     const payload = requested({ projectId: PROJECT.id });
     await receiveFinanceProcedureEvent(pool, tenantId, event(payload));
     const id = await voucherIdOf(payload.instanceId);
 
-    // Chưa đủ điều kiện (thiếu tài khoản, lý do, đối tượng).
+    // Chưa đủ điều kiện (thiếu tài khoản, lý do, đối tượng): người được giao bước thấy trước danh sách còn thiếu.
     await rejects(app.postSourced(cashierA, id, {}), 'FINANCE_POST_INVALID');
+    expect((await app.voucher(cashierA, id)).permissions.approveBlockedReason).toMatch(/^Chưa đủ thông tin để ghi sổ\. Còn thiếu: Lý do chi, Tài khoản chi, Đối tượng chi\./);
 
-    const saved = await app.updateVoucher(cashierA, id, accountantInput({ revision: (await app.voucher(cashierA, id)).revision }));
+    const saved = await app.updateVoucher(
+      cashierA,
+      id,
+      accountantInput({ allocation: { type: 'PROJECT', projectId: PROJECT.id }, revision: (await app.voucher(cashierA, id)).revision }),
+    );
     expect(saved).toMatchObject({
       content: 'Thanh toán tiền in ấn',
       totalAmount: 2_500_000,
@@ -299,6 +316,119 @@ integration('Tài chính: phiếu tạo từ bước Tài chính của quy trìn
     // Yêu cầu đến lại sau khi đã ghi sổ: báo lại posted thay vì tạo gì mới.
     expect(await receiveFinanceProcedureEvent(pool, tenantId, event({ ...payload, activation: 2 }))).toBe('reposted');
   });
+
+  it('kế toán sửa được mọi trường lấy từ hồ sơ, kể cả số tiền: chi một phần, nhân bản phần còn lại cùng dự án; bước chỉ theo phiếu gốc', async () => {
+    const payload = requested({ projectId: PROJECT.id });
+    await receiveFinanceProcedureEvent(pool, tenantId, event(payload));
+    const id = await voucherIdOf(payload.instanceId);
+    const allocation = { type: 'PROJECT' as const, projectId: PROJECT.id };
+
+    // Hồ sơ đề nghị 2.500.000; kế toán chi 1.500.000 từ tài khoản này, sửa cả nội dung và người nhận.
+    const saved = await app.updateVoucher(
+      cashierA,
+      id,
+      accountantInput({
+        content: 'Thanh toán đợt 1 tiền in ấn',
+        counterpartyName: 'Công ty in Á Châu',
+        allocation,
+        lines: [{ description: 'Đợt 1', quantity: 1, unitAmount: 1_500_000, total: 0 }],
+      }),
+    );
+    expect(saved).toMatchObject({ content: 'Thanh toán đợt 1 tiền in ấn', counterpartyName: 'Công ty in Á Châu', totalAmount: 1_500_000, allocation: { projectId: PROJECT.id } });
+    expect(saved.code).toMatch(/^NHAP_PC_/); // mã phiếu không đổi
+    expect(saved.source?.values.amount).toBe(2_500_000); // giá trị hồ sơ đề nghị vẫn giữ để đối chiếu
+    expect(saved.events.at(-1)?.note).toContain('2.500.000 → 1.500.000');
+    // Hồ sơ được báo lại số tiền đang chờ ghi sổ.
+    const linked = (await outbox(id)).filter((row) => row.event_type === 'finance.voucher.linked').at(-1);
+    expect(linked?.payload.payload).toMatchObject({ instanceId: payload.instanceId, activation: 1, voucherId: id, amount: 1_500_000 });
+
+    // Ghi sổ với số tiền khác hồ sơ: vẫn báo posted bình thường (Procedure không đối chiếu số tiền).
+    await app.postSourced(cashierA, id, {});
+    const posted = (await outbox(id)).find((row) => row.event_type === 'finance.voucher.posted');
+    expect(posted?.payload.payload).toMatchObject({ instanceId: payload.instanceId, activation: 1, voucherId: id, amount: 1_500_000 });
+
+    // Nhân bản phần còn lại (form tạo mới điền sẵn từ phiếu gốc): phiếu thường, cùng dự án, không gắn hồ sơ.
+    const copy = await app.createVoucher(manager, {
+      ...accountantInput({ content: 'Thanh toán đợt 2 tiền in ấn', allocation, lines: [{ description: 'Đợt 2', quantity: 1, unitAmount: 1_000_000, total: 0 }] }),
+    });
+    expect(copy).toMatchObject({ approvalMode: 'DIRECT', source: null, sourceCode: null, allocation: { projectId: PROJECT.id } });
+    expect((await pool.query(`SELECT 1 FROM finance_schema.voucher_sources WHERE voucher_id=$1`, [copy.id])).rows).toHaveLength(0);
+    await app.submit(manager, copy.id);
+    await app.approve(cashierA, copy.id);
+    // Phiếu nhân bản không phát sự kiện nào cho hồ sơ.
+    expect((await outbox(copy.id)).some((row) => row.event_type.startsWith('finance.voucher.linked') || row.event_type === 'finance.voucher.posted')).toBe(false);
+
+    // Tab Tài chính của dự án: hai phiếu riêng, tổng chi đủ 2.500.000 (dự án dùng chung giữa các test nên so phần tăng thêm).
+    const project = await listProjectVouchers(pool, tenantId, PROJECT.id);
+    const mine = project.items.filter((item) => item.id === id || item.id === copy.id);
+    expect(mine.map((item) => [item.link, item.status, item.totalAmount]).sort()).toEqual([
+      ['ALLOCATION', 'APPROVED', 1_000_000],
+      ['ALLOCATION', 'APPROVED', 1_500_000],
+    ]);
+    expect(project.totals.paid).toBeGreaterThanOrEqual(2_500_000);
+  });
+
+  it('Huỷ phiếu có nguồn đang chờ ghi sổ: xoá phiếu và nguồn, báo hồ sơ "trả về"; hồ sơ tới lại bước Tài chính thì có phiếu mới', async () => {
+    const payload = requested();
+    await receiveFinanceProcedureEvent(pool, tenantId, event(payload));
+    const id = await voucherIdOf(payload.instanceId);
+    const seen = await app.voucher(cashierA, id);
+    expect(seen.permissions.canCancel).toBe(true);
+    expect((await app.voucher(viewer, id)).permissions.canCancel).toBe(false);
+    await rejects(app.cancel(outsider, {}, id), 'FINANCE_FORBIDDEN'); // có quyền duyệt nhưng không được giao bước
+
+    expect(await app.cancel(cashierA, {}, id)).toEqual({ id, code: seen.code, deleted: true });
+    expect((await pool.query(`SELECT 1 FROM finance_schema.vouchers WHERE id=$1`, [id])).rows).toHaveLength(0);
+    expect((await pool.query(`SELECT 1 FROM finance_schema.voucher_sources WHERE instance_id=$1`, [payload.instanceId])).rows).toHaveLength(0);
+    const events = await outbox(id);
+    const returned = events.find((row) => row.event_type === 'finance.voucher.returned');
+    expect(returned?.payload.payload).toMatchObject({
+      instanceId: payload.instanceId,
+      stepInstanceId: payload.stepInstanceId,
+      activation: 1,
+      voucherId: id,
+      actorId: cashierA.userId,
+      reason: expect.stringContaining(`Kế toán huỷ phiếu ${seen.code}`),
+    });
+    // Dấu vết của lần xoá: sự kiện status-changed (CANCELLED) trong outbox, vì nhật ký phiếu xoá theo phiếu.
+    const trace = await pool.query(`SELECT 1 FROM integration_schema.outbox_events WHERE aggregate_id=$1 AND event_type='finance.voucher.status-changed'`, [id]);
+    expect(trace.rows).toHaveLength(1);
+
+    // Hồ sơ tới lại bước Tài chính (lần kích hoạt mới): tạo phiếu mới cho hồ sơ.
+    const again = { ...payload, activation: 2 };
+    expect(await receiveFinanceProcedureEvent(pool, tenantId, event(again))).toBe('created');
+    const fresh = await voucherIdOf(payload.instanceId);
+    expect(fresh).not.toBe(id);
+    expect((await app.voucher(cashierA, fresh)).source).toMatchObject({ activation: 2, status: 'OPEN' });
+  });
+
+  it('Huỷ phiếu có nguồn đã trả hồ sơ: chỉ xoá (đã báo trả về rồi); phiếu đã ghi sổ thì chỉ huỷ hiệu lực hồ sơ', async () => {
+    const payload = requested();
+    await receiveFinanceProcedureEvent(pool, tenantId, event(payload));
+    const id = await voucherIdOf(payload.instanceId);
+    await app.returnSourced(cashierA, id, { reason: 'Sai người nhận' });
+    expect((await app.voucher(cashierA, id)).permissions.canCancel).toBe(true);
+    expect((await app.cancel(cashierA, {}, id)).deleted).toBe(true);
+    expect((await outbox(id)).filter((row) => row.event_type === 'finance.voucher.returned')).toHaveLength(1);
+
+    const { id: postedId } = await postedFromInstanceForCancel();
+    expect((await app.voucher(cashierA, postedId)).permissions.canCancel).toBe(false);
+    await rejects(app.cancel(cashierA, {}, postedId), 'FINANCE_SOURCE_MANAGED');
+  });
+
+  /** Hồ sơ tới bước Tài chính, kế toán nhập và ghi sổ (dùng cho test Huỷ). */
+  const postedFromInstanceForCancel = async () => {
+    const payload = requested();
+    await receiveFinanceProcedureEvent(pool, tenantId, event(payload));
+    const id = await voucherIdOf(payload.instanceId);
+    await app.updateVoucher(cashierA, id, accountantInput());
+    // Ghi sổ qua duyệt hàng loạt: phiếu từ quy trình đủ thông tin đi đúng đường ghi sổ của phiếu có nguồn.
+    const bulk = await app.bulkApprove(cashierA, { ids: [id] });
+    expect(bulk.failed).toEqual([]);
+    expect(bulk.approved).toEqual([{ id, code: expect.not.stringMatching(/^NHAP_/) }]);
+    expect((await app.voucher(cashierA, id)).status).toBe('APPROVED');
+    return { payload, id };
+  };
 
   it('quyền thao tác do Procedure quyết (D8): có quyền duyệt mà không được giao bước thì bị chặn; Procedure sập thì từ chối', async () => {
     const payload = requested({ assigneeIds: [], assigneeSubjects: [{ subjectType: 'position', subjectId: randomUUID(), subjectLabel: 'Kế toán' }] });

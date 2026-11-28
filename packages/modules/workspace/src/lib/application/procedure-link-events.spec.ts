@@ -266,7 +266,13 @@ describe('Đổi công việc liên kết', () => {
     expect(h.emitted).toEqual([
       expect.objectContaining({
         type: WORK_ITEM_PROCEDURE_LINKED,
-        payload: expect.objectContaining({ workItemId: 'wi-new', workItemCode: 'CV009', projectCode: 'HN' }),
+        // Tên dự án đi kèm để màn hồ sơ bên Quy trình hiện hồ sơ thuộc dự án nào.
+        payload: expect.objectContaining({
+          workItemId: 'wi-new',
+          workItemCode: 'CV009',
+          projectCode: 'HN',
+          projectName: 'Dự án',
+        }),
       }),
     ]);
 

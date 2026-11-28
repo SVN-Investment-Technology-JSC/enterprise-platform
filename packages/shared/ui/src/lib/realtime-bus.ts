@@ -6,6 +6,7 @@ import type {
   CoreChatTyping,
   PresenceSignal,
   ProcedureCommentSignal,
+  ProcedureInstanceSignal,
   ProcedureTypingSignal,
   RealtimeEventEnvelope,
   WorkspaceChatSignal,
@@ -18,6 +19,7 @@ export type {
   CoreChatTyping,
   PresenceSignal,
   ProcedureCommentSignal,
+  ProcedureInstanceSignal,
   ProcedureTypingSignal,
   RealtimeEventEnvelope,
   WorkspaceChatSignal,
@@ -74,6 +76,9 @@ export function sendRealtime(event: string, payload: unknown): boolean {
 // `undefined` = chưa có kết nối nào được thử (hoặc trang không có trung tâm thông báo).
 let currentStatus: boolean | undefined;
 
+/** Số nơi đang giữ phòng của từng hồ sơ quy trình trên socket dùng chung (xem `retainProcedureRoom`). */
+const procedureRooms = new Map<string, number>();
+
 export function getRealtimeStatus(): boolean | undefined {
   return currentStatus;
 }
@@ -81,6 +86,10 @@ export function getRealtimeStatus(): boolean | undefined {
 /** `connected = true` được phát cả lúc nối lại, để người nghe tải bù phần đã lỡ. */
 export function publishRealtimeStatus(connected: boolean): void {
   currentStatus = connected;
+  // Nối lại: phòng cũ đã mất (hoặc lần xin vào trước bị rơi vì socket chưa mở), xin vào lại mọi phòng còn giữ.
+  if (connected) {
+    for (const instanceId of procedureRooms.keys()) sendRealtime('procedure.subscribe', { instanceId });
+  }
   for (const listener of [...statusListeners]) {
     try {
       listener(connected);
@@ -98,6 +107,31 @@ export function subscribeRealtime(listener: EventListener): () => void {
 export function subscribeRealtimeStatus(listener: StatusListener): () => void {
   statusListeners.add(listener);
   return () => statusListeners.delete(listener);
+}
+
+/**
+ * Giữ chỗ trong phòng realtime của một hồ sơ quy trình; trả hàm nhả.
+ *
+ * Máy chủ giữ phòng theo socket, không đếm: hai nơi cùng mở một hồ sơ (khung chi tiết và tab Trao đổi) mà một nơi
+ * rời phòng thì nơi kia cũng mất tín hiệu. Vì vậy đếm ở đây: chỉ xin vào khi nơi đầu tiên giữ, chỉ rời khi nơi cuối
+ * cùng nhả. Nối lại thì `publishRealtimeStatus(true)` tự xin vào lại.
+ */
+export function retainProcedureRoom(instanceId: string): () => void {
+  const holders = procedureRooms.get(instanceId) ?? 0;
+  procedureRooms.set(instanceId, holders + 1);
+  if (holders === 0) sendRealtime('procedure.subscribe', { instanceId });
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const left = (procedureRooms.get(instanceId) ?? 1) - 1;
+    if (left > 0) {
+      procedureRooms.set(instanceId, left);
+      return;
+    }
+    procedureRooms.delete(instanceId);
+    sendRealtime('procedure.unsubscribe', { instanceId });
+  };
 }
 
 /**

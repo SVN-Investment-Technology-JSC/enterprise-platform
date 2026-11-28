@@ -1,4 +1,4 @@
-import { CRM_NO_CAPABILITIES, type ContractDetail } from '@enterprise-platform/contracts-crm';
+import { CRM_NO_CAPABILITIES, type ContractDetail, type QuoteDetail } from '@enterprise-platform/contracts-crm';
 import { CrmError } from '../domain/crm.error.js';
 import type { CrmActor } from './crm-actor.js';
 import type { ContractStore } from './contract-store.port.js';
@@ -12,6 +12,7 @@ const BT = '22222222-2222-4222-8222-222222222222';
 const ID = '33333333-3333-4333-8333-333333333333';
 const CUSTOMER = '44444444-4444-4444-8444-444444444444';
 const USER = '55555555-5555-4555-8555-555555555555';
+const QUOTE = '66666666-6666-4666-8666-666666666666';
 
 const actor = (extra: Partial<CrmActor> = {}): CrmActor => ({
   ...CRM_NO_CAPABILITIES,
@@ -63,6 +64,8 @@ function setup(detail = contract()) {
     listContracts: jest.fn(),
     getContract: jest.fn().mockResolvedValue(detail),
     createContract: jest.fn().mockResolvedValue(ID),
+    createContractFromQuote: jest.fn().mockResolvedValue(ID),
+    quoteContractPreview: jest.fn(),
     updateContract: jest.fn(),
     savePaymentTerms: jest.fn(),
     confirm: jest.fn().mockResolvedValue(undefined),
@@ -90,6 +93,12 @@ function setup(detail = contract()) {
     search: async () => [],
   };
   const dispatcher = { dispatch: jest.fn().mockResolvedValue(1) };
+  // Báo giá trong phạm vi: chỉ QUOTE; id khác coi như ngoài phạm vi.
+  const quotes = {
+    getQuote: jest.fn(async (_tenant: string, _scope: unknown, id: string) =>
+      id === QUOTE ? ({ id: QUOTE, customerId: CUSTOMER } as unknown as QuoteDetail) : undefined,
+    ),
+  };
   const service = new ContractService(
     store,
     { getCustomer: jest.fn().mockResolvedValue({ id: CUSTOMER }) },
@@ -99,8 +108,9 @@ function setup(detail = contract()) {
     { reservationHoldDays: async () => 7 },
     dispatcher,
     () => new Date('2026-10-27T03:00:00Z'),
+    quotes,
   );
-  return { store, inventory, dispatcher, service };
+  return { store, inventory, dispatcher, service, quotes };
 }
 
 describe('ContractService', () => {
@@ -245,5 +255,54 @@ describe('ContractService', () => {
     await expect(
       service.create(actor(), { type: 'SALE', customerId: CUSTOMER, title: 'X', validFrom: '2026-02-01', validTo: '2026-01-01' }),
     ).rejects.toMatchObject({ code: 'INVALID_VALIDITY' });
+  });
+
+  it('gắn báo giá khi lập: dòng lấy từ báo giá (bỏ qua lines gửi kèm), giá trị trống để store lấy tổng báo giá', async () => {
+    const { store, service } = setup();
+    await service.create(actor(), {
+      type: 'SALE',
+      customerId: CUSTOMER,
+      title: 'HĐ theo báo giá',
+      validFrom: '2026-01-01',
+      quoteId: QUOTE.toUpperCase(),
+      lines: [{ materialId: CAP, quantity: 99, unitPrice: 1 }],
+    });
+    expect(store.createContract).not.toHaveBeenCalled();
+    expect(store.createContractFromQuote).toHaveBeenCalledWith(
+      TENANT,
+      QUOTE,
+      expect.objectContaining({ type: 'SALE', customerId: CUSTOMER, title: 'HĐ theo báo giá', value: null, ownerUserId: USER }),
+      USER,
+    );
+    await service.create(actor(), { type: 'SALE', customerId: CUSTOMER, title: 'HĐ', validFrom: '2026-01-01', quoteId: QUOTE, value: 5_000_000 });
+    expect(store.createContractFromQuote.mock.calls[1][2].value).toBe(5_000_000);
+  });
+
+  it('gắn báo giá: chưa chọn khách thì lấy khách của báo giá; báo giá ngoài phạm vi 404; id sai 400', async () => {
+    const { store, service, quotes } = setup();
+    await service.create(actor(), { type: 'SALE', customerId: '', title: 'HĐ', validFrom: '2026-01-01', quoteId: QUOTE });
+    expect(store.createContractFromQuote.mock.calls[0][2].customerId).toBe(CUSTOMER);
+    expect(quotes.getQuote).toHaveBeenCalledWith(TENANT, { kind: 'all' }, QUOTE);
+    await expect(
+      service.create(actor(), { type: 'SALE', customerId: CUSTOMER, title: 'HĐ', validFrom: '2026-01-01', quoteId: ID }),
+    ).rejects.toMatchObject({ statusCode: 404, message: 'Không tìm thấy báo giá.' });
+    await expect(
+      service.create(actor(), { type: 'SALE', customerId: CUSTOMER, title: 'HĐ', validFrom: '2026-01-01', quoteId: 'khong-phai-id' }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_REFERENCE' });
+    expect(store.createContractFromQuote).toHaveBeenCalledTimes(1);
+  });
+
+  it('gắn báo giá cần quyền hợp đồng; sửa hợp đồng không gắn báo giá mới được; xem trước kiểm phạm vi báo giá', async () => {
+    const { store, service } = setup();
+    await expect(
+      service.create(actor({ canWriteContract: false }), { type: 'SALE', customerId: CUSTOMER, title: 'HĐ', validFrom: '2026-01-01', quoteId: QUOTE }),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(service.update(actor(), ID, { revision: 3, quoteId: QUOTE })).rejects.toMatchObject({ code: 'QUOTE_LINK_CREATE_ONLY' });
+    expect(store.updateContract).not.toHaveBeenCalled();
+    await expect(service.quotePreview(actor(), ID)).rejects.toMatchObject({ statusCode: 404 });
+    await expect(service.quotePreview(actor({ canWriteContract: false }), QUOTE)).rejects.toMatchObject({ statusCode: 403 });
+    store.quoteContractPreview.mockResolvedValue({ quoteId: QUOTE } as never);
+    await expect(service.quotePreview(actor(), QUOTE)).resolves.toMatchObject({ quoteId: QUOTE });
+    expect(store.quoteContractPreview).toHaveBeenCalledWith(TENANT, QUOTE);
   });
 });

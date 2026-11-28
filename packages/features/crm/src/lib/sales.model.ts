@@ -273,6 +273,7 @@ export const QUOTE_ACTION_LABELS: Readonly<Record<string, string>> = {
   decline: 'Khách từ chối',
   expire: 'Hết hạn',
   convert: 'Chuyển thành hợp đồng, đơn',
+  'link-contract': 'Gắn vào hợp đồng',
   'procedure-reversed': 'Quy trình thu hồi kết quả duyệt',
 };
 

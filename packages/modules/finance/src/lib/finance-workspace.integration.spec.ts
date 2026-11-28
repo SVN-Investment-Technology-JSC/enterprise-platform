@@ -95,6 +95,7 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
     reasonId: receiptReason,
     accountId,
     counterpartyGroupId: groupId,
+    counterpartyName: 'Chủ đầu tư',
     lines: [{ description: 'Thu đợt 1', quantity: 1, unitAmount: amount, total: 0 }],
     ...over,
   });
@@ -106,6 +107,9 @@ integration('Tài chính: hạch toán cho dự án/công việc và dự án li
     reasonId: paymentReason,
     accountId,
     counterpartyGroupId: groupId,
+    counterpartyName: 'Nhà cung cấp vật tư',
+    counterpartyAccountNo: '0123456789',
+    counterpartyBank: 'VCB',
     lines: [{ description: 'Vật tư', quantity: 1, unitAmount: amount, total: 0 }],
     ...over,
   });

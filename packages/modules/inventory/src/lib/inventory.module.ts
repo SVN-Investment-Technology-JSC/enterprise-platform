@@ -55,6 +55,7 @@ import {
 } from './application/procedure-instance-reader.port.js';
 import { HttpProcedureInstanceReader } from './infrastructure/http-procedure-instance.reader.js';
 import { RequisitionController } from './presentation/requisition.controller.js';
+import { LinkableController } from './presentation/linkable.controller.js';
 
 @Module({
   controllers: [
@@ -71,6 +72,7 @@ import { RequisitionController } from './presentation/requisition.controller.js'
     StockMovementController,
     StorageLocationController,
     RequisitionController,
+    LinkableController,
   ],
   providers: [
     TenantDatabaseRegistry,

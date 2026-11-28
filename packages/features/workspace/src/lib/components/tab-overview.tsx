@@ -10,7 +10,7 @@ import {
   type WorkItemDependency,
 } from '@enterprise-platform/contracts-workspace';
 import { CalendarClock, MapPin, UserRound } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   DEPENDENCY_TYPE_LABELS,
   ITEM_TYPE_LABELS,
@@ -29,7 +29,7 @@ import type { PendingProcedure } from '../procedure-pending';
 import { Confirm } from './confirm-box';
 import { ProgressHistoryPanel } from './progress-history-panel';
 import { WORK_ITEM_PROGRESS_METHOD_INFO } from '../project-progress-methods';
-import { parseStoredTab, type OverviewTab } from '../overview-tabs';
+import { DEFAULT_OVERVIEW_TAB, parseStoredTab, type OverviewTab } from '../overview-tabs';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -72,6 +72,18 @@ export interface TabOverviewProps {
    * Khung vẫn được dựng khi tab khác đang mở để số đếm có ngay.
    */
   readonly renderDocuments?: (onCount: (count: number) => void) => ReactNode;
+  /** Đối tượng liên quan của công việc, đặt thành tab "Liên quan" cạnh Tài liệu; vắng thì không có tab đó. */
+  readonly renderRelated?: (onCount: (count: number) => void) => ReactNode;
+  /**
+   * Trao đổi của công việc, đặt thành tab "Trao đổi". Chỉ dựng khi tab đang mở, nên tin chỉ được đánh dấu đã đọc lúc
+   * người dùng thật sự mở tab.
+   */
+  readonly renderChat?: () => ReactNode;
+  /** Số tin chưa đọc của công việc, hiện trên tab Trao đổi. */
+  readonly chatUnread?: number;
+  /** Nơi gọi muốn mở thẳng một tab (vd thông báo tin nhắn mở tab Trao đổi); xong thì báo `onTabRequestHandled`. */
+  readonly tabRequest?: OverviewTab;
+  readonly onTabRequestHandled?: () => void;
   /** Các bước của hồ sơ quy trình, đặt dưới danh sách hồ sơ liên kết trong tab Chi tiết. */
   readonly procedureSteps?: ReactNode;
 }
@@ -85,7 +97,7 @@ function restoreTab(itemId: string): OverviewTab {
   } catch {
     // Trình duyệt chặn bộ nhớ phiên: dùng tab mặc định.
   }
-  return 'detail';
+  return DEFAULT_OVERVIEW_TAB;
 }
 
 function rememberTab(itemId: string, tab: OverviewTab) {
@@ -122,6 +134,11 @@ export function TabOverview({
   canEditProgress = false,
   onReportQuantity,
   renderDocuments,
+  renderRelated,
+  renderChat,
+  chatUnread = 0,
+  tabRequest,
+  onTabRequestHandled,
   procedureSteps,
 }: TabOverviewProps) {
   const directory = useDirectory();
@@ -130,9 +147,18 @@ export function TabOverview({
     ? externalRefs.filter((ref) => ref.entityType === 'work_item' && ref.entityId === selected.id)
     : [];
   const transport = useTransportSummary('WORK_ITEM', selected?.id, selected?.updatedAt);
-  const [tab, setTab] = useState<OverviewTab>(() => (selected ? restoreTab(selected.id) : 'detail'));
+  const [tab, setTab] = useState<OverviewTab>(() => (selected ? restoreTab(selected.id) : DEFAULT_OVERVIEW_TAB));
   const [progressCount, setProgressCount] = useState<number>();
   const [documentCount, setDocumentCount] = useState<number>();
+  const [relatedCount, setRelatedCount] = useState<number>();
+
+  // Mở thẳng tab nơi gọi yêu cầu (bấm "Mở trao đổi", link thông báo), rồi báo đã xong để lần sau không áp lại.
+  useEffect(() => {
+    if (!tabRequest || !selected) return;
+    setTab(tabRequest);
+    rememberTab(selected.id, tabRequest);
+    onTabRequestHandled?.();
+  }, [tabRequest, selected, onTabRequestHandled]);
 
   const detailBody = (
     <>
@@ -258,23 +284,45 @@ export function TabOverview({
     return (
       <Tabs
         className={styles.itemTabs}
-        value={tab}
+        // Tab đã lưu mà nơi gọi không có (vd Liên quan khi công ty không có loại hồ sơ nào): về Trao đổi nếu có, không
+        // thì Chi tiết.
+        value={
+          tab === 'chat' && !renderChat
+            ? 'detail'
+            : tab === 'related' && !renderRelated
+              ? renderChat
+                ? 'chat'
+                : 'detail'
+              : tab
+        }
         onValueChange={(value) => {
           setTab(value as OverviewTab);
           rememberTab(selected.id, value as OverviewTab);
         }}
       >
         <TabsList aria-label="Thông tin phụ của công việc">
+          {/* Trao đổi đứng đầu và mở sẵn: đó là việc làm hằng ngày trên một công việc, các tab sau là tra cứu. */}
+          {renderChat ? (
+            <TabsTrigger value="chat">Trao đổi {chatUnread > 0 ? countBadge(chatUnread) : null}</TabsTrigger>
+          ) : null}
           <TabsTrigger value="detail">Chi tiết</TabsTrigger>
           <TabsTrigger value="progress">Lịch sử tiến độ {countBadge(progressCount)}</TabsTrigger>
           <TabsTrigger value="dependencies">Phụ thuộc {countBadge(dependencyCount)}</TabsTrigger>
           <TabsTrigger value="documents">Tài liệu {countBadge(documentCount)}</TabsTrigger>
+          {renderRelated ? (
+            <TabsTrigger value="related">Liên quan {countBadge(relatedCount)}</TabsTrigger>
+          ) : null}
         </TabsList>
         <TabsContent value="detail" className={styles.itemTabBody}>
           {quantityBlock}
           {detailBody}
           {linksBody}
         </TabsContent>
+        {renderChat ? (
+          <TabsContent value="chat" className={styles.itemTabBody}>
+            {renderChat()}
+          </TabsContent>
+        ) : null}
         {/* Giữ dựng khi ẩn để số đếm trên tab có ngay mà không phải mở từng tab. */}
         <TabsContent value="progress" keepMounted className={styles.itemTabBody}>
           <ProgressHistoryPanel item={selected} bare onCount={setProgressCount} />
@@ -293,6 +341,12 @@ export function TabOverview({
         <TabsContent value="documents" keepMounted className={styles.itemTabBody}>
           {renderDocuments?.(setDocumentCount)}
         </TabsContent>
+        {/* Không dựng sẵn khi ẩn: danh sách đọc thông tin từ nơi khác, chỉ tải khi người dùng mở tab. */}
+        {renderRelated ? (
+          <TabsContent value="related" className={styles.itemTabBody}>
+            {renderRelated(setRelatedCount)}
+          </TabsContent>
+        ) : null}
       </Tabs>
     );
   }

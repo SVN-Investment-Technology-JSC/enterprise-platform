@@ -42,11 +42,20 @@ export type ReplaceEligibilityMode = 'untouched' | 'no_step_handled' | 'never';
  * `mode`: `untouched` (mặc định) cần hồ sơ còn nguyên vẹn; `no_step_handled` cho đổi dù đã có trao đổi, uỷ quyền
  * hay dữ liệu nhập, nhưng vẫn chặn khi có bước đã xử lý, vật tư giữ chỗ hoặc dữ liệu ở module khác;
  * `never` chặn hẳn.
+ *
+ * `keptWorkItemId`: công việc Workspace được GIỮ khi đổi quy trình (công việc đang gắn hồ sơ). Liên kết tới đúng công
+ * việc đó không phải dữ liệu bị mất (công việc được trỏ sang hồ sơ mới), và lượt "Đổi công việc liên kết" chỉ đổi nơi
+ * gắn hồ sơ chứ không xử lý hồ sơ, nên cả hai không chặn. Vắng thì mọi liên kết Workspace đều chặn như trước.
  */
 export function replaceableInstanceReason(
   instance: ProcedureInstance,
   mode: ReplaceEligibilityMode = 'untouched',
+  keptWorkItemId?: string,
 ): string | undefined {
+  const keepsLink =
+    !!keptWorkItemId &&
+    instance.workspaceLink?.status === 'linked' &&
+    instance.workspaceLink.workItemId === keptWorkItemId;
   if (instance.deletion || instance.replacedByInstanceId) return REPLACE_REASON_DELETED;
   if (instance.status !== 'running' || instance.reversal) return REPLACE_REASON_ENDED;
   if (mode === 'never') return REPLACE_REASON_DISABLED;
@@ -66,7 +75,12 @@ export function replaceableInstanceReason(
   }
 
   const strict = mode === 'untouched';
-  if (strict && instance.activity.some((entry) => entry.action !== 'start')) return REPLACE_REASON_ACTIVITY;
+  if (
+    strict &&
+    instance.activity.some((entry) => entry.action !== 'start' && !(keepsLink && entry.action === 'relink'))
+  ) {
+    return REPLACE_REASON_ACTIVITY;
+  }
   if (strict && ((instance.delegations ?? []).length > 0 || (instance.subtasks ?? []).length > 0)) {
     return REPLACE_REASON_DELEGATED;
   }
@@ -79,7 +93,7 @@ export function replaceableInstanceReason(
   if (strict && Object.keys(instance.attributeValues ?? {}).length > 0) return REPLACE_REASON_ATTRIBUTES;
   if (
     instance.sourceSummary ||
-    instance.workspaceLink ||
+    (instance.workspaceLink && !keepsLink) ||
     instance.adjustmentOf ||
     instance.steps.some((step) => step.financeVoucher)
   ) {

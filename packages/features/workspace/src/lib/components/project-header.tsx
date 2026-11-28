@@ -12,6 +12,7 @@ import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate } from '../works
 import styles from '../workspace.module.scss';
 import { ProjectAvatar } from './project-avatar';
 import { ProjectProgressBar } from './project-progress-bar';
+import { ProjectReportGroupChip } from './project-report-group-chip';
 import { Tooltip } from './tooltip';
 import { useDirectory } from './use-directory';
 
@@ -26,6 +27,10 @@ export interface ProjectHeaderProps {
   /** Vai trò có quyền "Có thể cập nhật trạng thái dự án". */
   readonly canChangeStatus?: boolean;
   readonly onChangeStatus?: (status: ProjectStatus) => Promise<void>;
+  /** Người xem được đổi nhóm báo cáo của dự án (chip "Nhóm báo cáo" trong hàng thông tin). */
+  readonly canChangeReportGroup?: boolean;
+  /** Lưu nhóm báo cáo mới; `null` là bỏ nhóm. */
+  readonly onChangeReportGroup?: (reportGroupId: string | null) => Promise<void>;
   /**
    * Công tắc "Dự án | Khách hàng" của khu vực Dự án, đặt ở góc phải dưới của thẻ để thẻ và công tắc là MỘT khối (khỏi một
    * hàng tiêu đề riêng phía trên chỉ để chứa công tắc).
@@ -42,7 +47,7 @@ const PICKABLE_STATUSES = PROJECT_STATUSES.filter((status) => status !== 'cancel
 /**
  * Khối đầu của trang dự án, hai hàng, luôn cao như nhau ở mọi tab (nên hàng tab bên dưới đứng yên khi đổi tab):
  *  - Hàng trên: logo, tên, trạng thái | tiến độ, người trong dự án, nút Thành viên.
- *  - Hàng dưới: số liệu có biểu tượng (mã, nhóm, công việc, thành viên, tài liệu, thời gian) | công tắc Dự án / Khách hàng.
+ *  - Hàng dưới: số liệu có biểu tượng (mã, nhóm, công việc, thành viên, tài liệu, thời gian, nhóm báo cáo) | công tắc Dự án / Khách hàng.
  */
 export function ProjectHeader({
   project,
@@ -51,6 +56,8 @@ export function ProjectHeader({
   onOpenMembers,
   canChangeStatus = false,
   onChangeStatus,
+  canChangeReportGroup = false,
+  onChangeReportGroup,
   viewSwitch,
 }: ProjectHeaderProps) {
   const directory = useDirectory();
@@ -120,6 +127,11 @@ export function ProjectHeader({
             </li>
           </Tooltip>
         ))}
+        <ProjectReportGroupChip
+          reportGroupId={project.reportGroupId}
+          canEdit={canChangeReportGroup}
+          onChange={onChangeReportGroup}
+        />
       </ul>
 
       {viewSwitch ? <div className={styles.projectHeaderSwitch}>{viewSwitch}</div> : null}

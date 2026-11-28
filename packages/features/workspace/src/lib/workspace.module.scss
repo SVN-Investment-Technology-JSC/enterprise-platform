@@ -7372,6 +7372,26 @@
   width: min(57rem, 100%);
 }
 
+/* Form tạo / sửa nhiều ô (dự án, công việc, thêm liên kết): rộng gần 1000px, màn hẹp thì vừa màn. */
+.dialogLarge {
+  width: min(62rem, 100%);
+}
+
+/* Lưới hai cột cho các ô ngắn của form lớn; ô dài (tên, mô tả, danh sách) chiếm cả hàng. Màn hẹp về một cột. */
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+
+  @media (width <= 720px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.formSpanAll {
+  grid-column: 1 / -1;
+}
+
 .draftList {
   display: flex;
   flex-direction: column;
@@ -10816,11 +10836,33 @@ button.kpiCard {
 .projectsTable {
   --work-code-w: 7rem;
 
-  min-width: 1134px;
+  min-width: 1380px;
 }
 
 .projectsColCheck {
   width: 40px;
+}
+
+.projectsColIndex {
+  width: 52px;
+}
+
+.projectsColContract {
+  width: 168px;
+}
+
+.projectsColGroup {
+  width: 156px;
+}
+
+// Tên nhóm dự án luôn một dòng (dài thì cắt "…", rê chuột xem đủ): dòng không cao thấp lộn xộn theo độ dài tên nhóm.
+.projectGroupCell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
 }
 
 .projectsColCustomer {
@@ -10835,8 +10877,9 @@ button.kpiCard {
   width: 148px;
 }
 
-.projectsColTime {
-  width: 198px;
+// Ngày bắt đầu và kết thúc: mỗi cột vừa một ngày dd/mm/yyyy (trước đây gộp một cột "bắt đầu – kết thúc" 198px).
+.projectsColDate {
+  width: 112px;
 }
 
 .projectsColProgress {
@@ -10846,6 +10889,33 @@ button.kpiCard {
 .projectsColActions {
   width: 44px;
 }
+
+/*
+ * Chữ dài xuống dòng (mặc định; nút "Xuống dòng" / "Gọn một dòng" trên thanh công cụ của bảng): tên dự án, tên nhóm,
+ * khách hàng, nhãn hiện đủ, dòng cao lên theo chữ. Mã dự án, ngày và cột số (STT, giá trị hợp đồng) vẫn một dòng.
+ * Chế độ gọn một dòng giữ kiểu cũ: cắt "…", rê chuột xem đủ.
+ */
+.projectsWrap {
+  tbody td,
+  tbody th {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .workTitle,
+  .projectGroupCell {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+.projectsTable.projectsWrap .chipGroup {
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
 
 /*
  * Ô còn trống nhưng sửa được (chưa có khách hàng, chưa có nhãn): ngày thường chỉ hiện "—" cho bảng đỡ lặp chữ; rê
@@ -12118,6 +12188,114 @@ th[data-column-id='select'] .columnResizeHandle {
   }
 }
 
+/* Nút sắp xếp nhỏ trên tiêu đề cột, ngay cạnh tay nắm kéo độ rộng: mờ khi chưa sắp theo cột này, rõ khi đang áp. */
+/* Đủ độ ưu tiên để thắng padding mặc định của tiêu đề bảng (kể cả cột số căn phải). */
+.table thead th.columnSortable {
+  padding-right: 30px;
+}
+
+.columnSortButton {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  z-index: 11;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ep-text-muted, #6b7280);
+  cursor: pointer;
+  opacity: 0.45;
+  transform: translateY(-50%);
+  transition:
+    opacity 0.12s,
+    background-color 0.12s;
+
+  svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+    background: rgb(0 0 0 / 8%);
+    outline: none;
+  }
+}
+
+.columnSortButtonOn {
+  opacity: 1;
+  color: var(--ep-accent-strong, #d9ab00);
+}
+
+/* Dòng đích trong hộp thoại Di chuyển: nhãn bên trái, chip trạng thái của công việc đó bên phải. */
+.moveOptionRow {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Mục danh sách là hộp flex và bọc dòng này trong một <span>: cho span đó giãn hết bề ngang để chip nằm sát mép phải. */
+span:has(> .moveOptionRow) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.moveOptionLabel,
+.moveOptionParent {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Việc đang có việc con: chữ đậm để phân biệt với việc lá. */
+.moveOptionParent {
+  font-weight: 600;
+}
+
+/* Mũi tên nhánh trước tên việc con. */
+.moveOptionBranch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ep-text-muted, #6b7280);
+}
+
+.moveOptionTags {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Vai trong cây: Việc gốc / Việc cha · N con / Việc con, chữ nhỏ viền xám. */
+.moveOptionRole {
+  padding: 0 6px;
+  border: 1px solid var(--ep-border, #d4d4d8);
+  border-radius: 999px;
+  color: var(--ep-text-muted, #6b7280);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.moveOptionStatus {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .columnResizeHandleActive::after {
   width: 3px;
   background: var(--ep-accent-strong, #d9ab00);
@@ -12935,4 +13113,462 @@ th[data-column-id='select'] .columnResizeHandle {
   color: var(--ep-text-sub);
   font-size: 12px;
   font-weight: 700;
+}
+
+/* ===========================================================================
+   ĐỐI TƯỢNG LIÊN QUAN: khối chọn trong form, ô "Tạo từ", tab Liên quan
+   =========================================================================== */
+
+/* Hai ô chọn liền nhau: loại hồ sơ (hẹp hơn) và hồ sơ. */
+.relatedPicker {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
+  min-width: 0;
+
+  @media (width <= 640px) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.relatedEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Đầu khối gập được: cả hàng là một nút, mũi tên bên phải. */
+.relatedEditorHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:focus-visible {
+    @include focus-ring;
+
+    border-radius: var(--ep-radius);
+  }
+}
+
+.relatedEditorChevron {
+  flex: none;
+  color: var(--ep-text-muted);
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.relatedEditorChevronOpen {
+  transform: none;
+}
+
+.relatedEditorBody,
+.relatedEditorBodyFlat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.relatedEditorBody {
+  padding-left: 42px;
+}
+
+.relatedRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.relatedRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.relatedAddRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+/* Nút tròn "+" kèm chữ, cùng màu nhấn với nút thêm điều kiện hoàn thành. */
+.relatedAdd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ep-text-sub);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover:not(:disabled) .relatedAddIcon {
+    background: var(--ep-accent);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+
+    border-radius: 999px;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+.relatedAddIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--ep-accent-strong);
+  border-radius: 999px;
+  background: var(--ep-accent-soft);
+  color: var(--ep-text);
+  transition: background-color 0.15s ease;
+}
+
+/* Liên kết đã lưu trong form sửa: loại và hồ sơ cố định, cùng cao với hai ô chọn của dòng mới. */
+.relatedFixed {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px dashed var(--ep-border-strong);
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+}
+
+.relatedFixedLabel {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ep-text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Giữ chỗ nút X cho liên kết không gỡ được, để các dòng thẳng hàng. */
+.relatedRemoveSpacer {
+  flex: none;
+  width: 34px;
+}
+
+/* Ô chọn kèm nút "+" tạo mới ngay bên phải (vd khách hàng của dự án). */
+.selectWithAction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* Tab Trao đổi trong chi tiết công việc: cao vừa một màn, vùng tin cuộn bên trong, ô nhập luôn ở đáy. */
+.chatInline {
+  display: flex;
+  flex-direction: column;
+  height: clamp(360px, 58vh, 620px);
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  overflow: hidden;
+}
+
+.chatInlineStatus {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px 0;
+}
+
+/* --- Tab Liên quan ------------------------------------------------------ */
+
+.relatedToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.relatedEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 36px 24px;
+  border: 1px dashed var(--ep-border-strong);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface-soft);
+  color: var(--ep-text-muted);
+
+  p {
+    margin: 0;
+  }
+}
+
+.relatedGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.relatedGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.relatedList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.relatedCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 14px 12px;
+  border: 1px solid var(--ep-border);
+  border-radius: var(--ep-radius-lg);
+  background: var(--ep-surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 4%);
+}
+
+/* Không đọc được thông tin đầy đủ: chỉ còn nhãn đã lưu, nền nhạt hơn. */
+.relatedCardMuted {
+  background: var(--ep-surface-soft);
+}
+
+.relatedCardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Cả dòng tiêu đề là một vùng bấm lớn: mã, tên và trạng thái, rê chuột thì nền đổi màu. */
+.relatedCardLink,
+.relatedCardStatic {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-width: 0;
+  margin: 0 -8px;
+  padding: 8px;
+  border-radius: var(--ep-radius);
+  color: var(--ep-text);
+  text-decoration: none;
+}
+
+.relatedCardLink {
+  cursor: pointer;
+
+  .relatedTitle {
+    color: var(--ep-link);
+  }
+
+  &:hover {
+    background: var(--ep-hover);
+
+    .relatedTitle {
+      text-decoration: underline;
+    }
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.relatedTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.relatedOpenIcon {
+  flex: none;
+  opacity: 0.7;
+}
+
+.relatedKind {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--ep-radius-sm);
+  background: rgb(59 130 246 / 12%);
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Trạng thái do nơi lưu hồ sơ trả: viên thuốc trung tính. */
+.relatedStatus {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--ep-line);
+  color: #374151;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* "Gỡ": thao tác phụ, chữ nhạt, rê chuột mới đỏ. */
+.relatedRemove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--ep-radius);
+  background: transparent;
+  color: var(--ep-text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    background: #fef2f2;
+    color: var(--ep-danger);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+}
+
+.relatedMeta {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12px;
+}
+
+.relatedNote {
+  margin: 0;
+  color: var(--ep-text-muted);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+.relatedFields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--ep-radius);
+  background: var(--ep-surface-soft);
+}
+
+.relatedField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  dt {
+    color: var(--ep-text-muted);
+    font-size: 11.5px;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--ep-text);
+    font-size: 13px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Hộp "Chọn trường để export": danh sách cột hai cột. */
+.exportFieldActions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.exportFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 1.25rem;
+}
+
+/* Chọn kiểu xuất trong hộp Export: danh sách theo trường, hay báo cáo doanh thu theo lĩnh vực. */
+.exportModeTabs {
+  flex-wrap: wrap;
+  max-width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.exportReportNote {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--ep-text-sub);
+  font-size: 13px;
+  line-height: 1.5;
+
+  p {
+    margin: 0;
+  }
+}
+
+.exportReportHint {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--ep-radius);
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+@media (max-width: 560px) {
+  .exportFieldGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Bảng xem trước chỉ đọc dưới một ô của form tạo nhanh (ví dụ dòng hàng sẽ nhận từ báo giá). */
+.createPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

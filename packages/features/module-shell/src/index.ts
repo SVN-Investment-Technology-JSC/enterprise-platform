@@ -14,3 +14,4 @@ export * from './lib/dashboard-card-picker';
 export * from './lib/charts';
 export * from './lib/task-drawer';
 
+export * from './lib/module-embed';

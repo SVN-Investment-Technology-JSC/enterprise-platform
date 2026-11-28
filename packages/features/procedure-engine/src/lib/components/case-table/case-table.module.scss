@@ -1,0 +1,651 @@
+@use '../procedure-ui' as ui;
+
+// Bảng hồ sơ của "Hồ sơ xử lý" (`case-table.tsx`): thanh duyệt hàng loạt, nút "Cột" / "Dự án",
+// bảng gom theo dự án (tiêu đề cột sắp xếp, kéo đổi chỗ, kéo độ rộng), cột Hành động kiểu 1office và phân trang. Màu, cỡ
+// chữ, khoảng cách lấy từ `_procedure-ui.scss` nên các màn nhìn giống hệt nhau.
+
+// Nút phụ trên thanh công cụ ("Cột", "Dự án").
+.toolButton {
+  @include ui.button;
+
+  color: ui.$muted;
+
+  &:hover:not(:disabled) {
+    color: ui.$ink;
+  }
+}
+
+.toolButtonActive {
+  border-color: ui.$blue;
+  color: ui.$blue;
+}
+
+// Nút "Dự án" đang sắp xếp nhóm: chữ và mũi tên màu nhấn như tiêu đề cột đang sắp.
+.toolbarSortOn {
+  border-color: ui.$accent-strong;
+  color: ui.$ink;
+
+  svg {
+    color: ui.$accent-strong;
+  }
+}
+
+// Nút "Cột" và bảng chọn cột thả xuống bên dưới (canh phải).
+.columnSettings {
+  position: relative;
+  display: inline-flex;
+}
+
+// Chấm nhỏ trên nút "Cột" khi bố cục đã khác mặc định.
+.customDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: ui.$accent-strong;
+}
+
+.columnPanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: ui.$space-2;
+  width: 260px;
+  padding: ui.$space-3;
+  border: 1px solid ui.$line;
+  border-radius: ui.$radius-card;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 12%);
+}
+
+.columnPanelHead {
+  @include ui.small-head;
+}
+
+.columnList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.columnItem {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.columnToggle {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 2px;
+  font-size: 13px;
+  cursor: pointer;
+
+  input {
+    margin: 0;
+    cursor: pointer;
+
+    &:disabled {
+      cursor: not-allowed;
+    }
+  }
+}
+
+.columnMove {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: ui.$muted;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: ui.$group-bg;
+    color: ui.$ink;
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+
+.columnHint {
+  margin: 0;
+  color: ui.$muted;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.columnReset {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid ui.$line;
+  border-radius: 6px;
+  background: #fff;
+  color: ui.$ink;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: ui.$group-bg;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+.bulkBar {
+  @include ui.toolbar;
+
+  padding: ui.$space-2 ui.$space-3;
+  border: 1px solid ui.$accent-strong;
+  border-radius: ui.$radius-card;
+  background: ui.$accent-soft;
+  font-size: ui.$fs-control;
+}
+
+.bulkPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: ui.$space-1;
+  height: 28px;
+  padding: 0 ui.$space-3;
+  border: 0;
+  border-radius: ui.$radius-sm;
+  background: ui.$blue;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
+
+// Đi kèm `.bulkPrimary`: nút "Không duyệt N hồ sơ".
+.bulkDanger {
+  background: ui.$danger;
+}
+
+// Kết quả lần duyệt / không duyệt hàng loạt: số hồ sơ đã xử lý và danh sách hồ sơ bị bỏ qua kèm lý do.
+.bulkSummary {
+  @include ui.card;
+
+  display: flex;
+  flex-direction: column;
+  gap: ui.$space-1;
+  padding: ui.$space-2 ui.$space-3;
+  font-size: ui.$fs-control;
+}
+
+.bulkSummaryHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bulkSkipped {
+  margin: 0;
+  padding-left: 18px;
+  color: ui.$muted;
+
+  b {
+    color: ui.$ink;
+    font-weight: 600;
+  }
+}
+
+.linkButton {
+  border: 0;
+  background: none;
+  color: ui.$blue;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+// Bảng bố cục cố định: độ rộng cột theo <colgroup> (mặc định vừa 1366px không cuộn), cột "Tên công việc" lấy phần còn
+// lại. Chỉ cuộn ngang khi người dùng nới cột vượt khung.
+.tableWrap {
+  @include ui.card;
+
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+
+  // Tên cột hiện đủ chữ: dài thì xuống dòng (tối đa 2 dòng ở độ rộng mặc định), không cắt "…".
+  th {
+    @include ui.small-head;
+
+    height: 38px;
+    padding: 4px ui.$space-3;
+    border-bottom: 1px solid ui.$line;
+    background: ui.$head-bg;
+    line-height: 15px;
+    text-align: left;
+    white-space: normal;
+    vertical-align: middle;
+  }
+
+  td {
+    padding: 6px ui.$space-3;
+    border-bottom: 1px solid ui.$line;
+    vertical-align: middle;
+  }
+
+  // Mọi dòng hồ sơ cao bằng nhau (hai dòng chữ ở cột tên), nội dung canh giữa theo chiều dọc.
+  tbody tr:not(.groupRow) td {
+    height: 52px;
+  }
+
+  tbody tr:not(.groupRow):hover td {
+    background: #fafbfd;
+  }
+}
+
+// Tiêu đề cột kéo đổi chỗ được: vạch xanh ở mép trái / phải báo chỗ thả.
+.headCell {
+  position: relative;
+  cursor: grab;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+
+  &:hover .resizeHandle::after {
+    opacity: 0.55;
+  }
+}
+
+.headDragging {
+  opacity: 0.5;
+}
+
+.dropBefore {
+  box-shadow: inset 3px 0 0 0 ui.$blue;
+}
+
+.dropAfter {
+  box-shadow: inset -3px 0 0 0 ui.$blue;
+}
+
+.headLabel {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: normal;
+}
+
+// Tên cột bấm để sắp xếp, mũi tên nhỏ bên phải: mờ khi chưa sắp, màu nhấn khi đang sắp (như bảng Hồ sơ xử lý).
+.sortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  text-transform: inherit;
+  cursor: pointer;
+
+  svg {
+    flex: none;
+    opacity: 0.45;
+  }
+
+  &:hover {
+    color: ui.$ink;
+
+    svg {
+      opacity: 0.8;
+    }
+  }
+
+  &:focus-visible {
+    border-radius: 4px;
+    outline: 2px solid ui.$blue;
+    outline-offset: 2px;
+  }
+}
+
+.sortButtonOn {
+  color: ui.$ink;
+
+  svg {
+    color: ui.$accent-strong;
+    opacity: 1;
+  }
+}
+
+// Tay nắm kéo độ rộng ở mép phải tiêu đề: vùng bấm 8px, vạch 2px hiện khi rê chuột / đang kéo.
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    right: 0;
+    bottom: 8px;
+    width: 2px;
+    border-radius: 999px;
+    background: ui.$muted;
+    opacity: 0;
+    transition: opacity 0.12s, background-color 0.12s;
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    background: ui.$accent-strong;
+    opacity: 1;
+  }
+}
+
+.resizeHandleActive::after {
+  width: 3px;
+  background: ui.$accent-strong;
+  opacity: 1;
+}
+
+.rowSelected td {
+  background: ui.$selected-bg;
+}
+
+.groupRow td {
+  padding: 0;
+  background: ui.$group-bg;
+  border-bottom: 1px solid #eceef2;
+}
+
+.groupToggle {
+  @include ui.group-header;
+
+  border-bottom: 0;
+  background: none;
+}
+
+.groupName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  flex: none;
+  font-weight: 500;
+}
+
+.checkCell {
+  text-align: center;
+
+  input {
+    margin: 0;
+    vertical-align: middle;
+    cursor: pointer;
+
+    &:disabled {
+      cursor: not-allowed;
+    }
+  }
+}
+
+.nameCell {
+  overflow: hidden;
+}
+
+.stepName {
+  display: block;
+  overflow: hidden;
+  color: ui.$ink;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    color: ui.$blue;
+  }
+}
+
+.procedureLine {
+  display: block;
+  overflow: hidden;
+  color: ui.$muted;
+  font-size: 13px;
+  line-height: 18px;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &:hover {
+    color: ui.$blue;
+    text-decoration: underline;
+  }
+}
+
+.dateCell {
+  overflow: hidden;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+// Ngày hạn và nhãn "Quá hạn" trên cùng một dòng.
+.dateLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.overdue {
+  color: ui.$danger;
+  font-weight: 500;
+}
+
+.actionCell {
+  overflow: hidden;
+}
+
+// Cột Hành động kiểu 1office: các thao tác xếp dọc, gom bằng một ngoặc mảnh bên trái; mỗi thao tác là liên kết xanh có dấu ▷.
+.actionList {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 0;
+}
+
+// Từ hai thao tác trở lên: ngoặc mảnh bên trái (đường dọc + hai gạch ngang ở đầu và cuối).
+.actionListBracket {
+  position: relative;
+  padding-left: 14px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    bottom: 6px;
+    left: 0;
+    width: 7px;
+    border: 1px solid #cfd5de;
+    border-right: 0;
+    border-radius: 2px 0 0 2px;
+  }
+}
+
+.actionItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 0;
+  border: 0;
+  background: none;
+  color: ui.$blue;
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    color: #1d4ed8;
+    text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid ui.$blue;
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+.actionPlay {
+  flex: none;
+}
+
+.waitingPill {
+  @include ui.chip;
+
+  display: inline-block;
+  min-width: 0;
+  background: #f3f4f6;
+  color: ui.$muted;
+  font-weight: 500;
+}
+
+.waitingPillDone {
+  background: ui.$success-soft;
+  color: ui.$success-ink;
+}
+
+.muted {
+  color: ui.$muted;
+}
+
+.ownerCell {
+  overflow: hidden;
+}
+
+// Người tạo: ảnh chữ tắt nhỏ kèm đủ họ tên trên một dòng.
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.personName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar {
+  @include ui.avatar;
+
+  cursor: default;
+}
+
+.empty {
+  padding: 28px 10px !important;
+  color: ui.$muted;
+  text-align: center;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: ui.$muted;
+  font-size: ui.$fs-small;
+  font-variant-numeric: tabular-nums;
+
+  > button {
+    display: inline-grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border: 1px solid ui.$line;
+    border-radius: ui.$radius-sm;
+    background: #fff;
+    color: ui.$ink;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+  }
+}
+
+// Màn Hồ sơ xử lý: bấm cả dòng để mở hồ sơ; dòng của hồ sơ đang mở được tô nhẹ.
+.rowOpenable {
+  cursor: pointer;
+}
+
+.rowOpen td {
+  background: ui.$blue-soft;
+}
+
+.statusCell,
+.slaCell {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+// Phân trang có số bản ghi và cỡ trang (Hồ sơ xử lý): số bản ghi bên trái, cỡ trang và nút chuyển trang bên phải.
+.pagerRange {
+  margin-right: auto;
+}
+
+.pagerSize {
+  width: 112px;
+  font-size: ui.$fs-small;
+}

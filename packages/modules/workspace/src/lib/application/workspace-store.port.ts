@@ -90,6 +90,16 @@ import type {
   ProjectCodeParts,
 } from '@enterprise-platform/contracts-workspace';
 import type { FinanceInputs } from '../domain/finance.rules.js';
+
+/** Lý do một công việc đã xong bị mở lại vì việc con vào dưới nó; đi kèm sự kiện `workspace.work-item.reopened`. */
+export interface WorkItemReopenNotice {
+  /** `child-moved`: việc con được chuyển vào; `child-added`: việc con mới được thêm. */
+  readonly trigger: 'child-moved' | 'child-added';
+  /** Câu giải thích đầy đủ gửi cho người nhận (đã nói ai làm, vì sao). */
+  readonly reason: string;
+  readonly childCode: string;
+  readonly childTitle: string;
+}
 import type {
   WorkItemLinkedInstanceDraft,
   WorkItemProcedureRequestDraft,
@@ -416,6 +426,36 @@ export interface WorkspaceStore {
     updateProgress(tenantId: string, projectId: string, percent: number): Promise<void>;
     /** Đưa dự án vào / ra khỏi Lưu trữ mà không đổi trạng thái (đóng hồ sơ thủ công, mở lưu trữ). */
     setArchived(tenantId: string, projectId: string, archived: boolean): Promise<Project>;
+    /**
+     * Ghi (hoặc bỏ, `null`) `metadata.reportGroupId` của dự án, giữ nguyên các khoá metadata khác; cập nhật
+     * `updated_at`. Dự án không có thì ném `ProjectNotFoundError`.
+     */
+    setReportGroup(tenantId: string, projectId: string, reportGroupId: string | null): Promise<Project>;
+    /** Bỏ nhóm báo cáo khỏi mọi dự án đang gán một trong các nhóm này (nhóm vừa bị xoá khỏi danh mục). */
+    clearReportGroups(tenantId: string, reportGroupIds: readonly string[]): Promise<void>;
+    /**
+     * Mã, tên của nhiều dự án một lượt, kèm dự án của các công việc cho trước (một câu SQL mỗi loại, không tính thống kê).
+     * Dùng để module khác (Quy trình) hiện tên dự án của hồ sơ; id không có thì bỏ qua.
+     */
+    /**
+     * Dự án còn mở (chưa xong, chưa huỷ, chưa lưu trữ) để chọn, kèm vai của `userId` trong từng dự án, trong MỘT câu SQL, không
+     * tính thống kê. `memberOnly` thì chỉ dự án người đó là thành viên.
+     */
+    openOptions(
+      tenantId: string,
+      userId: string,
+      memberOnly: boolean,
+    ): Promise<
+      ReadonlyArray<{ readonly id: string; readonly code: string; readonly name: string; readonly role?: ProjectRole }>
+    >;
+    refs(
+      tenantId: string,
+      projectIds: readonly string[],
+      workItemIds: readonly string[],
+    ): Promise<{
+      readonly projects: ReadonlyArray<{ readonly id: string; readonly code: string; readonly name: string }>;
+      readonly workItems: ReadonlyArray<{ readonly id: string; readonly projectId: string }>;
+    }>;
   };
 
   readonly member: {
@@ -526,6 +566,8 @@ export interface WorkspaceStore {
       today: string,
       /** Điều kiện hoàn thành đã xác nhận, ghi vào dòng nhật ký của lần hoàn thành này. */
       completionEvidence?: WorkItemCompletionEvidence,
+      /** Việc đang được mở lại vì một việc con vừa vào dưới nó: store phát thông báo cho người liên quan trong cùng transaction. */
+      reopenNotice?: WorkItemReopenNotice,
     ): Promise<WorkItem>;
     /**
      * Chỉ cập nhật lý do vướng mắc của việc ĐANG `blocked` (không đổi trạng thái, không ghi nhật ký chuyển trạng thái).
@@ -1365,6 +1407,11 @@ export interface WorkspaceStore {
       tenantId: string,
       projectIds: readonly string[],
     ): Promise<ReadonlyMap<string, FinanceInputs>>;
+    /** Chỉ giá trị hợp đồng của nhiều dự án (nhẹ hơn `inputs`), cho cột hợp đồng ở danh sách dự án. */
+    contractValues(
+      tenantId: string,
+      projectIds: readonly string[],
+    ): Promise<ReadonlyMap<string, number | null>>;
     itemCosts(tenantId: string, projectId: string): Promise<readonly WorkItemCost[]>;
     updateProject(
       tenantId: string,

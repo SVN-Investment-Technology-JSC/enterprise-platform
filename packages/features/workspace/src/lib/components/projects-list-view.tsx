@@ -3,6 +3,7 @@
 import {
   type CreateProjectRequest,
   type CustomerSummary,
+  type ProjectMember,
   type ProjectRole,
   type ProjectStatus,
   type ProjectSummary,
@@ -10,13 +11,16 @@ import {
   type Tag,
   type UpdateProjectRequest,
 } from '@enterprise-platform/contracts-workspace';
-import { Building2, ChevronDown, ChevronRight, FolderInput, ListFilter, Plus, RefreshCw, Tag as TagIcon, MoreHorizontal } from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, Download, FolderInput, ListFilter, Plus, RefreshCw, Tag as TagIcon, MoreHorizontal, TextWrap } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { explicitTableStyle, useColumnOrder, useColumnWidths } from '../column-order';
 import { ReorderableTh, ResetColumnLayoutButton } from './reorderable-th';
 import { matchProjectFilter, type ProjectFilter } from '../project-filter.model';
-import { mergeNewProjectMembers } from '../project-tree.model';
+import { compareByColumn, nextColumnSort, type ProjectColumnSort, type ProjectSortColumn } from '../project-column-sort';
+import { earliestStartDate, isProjectOverdue, nextEndDate } from '../project-dates';
+import { finishProjectCreate } from '../related-objects-link';
+import type { PendingRelatedObject } from '../related-objects.model';
 import {
   clearReturnedProject,
   markProjectOpened,
@@ -25,9 +29,23 @@ import {
   writeProjectListMemory,
 } from '../project-list-memory';
 import { initialTasksWarning } from '../project-created';
+import type { ProjectListScope } from '../project-list-memory';
+import {
+  DEFAULT_PROJECT_EXPORT_KEYS,
+  PROJECT_EXPORT_COLUMNS,
+  buildProjectExportRows,
+  needsMembers,
+  projectExportFileName,
+  selectedExportColumns,
+  type ProjectExportLookups,
+} from '../project-export';
+import { downloadProjectReportXlsx, downloadProjectsXlsx } from '../project-export-xlsx';
+import { buildProjectReportSheet, projectReportFileName } from '../project-report-export';
+import { useProjectCellWrap } from '../project-cell-wrap';
 import { mergeUpdated } from '../merge-updated';
 import { toast } from '@enterprise-platform/shared-ui';
 import * as api from '../workspace-api';
+import { formatVnd } from '../money';
 import { PROJECT_STATUS_LABELS, PROJECT_STATUS_TONE, formatDate, projectStatusKeys } from '../workspace-labels';
 import styles from '../workspace.module.scss';
 import { ErrorToast } from './error-toast';
@@ -63,61 +81,89 @@ const RETURNED_MARK_MS = 8000;
 /** Tên nhóm cho dự án chưa gắn nhóm. */
 const UNCLASSIFIED = 'Chưa phân loại';
 
+/** Khoá của "nhóm" duy nhất trong tab Tất cả (danh sách phẳng, không có hàng nhóm). */
+const FLAT_GROUP = '';
+
+const SCOPE_LABELS: Record<ProjectListScope, string> = { active: 'Đang làm', archived: 'Lưu trữ', all: 'Tất cả' };
+
 /** Dự án đã đóng hoặc huỷ thì không còn đóng hồ sơ được nữa. */
 const CLOSED_PROJECT_STATUSES: readonly ProjectStatus[] = ['completed', 'cancelled'];
 
-/** Cách xếp dự án trong từng nhóm; chạy cùng lúc với bộ lọc. */
-type ProjectSort = 'name' | 'code' | 'updated';
+/** Xếp mặc định trong từng nhóm (và làm tiêu chí phụ khi sắp xếp theo cột): theo tên. */
+const byName = (a: ProjectSummary, b: ProjectSummary) => a.name.localeCompare(b.name, 'vi');
 
-const SORT_OPTIONS: readonly { value: ProjectSort; label: string }[] = [
-  { value: 'name', label: 'Theo tên' },
-  { value: 'code', label: 'Theo mã' },
-  { value: 'updated', label: 'Cập nhật gần nhất' },
-];
-
-const PROJECT_SORTS: Record<ProjectSort, (a: ProjectSummary, b: ProjectSummary) => number> = {
-  name: (a, b) => a.name.localeCompare(b.name, 'vi'),
-  code: (a, b) => a.code.localeCompare(b.code, 'vi', { numeric: true }),
-  updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-};
+/** Cột bấm tiêu đề để sắp xếp được (ô chọn và nút "⋯" thì không). */
+const SORTABLE_COLUMNS: ReadonlySet<string> = new Set(['project', 'customer', 'tags', 'status', 'startDate', 'endDate', 'progress']);
 
 /** Các cột của bảng, theo thứ tự mặc định. */
-type ProjectColumn = 'select' | 'project' | 'customer' | 'tags' | 'status' | 'time' | 'progress' | 'actions';
+type ProjectColumn =
+  | 'select'
+  | 'index'
+  | 'project'
+  | 'group'
+  | 'customer'
+  | 'contractValue'
+  | 'tags'
+  | 'status'
+  | 'startDate'
+  | 'endDate'
+  | 'progress'
+  | 'actions';
 
 const PROJECT_COLUMNS: readonly ProjectColumn[] = [
   'select',
+  'index',
   'project',
+  'group',
   'customer',
+  'contractValue',
   'tags',
   'status',
-  'time',
+  'startDate',
+  'endDate',
   'progress',
   'actions',
 ];
 
 /** Ô chọn và cột tên dự án luôn đứng đầu, không kéo được. */
-const PROJECT_PINNED: readonly ProjectColumn[] = ['select', 'project'];
+const PROJECT_PINNED: readonly ProjectColumn[] = ['select', 'index', 'project'];
 
 const PROJECT_COLUMN_LABELS: Record<ProjectColumn, string> = {
   select: 'Chọn',
+  index: 'STT',
   project: 'Dự án',
+  group: 'Nhóm dự án',
   customer: 'Khách hàng',
+  contractValue: 'Giá trị hợp đồng (trước VAT)',
   tags: 'Nhãn',
   status: 'Trạng thái',
-  time: 'Thời gian',
+  startDate: 'Bắt đầu',
+  endDate: 'Kết thúc',
   progress: '% hoàn thành',
   actions: 'Thao tác',
 };
 
 const PROJECT_COL_CLASS: Record<ProjectColumn, string | undefined> = {
   select: styles.projectsColCheck,
+  index: styles.projectsColIndex,
   project: undefined,
+  group: styles.projectsColGroup,
   customer: styles.projectsColCustomer,
+  contractValue: styles.projectsColContract,
   tags: styles.projectsColTags,
   status: styles.projectsColStatus,
-  time: styles.projectsColTime,
+  startDate: styles.projectsColDate,
+  endDate: styles.projectsColDate,
   progress: styles.projectsColProgress,
   actions: styles.projectsColActions,
+};
+
+/** Hai kiểu xuất: chọn trường (mẫu 1office) và báo cáo doanh thu theo lĩnh vực (nhóm báo cáo). */
+type ExportMode = 'fields' | 'report';
+
+const EXPORT_MODE_LABELS: Record<ExportMode, string> = {
+  fields: 'Danh sách dự án (chọn trường)',
+  report: 'Báo cáo doanh thu theo lĩnh vực (nhóm báo cáo)',
 };
 
 /** Sửa trên bảng một dự án: `fallback` là thông báo khi server không trả lý do. */
@@ -171,8 +217,11 @@ export function ProjectsListView({
   const [types, setTypes] = useState<readonly ProjectTypeOption[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>();
-  /** Dự án đang làm, hay danh sách lưu trữ (dự án đã hoàn thành tự vào lưu trữ). */
-  const [scope, setScope] = useState<'active' | 'archived'>(memory.scope);
+  /**
+   * Dự án đang làm, danh sách lưu trữ (dự án đã hoàn thành tự vào lưu trữ), hay tất cả dự án (cả hai phần trên, kể cả đã
+   * hoàn thành). Tab "Tất cả" hiện một danh sách phẳng, không gom theo nhóm dự án.
+   */
+  const [scope, setScope] = useState<ProjectListScope>(memory.scope);
   /** Số dự án trong lưu trữ, hiện trên nút chuyển sang danh sách lưu trữ. */
   const [archivedTotal, setArchivedTotal] = useState<number>();
 
@@ -189,13 +238,23 @@ export function ProjectsListView({
   // Chưa có id người dùng sẵn trong trang này nên thứ tự cột lưu chung cho trình duyệt.
   const columnOrder = useColumnOrder('projects-list', undefined, PROJECT_COLUMNS, PROJECT_PINNED);
   const { move } = columnOrder;
-  const order = columnOrder.order as readonly ProjectColumn[];
+  // Cột "Nhóm dự án" chỉ có ở tab Tất cả (danh sách phẳng, không có hàng nhóm); hai tab kia đã gom theo nhóm rồi.
+  // Cột "Giá trị hợp đồng" chỉ hiện khi người xem được xem tài chính ít nhất một dự án trong danh sách (server chỉ trả
+  // `contractValue` cho dự án đó).
+  const showContract = projects.some((project) => project.contractValue !== undefined);
+  const order = (columnOrder.order as readonly ProjectColumn[]).filter(
+    (id) => (id !== 'group' || scope === 'all') && (id !== 'contractValue' || showContract),
+  );
   const sizing = useColumnWidths('projects-list', undefined, PROJECT_COLUMNS);
   const tableSizeStyle = explicitTableStyle(order, sizing.widths);
+  /** Chữ dài xuống dòng (mặc định) hay gọn một dòng; lưu theo trình duyệt. */
+  const [cellWrap, setCellWrap] = useProjectCellWrap();
+  const wrapCells = cellWrap === 'wrap';
 
   /** Nhóm dự án đang mở; mới vào trang thì mọi nhóm thu gọn. */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(memory.expanded));
-  const [sortKey, setSortKey] = useState<ProjectSort>(memory.sortKey);
+  /** Sắp xếp theo cột đang bấm trên tiêu đề; chưa bấm là xếp theo tên. */
+  const [columnSort, setColumnSort] = useState<ProjectColumnSort | undefined>(memory.columnSort);
 
   // Nhớ mọi thao tác trên danh sách để quay lại từ một dự án vẫn thấy đúng như đã để.
   useEffect(() => {
@@ -206,10 +265,10 @@ export function ProjectsListView({
       typeFilter,
       tagFilter,
       customerFilter,
-      sortKey,
+      columnSort,
       projectFilter,
     });
-  }, [scope, expanded, statusFilter, typeFilter, tagFilter, customerFilter, sortKey, projectFilter]);
+  }, [scope, expanded, statusFilter, typeFilter, tagFilter, customerFilter, columnSort, projectFilter]);
   /** Dự án đang được lưu sau khi sửa trên bảng: khoá ô của dòng đó cho tới khi xong. */
   const [savingProject, setSavingProject] = useState<string>();
   const toggleGroup = (type: string) =>
@@ -230,6 +289,13 @@ export function ProjectsListView({
   /** Menu chuột phải: vị trí và các dự án nó áp dụng. */
   const [menu, setMenu] = useState<{ x: number; y: number; ids: string[] }>();
   const [createOpen, setCreateOpen] = useState(false);
+  /** Menu "Export" (vị trí dưới nút), hộp chọn trường và việc xuất đang chạy. */
+  const [exportMenu, setExportMenu] = useState<{ x: number; y: number }>();
+  const [exportPickOpen, setExportPickOpen] = useState(false);
+  const [exportKeys, setExportKeys] = useState<readonly string[]>(DEFAULT_PROJECT_EXPORT_KEYS);
+  const [exporting, setExporting] = useState(false);
+  /** Kiểu xuất trong hộp Export: danh sách dự án theo mẫu 1office, hay báo cáo doanh thu theo lĩnh vực. */
+  const [exportMode, setExportMode] = useState<ExportMode>('fields');
   const [panelOpen, setPanelOpen] = useState(false);
   const panelBox = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -249,7 +315,7 @@ export function ProjectsListView({
   const reload = useCallback(async () => {
     try {
       const [items, archived, customerList, typeList] = await Promise.all([
-        api.listAllProjects(20, { archived: scope === 'archived' ? 'only' : 'exclude' }),
+        api.listAllProjects(20, scope === 'all' ? {} : { archived: scope === 'archived' ? 'only' : 'exclude' }),
         api.listProjects({ archived: 'only', pageSize: 1 }),
         api.listCustomers(),
         api.listProjectTypes(),
@@ -277,6 +343,78 @@ export function ProjectsListView({
     setCreateOpen(true);
     onCreateProjectHandled?.();
   }, [createProjectRequest, onCreateProjectHandled]);
+
+  /**
+   * Xuất MỌI dự án người dùng xem được (cả đang làm lẫn lưu trữ, không theo bộ lọc hay tab đang mở) ra Excel theo các cột
+   * đã chọn. Dữ liệu là đúng thứ danh sách dự án đã trả cho người này, nên không mở thêm quyền nào; thành viên chỉ nạp khi
+   * có cột cần đến, mỗi lần vài dự án để không dồn máy chủ.
+   */
+  /** Tra tên (người, phòng ban, khách hàng, nhãn) cho các ô của tệp xuất, từ dữ liệu trang đã nạp sẵn. */
+  const exportLookups = (members: ReadonlyMap<string, readonly ProjectMember[]>): ProjectExportLookups => {
+    const orgName = new Map(directory.orgNodes.map((node) => [node.id, node.name]));
+    return {
+      personName: directory.nameOf,
+      orgUnitName: (id) => (id ? (orgName.get(id) ?? '') : ''),
+      customerName: (id) => customerOf(id)?.name ?? '',
+      tagName: (tagId) => tags.find(tagId)?.name ?? '',
+      membersOf: (projectId) => members.get(projectId),
+    };
+  };
+
+  /**
+   * Báo cáo doanh thu theo lĩnh vực: cùng tập dự án như cách xuất danh sách ở dưới (mọi dự án người này xem được), mỗi
+   * dự án đưa giá trị hợp đồng vào cột nhóm báo cáo của nó. Giá trị hợp đồng chỉ có khi được xem tài chính; không có
+   * thì vẫn xuất, các ô số để trống.
+   */
+  const runReportExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const [everything, catalog] = await Promise.all([api.listAllProjects(20, {}), api.listProjectReportGroups()]);
+      const report = buildProjectReportSheet(everything, catalog.items, exportLookups(new Map()));
+      downloadProjectReportXlsx(projectReportFileName(), report);
+      toast.success(`Đã xuất báo cáo doanh thu theo lĩnh vực: ${report.projectCount} dự án.`);
+    } catch (cause) {
+      toast.error(messageOf(cause, 'Không xuất được báo cáo doanh thu theo lĩnh vực.'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const runExport = async (keys: readonly string[]) => {
+    const columns = selectedExportColumns(keys);
+    if (columns.length === 0 || exporting) return;
+    setExporting(true);
+    try {
+      const everything = await api.listAllProjects(20, {});
+      const members = new Map<string, readonly ProjectMember[]>();
+      let memberFailures = 0;
+      if (needsMembers(columns)) {
+        let next = 0;
+        const worker = async () => {
+          while (next < everything.length) {
+            const project = everything[next++] as ProjectSummary;
+            try {
+              members.set(project.id, (await api.listMembers(project.id)).items);
+            } catch {
+              memberFailures += 1;
+            }
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(6, everything.length) }, worker));
+      }
+      const { headers, rows } = buildProjectExportRows(everything, columns, exportLookups(members));
+      downloadProjectsXlsx(projectExportFileName(rows.length), headers, rows);
+      toast.success(`Đã xuất ${rows.length} dự án.`);
+      if (memberFailures > 0) {
+        toast.error(`${memberFailures} dự án không nạp được danh sách người tham gia; các ô đó để trống.`);
+      }
+    } catch (cause) {
+      toast.error(messageOf(cause, 'Không xuất được danh sách dự án.'));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   /** Khách hàng theo id, để cột Khách hàng khỏi gọi thêm API từng dòng. */
   const customerOf = useMemo(() => {
@@ -329,23 +467,33 @@ export function ProjectsListView({
   const groups = useMemo(() => {
     const byType = new Map<string, ProjectSummary[]>();
     for (const project of visible) {
-      const key = project.projectType?.trim() || UNCLASSIFIED;
+      // Tab "Tất cả" là một danh sách phẳng: mọi dự án vào cùng một nhóm không tên (GroupRows không vẽ hàng nhóm).
+      const key = scope === 'all' ? FLAT_GROUP : project.projectType?.trim() || UNCLASSIFIED;
       const bucket = byType.get(key);
       if (bucket) bucket.push(project);
       else byType.set(key, [project]);
     }
-    for (const rows of byType.values()) rows.sort(PROJECT_SORTS[sortKey]);
-    const latest = (rows: readonly ProjectSummary[]) =>
-      rows.reduce((max, project) => (project.updatedAt > max ? project.updatedAt : max), '');
-    return [...byType.entries()].sort(([a, aRows], [b, bRows]) => {
-      // Xếp theo cập nhật: nhóm có dự án vừa sửa lên đầu.
-      if (sortKey === 'updated') return latest(bRows).localeCompare(latest(aRows));
+    // Sắp xếp theo cột chỉ đổi thứ tự dòng trong từng nhóm; thứ tự các nhóm giữ nguyên.
+    const statuses = projectStatusKeys();
+    const lookups = {
+      customerName: (project: ProjectSummary) => customerOf(project.customerId)?.name ?? '',
+      tagNames: (project: ProjectSummary) =>
+        (project.tagIds ?? []).map((tagId) => tags.find(tagId)?.name ?? '').filter(Boolean),
+      statusRank: (status: string) => {
+        const rank = statuses.indexOf(status as ProjectStatus);
+        return rank < 0 ? statuses.length : rank;
+      },
+    };
+    for (const rows of byType.values()) {
+      rows.sort((a, b) => (columnSort ? compareByColumn(columnSort, lookups, a, b) : 0) || byName(a, b));
+    }
+    return [...byType.entries()].sort(([a], [b]) => {
       // "Chưa phân loại" xuống cuối; còn lại xếp theo chữ cái tiếng Việt.
       if (a === UNCLASSIFIED) return 1;
       if (b === UNCLASSIFIED) return -1;
       return a.localeCompare(b, 'vi');
     });
-  }, [visible, sortKey]);
+  }, [visible, scope, columnSort, customerOf, tags]);
 
   /** Số dự án đang chạy / đã hoàn thành trong phần đang hiện, cho dòng tóm tắt. */
   const activeCount = visible.filter((project) => project.status === 'active').length;
@@ -479,20 +627,15 @@ export function ProjectsListView({
       input: CreateProjectRequest,
       contractValue?: number | null,
       members?: ReadonlyArray<{ readonly userId: string; readonly role: ProjectRole }>,
+      relatedObjects?: readonly PendingRelatedObject[],
+      reportGroupId?: string,
     ) => {
       const created = await api.createProject(input);
       const warning = initialTasksWarning(created);
       if (warning) toast.warning(warning);
-      // Số tiền và thành viên đi đường riêng, cùng cách như trong ProjectsView.
-      if (contractValue !== undefined) {
-        await api.updateProjectFinance(created.id, { contractValue });
-      }
-      if (members && members.length > 0) {
-        const existing = await api.listMembers(created.id);
-        await api.setMembers(created.id, {
-          members: mergeNewProjectMembers(existing.items, members),
-        });
-      }
+      // Số tiền, thành viên, đối tượng liên quan và nhóm báo cáo đi đường riêng, cùng cách như trong ProjectsView.
+      const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects, reportGroupId });
+      for (const text of warnings) toast.warning(text);
       await reload();
       onProjectsChanged?.();
       onOpenProject(created.id);
@@ -554,6 +697,19 @@ export function ProjectsListView({
                 </button>
               </span>
             </Tooltip>
+            <button
+              type="button"
+              className={styles.buttonGhost}
+              aria-haspopup="menu"
+              aria-expanded={Boolean(exportMenu)}
+              disabled={exporting}
+              onClick={(event) => {
+                const box = event.currentTarget.getBoundingClientRect();
+                setExportMenu({ x: box.left, y: box.bottom + 4 });
+              }}
+            >
+              <Download size={15} /> {exporting ? 'Đang xuất…' : 'Export'}
+            </button>
             <button type="button" className={styles.buttonPrimary} onClick={() => setCreateOpen(true)}>
               <Plus size={15} /> Tạo dự án
             </button>
@@ -570,7 +726,7 @@ export function ProjectsListView({
         <header className={styles.ledgerHead}>
           <div className={styles.reqHeadLeft}>
             <div className={styles.segmented} role="tablist" aria-label="Danh sách dự án">
-              {(['active', 'archived'] as const).map((value) => (
+              {(['active', 'archived', 'all'] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
@@ -582,7 +738,7 @@ export function ProjectsListView({
                     setSelected(new Set());
                   }}
                 >
-                  {value === 'active' ? 'Đang làm' : 'Lưu trữ'}
+                  {SCOPE_LABELS[value]}
                   {value === 'archived' && archivedTotal !== undefined ? (
                     <span className={styles.countPill}>{archivedTotal}</span>
                   ) : null}
@@ -592,7 +748,7 @@ export function ProjectsListView({
             <div ref={panelBox} className={styles.timelinePanelBox}>
               <button
                 type="button"
-                className={facets > 0 || sortKey !== 'name' || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
+                className={facets > 0 || panelOpen ? styles.timelineToggleOn : styles.timelineToggle}
                 aria-haspopup="dialog"
                 aria-expanded={panelOpen}
                 onClick={() => setPanelOpen((value) => !value)}
@@ -658,19 +814,9 @@ export function ProjectsListView({
                         onChange={setCustomerFilter}
                       />
                     </div>
-                    <div className={styles.filterField}>
-                      <span className={styles.filterLabel}>Sắp xếp theo</span>
-                      <Choice
-                        label="Sắp xếp dự án"
-                        selectOnly
-                        value={sortKey}
-                        options={SORT_OPTIONS}
-                        onChange={(value) => setSortKey((value || 'name') as ProjectSort)}
-                      />
-                    </div>
                   </div>
                   <div className={styles.reqPanelFoot}>
-                    {hasFilter || sortKey !== 'name' ? (
+                    {hasFilter ? (
                       <button
                         type="button"
                         className={styles.linkButton}
@@ -679,7 +825,6 @@ export function ProjectsListView({
                           setTypeFilter('');
                           setTagFilter('');
                           setCustomerFilter('');
-                          setSortKey('name');
                         }}
                       >
                         Xoá lọc
@@ -690,6 +835,23 @@ export function ProjectsListView({
               ) : null}
             </div>
             <ProjectFilterButton filter={projectFilter} onChange={setProjectFilter} />
+            <Tooltip
+              content={
+                wrapCells
+                  ? 'Chữ dài đang xuống dòng để hiện đủ. Bấm để gọn mỗi dự án một dòng (rê chuột xem đủ chữ).'
+                  : 'Đang gọn một dòng, chữ dài bị cắt. Bấm để chữ xuống dòng, hiện đủ tên.'
+              }
+            >
+              <button
+                type="button"
+                className={wrapCells ? styles.timelineToggleOn : styles.timelineToggle}
+                aria-pressed={wrapCells}
+                onClick={() => setCellWrap(wrapCells ? 'compact' : 'wrap')}
+              >
+                <TextWrap size={13} aria-hidden />
+                {wrapCells ? 'Xuống dòng' : 'Gọn một dòng'}
+              </button>
+            </Tooltip>
             <ResetColumnLayoutButton order={columnOrder} sizing={sizing} />
             <span className={styles.reqCount}>
               {!loaded ? 'Đang tải…' : `${visible.length} dự án`}
@@ -710,7 +872,7 @@ export function ProjectsListView({
 
         <div className={styles.ledgerScroll}>
           <table
-            className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.projectsTable}${sizing.customized ? ` ${styles.columnsResized}` : ''}`}
+            className={`${styles.table} ${styles.ledgerTable} ${styles.treeTable} ${styles.projectsTable}${wrapCells ? ` ${styles.projectsWrap}` : ''}${sizing.customized ? ` ${styles.columnsResized}` : ''}`}
             style={tableSizeStyle}
           >
             {/* Chiều rộng cột cố định: mở hay thu một nhóm không làm các cột dịch chỗ. */}
@@ -735,7 +897,13 @@ export function ProjectsListView({
                     onMove={move}
                     sizing={sizing}
                     label={PROJECT_COLUMN_LABELS[id]}
-                    className={id === 'progress' ? styles.numeric : undefined}
+                    className={id === 'progress' || id === 'contractValue' ? styles.numeric : undefined}
+                    sortDirection={columnSort?.column === id ? columnSort.direction : undefined}
+                    onSort={
+                      SORTABLE_COLUMNS.has(id)
+                        ? () => setColumnSort((current) => nextColumnSort(current, id as ProjectSortColumn))
+                        : undefined
+                    }
                   >
                     {id === 'select' ? (
                       <input
@@ -760,7 +928,8 @@ export function ProjectsListView({
                   key={type}
                   type={type}
                   rows={rows}
-                  collapsed={!expanded.has(type)}
+                  flat={scope === 'all'}
+                  collapsed={scope === 'all' ? false : !expanded.has(type)}
                   onToggleGroup={() => toggleGroup(type)}
                   selected={selected}
                   returnedId={returnedId}
@@ -775,6 +944,7 @@ export function ProjectsListView({
                   onMenu={openMenu}
                   onOpen={onOpenProject}
                   order={order}
+                  wrap={wrapCells}
                 />
               ))}
             </tbody>
@@ -831,6 +1001,98 @@ export function ProjectsListView({
           }}
         />
       ) : null}
+
+      {exportMenu ? (
+        <ContextMenu
+          x={exportMenu.x}
+          y={exportMenu.y}
+          actions={[
+            { id: 'all', label: 'Xuất tất cả' },
+            { id: 'pick', label: 'Chọn trường để export' },
+            { id: 'report', label: 'Xuất theo nhóm báo cáo', separatorBefore: true },
+          ]}
+          onClose={() => setExportMenu(undefined)}
+          onPick={(actionId) => {
+            setExportMenu(undefined);
+            if (actionId === 'all') void runExport(DEFAULT_PROJECT_EXPORT_KEYS);
+            if (actionId === 'pick' || actionId === 'report') {
+              setExportMode(actionId === 'report' ? 'report' : 'fields');
+              setExportPickOpen(true);
+            }
+          }}
+        />
+      ) : null}
+
+      <Dialog
+        open={exportPickOpen}
+        title={exportMode === 'report' ? 'Xuất theo nhóm báo cáo' : 'Chọn trường để export'}
+        submitLabel="Export"
+        submitDisabled={exportMode === 'fields' && exportKeys.length === 0}
+        guardDiscard={false}
+        onClose={() => setExportPickOpen(false)}
+        onSubmit={() => {
+          setExportPickOpen(false);
+          void (exportMode === 'report' ? runReportExport() : runExport(exportKeys));
+        }}
+      >
+        <div className={`${styles.segmented} ${styles.exportModeTabs}`} role="tablist" aria-label="Kiểu xuất">
+          {(['fields', 'report'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              role="tab"
+              aria-selected={exportMode === mode}
+              className={exportMode === mode ? styles.segmentActive : styles.segment}
+              onClick={() => setExportMode(mode)}
+            >
+              {EXPORT_MODE_LABELS[mode]}
+            </button>
+          ))}
+        </div>
+        {exportMode === 'report' ? (
+          <div className={styles.exportReportNote}>
+            <p>
+              Theo mẫu &quot;Chi tiết doanh thu dự án&quot;: mỗi dự án một dòng, giá trị hợp đồng (trước VAT) nằm ở cột
+              tổng và ở đúng cột lĩnh vực theo nhóm báo cáo của dự án; dòng tổng dùng công thức SUBTOTAL nên lọc trong
+              Excel vẫn ra tổng đúng.
+            </p>
+            <p>Dự án chưa gán nhóm báo cáo (hay gán nhóm đã xoá) vào cột &quot;Chưa phân nhóm&quot;.</p>
+            {showContract ? null : (
+              <p className={styles.exportReportHint}>Bạn không xem được giá trị hợp đồng nên các cột số sẽ trống.</p>
+            )}
+          </div>
+        ) : null}
+        {exportMode === 'fields' ? (
+          <>
+            <div className={styles.exportFieldActions}>
+              <button type="button" className={styles.linkButton} onClick={() => setExportKeys(DEFAULT_PROJECT_EXPORT_KEYS)}>
+                Chọn tất cả
+              </button>
+              <button type="button" className={styles.linkButton} onClick={() => setExportKeys([])}>
+                Bỏ chọn tất cả
+              </button>
+            </div>
+            <div className={styles.exportFieldGrid}>
+              {PROJECT_EXPORT_COLUMNS.map((column) => (
+                <label key={column.key} className={styles.columnPickerItem}>
+                  <input
+                    type="checkbox"
+                    checked={exportKeys.includes(column.key)}
+                    onChange={(event) =>
+                      setExportKeys((current) =>
+                        event.target.checked
+                          ? [...current, column.key]
+                          : current.filter((key) => key !== column.key),
+                      )
+                    }
+                  />
+                  <span>{column.label}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </Dialog>
 
       <ConfirmBox
         open={Boolean(archiveAsk)}
@@ -899,11 +1161,14 @@ function FitChips({
   chips,
   more,
   measureKey,
+  wrapAll = false,
 }: {
   chips: readonly ReactNode[];
   more: (hidden: number) => ReactNode;
   /** Đổi khi nội dung chip đổi (vd ghép tên các nhãn), để đo lại. */
   measureKey: string;
+  /** Chế độ xuống dòng: hiện đủ mọi chip, xuống dòng khi hết chỗ, không đo. */
+  wrapAll?: boolean;
 }) {
   const wrap = useRef<HTMLSpanElement>(null);
   const meter = useRef<HTMLSpanElement>(null);
@@ -934,8 +1199,9 @@ function FitChips({
     const observer = new ResizeObserver(compute);
     observer.observe(wrapEl);
     return () => observer.disconnect();
-  }, [chips.length, measureKey]);
+  }, [chips.length, measureKey, wrapAll]);
 
+  if (wrapAll) return <span className={styles.chipGroup}>{chips}</span>;
   const shown = Math.min(visible, chips.length);
   const hidden = chips.length - shown;
   return (
@@ -975,7 +1241,13 @@ function GroupRows({
   onMenu,
   onOpen,
   order,
+  flat = false,
+  wrap = false,
 }: {
+  /** Tab Tất cả: không vẽ hàng nhóm; tên nhóm dự án có cột riêng. */
+  flat?: boolean;
+  /** Chữ dài xuống dòng: hiện thêm tên khách hàng dưới mã, hiện đủ mọi nhãn (không gộp "+N"). */
+  wrap?: boolean;
   /** Thứ tự cột hiện tại; mọi ô của dòng nhóm và dòng dự án theo đúng thứ tự này. */
   order: readonly ProjectColumn[];
   type: string;
@@ -1001,25 +1273,22 @@ function GroupRows({
   const countOf = (test: (project: ProjectSummary) => boolean) => rows.filter(test).length;
   const counts = {
     // Trễ hạn: đã qua ngày kết thúc mà chưa hoàn thành hay huỷ.
-    overdue: countOf(
-      (project) =>
-        Boolean(project.endDate && project.endDate < today) && !CLOSED_PROJECT_STATUSES.includes(project.status),
-    ),
+    overdue: countOf((project) => isProjectOverdue(project, today, CLOSED_PROJECT_STATUSES)),
     notStarted: countOf((project) => project.status === 'planning'),
     active: countOf((project) => project.status === 'active' || project.status === 'on_hold'),
     finished: countOf((project) => project.status === 'completed'),
   };
   // Hàng nhóm là hàng TÓM TẮT: mỗi ô ứng đúng tiêu đề cột, nên thu gọn nhóm vẫn đọc được số liệu của nó.
-  const open = rows.filter((project) => !CLOSED_PROJECT_STATUSES.includes(project.status));
   const customerCount = new Set(rows.map((project) => project.customerId).filter(Boolean)).size;
   const tagCount = new Set(rows.flatMap((project) => project.tagIds ?? [])).size;
-  const nextEnd = open
-    .map((project) => project.endDate)
-    .filter((value): value is string => Boolean(value))
-    .sort()[0];
+  const nextEnd = nextEndDate(rows, CLOSED_PROJECT_STATUSES);
+  const earliestStart = earliestStartDate(rows);
   const progress = rows.length
     ? Math.round(rows.reduce((sum, project) => sum + (project.progressPercent ?? 0), 0) / rows.length)
     : 0;
+  // Tổng giá trị hợp đồng của nhóm; không dự án nào có số (hay người xem không được xem tài chính) thì không có tổng.
+  const contractValues = rows.flatMap((project) => (typeof project.contractValue === 'number' ? [project.contractValue] : []));
+  const contractTotal = contractValues.length > 0 ? contractValues.reduce((sum, value) => sum + value, 0) : undefined;
   const allSelected = rows.length > 0 && rows.every((project) => selected.has(project.id));
   // Chọn một phần dự án trong nhóm: ô nhóm ở trạng thái nửa vời; chọn đủ mới đánh dấu đầy.
   const someSelected = !allSelected && rows.some((project) => selected.has(project.id));
@@ -1037,6 +1306,7 @@ function GroupRows({
           />
         </td>
     ),
+    index: <td />,
     project: (
         <th scope="row">
           <div className={styles.workCell}>
@@ -1051,6 +1321,18 @@ function GroupRows({
             </button>
           </div>
         </th>
+    ),
+    group: <td />,
+    contractValue: (
+        <td className={styles.numeric}>
+          {contractTotal === undefined ? (
+            <span className={styles.groupSummaryMuted}>—</span>
+          ) : (
+            <Tooltip content={`Tổng giá trị hợp đồng (trước VAT) của ${rows.length} dự án trong nhóm`}>
+              <span className={styles.groupSummaryText}>{formatVnd(contractTotal)}</span>
+            </Tooltip>
+          )}
+        </td>
     ),
     customer: (
         <td>
@@ -1075,7 +1357,18 @@ function GroupRows({
           <GroupCounts counts={counts} unit="dự án" />
         </td>
     ),
-    time: (
+    startDate: (
+        <td>
+          {earliestStart ? (
+            <Tooltip content="Ngày bắt đầu sớm nhất trong nhóm">
+              <span className={styles.groupSummaryText}>{formatDate(earliestStart)}</span>
+            </Tooltip>
+          ) : (
+            <span className={styles.groupSummaryMuted}>—</span>
+          )}
+        </td>
+    ),
+    endDate: (
         <td>
           {counts.overdue > 0 ? (
             <span className={styles.groupOverdue}>Trễ hạn {counts.overdue}</span>
@@ -1104,13 +1397,14 @@ function GroupRows({
   };
   return (
     <>
-      <tr className={styles.groupRow}>
-        {order.map((id) => (
-          <Fragment key={id}>{groupCells[id]}</Fragment>
-        ))}
-      </tr>
-      {collapsed ? null : rows.map((project) => {
-        const closable = !CLOSED_PROJECT_STATUSES.includes(project.status);
+      {flat ? null : (
+        <tr className={styles.groupRow}>
+          {order.map((id) => (
+            <Fragment key={id}>{groupCells[id]}</Fragment>
+          ))}
+        </tr>
+      )}
+      {collapsed ? null : rows.map((project, rowIndex) => {
         const checked = selected.has(project.id);
         const busy = savingId === project.id;
         // Server vẫn kiểm quyền; ở đây chỉ khoá ô để người không có quyền khỏi bấm rồi nhận lỗi.
@@ -1139,20 +1433,37 @@ function GroupRows({
               />
             </td>
           ),
+          index: <td className={`${styles.numeric} ${styles.muted}`}>{rowIndex + 1}</td>,
           project: (
             <td>
-              <div className={`${styles.workCell} ${styles.workChild}`}>
-                <span className={styles.workIndent} aria-hidden />
+              <div className={flat ? styles.workCell : `${styles.workCell} ${styles.workChild}`}>
+                {flat ? null : <span className={styles.workIndent} aria-hidden />}
                 <button type="button" className={styles.cellTitleButton} onClick={() => onOpen(project.id)}>
-                  <Tooltip content={project.code}>
-                    <span className={styles.treeCode}>{project.code}</span>
-                  </Tooltip>
-                  <Tooltip content={project.name}>
+                  {/* Chỉ hiện tên dự án (mã ít ai nhớ, chiếm chỗ); mã vẫn tìm được và hiện khi rê chuột. */}
+                  <Tooltip content={`${project.name} · ${project.code}`}>
                     <span className={styles.workTitle}>{project.name}</span>
                   </Tooltip>
                   {returnedId === project.id ? <span className={styles.returnedBadge}>Vừa xem</span> : null}
                 </button>
               </div>
+            </td>
+          ),
+          group: (
+            <td>
+              {project.projectType?.trim() ? (
+                <Tooltip content={project.projectType.trim()}>
+                  <span className={styles.projectGroupCell}>{project.projectType.trim()}</span>
+                </Tooltip>
+              ) : (
+                <span className={styles.muted}>—</span>
+              )}
+            </td>
+          ),
+          contractValue: (
+            <td className={styles.numeric}>
+              {typeof project.contractValue === 'number' ? formatVnd(project.contractValue) : (
+                <span className={styles.muted}>—</span>
+              )}
             </td>
           ),
           customer: (
@@ -1162,6 +1473,7 @@ function GroupRows({
               ) : (
                 <>
                   {customer ? null : <span className={styles.emptyDash}>—</span>}
+                  {/* Chỉ hiện mã cho gọn; tên khách hàng hiện khi rê chuột vào mã (tooltip của chip, `title`). */}
                   <ChipSelect
                     label={`Khách hàng của ${project.code}`}
                     title={customer?.name ?? 'Chưa gắn khách hàng'}
@@ -1188,6 +1500,7 @@ function GroupRows({
               {project.tagIds?.length ? (
                 <FitChips
                   measureKey={project.tagIds.map((tagId) => tagOf(tagId)?.name ?? '').join('|')}
+                  wrapAll={wrap}
                   chips={project.tagIds.flatMap((tagId) => {
                     const tag = tagOf(tagId);
                     if (!tag) return [];
@@ -1242,20 +1555,21 @@ function GroupRows({
               />
             </td>
           ),
-          time: (
+          startDate: (
             <td className={styles.nowrap}>
-              {project.startDate || project.endDate ? (
-                <Tooltip
-                  content={closable && project.endDate && project.endDate < today ? 'Đã quá hạn kết thúc' : undefined}
-                >
-                  <span
-                    className={
-                      project.endDate && project.endDate < today && closable ? styles.groupOverdue : undefined
-                    }
-                  >
-                    {formatDate(project.startDate) || '…'} – {formatDate(project.endDate) || '…'}
-                  </span>
-                </Tooltip>
+              {project.startDate ? formatDate(project.startDate) : <span className={styles.muted}>—</span>}
+            </td>
+          ),
+          endDate: (
+            <td className={styles.nowrap}>
+              {project.endDate ? (
+                isProjectOverdue(project, today, CLOSED_PROJECT_STATUSES) ? (
+                  <Tooltip content="Đã quá hạn kết thúc">
+                    <span className={styles.groupOverdue}>{formatDate(project.endDate)}</span>
+                  </Tooltip>
+                ) : (
+                  formatDate(project.endDate)
+                )
               ) : (
                 <span className={styles.muted}>—</span>
               )}

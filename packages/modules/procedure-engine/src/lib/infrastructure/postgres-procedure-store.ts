@@ -6,6 +6,7 @@ import type { Pool, PoolClient } from 'pg';
 import { buildStepChangedPayload, instancesWithStepChange } from '../domain/procedure-progress.js';
 import type { ProcedureStore, ProcedureTenantState } from '../application/procedure-store.port.js';
 import { procedureCommentSignals } from './procedure-comment-signals.js';
+import { procedureInstanceSignals } from './procedure-instance-signals.js';
 import { procedureNotificationEvents } from './procedure-notification-events.js';
 import { workspaceLinkEvents } from '../domain/procedure-workspace-link.js';
 import { financeStepEvents } from '../domain/procedure-finance-step.js';
@@ -83,7 +84,7 @@ export class PostgresProcedureStore implements ProcedureStore {
       const state = await this.readNormalized(client, legacy);
       const before = structuredClone(state);
       const value = await operation(state);
-      await this.synchronizeNormalized(client, state);
+      await this.synchronizeNormalized(client, state, before);
       await client.query(`INSERT INTO procedure_schema.runtime_state (singleton,state,updated_at)
         VALUES (true,$1::jsonb,now()) ON CONFLICT (singleton)
         DO UPDATE SET state=EXCLUDED.state,updated_at=now()`, [JSON.stringify(state)]);
@@ -123,7 +124,59 @@ export class PostgresProcedureStore implements ProcedureStore {
     }
   }
 
-  private async synchronizeNormalized(client: PoolClient, state: ProcedureTenantState): Promise<void> {
+  /**
+   * Chỉ ghi phần ĐÃ ĐỔI khi định nghĩa quy trình không đổi (phần lớn các thao tác xử lý hồ sơ): xoá rồi ghi lại các hồ sơ
+   * đã đổi hoặc đã bị xoá, giữ nguyên mọi dòng còn lại. Trả `false` khi không chắc bảng chiếu trong DB khớp trạng thái
+   * trước đó (định nghĩa đổi, chưa có phiên bản, tập hồ sơ lệch) để nơi gọi ghi lại toàn bộ như trước.
+   *
+   * Ghi toàn bộ mỗi lần tốn hàng trăm câu lệnh tuần tự — chi phí tăng theo số quy trình và số hồ sơ — nên một thao tác
+   * duyệt chậm dần khi dữ liệu lớn lên, và rất chậm khi DB ở xa (độ trễ mỗi câu lệnh nhân với số câu lệnh).
+   */
+  private async synchronizeChanged(
+    client: PoolClient,
+    state: ProcedureTenantState,
+    before: ProcedureTenantState,
+  ): Promise<boolean> {
+    if (JSON.stringify(before.definitions) !== JSON.stringify(state.definitions)) return false;
+    const [versions, stored] = await Promise.all([
+      client.query<{ id: string; current_version_id: string | null }>(
+        'SELECT id, current_version_id FROM procedure_schema.definitions',
+      ),
+      client.query<{ id: string }>('SELECT id FROM procedure_schema.instances'),
+    ]);
+    const versionByDefinition = new Map<string, string>();
+    for (const row of versions.rows) if (row.current_version_id) versionByDefinition.set(row.id, row.current_version_id);
+    if (state.definitions.some((definition) => !versionByDefinition.has(definition.id))) return false;
+    // Hồ sơ trong DB phải đúng là tập hồ sơ đã đọc ra (hồ sơ trỏ vào định nghĩa đã mất không được ghi ở lần trước).
+    const storedIds = new Set(stored.rows.map((row) => row.id));
+    const expected = before.instances.filter((instance) => versionByDefinition.has(instance.definitionId));
+    if (expected.length !== storedIds.size || expected.some((instance) => !storedIds.has(instance.id))) return false;
+
+    const previous = new Map(before.instances.map((instance) => [instance.id, JSON.stringify(instance)]));
+    const changed = state.instances.filter((instance) => previous.get(instance.id) !== JSON.stringify(instance));
+    const present = new Set(state.instances.map((instance) => instance.id));
+    const removed = before.instances.filter((instance) => !present.has(instance.id)).map((instance) => instance.id);
+    const rewrite = [...new Set([...removed, ...changed.map((instance) => instance.id)])].filter((id) => storedIds.has(id));
+    if (rewrite.length > 0) {
+      for (const table of ['subtasks', 'delegations', 'activity_logs', 'actions', 'step_instances']) {
+        await client.query(`DELETE FROM procedure_schema.${table} WHERE instance_id = ANY($1::uuid[])`, [rewrite]);
+      }
+      await client.query('DELETE FROM procedure_schema.instances WHERE id = ANY($1::uuid[])', [rewrite]);
+    }
+    const liveStepIds = new Set(state.definitions.flatMap((definition) => definition.steps.map((step) => step.id)));
+    for (const instance of changed) {
+      const versionId = versionByDefinition.get(instance.definitionId);
+      if (versionId) await this.writeInstance(client, state, instance, versionId, liveStepIds);
+    }
+    return true;
+  }
+
+  private async synchronizeNormalized(
+    client: PoolClient,
+    state: ProcedureTenantState,
+    before?: ProcedureTenantState,
+  ): Promise<void> {
+    if (before && (await this.synchronizeChanged(client, state, before))) return;
     await client.query('UPDATE procedure_schema.definitions SET current_version_id=NULL');
     await client.query('DELETE FROM procedure_schema.subtasks');
     await client.query('DELETE FROM procedure_schema.delegations');
@@ -176,78 +229,89 @@ export class PostgresProcedureStore implements ProcedureStore {
     // bị bỏ khi sửa quy trình; bản chiếu ghi NULL cho những bước đó thay vì vỡ
     // khoá ngoại (migration 0012). Bước đầy đủ vẫn nằm trong snapshot của hồ sơ.
     const liveStepIds = new Set(state.definitions.flatMap((definition) => definition.steps.map((step) => step.id)));
-    const liveStep = (id: string | undefined) => (id && liveStepIds.has(id) ? id : null);
 
     for (const instance of state.instances) {
       const versionId = versionByDefinition.get(instance.definitionId);
       if (!versionId) continue;
-      const currentDefinitionStep = liveStep(
-        instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId,
-      );
-      const idempotencyKey = Object.entries(state.idempotency).find(([key,value]) => key.startsWith('start:') && value === instance.id)?.[0]?.slice(6);
-      // `source_summary` (migration 0015) là bản chiếu thông tin nguồn; giá trị thật nằm trong snapshot.
-      await client.query(`INSERT INTO procedure_schema.instances
-        (id,definition_id,version_id,code,title,status,current_step_id,initiated_by,source_type,source_id,idempotency_key,snapshot,started_at,completed_at,source_summary)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15::jsonb)`, [instance.id,instance.definitionId,versionId,
-        instance.code,instance.title,instance.status,currentDefinitionStep ?? null,instance.initiatedBy,
-        instance.sourceType ?? null,instance.sourceId ?? null,idempotencyKey ?? null,
-        JSON.stringify(instance),instance.startedAt,instance.completedAt ?? null,
-        instance.sourceSummary ? JSON.stringify(instance.sourceSummary) : null]);
-      for (const step of instance.steps) {
-        await client.query(`INSERT INTO procedure_schema.step_instances
-          (id,instance_id,step_id,step_order,status,current_role_stage,snapshot,started_at,completed_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, [step.id,instance.id,liveStep(step.definitionStepId),step.order,step.status,
-          step.currentRoleStage,JSON.stringify(step),step.startedAt ?? null,step.completedAt ?? null]);
-      }
-      for (const subtask of instance.subtasks ?? []) {
-        await client.query(`INSERT INTO procedure_schema.subtasks
-          (id,instance_id,step_instance_id,title,assignee_id,assignee_name,weight,status,due_at,created_at,completed_at,materials)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [subtask.id,instance.id,subtask.stepInstanceId ?? null,
-          subtask.title,subtask.assigneeId ?? null,subtask.assigneeName ?? null,subtask.weight,subtask.status,
-          subtask.dueAt ?? null,subtask.createdAt,subtask.completedAt ?? null,
-          JSON.stringify(subtask.materials ?? [])]);
-      }
-      for (const delegation of instance.delegations ?? []) {
-        await client.query(`INSERT INTO procedure_schema.delegations
-          (id,instance_id,step_instance_id,delegated_by,delegated_by_name,delegated_to,roles,reason,created_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [delegation.id,instance.id,delegation.stepInstanceId ?? null,
-          delegation.delegatedBy,delegation.delegatedByName,delegation.delegatedTo,delegation.roles,
-          delegation.reason ?? null,delegation.createdAt]);
-      }
+      await this.writeInstance(client, state, instance, versionId, liveStepIds);
+    }
+  }
 
-      const stepInstanceIds = new Set(instance.steps.map((step) => step.id));
-      for (const activity of instance.activity) {
-        // Ghi cả `step_instance_id`: cột đã có sẵn từ migration 0002 nhưng trước
-        // đây bị bỏ trống, nên không lọc được nhật ký theo từng bước.
-        await client.query(`INSERT INTO procedure_schema.activity_logs
-          (id,instance_id,step_instance_id,actor_id,action,summary,metadata,created_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [activity.id,instance.id,activity.stepInstanceId ?? null,
-          activity.actorId,activity.action,
-          activity.summary,JSON.stringify({ actorName: activity.actorName, comment: activity.comment }),activity.createdAt]);
+  /** Ghi một hồ sơ cùng các bảng chiếu của nó (bước, đầu việc, uỷ quyền, nhật ký, hành động). */
+  private async writeInstance(
+    client: PoolClient,
+    state: ProcedureTenantState,
+    instance: ProcedureInstance,
+    versionId: string,
+    liveStepIds: ReadonlySet<string>,
+  ): Promise<void> {
+    const liveStep = (id: string | undefined) => (id && liveStepIds.has(id) ? id : null);
+    const currentDefinitionStep = liveStep(
+      instance.steps.find((step) => step.id === instance.currentStepId)?.definitionStepId,
+    );
+    const idempotencyKey = Object.entries(state.idempotency).find(([key,value]) => key.startsWith('start:') && value === instance.id)?.[0]?.slice(6);
+    // `source_summary` (migration 0015) là bản chiếu thông tin nguồn; giá trị thật nằm trong snapshot.
+    await client.query(`INSERT INTO procedure_schema.instances
+      (id,definition_id,version_id,code,title,status,current_step_id,initiated_by,source_type,source_id,idempotency_key,snapshot,started_at,completed_at,source_summary)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15::jsonb)`, [instance.id,instance.definitionId,versionId,
+      instance.code,instance.title,instance.status,currentDefinitionStep ?? null,instance.initiatedBy,
+      instance.sourceType ?? null,instance.sourceId ?? null,idempotencyKey ?? null,
+      JSON.stringify(instance),instance.startedAt,instance.completedAt ?? null,
+      instance.sourceSummary ? JSON.stringify(instance.sourceSummary) : null]);
+    for (const step of instance.steps) {
+      await client.query(`INSERT INTO procedure_schema.step_instances
+        (id,instance_id,step_id,step_order,status,current_role_stage,snapshot,started_at,completed_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, [step.id,instance.id,liveStep(step.definitionStepId),step.order,step.status,
+        step.currentRoleStage,JSON.stringify(step),step.startedAt ?? null,step.completedAt ?? null]);
+    }
+    for (const subtask of instance.subtasks ?? []) {
+      await client.query(`INSERT INTO procedure_schema.subtasks
+        (id,instance_id,step_instance_id,title,assignee_id,assignee_name,weight,status,due_at,created_at,completed_at,materials)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [subtask.id,instance.id,subtask.stepInstanceId ?? null,
+        subtask.title,subtask.assigneeId ?? null,subtask.assigneeName ?? null,subtask.weight,subtask.status,
+        subtask.dueAt ?? null,subtask.createdAt,subtask.completedAt ?? null,
+        JSON.stringify(subtask.materials ?? [])]);
+    }
+    for (const delegation of instance.delegations ?? []) {
+      await client.query(`INSERT INTO procedure_schema.delegations
+        (id,instance_id,step_instance_id,delegated_by,delegated_by_name,delegated_to,roles,reason,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [delegation.id,instance.id,delegation.stepInstanceId ?? null,
+        delegation.delegatedBy,delegation.delegatedByName,delegation.delegatedTo,delegation.roles,
+        delegation.reason ?? null,delegation.createdAt]);
+    }
 
-        // actions is the authoritative audit row: who did what, with which
-        // comment, under which idempotency key. It used to be deleted here and
-        // never written back, so every approval history was wiped on each save.
-        await client.query(`INSERT INTO procedure_schema.actions
-          (id,instance_id,step_instance_id,actor_id,action,comment,metadata,idempotency_key,created_at)
-          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
-          ON CONFLICT (idempotency_key) DO NOTHING`, [
-          activity.id,
-          instance.id,
-          // Older rows predate stepInstanceId; drop the link rather than break the FK.
-          activity.stepInstanceId && stepInstanceIds.has(activity.stepInstanceId)
-            ? activity.stepInstanceId
-            : null,
-          activity.actorId,
-          activity.action,
-          activity.comment ?? null,
-          JSON.stringify({ actorName: activity.actorName }),
-          // Entries recorded before the key was carried fall back to their own id,
-          // which is unique and keeps the NOT NULL column satisfiable.
-          activity.idempotencyKey ?? activity.id,
-          activity.createdAt,
-        ]);
-      }
+    const stepInstanceIds = new Set(instance.steps.map((step) => step.id));
+    for (const activity of instance.activity) {
+      // Ghi cả `step_instance_id`: cột đã có sẵn từ migration 0002 nhưng trước
+      // đây bị bỏ trống, nên không lọc được nhật ký theo từng bước.
+      await client.query(`INSERT INTO procedure_schema.activity_logs
+        (id,instance_id,step_instance_id,actor_id,action,summary,metadata,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`, [activity.id,instance.id,activity.stepInstanceId ?? null,
+        activity.actorId,activity.action,
+        activity.summary,JSON.stringify({ actorName: activity.actorName, comment: activity.comment }),activity.createdAt]);
+
+      // actions is the authoritative audit row: who did what, with which
+      // comment, under which idempotency key. It used to be deleted here and
+      // never written back, so every approval history was wiped on each save.
+      await client.query(`INSERT INTO procedure_schema.actions
+        (id,instance_id,step_instance_id,actor_id,action,comment,metadata,idempotency_key,created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)
+        ON CONFLICT (idempotency_key) DO NOTHING`, [
+        activity.id,
+        instance.id,
+        // Older rows predate stepInstanceId; drop the link rather than break the FK.
+        activity.stepInstanceId && stepInstanceIds.has(activity.stepInstanceId)
+          ? activity.stepInstanceId
+          : null,
+        activity.actorId,
+        activity.action,
+        activity.comment ?? null,
+        JSON.stringify({ actorName: activity.actorName }),
+        // Entries recorded before the key was carried fall back to their own id,
+        // which is unique and keeps the NOT NULL column satisfiable.
+        activity.idempotencyKey ?? activity.id,
+        activity.createdAt,
+      ]);
     }
   }
 
@@ -328,7 +392,11 @@ export class PostgresProcedureStore implements ProcedureStore {
 
     // Trao đổi mới trong hồ sơ: tín hiệu thời gian thực cho những người đang mở hồ sơ đó.
     // Cùng transaction với việc ghi trao đổi nên không có tin nào mà thiếu tín hiệu (và ngược lại).
-    for (const signal of procedureCommentSignals(before.instances, after.instances)) {
+    // Hồ sơ vừa đổi (duyệt, trả về, hoàn duyệt, huỷ, bước Tài chính...) cũng báo vào đúng phòng đó.
+    for (const signal of [
+      ...procedureCommentSignals(before.instances, after.instances),
+      ...procedureInstanceSignals(before.instances, after.instances),
+    ]) {
       const event = createIntegrationEvent({ id:randomUUID(),type:signal.type,version:1,tenantId,
         source:'procedure-engine',correlationId:signal.aggregateId,payload:{ ...signal.payload } });
       await client.query(`INSERT INTO integration_schema.outbox_events

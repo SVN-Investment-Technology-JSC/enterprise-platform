@@ -5,6 +5,7 @@ import {
   buildWorkItemTree,
   matchWorkItems,
   moveTargets,
+  reopenChainForMove,
 } from './project-tree.model';
 
 function item(id: string, parentId: string | undefined, sortOrder: number): WorkItem {
@@ -142,5 +143,30 @@ describe('boardScopeOf', () => {
   it('việc lá ở cấp gốc hoặc không chọn gì: cả dự án', () => {
     expect(boardScopeOf([item('x', undefined, 0)], 'x')).toBeUndefined();
     expect(boardScopeOf(ITEMS, undefined)).toBeUndefined();
+  });
+});
+
+describe('reopenChainForMove', () => {
+  const done = (id: string, parentId?: string): WorkItem => ({ ...item(id, parentId, 0), status: 'done' });
+  const tree = [done('top'), done('mid', 'top'), { ...item('live', 'top', 1), status: 'in_progress' as const }, done('leaf', 'mid')];
+  const open = { status: 'todo' as const };
+
+  it('đích đã xong: gồm đích và các cha đã xong phía trên, từ trong ra ngoài', () => {
+    expect(reopenChainForMove(tree, open, 'mid').map((node) => node.id)).toEqual(['mid', 'top']);
+    expect(reopenChainForMove(tree, open, 'top').map((node) => node.id)).toEqual(['top']);
+  });
+
+  it('dừng ở cha đầu tiên chưa xong', () => {
+    const partial = [{ ...item('top', undefined, 0), status: 'in_progress' as const }, done('mid', 'top')];
+    expect(reopenChainForMove(partial, open, 'mid').map((node) => node.id)).toEqual(['mid']);
+  });
+
+  it('không cần mở lại khi đích chưa xong, về gốc, hoặc việc chuyển đã xong/huỷ', () => {
+    expect(reopenChainForMove(tree, open, 'live')).toEqual([]);
+    expect(reopenChainForMove(tree, open, null)).toEqual([]);
+    expect(reopenChainForMove(tree, open, undefined)).toEqual([]);
+    expect(reopenChainForMove(tree, { status: 'done' }, 'mid')).toEqual([]);
+    expect(reopenChainForMove(tree, { status: 'cancelled' }, 'mid')).toEqual([]);
+    expect(reopenChainForMove(tree, open, 'không-có')).toEqual([]);
   });
 });

@@ -361,6 +361,11 @@ export interface Project {
    */
   readonly expectedProgressPercent?: number;
   readonly metadata: Record<string, unknown>;
+  /**
+   * Nhóm báo cáo (lĩnh vực doanh thu, ví dụ Dịch vụ / Thí nghiệm / Bán hàng / O&M), khác nhóm dự án: chỉ dùng khi xuất
+   * báo cáo, không hiện thành cột. Lưu trong `metadata.reportGroupId`; vắng hay `null` là chưa phân nhóm.
+   */
+  readonly reportGroupId?: string | null;
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -386,6 +391,11 @@ export interface ProjectSummary extends Project {
    * xuống là để lộ nó cho bất kỳ ai mở tab Network.
    */
   readonly finance?: ProjectFinance;
+  /**
+   * Giá trị hợp đồng (trước VAT) để hiện ở danh sách dự án. Chỉ có mặt, như `finance`, khi người gọi được xem tài
+   * chính dự án đó; không thì vắng hẳn. `null`: dự án chưa nhập hợp đồng.
+   */
+  readonly contractValue?: number | null;
 }
 
 export interface ProjectMember {
@@ -496,6 +506,32 @@ export interface SaveProjectGroupRequest {
   readonly name: string;
   /** Mã viết tắt; rỗng là bỏ mã. Bỏ trống trường thì giữ mã cũ khi sửa. */
   readonly code?: string;
+}
+
+/**
+ * Một nhóm báo cáo của tenant (Cài đặt > Nhóm báo cáo). Ít nhóm hơn nhóm dự án và độc lập với nhóm dự án; mỗi dự án
+ * được gán tối đa một nhóm để xuất báo cáo doanh thu theo lĩnh vực.
+ */
+export interface ProjectReportGroup {
+  readonly id: string;
+  readonly name: string;
+  readonly sortOrder: number;
+}
+
+export interface ProjectReportGroupList {
+  readonly items: readonly ProjectReportGroup[];
+  /** Người gọi được thêm, sửa, xoá, sắp xếp nhóm (quản trị tenant). */
+  readonly canEdit: boolean;
+}
+
+/** Thay cả danh sách nhóm báo cáo; dòng có `id` là nhóm cũ (giữ id để dự án đã gán không mất nhóm). */
+export interface SaveProjectReportGroupsRequest {
+  readonly items: readonly { readonly id?: string; readonly name: string }[];
+}
+
+/** Gán hay bỏ (`null`) nhóm báo cáo của một dự án. */
+export interface SetProjectReportGroupRequest {
+  readonly reportGroupId: string | null;
 }
 
 /** Cài đặt đóng hồ sơ dự án (Cài đặt > Đóng hồ sơ dự án). */
@@ -1057,6 +1093,11 @@ export interface ChangeWorkItemStatusRequest {
 export interface MoveWorkItemRequest {
   readonly parentId?: string | null;
   readonly sortOrder?: number;
+  /**
+   * Chuyển việc chưa xong vào cha đã hoàn thành: `true` là đồng ý mở lại cha (và các cha đã xong phía trên) về "Đang làm",
+   * tính lại tiến độ và báo cho người thực hiện; vắng thì server từ chối bằng `PARENT_ITEM_DONE`.
+   */
+  readonly reopenParent?: boolean;
 }
 
 /* =========================================================================
@@ -2447,6 +2488,254 @@ export interface CreateExternalReferenceRequest {
 export interface ExternalReferenceList {
   readonly items: readonly ExternalReference[];
   readonly degraded: boolean;
+}
+
+/* =========================================================================
+   ĐỐI TƯỢNG LIÊN QUAN
+
+   Người dùng gắn dự án hoặc công việc với hồ sơ ở module khác (báo giá, hợp đồng, phiếu thu...).
+   Workspace chỉ lưu con trỏ và nhãn ngắn (mã + tên, không số tiền); thông tin đầy đủ đọc trực tiếp từ module gốc mỗi
+   lần xem, dưới danh nghĩa người xem, nên module gốc quyết ai thấy gì. Hợp đồng giữa các module ở
+   `contracts-integration` (`LinkableObject`...).
+   Khác `ExternalReference`: đó là con trỏ hệ thống tới hồ sơ Quy trình của công việc, không phải liên kết người dùng thêm.
+
+   Route (tiền tố /api/workspace):
+     GET    /v1/related-objects/kinds                 → RelatedObjectKindList
+     GET    /v1/related-objects/search?kind=&q=&f.<tham số>=  → RelatedObjectCandidateList (`f.*`: lọc của ô tham chiếu)
+     GET    /v1/related-objects/preview?kind=&id=     → RelatedObjectPreview (404 nếu không xem được)
+     GET    /v1/projects/:id/related-objects          → RelatedObjectList (cả liên kết của dự án và của mọi công việc)
+     GET    /v1/work-items/:id/related-objects        → RelatedObjectList
+     POST   /v1/projects/:id/related-objects          ← CreateRelatedObjectRequest → RelatedObject
+     POST   /v1/work-items/:id/related-objects        ← CreateRelatedObjectRequest → RelatedObject
+     DELETE /v1/related-objects/:id                   → 204
+     GET    /v1/related-objects/create-form?kind=     → RelatedObjectCreateForm (loại có `create`)
+     POST   /v1/related-objects/create?kind=          ← RelatedObjectRecordCreateRequest → RelatedObjectPreview (201)
+     GET    /v1/related-objects/create-preview?kind=&field=&value= → RelatedObjectCreatePreview (ô có `preview`)
+
+   Tạo nhanh: Workspace chỉ chuyển tiếp form và giá trị tới module gốc dưới phiên của người dùng; module gốc kiểm dữ
+   liệu và quyền như form của chính nó. Hồ sơ vừa tạo chưa gắn vào đâu: bên gọi gắn bằng POST .../related-objects như
+   hồ sơ chọn sẵn.
+   ========================================================================= */
+
+/** Tối đa đối tượng liên quan trên một dự án hoặc một công việc. */
+export const RELATED_OBJECT_MAX_PER_ENTITY = 20;
+
+export type RelatedObjectFieldType = 'text' | 'money' | 'date';
+
+export interface RelatedObjectField {
+  readonly key: string;
+  readonly label: string;
+  /** `money`: số VND; `date`: `YYYY-MM-DD`; `text`: chuỗi; `null` khi trống. */
+  readonly value: string | number | null;
+  readonly type: RelatedObjectFieldType;
+}
+
+export interface RelatedObjectRef {
+  readonly kind: string;
+  readonly id: string;
+  readonly code?: string;
+  readonly label: string;
+  /** Tên loại để hiển thị, ví dụ "Báo giá". */
+  readonly kindLabel?: string;
+}
+
+/**
+ * Vì sao không đọc được thông tin đầy đủ:
+ *  - `module_unavailable`: công ty không còn dùng module đó (chưa cấp hoặc đã thu hồi);
+ *  - `forbidden`: người xem không có quyền ở module gốc;
+ *  - `not_found`: hồ sơ đã bị xoá hoặc người xem không thấy nó;
+ *  - `unreachable`: module không trả lời kịp (nhãn có thể cũ).
+ */
+export type RelatedObjectUnavailableReason = 'module_unavailable' | 'forbidden' | 'not_found' | 'unreachable';
+
+export interface RelatedObject {
+  readonly id: string;
+  readonly entityType: 'project' | 'work_item';
+  readonly entityId: string;
+  readonly projectId: string;
+  /** Mã và tên công việc khi liên kết gắn ở công việc. */
+  readonly entityLabel?: string;
+  /** Khoá loại `<module>.<loại>`, ví dụ `crm.contract`. */
+  readonly kind: string;
+  readonly moduleKey: string;
+  readonly objectId: string;
+  readonly code?: string;
+  /** Nhãn ngắn (mã + tên), luôn có, kể cả khi không đọc được module gốc. */
+  readonly label: string;
+  readonly status?: string;
+  readonly launchUrl: string;
+  readonly kindLabel?: string;
+  readonly moduleLabel?: string;
+  /** Thông tin đầy đủ đọc từ module gốc; rỗng khi `unavailableReason` có giá trị. */
+  readonly fields: readonly RelatedObjectField[];
+  readonly unavailableReason?: RelatedObjectUnavailableReason;
+  /** Người xem gỡ được liên kết này (người đã thêm, hoặc quản lý dự án trở lên, dự án chưa lưu trữ). */
+  readonly canRemove: boolean;
+  readonly createdBy: string;
+  readonly createdByName?: string;
+  readonly createdAt: string;
+}
+
+export interface RelatedObjectList {
+  readonly items: readonly RelatedObject[];
+  /** Người xem thêm được liên kết (thành viên dự án trở lên, dự án chưa lưu trữ). */
+  readonly canAdd: boolean;
+  /** `true` khi có module không trả lời kịp nên một số dòng chỉ có nhãn đã lưu. */
+  readonly degraded: boolean;
+}
+
+export interface CreateRelatedObjectRequest {
+  readonly kind: string;
+  readonly objectId: string;
+}
+
+/** Loại đối tượng người dùng chọn được, gom từ các module công ty đang dùng mà người này vào được. */
+export interface RelatedObjectKind {
+  readonly key: string;
+  readonly moduleKey: string;
+  readonly moduleLabel: string;
+  readonly label: string;
+  /** Dùng được cho ô "Tạo từ" của form dự án mới (có thông tin điền sẵn). */
+  readonly prefill: boolean;
+  /** Người xem tạo nhanh được hồ sơ loại này ngay trong form (module gốc vẫn kiểm quyền khi tạo). Vắng là không. */
+  readonly create?: boolean;
+}
+
+/** Kiểu ô của form tạo nhanh; nghĩa từng kiểu như `LinkableFormFieldType` ở `contracts-integration`. */
+export type RelatedObjectFormFieldType = 'text' | 'textarea' | 'date' | 'money' | 'number' | 'select' | 'reference';
+
+export interface RelatedObjectFormOption {
+  readonly value: string;
+  readonly label: string;
+  readonly hint?: string;
+}
+
+/** Một tham số lọc của ô tham chiếu; nghĩa như `LinkableReferenceFilter` ở `contracts-integration`. */
+export interface RelatedObjectReferenceFilter {
+  readonly param: string;
+  readonly fromField?: string;
+  readonly value?: string;
+}
+
+export interface RelatedObjectFormField {
+  readonly key: string;
+  readonly label: string;
+  readonly type: RelatedObjectFormFieldType;
+  readonly required?: boolean;
+  readonly hint?: string;
+  readonly placeholder?: string;
+  readonly maxLength?: number;
+  readonly min?: number;
+  readonly max?: number;
+  /** `select`: danh sách cố định. */
+  readonly options?: readonly RelatedObjectFormOption[];
+  /** `reference`: khoá loại cùng module, tìm qua `GET /v1/related-objects/search?kind=`. */
+  readonly reference?: string;
+  /**
+   * `reference`: tham số lọc gửi kèm khi tìm (`f.<param>=<giá trị>`), lấy từ ô `fromField` của form hoặc giá trị cố
+   * định. Ô nguồn đổi thì tìm lại và bỏ giá trị đang chọn của ô này.
+   */
+  readonly filters?: readonly RelatedObjectReferenceFilter[];
+  /** Bắt buộc trừ khi ô có khoá này đã có giá trị. */
+  readonly requiredUnless?: string;
+  /** Có giá trị thì hỏi `GET /v1/related-objects/create-preview` và vẽ bảng xem trước dưới ô. */
+  readonly preview?: boolean;
+  /** Số cho `money`, `number`; chuỗi cho kiểu còn lại (ngày `YYYY-MM-DD`). */
+  readonly defaultValue?: string | number;
+  readonly defaultLabel?: string;
+  /** Ô dài chiếm cả hàng. */
+  readonly wide?: boolean;
+}
+
+/** Form tạo nhanh do module gốc mô tả. */
+export interface RelatedObjectCreateForm {
+  readonly kind: string;
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly submitLabel?: string;
+  readonly fields: readonly RelatedObjectFormField[];
+}
+
+/** Cột bảng xem trước: `money` số VND, `number` số, `text` chuỗi. */
+export interface RelatedObjectPreviewColumn {
+  readonly key: string;
+  readonly label: string;
+  readonly type: 'text' | 'number' | 'money';
+}
+
+/**
+ * Bản xem trước chỉ đọc cho giá trị một ô có `preview` (ví dụ dòng hàng hợp đồng sẽ nhận từ báo giá); nghĩa như
+ * `LinkableCreatePreview` ở `contracts-integration`. `fill`: điền các ô đang trống của form.
+ */
+export interface RelatedObjectCreatePreview {
+  readonly field: string;
+  readonly value: string;
+  readonly title?: string;
+  readonly note?: string;
+  readonly columns: readonly RelatedObjectPreviewColumn[];
+  readonly rows: readonly Readonly<Record<string, string | number | null>>[];
+  readonly fill?: Readonly<Record<string, { readonly value: string | number; readonly label?: string }>>;
+}
+
+export interface RelatedObjectRecordCreateRequest {
+  /** Giá trị theo `key` của từng ô: chuỗi, số, hoặc `null` khi trống. */
+  readonly values: Readonly<Record<string, string | number | null>>;
+  /** Đã đọc cảnh báo của lần gửi trước (`RELATED_OBJECT_CONFIRM_REQUIRED`) và vẫn muốn tạo. */
+  readonly confirm?: boolean;
+}
+
+/**
+ * Mã lỗi 409 khi module gốc cần người dùng xác nhận (ví dụ trùng mã số thuế). Thân lỗi có `warnings: string[]`;
+ * gửi lại với `confirm: true`. Cùng giá trị với `LINKABLE_CONFIRM_REQUIRED` của `contracts-integration`.
+ */
+export const RELATED_OBJECT_CONFIRM_REQUIRED = 'LINKABLE_CONFIRM_REQUIRED';
+
+/** Mã lỗi khi module gốc từ chối dữ liệu tạo nhanh (thiếu ô, sai định dạng, không có quyền); `message` hiện thẳng. */
+export const RELATED_OBJECT_CREATE_REJECTED = 'RELATED_OBJECT_CREATE_REJECTED';
+
+export interface RelatedObjectKindList {
+  readonly kinds: readonly RelatedObjectKind[];
+}
+
+export interface RelatedObjectCandidate {
+  readonly kind: string;
+  readonly id: string;
+  readonly code?: string;
+  readonly label: string;
+  readonly status?: string;
+  /** Dòng phụ để phân biệt, ví dụ tên khách hàng. */
+  readonly hint?: string;
+}
+
+export interface RelatedObjectCandidateList {
+  readonly items: readonly RelatedObjectCandidate[];
+}
+
+/** Gợi ý điền sẵn form dự án mới; chỉ các khoá Workspace hiểu. Ngày `YYYY-MM-DD`, tiền số VND. */
+export interface RelatedObjectPrefill {
+  readonly title?: string;
+  readonly description?: string;
+  readonly startDate?: string;
+  readonly endDate?: string;
+  readonly contractValue?: number;
+  /** Id khách ở Bán hàng; gắn vào dự án qua `POST /v1/crm-customers/:crmCustomerId/link` sẵn có. */
+  readonly crmCustomerId?: string;
+}
+
+/** Xem trước một hồ sơ trước khi gắn (dùng cho ô "Tạo từ" và gợi ý gắn cả chuỗi). */
+export interface RelatedObjectPreview {
+  readonly kind: string;
+  readonly id: string;
+  readonly code?: string;
+  readonly label: string;
+  readonly status?: string;
+  readonly launchUrl: string;
+  readonly kindLabel?: string;
+  readonly moduleLabel?: string;
+  readonly fields: readonly RelatedObjectField[];
+  /** Hồ sơ phía trước trong chuỗi (hợp đồng → báo giá → cơ hội), để gợi ý gắn luôn. */
+  readonly upstream: readonly RelatedObjectRef[];
+  readonly prefill?: RelatedObjectPrefill;
 }
 
 /* =========================================================================

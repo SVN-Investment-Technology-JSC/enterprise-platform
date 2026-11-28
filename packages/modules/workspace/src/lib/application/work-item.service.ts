@@ -308,29 +308,22 @@ export class WorkItemService {
         ? {
             definitionId: procedureDefinitionId,
             projectCode: access.project.code,
+            projectName: access.project.name,
             requestedByName: actor.displayName,
             requestedByIsTenantAdmin: actor.isTenantAdmin,
           }
         : undefined,
       linkedInstance: linkedInstance
-        ? { ...linkedInstance, projectCode: access.project.code }
+        ? { ...linkedInstance, projectCode: access.project.code, projectName: access.project.name }
         : undefined,
     });
 
     if (reopenChain.length > 0) {
-      const today = todayKey(timezoneOf(actor.tenantId));
-      // Từ cha ngoài cùng xuống: nhật ký đọc đúng thứ tự mở.
-      for (const node of [...reopenChain].reverse()) {
-        await this.store.workItem.changeStatus(
-          actor.tenantId,
-          node.id,
-          actor.userId,
-          'in_progress',
-          `Mở lại để thêm công việc con ${created.code}.`,
-          today,
-        );
-      }
-      await this.projects.onItemReopened(actor.tenantId, actor.userId, access.project.id);
+      await this.reopenDoneChain(actor, access.project.id, reopenChain, {
+        trigger: 'child-added',
+        childCode: created.code,
+        childTitle: created.title,
+      });
     }
     await this.recalculate(actor, access.project.id);
     await this.fleet?.apply(
@@ -377,6 +370,7 @@ export class WorkItemService {
       title: item.title,
       definitionId: requireUuid(definitionId, 'Quy trình'),
       projectCode: access.project.code,
+      projectName: access.project.name,
       requestedByName: actor.displayName,
       requestedByIsTenantAdmin: actor.isTenantAdmin,
     });
@@ -1435,9 +1429,13 @@ export class WorkItemService {
     if (parentId && !parent) throw new WorkItemNotFoundError(parentId);
     // Kiểm tra chu trình và giới hạn độ sâu của node SÂU NHẤT trong nhánh.
     assertMoveAllowed(nodes, workItemId, parent);
-    // Đưa việc chưa xong vào cha đã hoàn thành thì cha không còn đúng: yêu cầu mở lại cha trước, như khi tạo việc con.
-    if (parent?.status === 'done' && item.status !== 'done' && item.status !== 'cancelled') {
-      throw new ParentItemDoneError(parent.code);
+    // Đưa việc chưa xong vào cha đã hoàn thành thì cha không còn đúng: người dùng phải đồng ý mở lại cha (và các cha đã
+    // xong phía trên), như khi tạo việc con. Kiểm quyền mở lại trước khi ghi để từ chối không để lại việc dở dang.
+    const reopenChain =
+      parent?.status === 'done' && item.status !== 'done' && item.status !== 'cancelled' ? doneChain(nodes, parent) : [];
+    if (reopenChain.length > 0) {
+      if (input.reopenParent !== true) throw new ParentItemDoneError(reopenChain[0].code);
+      for (const node of reopenChain) assertCanReopen(access, node, actor.userId);
     }
 
     const sortOrder =
@@ -1453,8 +1451,49 @@ export class WorkItemService {
       sortOrder,
       depthFor(parent) - item.depth,
     );
+    if (reopenChain.length > 0) {
+      await this.reopenDoneChain(actor, item.projectId, reopenChain, {
+        trigger: 'child-moved',
+        childCode: item.code,
+        childTitle: item.title,
+      });
+    }
     await this.recalculate(actor, item.projectId);
     return moved;
+  }
+
+  /**
+   * Đưa chuỗi công việc đã hoàn thành về "Đang làm" vì có việc con vừa vào dưới nó (thêm mới hoặc chuyển tới), từ cha
+   * ngoài cùng xuống để nhật ký đọc đúng thứ tự mở. Mỗi việc được mở lại phát một thông báo cho người giao, người phụ
+   * trách và người cùng thực hiện, nói rõ ai làm và vì sao. Tiến độ cha tính lại ở `recalculate` của nơi gọi.
+   */
+  private async reopenDoneChain(
+    actor: WorkspaceActor,
+    projectId: string,
+    chain: readonly WorkItem[],
+    cause: { trigger: 'child-moved' | 'child-added'; childCode: string; childTitle: string },
+  ): Promise<void> {
+    const today = todayKey(timezoneOf(actor.tenantId));
+    const moved = cause.trigger === 'child-moved';
+    const note = moved
+      ? `Mở lại vì công việc con ${cause.childCode} được chuyển vào.`
+      : `Mở lại để thêm công việc con ${cause.childCode}.`;
+    const reason = moved
+      ? `${actor.displayName} đã chuyển công việc ${cause.childCode} · ${cause.childTitle} vào làm việc con của công việc này, nên công việc được mở lại về "Đang làm" và tiến độ được tính lại.`
+      : `${actor.displayName} đã thêm công việc con ${cause.childCode} · ${cause.childTitle} vào công việc này, nên công việc được mở lại về "Đang làm" và tiến độ được tính lại.`;
+    for (const node of [...chain].reverse()) {
+      await this.store.workItem.changeStatus(
+        actor.tenantId,
+        node.id,
+        actor.userId,
+        'in_progress',
+        note,
+        today,
+        undefined,
+        { ...cause, reason },
+      );
+    }
+    await this.projects.onItemReopened(actor.tenantId, actor.userId, projectId);
   }
 
   async history(

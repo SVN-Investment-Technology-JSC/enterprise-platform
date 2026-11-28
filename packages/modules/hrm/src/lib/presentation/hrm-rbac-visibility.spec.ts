@@ -282,3 +282,51 @@ describe('Bảng công của tôi và dữ liệu chấm công', () => {
     expect(calls[0].params.slice(-2)).toEqual([25, 25]);
   });
 });
+
+describe('GET employees/by-user/:userId/payee: thông tin nhận tiền theo luật dữ liệu nhạy cảm', () => {
+  const owner = '11111111-1111-4111-8111-111111111111';
+  const viewer = '22222222-2222-4222-8222-222222222222';
+
+  function controllerFor(userId: string, permissions: string[], rows: unknown[] = [{ full_name: 'Trần B', bank_account_number: '0011', bank_name: 'ACB' }]) {
+    const pool = { query: jest.fn(async () => ({ rows })) };
+    const getContext = jest.fn(async () => ({ pool, tenantId: 't', principal: { userId, permissions } }));
+    const controller = Object.create(HrmEmployeeController.prototype) as HrmEmployeeController;
+    Object.assign(controller, {
+      ctx: {
+        getContext,
+        // Cùng luật với HrmContextService.has: quyền trực tiếp, hoặc quản trị tenant/HRM.
+        has: (c: { principal: { permissions: string[] } }, p: string) =>
+          c.principal.permissions.includes(p) || c.principal.permissions.includes('tenant.manage') || c.principal.permissions.includes('hrm.manage'),
+      },
+    });
+    return { controller, pool, getContext };
+  }
+
+  it('chính chủ thấy STK, ngân hàng', async () => {
+    const { controller, getContext } = controllerFor(owner, ['hrm.read', 'hrm.self.read']);
+    await expect(controller.getPayeeByUser(req, owner)).resolves.toEqual({
+      data: { fullName: 'Trần B', bankAccountNumber: '0011', bankName: 'ACB' },
+    });
+    expect(getContext).toHaveBeenCalledWith(req, 'hrm.read');
+  });
+
+  it('người có hrm.employee.sensitive hoặc quản trị HRM thấy đủ', async () => {
+    for (const permissions of [['hrm.read', 'hrm.employee.sensitive'], ['hrm.manage']]) {
+      const { controller } = controllerFor(viewer, permissions);
+      expect((await controller.getPayeeByUser(req, owner)).data).toEqual({ fullName: 'Trần B', bankAccountNumber: '0011', bankName: 'ACB' });
+    }
+  });
+
+  it('người khác chỉ thấy tên, STK và ngân hàng là null', async () => {
+    const { controller } = controllerFor(viewer, ['hrm.read', 'hrm.self.read', 'hrm.employee.read']);
+    expect((await controller.getPayeeByUser(req, owner)).data).toEqual({ fullName: 'Trần B', bankAccountNumber: null, bankName: null });
+  });
+
+  it('mã tài khoản sai thì báo lỗi, không truy vấn; tài khoản chưa có hồ sơ thì 404', async () => {
+    const bad = controllerFor(viewer, ['hrm.read']);
+    await expect(bad.controller.getPayeeByUser(req, 'abc')).rejects.toBeInstanceOf(BadRequestException);
+    expect(bad.pool.query).not.toHaveBeenCalled();
+    const missing = controllerFor(viewer, ['hrm.read'], []);
+    await expect(missing.controller.getPayeeByUser(req, owner)).rejects.toMatchObject({ status: 404 });
+  });
+});

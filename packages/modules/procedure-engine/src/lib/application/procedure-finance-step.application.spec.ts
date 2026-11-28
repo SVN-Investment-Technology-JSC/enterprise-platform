@@ -9,11 +9,14 @@ import type {
 import type { ProcedureActor } from '../domain/procedure-authorization.js';
 import { financeStepEvents } from '../domain/procedure-finance-step.js';
 import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-store.js';
-import type { FinanceIntegrationResolver } from './finance-integration.port.js';
+import { FinanceNotEntitledError, type FinanceIntegrationResolver } from './finance-integration.port.js';
 import { ProcedureFinanceEvents } from './finance-step-events.js';
 import type { InitiatorActorResolver } from './initiator-actor.port.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 import type { ProcedureClock, ProcedureIdGenerator } from './procedure-store.port.js';
+
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
 
 class FixedClock implements ProcedureClock {
   now(): Date {
@@ -31,8 +34,10 @@ class SequentialIds implements ProcedureIdGenerator {
 
 class FakeFinance implements FinanceIntegrationResolver {
   failing = false;
+  notEntitled = false;
   kinds: ProcedureFinanceCapabilities['voucherKinds'] = ['PAYMENT', 'RECEIPT'];
   async capabilities(): Promise<ProcedureFinanceCapabilities> {
+    if (this.notEntitled) throw new FinanceNotEntitledError();
     if (this.failing) throw new Error('Tài chính không phản hồi');
     return { voucherKinds: this.kinds };
   }
@@ -142,6 +147,7 @@ const stepKey = (definition: ProcedureDefinition, key: string) => definition.ste
 /** Mở hồ sơ, nhập số tiền và người nhận, trưởng phòng duyệt → hồ sơ đứng ở bước Chi tiền. */
 async function reachFinanceStep(application: ProcedureEngineApplication, definition: ProcedureDefinition, key = 'a') {
   const started = await application.startInstance(requester, {
+    workspaceLink: TEST_WORKSPACE_LINK,
     definitionId: definition.id,
     title: 'Thanh toán tiền điện tháng 10',
     idempotencyKey: `start-${key}`,
@@ -181,6 +187,18 @@ describe('Bước Tài chính — công bố', () => {
     const missing = setup({ finance: null });
     const other = await missing.application.createDefinition(designer, paymentInput());
     await expect(missing.application.publishDefinition(designer, other.id)).rejects.toThrow('Chưa cấu hình kết nối');
+  });
+
+  it('tenant chưa được cấp phân hệ Tài chính: chặn công bố và nói đúng nguyên nhân, không nói "không phản hồi"', async () => {
+    const finance = new FakeFinance();
+    finance.notEntitled = true;
+    const { application } = setup({ finance });
+    const draft = await application.createDefinition(designer, paymentInput());
+    const error = await application.publishDefinition(designer, draft.id).catch((cause: unknown) => cause as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('Phân hệ Tài chính chưa được cấp cho doanh nghiệp');
+    expect((error as Error).message).toContain('thử lại sau');
+    expect((error as Error).message).not.toContain('không phản hồi');
   });
 
   it('chặn công bố khi Tài chính chưa nhận loại phiếu', async () => {
@@ -303,6 +321,49 @@ describe('Bước Tài chính — lúc chạy', () => {
     });
     // Ghi lại hồ sơ mà bước không kích hoạt lại thì không phát lần nữa.
     expect(financeStepEvents(after, after)).toEqual([]);
+  });
+
+  it('form thanh toán đặt mã theo nhãn ("Người nhận", "STK người nhận", "Ngân hàng người nhận") vẫn vào phiếu', async () => {
+    const { application, store } = setup();
+    const input = paymentInput();
+    const definition = await publish(application, {
+      ...input,
+      attributes: [
+        ...(input.attributes ?? []),
+        { id: '', code: 'nguoi_nhan', name: 'Người nhận', type: 'text', required: false },
+        { id: '', code: 'stk_nguoi_nhan', name: 'STK người nhận', type: 'text', required: false },
+        { id: '', code: 'ngan_hang_nguoi_nhan', name: 'Ngân hàng người nhận', type: 'text', required: false },
+      ],
+      steps: input.steps.map((item) => (item.key === 'DE_NGHI' ? { ...item, attributes: [] } : item)),
+    });
+    const before = (await store.read(requester.tenantId)).instances;
+    const started = await application.startInstance(requester, {
+      workspaceLink: TEST_WORKSPACE_LINK,
+      definitionId: definition.id,
+      title: 'Thanh toán chi phí đi lại',
+      idempotencyKey: 'start-payee',
+    });
+    await application.applyAction(requester, started.id, {
+      action: 'complete',
+      idempotencyKey: 'submit-payee',
+      attributeValues: {
+        'process:so_tien': { type: 'money', value: 2_650_000 },
+        'process:nguoi_nhan': { type: 'text', value: 'Hà Nguyên Hoàng' },
+        'process:stk_nguoi_nhan': { type: 'text', value: '0123456789' },
+        'process:ngan_hang_nguoi_nhan': { type: 'text', value: 'Vietcombank' },
+      },
+    });
+    await application.applyAction(manager, started.id, { action: 'approve', idempotencyKey: 'approve-payee' });
+    const after = (await store.read(requester.tenantId)).instances;
+
+    expect(financeStepEvents(before, after)[0]?.payload).toMatchObject({
+      values: {
+        amount: 2_650_000,
+        counterpartyName: 'Hà Nguyên Hoàng',
+        counterpartyAccountNo: '0123456789',
+        counterpartyBank: 'Vietcombank',
+      },
+    });
   });
 
   it('không ai hoàn thành được bước bằng tay, kể cả quản trị; vẫn trả về được', async () => {

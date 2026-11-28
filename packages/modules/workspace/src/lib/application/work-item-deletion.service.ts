@@ -62,8 +62,9 @@ export class WorkItemDeletionService {
 
   /**
    * Xoá công việc gắn hồ sơ Quy trình theo quyết định của Quy trình (đơn bị xoá, hoặc đổi sang công việc
-   * khác). Quy trình đã kiểm quyền người thao tác (vai A của đơn hoặc quản trị), nên ở đây không kiểm vai
-   * dự án; vẫn ghi dòng "đã xoá" vào nhật ký dự án và gỡ con trỏ tới hồ sơ. Không còn công việc thì thôi.
+   * khác). Quy trình đã kiểm quyền người thao tác (xoá đơn: vai A hoặc quản trị; đổi dự án / công việc: người
+   * tham gia đơn trừ người chỉ xem), nên ở đây không kiểm vai dự án; vẫn ghi dòng "đã xoá" vào nhật ký dự án và
+   * gỡ con trỏ tới hồ sơ. Không còn công việc thì thôi.
    */
   async removeForProcedure(
     tenantId: string,

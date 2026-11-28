@@ -10,6 +10,7 @@ export const REALTIME_SERVER_EVENTS = [
   'workspace.chat.typing',
   'procedure.comment.changed',
   'procedure.comment.typing',
+  'procedure.instance.changed',
   'authorization.changed',
   'social.feed.changed',
   // Chat nội bộ của core và trạng thái trực tuyến: không thuộc chuỗi thông báo có thứ tự.
@@ -71,6 +72,15 @@ export interface WorkspaceChatTyping {
 export interface ProcedureCommentSignal {
   readonly instanceId: string;
   readonly activityId: string;
+  readonly actorUserId: string;
+}
+
+/**
+ * Hồ sơ quy trình vừa đổi (duyệt, trả về, hoàn duyệt, huỷ, bước Tài chính...). Cũng gửi vào PHÒNG của hồ sơ và
+ * chỉ mang id; người đang mở hồ sơ gọi lại API có kiểm quyền. `actorUserId` là `system` khi không do ai bấm.
+ */
+export interface ProcedureInstanceSignal {
+  readonly instanceId: string;
   readonly actorUserId: string;
 }
 

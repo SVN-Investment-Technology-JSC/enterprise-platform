@@ -17,6 +17,7 @@ import { LetterAttachmentsController } from './presentation/letter-attachments.c
 import { LetterFlowController } from './presentation/letter-flow.controller.js';
 import { LetterQueriesController } from './presentation/letter-queries.controller.js';
 import { LetterRevocationController } from './presentation/letter-revocation.controller.js';
+import { CorrespondenceLinkableController } from './presentation/linkable.controller.js';
 
 /**
  * Composition root của Văn thư, dựng tường minh bằng `useFactory` như Hệ dùng chung.
@@ -29,6 +30,7 @@ import { LetterRevocationController } from './presentation/letter-revocation.con
     LetterFlowController,
     LetterRevocationController,
     LetterAttachmentsController,
+    CorrespondenceLinkableController,
   ],
   providers: [
     TenantDatabaseRegistry,

@@ -52,6 +52,12 @@ export interface SearchableSelectProps {
   readonly nativeTitle?: boolean;
   readonly clearable?: boolean;
   readonly onChange?: (value: string) => void;
+  /**
+   * Tìm ở phía máy chủ: có thì ô không tự lọc `options` nữa mà báo chữ đang gõ cho nơi dùng nạp lại danh sách
+   * (danh sách quá dài để tải hết, vd khách hàng ở CRM). Đóng danh sách thì báo chuỗi rỗng. Mặc định không có,
+   * hành vi lọc tại chỗ không đổi.
+   */
+  readonly onSearchChange?: (text: string) => void;
   readonly renderOption?: (option: SearchableSelectOption, isSelected: boolean) => ReactNode;
   /**
    * Nhóm phụ, xếp sau danh sách chính và gập lại sau một nút (vd "Ngoài dự án"): bấm nút thì mở nhóm, gõ tìm thì
@@ -205,6 +211,7 @@ export function SearchableSelect({
   nativeTitle = true,
   clearable = true,
   onChange,
+  onSearchChange,
   renderOption,
   extra,
   dropdownFooter,
@@ -250,7 +257,9 @@ export function SearchableSelect({
   const { filteredOptions, mainCount, extraMatches, extraTotal } = useMemo(() => {
     const keyword = searchInDropdown ? dropdownQuery : query;
     const searching = Boolean(
-      keyword.trim() && (searchInDropdown || !selectedOption || query !== selectedOption.label),
+      !onSearchChange &&
+        keyword.trim() &&
+        (searchInDropdown || !selectedOption || query !== selectedOption.label),
     );
     const q = removeVietnameseTones(keyword.trim());
     const matches = (list: readonly SearchableSelectOption[]) =>
@@ -290,7 +299,16 @@ export function SearchableSelect({
     dropdownQuery,
     searchInDropdown,
     selectedOption,
+    onSearchChange,
   ]);
+
+  // Báo chữ đang gõ ra ngoài (tìm phía máy chủ); chỉ khi đang mở danh sách và chữ khác nhãn đang chọn.
+  const onSearchChangeRef = useRef(onSearchChange);
+  onSearchChangeRef.current = onSearchChange;
+  const reportSearch = (text: string) => onSearchChangeRef.current?.(text);
+  useEffect(() => {
+    if (!isOpen) onSearchChangeRef.current?.('');
+  }, [isOpen]);
 
   // Đóng dropdown khi click ngoài (hỗ trợ cả mousedown và click ở pha capture để không bị dialog chặn)
   useEffect(() => {
@@ -633,6 +651,7 @@ export function SearchableSelect({
           onChange={(e) => {
             if (searchInDropdown) return;
             setQuery(e.target.value);
+            reportSearch(e.target.value);
             if (!isOpen) setIsOpen(true);
             setActiveIndex(0);
           }}
@@ -702,6 +721,7 @@ export function SearchableSelect({
                 value={dropdownQuery}
                 onChange={(e) => {
                   setDropdownQuery(e.target.value);
+                  reportSearch(e.target.value);
                   setActiveIndex(0);
                 }}
                 onKeyDown={handleKeyDown}

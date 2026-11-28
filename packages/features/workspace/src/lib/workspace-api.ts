@@ -120,12 +120,24 @@ import type {
   ProjectRoleList,
   SaveProjectRoleRequest,
   ProjectGroupList,
+  ProjectReportGroupList,
+  SaveProjectReportGroupsRequest,
+  SetProjectReportGroupRequest,
   SaveProjectArchiveSettingsRequest,
   SaveProjectCodeRuleRequest,
   SaveProjectGroupRequest,
   FleetAvailabilityView,
   SourceTransport,
   TransportSourceType,
+  CreateRelatedObjectRequest,
+  RelatedObject,
+  RelatedObjectCandidateList,
+  RelatedObjectKindList,
+  RelatedObjectList,
+  RelatedObjectCreateForm,
+  RelatedObjectCreatePreview,
+  RelatedObjectPreview,
+  RelatedObjectRecordCreateRequest,
 } from '@enterprise-platform/contracts-workspace';
 import { MY_WORK_SEARCH_MAX_LENGTH } from '@enterprise-platform/contracts-workspace';
 import { authFetch } from '@enterprise-platform/shared-ui';
@@ -1014,6 +1026,74 @@ export const unlinkWorkItem = (workItemId: string, referenceId: string) =>
   request<void>(`/work-items/${workItemId}/links/${referenceId}`, { method: 'DELETE' });
 
 /* =========================================================================
+   ĐỐI TƯỢNG LIÊN QUAN
+
+   Người dùng gắn dự án hay công việc với hồ sơ ở module khác (báo giá, hợp
+   đồng...). Workspace chỉ lưu con trỏ và nhãn ngắn; thông tin đầy đủ đọc từ
+   module gốc mỗi lần xem. Module công ty không dùng thì danh sách loại không
+   có nó: giao diện phải chạy được với danh sách loại rỗng.
+   ========================================================================= */
+
+/** Loại hồ sơ người dùng gắn được, gom từ các module công ty đang dùng mà người này vào được. */
+export const listRelatedObjectKinds = () =>
+  request<RelatedObjectKindList>('/related-objects/kinds', { cache: 'no-store' });
+
+/**
+ * Tìm hồ sơ của một loại để chọn; `q` rỗng thì module gốc trả các hồ sơ gần đây. `filters`: lọc của ô tham chiếu trong
+ * form tạo nhanh (gửi thành `f.<tham số>`), module gốc chỉ đọc tham số nó biết.
+ */
+export const searchRelatedObjects = (kind: string, q = '', filters?: Readonly<Record<string, string>>) => {
+  const params = new URLSearchParams({ kind, q: q.trim() });
+  for (const [param, value] of Object.entries(filters ?? {})) params.set(`f.${param}`, value);
+  return request<RelatedObjectCandidateList>(`/related-objects/search?${params}`, { cache: 'no-store' });
+};
+
+/** Liên kết của dự án, gồm cả liên kết gắn ở từng công việc. */
+export const listProjectRelatedObjects = (projectId: string) =>
+  request<RelatedObjectList>(`/projects/${projectId}/related-objects`, { cache: 'no-store' });
+
+export const listWorkItemRelatedObjects = (workItemId: string) =>
+  request<RelatedObjectList>(`/work-items/${workItemId}/related-objects`, { cache: 'no-store' });
+
+export const addProjectRelatedObject = (projectId: string, body: CreateRelatedObjectRequest) =>
+  request<RelatedObject>(`/projects/${projectId}/related-objects`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const addWorkItemRelatedObject = (workItemId: string, body: CreateRelatedObjectRequest) =>
+  request<RelatedObject>(`/work-items/${workItemId}/related-objects`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/** Gỡ liên kết; hồ sơ gốc ở module kia không đổi. */
+export const removeRelatedObject = (id: string) =>
+  request<void>(`/related-objects/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+/** Form tạo nhanh do module gốc mô tả (chỉ loại có `create`). Không có quyền tạo thì lỗi mang câu của module gốc. */
+export const getRelatedObjectCreateForm = (kind: string) =>
+  request<RelatedObjectCreateForm>(`/related-objects/create-form?${new URLSearchParams({ kind })}`, {
+    cache: 'no-store',
+  });
+
+/** Bản xem trước theo giá trị một ô có `preview` của form tạo nhanh (ví dụ dòng hàng sẽ nhận từ báo giá). */
+export const getRelatedObjectCreatePreview = (kind: string, field: string, value: string) =>
+  request<RelatedObjectCreatePreview>(`/related-objects/create-preview?${new URLSearchParams({ kind, field, value })}`, {
+    cache: 'no-store',
+  });
+
+/**
+ * Tạo hồ sơ ở module gốc dưới phiên người dùng; hồ sơ chưa gắn vào đâu. Lỗi 409 `RELATED_OBJECT_CONFIRM_REQUIRED` kèm
+ * `warnings`: gửi lại với `confirm: true` sau khi người dùng xác nhận.
+ */
+export const createRelatedObjectRecord = (kind: string, body: RelatedObjectRecordCreateRequest) =>
+  request<RelatedObjectPreview>(`/related-objects/create?${new URLSearchParams({ kind })}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+/* =========================================================================
    TÀI CHÍNH (P9)
    ========================================================================= */
 
@@ -1106,6 +1186,21 @@ export const renameProjectGroup = (id: string, body: SaveProjectGroupRequest) =>
 
 export const deleteProjectGroup = (id: string) =>
   request<ProjectGroupList>(`/project-groups/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+/** Danh mục nhóm báo cáo (Cài đặt > Nhóm báo cáo); ai dùng Workspace cũng đọc được. */
+export const listProjectReportGroups = () =>
+  request<ProjectReportGroupList>('/project-report-groups', { cache: 'no-store' });
+
+/** Thay cả danh sách nhóm báo cáo (quản trị tenant). */
+export const saveProjectReportGroups = (body: SaveProjectReportGroupsRequest) =>
+  request<ProjectReportGroupList>('/project-report-groups', { method: 'PUT', body: JSON.stringify(body) });
+
+/** Gán hay bỏ nhóm báo cáo của một dự án; trả dự án sau khi lưu. */
+export const setProjectReportGroup = (projectId: string, body: SetProjectReportGroupRequest) =>
+  request<Project>(`/projects/${encodeURIComponent(projectId)}/report-group`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
 
 /** Tab "Đơn từ": đơn module khác gửi kèm dự án (chỉ đọc). */
 export const listProjectRequests = (projectId: string) =>

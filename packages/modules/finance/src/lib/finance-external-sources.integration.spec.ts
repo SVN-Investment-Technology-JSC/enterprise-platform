@@ -332,6 +332,27 @@ integration('Tài chính: phiếu thu có nguồn Bán hàng qua API nội bộ 
     await rejects(app.reverse(cashier, created.voucherId, 'lần hai'), 'FINANCE_VOUCHER_STATE');
   });
 
+  it('Huỷ phiếu nguồn crm: còn nháp thì xoá phiếu và báo returned (lần thu "Bị trả lại", gửi lại tạo phiếu mới); đã ghi sổ thì đảo bút toán', async () => {
+    const draft = await readyVoucher();
+    await rejects(app.cancel(reader, {}, draft.voucherId), 'FINANCE_FORBIDDEN');
+    expect(await app.cancel(cashier, {}, draft.voucherId)).toMatchObject({ id: draft.voucherId, deleted: true });
+    const returned = (await outbox(draft.voucherId)).find((e) => e.event_type === 'finance.voucher.returned');
+    expect(returned?.payload.payload).toMatchObject({ instanceId: null, voucherId: draft.voucherId, sourceModule: 'crm', sourceRef: draft.sourceRef, actorId: cashier.userId });
+    // Bên Bán hàng tra trạng thái / huỷ lần thu: không còn phiếu (404), Bán hàng coi như không còn gì để huỷ.
+    await rejects(app.externalVoucherSourceState(tenantId, 'crm', draft.sourceRef), 'FINANCE_NOT_FOUND');
+    await rejects(app.cancelExternalVoucherSource(tenantId, 'crm', draft.sourceRef, {}), 'FINANCE_NOT_FOUND');
+    // Gửi lại cùng lần thu (khoá mới): tạo phiếu mới.
+    const resent = await app.createExternalVoucherSource(tenantId, request({ sourceRef: draft.sourceRef, idempotencyKey: randomUUID() }));
+    expect(resent.voucherId).not.toBe(draft.voucherId);
+
+    const posted = await readyVoucher();
+    await app.postSourced(cashier, posted.voucherId, {});
+    expect(await app.cancel(cashier, {}, posted.voucherId)).toMatchObject({ id: posted.voucherId, deleted: false });
+    const statusChanged = (await outbox(posted.voucherId)).filter((e) => e.event_type === 'finance.voucher.status-changed').map((e) => e.payload.payload);
+    expect(statusChanged.at(-1)).toMatchObject({ status: 'REVERSED', sourceModule: 'crm', sourceRef: posted.sourceRef });
+    expect(await app.externalVoucherSourceState(tenantId, 'crm', posted.sourceRef)).toMatchObject({ status: 'CANCELLED', sourceStatus: 'REVERSED' });
+  });
+
   it('TC-REG-11: phiếu nguồn Quy trình vẫn hỏi Procedure, posted mang sourceModule procedure-engine, vẫn không đảo thủ công được', async () => {
     const instanceId = randomUUID();
     const payload: FinanceStepVoucherRequestedPayload = {

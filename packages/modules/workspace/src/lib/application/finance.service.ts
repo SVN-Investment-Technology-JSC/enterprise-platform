@@ -4,6 +4,7 @@ import {
   type CostEntry,
   type CostEntryList,
   type CreateCostEntryRequest,
+  type Paged,
   type ProjectFinance,
   type ProjectSummary,
   type UpdateProjectFinanceRequest,
@@ -19,6 +20,7 @@ import {
 import {
   assertProjectWritable,
   hasProjectRole,
+  seesAllProjects,
   type ProjectAccess,
   type ProjectService,
 } from './project.service.js';
@@ -67,6 +69,34 @@ export class FinanceService {
     const access = await this.projects.access(actor, projectId);
     if (!canSeeFinance(access)) return summary;
     return { ...summary, finance: await this.compute(actor, projectId) };
+  }
+
+  /**
+   * Danh sách dự án kèm `contractValue` cho những dự án người gọi được xem tài chính (cùng điều kiện với
+   * `detailWithFinance`: quản trị dự án, hoặc vai trò có `project.update_all`). Dự án khác vắng hẳn trường này.
+   */
+  async listWithContractValue(
+    actor: WorkspaceActor,
+    query: Parameters<ProjectService['list']>[1],
+  ): Promise<Paged<ProjectSummary>> {
+    const page = await this.projects.list(actor, query);
+    const visible = page.items.filter(
+      (project) => seesAllProjects(actor) || project.myPermissions?.includes('project.update_all'),
+    );
+    if (visible.length === 0) return page;
+    const values = await this.store.finance.contractValues(
+      actor.tenantId,
+      visible.map((project) => project.id),
+    );
+    const allowed = new Set(visible.map((project) => project.id));
+    return {
+      ...page,
+      items: page.items.map((project) =>
+        allowed.has(project.id) && values.has(project.id)
+          ? { ...project, contractValue: values.get(project.id) ?? null }
+          : project,
+      ),
+    };
   }
 
   async updateProject(

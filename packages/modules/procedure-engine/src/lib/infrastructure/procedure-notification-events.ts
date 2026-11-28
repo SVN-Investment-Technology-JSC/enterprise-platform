@@ -10,8 +10,10 @@ import { resolveFinalActorId } from '../domain/procedure-progress.js';
 export interface ProcedureNotificationEvent {
   readonly type:
     | 'procedure.assignment.created'
+    | 'procedure.step.processed'
     | 'procedure.instance.completed'
     | 'procedure.mention.created'
+    | typeof PROCEDURE_INSTANCE_RELINKED
     | typeof PROCEDURE_INSTANCE_REVERSED
     | typeof PROCEDURE_INSTANCE_ADJUSTMENT_REQUESTED;
   readonly aggregateType: 'procedure-instance';
@@ -132,6 +134,136 @@ export function procedureMentionEvents(
   return events;
 }
 
+/**
+ * Người tạo hồ sơ: người khởi tạo và, khi có người tạo hộ, cả người tạo hộ. Hai bên đều là "người tạo quy trình" nên đều
+ * muốn biết hồ sơ của mình đã đi tới đâu.
+ */
+function creatorUserIds(instance: ProcedureInstance): readonly string[] {
+  return [...new Set([instance.initiatedBy, instance.createdOnBehalfBy?.userId].filter((id): id is string => Boolean(id)))];
+}
+
+/** Những thao tác xử lý đáng báo người tạo hồ sơ (trao đổi không tính). */
+const PROCESSING_ACTIONS: readonly string[] = ['complete', 'approve', 'return', 'withdraw'];
+
+/**
+ * Báo người tạo hồ sơ MỖI LẦN hồ sơ ĐANG CHẠY được xử lý ở một bước: người này duyệt hay xác nhận, trả lại, hoặc hoàn
+ * duyệt. Xong một pha trong bước (vd Kế toán kiểm tra xong, chờ Kế toán trưởng duyệt) cũng báo, không chỉ khi cả bước xong.
+ *
+ * - Căn cứ vào các mục nhật ký MỚI so với bản trước, nên một lần lưu có nhiều thao tác thì báo từng thao tác và lưu lại
+ *   hồ sơ không đổi gì thì không báo lại.
+ * - Thao tác làm hồ sơ kết thúc (bước cuối, từ chối, huỷ) đã có thông báo "Quy trình đã kết thúc" riêng: bỏ qua ở đây.
+ * - Người tạo chính là người vừa thao tác thì không tự báo cho mình.
+ * - Hồ sơ vừa đến lượt một vai mới (sang bước mới, hay sang pha kế trong cùng bước) mà người tạo là người giữ vai đó thì
+ *   họ đã nhận "Đến lượt bạn xử lý quy trình": không báo trùng.
+ */
+export function procedureStepProcessedEvents(
+  prior: ProcedureInstance | undefined,
+  instance: ProcedureInstance,
+): readonly ProcedureNotificationEvent[] {
+  if (!prior || prior.status !== 'running' || instance.status !== 'running') return [];
+  const known = new Set(prior.activity.map((entry) => entry.id));
+  const fresh = instance.activity
+    .filter((entry) => !known.has(entry.id) && PROCESSING_ACTIONS.includes(entry.action))
+    .reverse();
+  if (fresh.length === 0) return [];
+
+  const creators = creatorUserIds(instance);
+  // Tới lượt vai mới (sang bước mới, hay sang vai kế trong cùng bước) thì người giữ vai đó đã nhận thông báo giao việc.
+  const nextAssignees = turnChanged(prior, instance) ? new Set(procedureStepRecipientUserIds(instance)) : new Set<string>();
+  const priorStatus = new Map(prior.steps.map((step) => [step.id, step.status]));
+  const current = instance.steps.find((step) => step.id === instance.currentStepId);
+  const events: ProcedureNotificationEvent[] = [];
+  for (const entry of fresh) {
+    const recipients = creators.filter((userId) => userId !== entry.actorId && !nextAssignees.has(userId));
+    if (recipients.length === 0) continue;
+    const step = instance.steps.find((candidate) => candidate.id === entry.stepInstanceId);
+    if (!step) continue;
+    const kind =
+      entry.action === 'return'
+        ? 'return'
+        : entry.action === 'withdraw'
+          ? 'withdraw'
+          : step.status === 'completed' && priorStatus.get(step.id) !== 'completed'
+            ? 'step'
+            : 'stage';
+    const waitingStage = current?.currentRoleStage;
+    events.push({
+      type: 'procedure.step.processed',
+      aggregateType: 'procedure-instance',
+      aggregateId: instance.id,
+      payload: {
+        instanceId: instance.id,
+        instanceCode: instance.code,
+        title: instance.title,
+        kind,
+        stepInstanceId: step.id,
+        stepName: step.name,
+        // Bước hồ sơ đang ở sau thao tác này: bước kế tiếp (xong bước), bước được trả về, hay chính bước này.
+        ...(current ? { currentStepName: current.name } : {}),
+        ...(kind === 'stage' ? { waiting: waitingStage === 'A' || waitingStage === 'C' ? 'duyệt' : 'thực hiện' } : {}),
+        actorName: entry.actorName,
+        recipientUserIds: recipients,
+        actorUserId: entry.actorId,
+      },
+    });
+  }
+  return events;
+}
+
+/** Hồ sơ vừa được đổi sang dự án / công việc khác (Workspace đã tạo xong công việc mới). */
+export const PROCEDURE_INSTANCE_RELINKED = 'procedure.instance.relinked';
+
+/**
+ * Báo người tạo hồ sơ (và người tạo hộ) khi hồ sơ được đổi dự án / công việc liên kết: liên kết đang chờ đổi
+ * (`replacesWorkItemId`) vừa thành `linked`. Báo lúc Workspace đã đổi xong chứ không phải lúc gửi yêu cầu, để bị
+ * từ chối thì không có thông báo sai. Không báo cho chính người đổi.
+ */
+export function procedureRelinkedEvents(
+  prior: ProcedureInstance | undefined,
+  instance: ProcedureInstance,
+): readonly ProcedureNotificationEvent[] {
+  const requested = prior?.workspaceLink;
+  const link = instance.workspaceLink;
+  if (requested?.status !== 'pending' || !requested.replacesWorkItemId || link?.status !== 'linked') return [];
+  const actorId = requested.requestedBy;
+  const recipients = creatorUserIds(instance).filter((userId) => userId !== actorId);
+  if (recipients.length === 0) return [];
+  const request = instance.activity.find((entry) => entry.action === 'relink' && entry.actorId === actorId);
+  return [
+    {
+      type: PROCEDURE_INSTANCE_RELINKED,
+      aggregateType: 'procedure-instance',
+      aggregateId: instance.id,
+      payload: {
+        instanceId: instance.id,
+        instanceCode: instance.code,
+        title: instance.title,
+        projectId: link.projectId,
+        projectCode: link.projectCode,
+        ...(link.projectName ? { projectName: link.projectName } : {}),
+        ...(link.workItemCode ? { workItemCode: link.workItemCode } : {}),
+        ...(request?.actorName ? { actorName: request.actorName } : {}),
+        recipientUserIds: recipients,
+        actorUserId: actorId,
+      },
+    },
+  ];
+}
+
+/** Vai đang đến lượt ở bước hiện tại; vắng khi hồ sơ không có bước đang chạy. */
+function currentStage(instance: ProcedureInstance): string | undefined {
+  return instance.steps.find((step) => step.id === instance.currentStepId)?.currentRoleStage ?? undefined;
+}
+
+/**
+ * Hồ sơ vừa đến lượt một vai mới: sang bước khác, hoặc vẫn bước đó nhưng sang vai kế tiếp (vd Kế toán kiểm tra (R) xong
+ * thì tới Kế toán trưởng duyệt (A)), hoặc bị trả / hoàn duyệt về đúng vai trước trong cùng bước.
+ */
+function turnChanged(prior: ProcedureInstance | undefined, instance: ProcedureInstance): boolean {
+  if (!prior) return true;
+  return prior.currentStepId !== instance.currentStepId || currentStage(prior) !== currentStage(instance);
+}
+
 export function procedureNotificationEvents(
   before: readonly ProcedureInstance[],
   after: readonly ProcedureInstance[],
@@ -141,11 +273,10 @@ export function procedureNotificationEvents(
   for (const instance of after) {
     const prior = previous.get(instance.id);
     events.push(...procedureMentionEvents(prior, instance));
-    if (
-      instance.status === 'running' &&
-      instance.currentStepId &&
-      prior?.currentStepId !== instance.currentStepId
-    ) {
+    events.push(...procedureStepProcessedEvents(prior, instance));
+    events.push(...procedureRelinkedEvents(prior, instance));
+    // Báo người giữ vai đang đến lượt mỗi khi tới lượt vai mới, kể cả đổi vai trong cùng một bước.
+    if (instance.status === 'running' && instance.currentStepId && turnChanged(prior, instance)) {
       const step = instance.steps.find(
         (candidate) => candidate.id === instance.currentStepId,
       );

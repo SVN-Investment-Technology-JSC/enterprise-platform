@@ -1387,6 +1387,32 @@ export interface HrmLeaveEntitlementPreview {
   readonly blockers: readonly string[];
 }
 
+export interface ImportHrmLeaveRow {
+  readonly employeeCode: string;
+  /** Số ngày điều chỉnh: dương cộng, âm trừ. */
+  readonly days: number;
+  readonly reason: string;
+  /** Năm của quỹ phép; bỏ trống là năm hiện tại. */
+  readonly year?: number | null;
+}
+
+export interface ImportHrmLeaveRequest {
+  readonly rows: readonly ImportHrmLeaveRow[];
+  /** Tên tệp Excel, chỉ để ghi nhật ký. */
+  readonly fileName?: string;
+}
+
+export interface ImportHrmLeaveResult {
+  /** Mã lô của lần import; có trong nhật ký hoạt động. */
+  readonly batchId: string;
+  readonly applied: number;
+  readonly skipped: readonly {
+    readonly rowIndex: number;
+    readonly employeeCode: string;
+    readonly reason: string;
+  }[];
+}
+
 export interface HrmLeaveTransaction {
   readonly id: string;
   readonly tenantId: string;

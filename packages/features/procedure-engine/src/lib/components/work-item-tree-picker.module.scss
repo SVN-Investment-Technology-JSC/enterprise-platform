@@ -1,0 +1,198 @@
+// Ô chọn "Công việc cha" dạng cây WBS (form tạo đơn, hộp đổi dự án / công việc).
+
+.picker {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+// Ô hiện lựa chọn hiện tại, cùng dáng ô chọn của form (cao 38px, viền xám, mũi tên bên phải).
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 10px 0 12px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #18181b;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    border-color: #c7cbd1;
+  }
+
+  &:focus-visible,
+  &[aria-expanded='true'] {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  }
+
+  &:disabled {
+    color: #6b7280;
+    cursor: default;
+  }
+}
+
+.triggerText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.triggerIcon {
+  flex: none;
+  color: #6b7280;
+}
+
+// Khung thả xuống: tìm + cây, nổi trên form bên dưới.
+.panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.toolbar {
+  display: grid;
+  gap: 4px;
+}
+
+.search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #333333;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+
+  &:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+  }
+}
+
+.selection {
+  overflow: hidden;
+  color: #475569;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px 0;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding-right: 8px;
+  color: #1e293b;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+
+  &:hover {
+    background: #f1f5f9;
+  }
+
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px #2563eb;
+  }
+}
+
+.rowSelected {
+  background: #e0ecff;
+  font-weight: 600;
+
+  &:hover {
+    background: #d6e4ff;
+  }
+}
+
+.rowClosed {
+  color: #94a3b8;
+  cursor: default;
+}
+
+.toggle,
+.toggleSpacer {
+  display: inline-flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.toggle {
+  border-radius: 3px;
+  color: #64748b;
+
+  &:hover {
+    background: #e2e8f0;
+  }
+}
+
+.code {
+  flex: 0 0 auto;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.title,
+.rootLabel {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rootLabel {
+  font-style: italic;
+}
+
+.closedTag {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.note {
+  margin: 0;
+  padding: 6px 2px;
+  color: #64748b;
+  font-size: 13px;
+}

@@ -209,3 +209,43 @@ describe('FinanceService — sổ chi phí', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION' });
   });
 });
+
+describe('FinanceService — giá trị hợp đồng ở danh sách dự án', () => {
+  const page = (items: unknown[]) => ({ items, total: items.length, page: 1, pageSize: 20 });
+  const listed = (permissions: string[] | undefined) => ({ id: 'p1', myPermissions: permissions });
+  const build = (items: unknown[]) => {
+    const contractValues = jest.fn(async () => new Map<string, number | null>([['p1', 594_101_579], ['p2', null]]));
+    const store = { finance: { contractValues } } as unknown as WorkspaceStore;
+    const projects = { list: async () => page(items) } as unknown as ProjectService;
+    return { finance: new FinanceService(store, projects), contractValues };
+  };
+
+  it('chỉ gắn contractValue cho dự án người gọi được xem tài chính; dự án khác vắng hẳn trường', async () => {
+    const { finance, contractValues } = build([
+      listed(['project.update_all']),
+      { id: 'p2', myPermissions: [] },
+      { id: 'p3', myPermissions: undefined },
+    ]);
+    const result = await finance.listWithContractValue(actor(), {});
+    expect(result.items[0]).toMatchObject({ id: 'p1', contractValue: 594_101_579 });
+    expect('contractValue' in result.items[1]).toBe(false);
+    expect('contractValue' in result.items[2]).toBe(false);
+    // Chỉ hỏi giá trị của dự án được xem.
+    expect(contractValues).toHaveBeenCalledWith('t1', ['p1']);
+  });
+
+  it('quản trị tenant thấy mọi dự án; dự án chưa nhập hợp đồng có contractValue null', async () => {
+    const { finance } = build([listed([]), { id: 'p2', myPermissions: [] }]);
+    const result = await finance.listWithContractValue(actor(true), {});
+    expect(result.items.map((item) => (item as { contractValue?: number | null }).contractValue)).toEqual([
+      594_101_579,
+      null,
+    ]);
+  });
+
+  it('không dự án nào được xem tài chính thì không truy vấn thêm', async () => {
+    const { finance, contractValues } = build([{ id: 'p1', myPermissions: ['project.read'] }]);
+    await finance.listWithContractValue(actor(), {});
+    expect(contractValues).not.toHaveBeenCalled();
+  });
+});

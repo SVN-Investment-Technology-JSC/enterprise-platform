@@ -307,7 +307,7 @@ describe('NotificationProvider', () => {
     const heard = jest.fn();
     const off = subscribeRealtime(heard);
 
-    for (const event of ['procedure.comment.changed', 'procedure.comment.typing'] as const) {
+    for (const event of ['procedure.comment.changed', 'procedure.comment.typing', 'procedure.instance.changed'] as const) {
       await act(async () => {
         handlers?.onEvent({
           id: `${event}:1`,
@@ -322,7 +322,7 @@ describe('NotificationProvider', () => {
       });
     }
 
-    expect(heard).toHaveBeenCalledTimes(2);
+    expect(heard).toHaveBeenCalledTimes(3);
     expect(screen.getByLabelText('sequence').textContent).toBe('10');
     expect(fixture.client.sync).not.toHaveBeenCalled();
     off();

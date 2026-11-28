@@ -273,6 +273,7 @@ export function WorkspaceAssistantForms({
             label: `${created.code} · ${created.title}`,
             href: workspaceHref.workItem(created.id, created.projectId),
           });
+          return created;
         }}
         onUpdate={async () => undefined}
       />

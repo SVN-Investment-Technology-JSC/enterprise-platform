@@ -299,9 +299,20 @@ export interface QuoteHistoryEntry {
   readonly versionNo: number | null;
 }
 
+/** Hợp đồng (và đơn, nếu chuyển cả đơn) sinh từ báo giá. */
+export interface QuoteConversionRef {
+  readonly contractId: string;
+  readonly contractCode: string;
+  /** Rỗng khi báo giá được gắn vào hợp đồng lập tay (không sinh đơn); đơn lập từ hợp đồng. */
+  readonly orderId: string | null;
+  readonly orderCode: string | null;
+}
+
 export interface QuoteDetail extends QuoteSummary {
   readonly acceptedVersion: number | null;
   readonly convertedAt: string | null;
+  /** Có khi đã chuyển thành hợp đồng (`convertedAt`). */
+  readonly conversion?: QuoteConversionRef | null;
   readonly createdAt: string;
   readonly versions: readonly QuoteVersionSummary[];
   /** Phiên bản đang xem (mặc định phiên bản hiện tại). */
@@ -334,6 +345,8 @@ export interface QuoteListQuery {
   readonly limit?: number;
   /** Chỉ báo giá đang chờ chính người xem duyệt (báo giá hoặc PAKD trình riêng), plan mục 17.4. */
   readonly awaitingMyApproval?: boolean;
+  /** Chỉ báo giá gắn được vào hợp đồng mới: khách đã chấp nhận, chưa chuyển hay gắn hợp đồng nào. */
+  readonly contractLinkable?: boolean;
 }
 
 export interface CreateQuoteRequest {

@@ -177,6 +177,8 @@ export function ChipSelect({
         disabled={disabled}
         height={CHIP_HEIGHT}
         searchInDropdown
+        // Chip đã có Tooltip riêng (`tip`); tắt chú thích gốc của ô nhập để không hiện hai chú thích chồng nhau.
+        nativeTitle={false}
         // Danh sách ngắn (trạng thái, ưu tiên...) chỉ cần bấm chọn: bỏ ô tìm. Danh sách dài hay có ô thêm mục mới giữ ô tìm.
         hideDropdownSearch={shortList}
         dropdownMinWidth={shortList ? SHORT_LIST_MIN_WIDTH : undefined}

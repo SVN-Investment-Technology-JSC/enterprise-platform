@@ -33,9 +33,17 @@ jest.mock('../procedure-api', () => ({
   startProcedureInstance: jest.fn(),
 }));
 
+const mockProject = {
+  id: 'p-1',
+  code: 'EVN',
+  name: 'Cải tạo trạm EVN',
+  canAssignOthers: true,
+  canManageMembers: true,
+};
+
 jest.mock('../workspace-api', () => ({
   ...jest.requireActual('../workspace-api'),
-  loadRelatedProjects: jest.fn(async () => []),
+  loadRelatedProjects: jest.fn(async () => [mockProject]),
   loadProjectPeople: jest.fn(async () => []),
   loadProjectWorkItems: jest.fn(async () => []),
 }));
@@ -127,10 +135,11 @@ describe('ProcedureAssistantFormPage', () => {
     });
     render(<ProcedureAssistantFormPage />);
     const requestId = deliver(
-      { title: ' Mua 20 bulong M16 ', startDueAt: START, endDueAt: END },
+      { title: ' Mua 20 bulong M16 ', startDueAt: START, endDueAt: END, projectId: 'p-1' },
       'def-1',
     );
     await screen.findByDisplayValue('Mua vật tư (MVT)');
+    await screen.findByDisplayValue('EVN - Cải tạo trạm EVN');
 
     fireEvent.click(screen.getByRole('button', { name: 'Tạo đơn' }));
 
@@ -140,6 +149,11 @@ describe('ProcedureAssistantFormPage', () => {
       startDueAt: START,
       endDueAt: END,
       isHourlyScheduling: true,
+      workspaceLink: {
+        projectId: 'p-1',
+        projectCode: 'EVN',
+        workItem: expect.objectContaining({ itemType: 'task', plannedStart: '2026-10-20', plannedEnd: '2026-10-20' }),
+      },
     });
     expect(results[0]).toEqual({
       requestId,
@@ -185,8 +199,9 @@ describe('ProcedureAssistantFormPage', () => {
       .mockRejectedValueOnce(new Error('Quy trình đã ngừng nhận hồ sơ mới.'))
       .mockResolvedValueOnce({ id: 'ins-10', code: 'HS-0010', title: 'Mua bulong' });
     render(<ProcedureAssistantFormPage />);
-    deliver({ title: 'Mua bulong', startDueAt: START, endDueAt: END }, 'def-1');
+    deliver({ title: 'Mua bulong', startDueAt: START, endDueAt: END, projectId: 'p-1' }, 'def-1');
     await screen.findByDisplayValue('Mua vật tư (MVT)');
+    await screen.findByDisplayValue('EVN - Cải tạo trạm EVN');
 
     fireEvent.click(screen.getByRole('button', { name: 'Tạo đơn' }));
     expect(await screen.findByText('Quy trình đã ngừng nhận hồ sơ mới.')).toBeTruthy();
@@ -244,6 +259,7 @@ describe('StartInstanceForm on the Hồ sơ xử lý screen', () => {
           definitionId: 'def-2',
           startDueAt: START,
           endDueAt: END,
+          projectId: 'p-1',
           note: 'Hồ sơ điều chỉnh',
         }}
       />,
@@ -253,6 +269,7 @@ describe('StartInstanceForm on the Hồ sơ xử lý screen', () => {
     expect(screen.getByText('Hồ sơ điều chỉnh')).toBeTruthy();
     expect(screen.getByDisplayValue('Điều chỉnh HS-0001: Mua bulong')).toBeTruthy();
     expect(await screen.findByDisplayValue('Nghỉ phép (NP)')).toBeTruthy();
+    expect(await screen.findByDisplayValue('EVN - Cải tạo trạm EVN')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Tạo đơn' }));
 
@@ -261,7 +278,55 @@ describe('StartInstanceForm on the Hồ sơ xử lý screen', () => {
       startDueAt: START,
       endDueAt: END,
       isHourlyScheduling: true,
-      workItem: undefined,
+      workItem: expect.objectContaining({ projectId: 'p-1', projectCode: 'EVN', parentId: undefined }),
     });
+  });
+});
+
+describe('StartInstanceForm: dự án là bắt buộc', () => {
+  const renderForm = (onStart = jest.fn()) => {
+    render(
+      <StartInstanceForm
+        open
+        onClose={jest.fn()}
+        definitions={WORKSPACE.definitions.slice(0, 2) as never}
+        onStart={onStart}
+        handoffTitle="Mua bulong"
+        handoff={{ definitionId: 'def-1', startDueAt: START, endDueAt: END }}
+      />,
+    );
+    return onStart;
+  };
+
+  it('ô dự án có dấu bắt buộc và không còn lựa chọn "Không gắn dự án"', async () => {
+    renderForm();
+    await screen.findByDisplayValue('Mua vật tư (MVT)');
+    const label = screen.getByText('Dự án liên quan');
+    expect(label.querySelector('span')?.textContent).toBe('*');
+    expect(screen.queryByText('Không gắn dự án')).toBeNull();
+    expect(screen.queryByPlaceholderText('Không gắn dự án')).toBeNull();
+    expect(await screen.findByPlaceholderText('Chọn dự án…')).toBeTruthy();
+  });
+
+  it('bấm Tạo đơn khi chưa chọn dự án: báo lỗi rõ ràng, không gửi; chọn dự án thì lỗi mất và gửi kèm dự án', async () => {
+    const onStart = renderForm();
+    await screen.findByDisplayValue('Mua vật tư (MVT)');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo đơn' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Hãy chọn dự án cho hồ sơ.');
+    expect(onStart).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByPlaceholderText('Chọn dự án…'));
+    fireEvent.click(await screen.findByRole('option', { name: /EVN - Cải tạo trạm EVN/ }));
+    await waitFor(() => expect(screen.queryByText('Hãy chọn dự án cho hồ sơ.')).toBeNull());
+    // Công việc cha là ô chọn thả xuống, mặc định ở gốc dự án; không bày cả cây ra.
+    expect(await screen.findByRole('button', { name: 'Công việc cha: Gốc dự án' })).toBeTruthy();
+    expect(screen.queryByRole('tree')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo đơn' }));
+    expect(onStart).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'def-1' }),
+      expect.objectContaining({ workItem: expect.objectContaining({ projectId: 'p-1', parentId: undefined }) }),
+    );
   });
 });

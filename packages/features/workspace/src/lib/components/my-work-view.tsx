@@ -76,6 +76,8 @@ import {
   type MyWorkUiState,
 } from '../my-work-store';
 import { mergeNewProjectMembers } from '../project-tree.model';
+import { finishProjectCreate } from '../related-objects-link';
+import type { PendingRelatedObject } from '../related-objects.model';
 import {
   WORK_ITEM_STATUS_LABELS,
   WORK_ITEM_STATUS_TONE,
@@ -1188,20 +1190,15 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
           input: CreateProjectRequest,
           contractValue,
           members?: ReadonlyArray<{ userId: string; role: ProjectRole }>,
+          relatedObjects?: readonly PendingRelatedObject[],
+          reportGroupId?: string,
         ) => {
           const created = await api.createProject(input);
           const warning = initialTasksWarning(created);
           if (warning) setError(warning);
-          if (contractValue !== undefined) {
-            await api.updateProjectFinance(created.id, { contractValue });
-          }
-          // Lưu thành viên chọn lúc tạo (đi đường PUT .../members, cần đúng một chủ nhiệm).
-          if (members && members.length > 0) {
-            const existing = await api.listMembers(created.id);
-            await api.setMembers(created.id, {
-              members: mergeNewProjectMembers(existing.items, members),
-            });
-          }
+          // Số tiền, thành viên (PUT .../members, cần đúng một chủ nhiệm) và đối tượng liên quan đi đường riêng.
+          const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects, reportGroupId });
+          for (const text of warnings) toast.warning(text);
           invalidateMyWork();
           onOpen?.(created.id, `project/${created.id}`);
         }}
@@ -1243,12 +1240,13 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
               .then((result) => setMembers(result.items))
               .catch(() => undefined);
           }
-          await api.createWorkItem({
+          const created = await api.createWorkItem({
             ...input,
             projectId: selectedProjectId,
             procedureDefinitionId,
           });
           invalidateMyWork();
+          return created;
         }}
         // Tạo từ trang này không sửa việc; onUpdate chỉ để thoả kiểu dữ liệu.
         onUpdate={async () => undefined}

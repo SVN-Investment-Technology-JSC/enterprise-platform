@@ -564,6 +564,10 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
       version: '0086-hrm-attendance-site-soft-delete',
       path: 'tenant/hrm/0086-hrm-attendance-site-soft-delete.sql',
     },
+    {
+      version: '0087-hrm-fleet-soft-delete',
+      path: 'tenant/hrm/0087-hrm-fleet-soft-delete.sql',
+    },
   ],
   inventory: [
     { version: '0001-inventory', path: 'tenant/inventory/0001-inventory.sql' },
@@ -866,6 +870,7 @@ export const TENANT_MODULE_MIGRATIONS: Readonly<
     { version: '0039-work-item-progress-methods', path: 'tenant/workspace/0039-work-item-progress-methods.sql' },
     { version: '0040-standalone-task-progress-reports', path: 'tenant/workspace/0040-standalone-task-progress-reports.sql' },
     { version: '0041-standalone-task-checklist', path: 'tenant/workspace/0041-standalone-task-checklist.sql' },
+    { version: '0042-workspace-related-objects', path: 'tenant/workspace/0042-workspace-related-objects.sql' },
   ],
   // Hệ dùng chung: phần đầu là Tài liệu công ty (kho tách khỏi tài liệu dự án).
   shared: [

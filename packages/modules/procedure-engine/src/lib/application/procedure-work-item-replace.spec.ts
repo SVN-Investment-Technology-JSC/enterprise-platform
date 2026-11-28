@@ -157,6 +157,8 @@ describe('Đổi quy trình của công việc Workspace', () => {
       sourceId: WORK_ITEM,
       initiatedBy: 'initiator',
       definitionId: newDefinition.id,
+      // Cùng công việc nên giữ dự án của hồ sơ cũ.
+      workspaceProject: { projectId: '11111111-1111-4111-8111-111111111111', projectCode: 'EVN' },
     });
     // Hồ sơ mới còn nguyên vẹn nên đổi tiếp được.
     expect(replaceableInstanceReason(created as ProcedureInstance)).toBeUndefined();
@@ -212,6 +214,72 @@ describe('Đổi quy trình của công việc Workspace', () => {
     );
     // Người này giữ A nhưng chưa có vai S của quy trình mới: bị chặn ở vai S, không phải ở quyền đổi.
     expect(outcome).toEqual({ ok: false, reason: 'Bạn chưa được phân vai S để khởi tạo quy trình này.' });
+  });
+
+  describe('hồ sơ đã đổi công việc liên kết hoặc mở tay gắn dự án', () => {
+    const NEW_PROJECT = '22222222-2222-4222-8222-222222222222';
+    const linkedTo = (workItemId: string, status: 'linked' | 'pending' = 'linked') => ({
+      status,
+      projectId: NEW_PROJECT,
+      projectCode: 'HN',
+      projectName: 'Dự án Hà Nội',
+      baseTitle: 'Mua cáp',
+      workItem: {},
+      requestedBy: 'initiator',
+      requestedAt: '2026-10-21T08:00:00.000Z',
+      ...(status === 'linked' ? { workItemId, workItemCode: 'CV-007' } : { replacesWorkItemId: WORK_ITEM }),
+    });
+
+    it('sau khi đổi công việc liên kết: đổi quy trình trên công việc hiện tại, hồ sơ mới theo dự án mới', async () => {
+      const { application, request, oldId, instances } = await setup();
+      // Đi đúng đường thật: yêu cầu đổi công việc liên kết, Workspace tạo công việc mới rồi báo về.
+      await application.relinkWorkspace(person('initiator'), oldId, { projectId: NEW_PROJECT, projectCode: 'HN' });
+      const pending = await application.replaceWorkspaceWorkItemInstance(TENANT, WORK_ITEM, request());
+      expect(pending.ok).toBe(false);
+      await application.applyWorkspaceLinkResult(TENANT, {
+        instanceId: oldId,
+        linked: { workItemId: 'wi-2', workItemCode: 'CV-007', projectCode: 'HN', projectName: 'Dự án Hà Nội' },
+      });
+      const outcome = await application.replaceWorkspaceWorkItemInstance(TENANT, 'wi-2', request());
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(outcome.previous.id).toBe(oldId);
+      const created = (await instances()).find((item) => item.id === outcome.instance.id);
+      expect(created).toMatchObject({
+        sourceType: 'workspace_work_item',
+        sourceId: 'wi-2',
+        workspaceProject: { projectId: NEW_PROJECT, projectCode: 'HN', projectName: 'Dự án Hà Nội' },
+      });
+    });
+
+    it('sau khi đổi công việc liên kết: id công việc cũ bị từ chối, không đổi gì', async () => {
+      const { application, mutateOld, request, instances } = await setup();
+      await mutateOld((instance) => void (instance.workspaceLink = linkedTo('wi-2')));
+      const outcome = await application.replaceWorkspaceWorkItemInstance(TENANT, WORK_ITEM, request());
+      expect(outcome).toEqual({ ok: false, reason: 'Hồ sơ này không thuộc công việc đang đổi quy trình.' });
+      expect(await instances()).toHaveLength(1);
+    });
+
+    it('đang chờ Workspace đổi công việc liên kết thì từ chối', async () => {
+      const { application, mutateOld, request } = await setup();
+      await mutateOld((instance) => void (instance.workspaceLink = linkedTo('wi-2', 'pending')));
+      const outcome = await application.replaceWorkspaceWorkItemInstance(TENANT, WORK_ITEM, request());
+      expect(outcome.ok).toBe(false);
+      if (!outcome.ok) expect(outcome.reason).toContain('đang chờ Workspace đổi công việc liên kết');
+    });
+
+    it('hồ sơ mở tay gắn dự án: đổi quy trình được trên công việc Workspace đã tạo cho nó', async () => {
+      const { application, mutateOld, request } = await setup();
+      await mutateOld((instance) => {
+        instance.sourceType = 'manual';
+        delete instance.sourceId;
+        delete instance.workspaceProject;
+        instance.workspaceLink = linkedTo('wi-9');
+      });
+      expect((await application.replaceWorkspaceWorkItemInstance(TENANT, WORK_ITEM, request())).ok).toBe(false);
+      const outcome = await application.replaceWorkspaceWorkItemInstance(TENANT, 'wi-9', request());
+      expect(outcome.ok).toBe(true);
+    });
   });
 
   describe('từ chối, không đổi gì', () => {
@@ -371,6 +439,24 @@ describe('replaceableInstanceReason', () => {
     await application.applyAction(person('initiator'), oldId, { action: 'complete', idempotencyKey: 'k1' });
     const moved = (await instances()).find((item) => item.id === oldId) as ProcedureInstance;
     expect(replaceableInstanceReason(moved)).toContain('Hồ sơ đã có bước được hoàn thành');
+
+    // Liên kết Workspace chỉ không chặn khi đó là đúng công việc được giữ lại.
+    const linked = structuredClone(fresh);
+    linked.workspaceLink = {
+      status: 'linked',
+      projectId: 'p',
+      projectCode: 'P',
+      baseTitle: 'x',
+      workItem: {},
+      requestedBy: 'initiator',
+      requestedAt: 'x',
+      workItemId: 'wi-2',
+    };
+    expect(replaceableInstanceReason(linked)).toContain('module khác');
+    linked.activity.unshift({ id: 'r', action: 'relink', actorId: 'initiator', actorName: 'i', summary: 's', createdAt: 'x' });
+    expect(replaceableInstanceReason(linked)).toBeDefined();
+    expect(replaceableInstanceReason(linked, 'untouched', 'wi-other')).toBeDefined();
+    expect(replaceableInstanceReason(linked, 'untouched', 'wi-2')).toBeUndefined();
 
     const second = structuredClone(fresh);
     second.currentStepId = second.steps[1].id;

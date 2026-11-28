@@ -19,6 +19,7 @@ const receipt = (over: Partial<SaveFinanceVoucherRequest> = {}): SaveFinanceVouc
   reasonId: ID(1),
   accountId: ID(2),
   counterpartyGroupId: ID(3),
+  counterpartyName: 'Nguyễn Văn A',
   lines: [{ description: 'Hàng A', quantity: 2, unitAmount: 150_000, total: 0 }],
   ...over,
 });
@@ -180,9 +181,7 @@ describe('validateForSubmit', () => {
     const required = refs({ requireAllocation: true });
     const P1 = '11111111-1111-4111-8111-111111111111';
     const P2 = '22222222-2222-4222-8222-222222222222';
-    expect(validateForSubmit(normalizeVoucherInput(receipt()), required)).toEqual([
-      expect.stringContaining('bắt buộc hạch toán dự án'),
-    ]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), required)).toEqual(['Còn thiếu: Dự án hạch toán.']);
     expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P1 } })), required)).toEqual([]);
     expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P2 } })), required)).toEqual([]);
   });
@@ -190,7 +189,7 @@ describe('validateForSubmit', () => {
   it('lý do bắt buộc chọn dự án: thiếu hạch toán thì lỗi dù cài đặt chung tắt; có dự án thì hợp lệ', () => {
     const P1 = '11111111-1111-4111-8111-111111111111';
     const strict = refs({ reason: { kind: 'RECEIPT', isActive: true, requireProject: true }, requireAllocation: false });
-    expect(validateForSubmit(normalizeVoucherInput(receipt()), strict)).toEqual([expect.stringContaining('Lý do đã chọn bắt buộc hạch toán')]);
+    expect(validateForSubmit(normalizeVoucherInput(receipt()), strict)).toEqual(['Còn thiếu: Dự án hạch toán.']);
     expect(validateForSubmit(normalizeVoucherInput(receipt({ allocation: { type: 'PROJECT', projectId: P1 } })), strict)).toEqual([]);
     // Lý do không bắt buộc và cài đặt chung tắt: không đòi.
     const loose = refs({ reason: { kind: 'RECEIPT', isActive: true, requireProject: false } });
@@ -202,20 +201,22 @@ describe('validateForSubmit', () => {
     expect(validateForSubmit(normalizeVoucherInput(receipt()), refs())).toEqual([]);
   });
 
-  it('thiếu lý do, đối tượng, tài khoản, dòng chi tiết thì báo từng lỗi', () => {
+  it('thiếu lý do, đối tượng, tài khoản, số tiền thì gom vào một câu "Còn thiếu" (người nộp tiền không bắt buộc)', () => {
     const errors = validateForSubmit(
-      normalizeVoucherInput(receipt({ reasonId: null, counterpartyGroupId: null, accountId: null, lines: [] })),
+      normalizeVoucherInput(receipt({ reasonId: null, counterpartyGroupId: null, accountId: null, counterpartyName: null, lines: [] })),
       refs({ account: null, reason: null, counterpartyGroup: null }),
     );
-    expect(errors).toEqual(
-      expect.arrayContaining([
-        'Số tiền phải lớn hơn 0.',
-        'Cần ít nhất một dòng chi tiết.',
-        'Chọn lý do thu.',
-        'Chọn đối tượng thu.',
-        'Chọn tài khoản thu.',
-      ]),
-    );
+    expect(errors).toEqual(['Còn thiếu: Lý do thu, Tài khoản thu, Đối tượng thu, Số tiền (lớn hơn 0).']);
+  });
+
+  it('người nhận tiền, số tài khoản, ngân hàng nhận không bắt buộc, kể cả chi từ tài khoản ngân hàng', () => {
+    const payment = (over: Partial<SaveFinanceVoucherRequest> = {}) =>
+      normalizeVoucherInput(receipt({ kind: 'PAYMENT', counterpartyName: 'Công ty X', ...over }));
+    const paymentRefs = (accountType: 'BANK' | 'CASH') =>
+      refs({ reason: { kind: 'PAYMENT', isActive: true }, account: { name: 'VCB', isActive: true, openingDate: '2026-01-01', accountType } });
+    expect(validateForSubmit(payment(), paymentRefs('BANK'))).toEqual([]);
+    expect(validateForSubmit(payment({ counterpartyName: null }), paymentRefs('BANK'))).toEqual([]);
+    expect(validateForSubmit(payment({ counterpartyName: null }), paymentRefs('CASH'))).toEqual([]);
   });
 
   it('lý do sai loại, tài khoản ngừng dùng hoặc ngày hạch toán trước ngày bắt đầu đều bị chặn', () => {
@@ -309,6 +310,24 @@ describe('computeVoucherPermissions', () => {
     const approved = { ...base, status: 'APPROVED' as const };
     expect(computeVoucherPermissions(approved)).toMatchObject({ canEdit: false, canCancel: false, canReverse: false, canDelete: false });
     expect(computeVoucherPermissions({ ...approved, canApprove: true }).canReverse).toBe(true);
+  });
+
+  it('hai trạng thái hiển thị: người duyệt "Duyệt ghi sổ" thẳng phiếu nháp/bị từ chối khi loại phiếu duyệt trực tiếp', () => {
+    const otherDraft = { ...base, actorId: 'u2', canCreate: false, canApprove: true };
+    expect(computeVoucherPermissions(otherDraft)).toMatchObject({ canApprove: true, canReject: false });
+    expect(computeVoucherPermissions({ ...otherDraft, status: 'REJECTED' }).canApprove).toBe(true);
+    // Loại phiếu gán quy trình duyệt: phải gửi duyệt, không duyệt thẳng từ nháp.
+    expect(computeVoucherPermissions({ ...otherDraft, bindingMode: 'PROCEDURE' }).canApprove).toBe(false);
+    // Phiếu nháp của chính mình: theo cài đặt tự duyệt.
+    expect(computeVoucherPermissions({ ...base, canApprove: true }).canApprove).toBe(false);
+    expect(computeVoucherPermissions({ ...base, canApprove: true, allowSelfApproval: true }).canApprove).toBe(true);
+  });
+
+  it('Huỷ: phiếu chưa ghi sổ như trước; phiếu đã ghi sổ chỉ người có quyền duyệt (đảo bút toán)', () => {
+    const approved = { ...base, status: 'APPROVED' as const };
+    expect(computeVoucherPermissions(approved).canCancel).toBe(false);
+    expect(computeVoucherPermissions({ ...approved, canApprove: true }).canCancel).toBe(true);
+    expect(computeVoucherPermissions({ ...base, status: 'CANCELLED' as const, canApprove: true }).canCancel).toBe(false);
   });
 
   it('phiếu bị từ chối được chủ phiếu sửa và gửi lại', () => {

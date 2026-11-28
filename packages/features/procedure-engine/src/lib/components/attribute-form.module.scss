@@ -1,3 +1,5 @@
+@use './procedure-ui' as ui;
+
 .form { display: grid; gap: .6rem; margin: .6rem 0; padding: .7rem .8rem; border: 1px solid #dbe3ed; border-radius: .6rem; background: #f8fafc; }
 .header { display: flex; justify-content: space-between; align-items: center; gap: .5rem; color: #17263d; font-size: .82rem; }
 .saveDraft { padding: .25rem .6rem; border: 1px solid #cbd5e1; border-radius: .35rem; color: #334155; background: #fff; font: inherit; font-size: .76rem; font-weight: 600; cursor: pointer; }
@@ -24,3 +26,49 @@
 .readonly dt { color: #64748b; font-size: .72rem; font-weight: 700; }
 .readonly dt small { color: #94a3b8; font-weight: 500; }
 .readonly dd { margin: 0; color: #17263d; font-size: .84rem; font-weight: 600; }
+
+/* ---- Cửa sổ hồ sơ (giao diện mới): không khung lồng; MỌI ô của bước chung một lưới co giãn (màn 24": 4-5 ô một hàng,
+   laptop: 2-3 ô); ô chữ dài nhiều dòng trọn bề ngang; khối người nhận tiền bắt đầu hàng mới; nhãn 12px nhạt ở trên, ô
+   nhập cao 36px ---- */
+.modalForm { display: grid; gap: ui.$space-3; margin: 0; }
+.modalGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: ui.$space-3; }
+.modalField { display: flex; flex-direction: column; justify-content: flex-end; gap: ui.$space-1; min-width: 0; }
+/* Ô nhập / ô chọn rộng đúng bằng ô lưới: chọn người khác, hiện nút xoá "×" không đổi bề rộng. */
+.modalField > div:not(.toggle):not(.payeeMode) { width: 100%; min-width: 0; max-width: 100%; }
+/* Ô chữ dài (nội dung...): trọn bề ngang lưới, 3 dòng, tự cao tới ~8 dòng rồi cuộn. */
+.modalFieldFull { grid-column: 1 / -1; }
+.textarea { box-sizing: border-box; width: 100%; min-height: 76px; max-height: 176px; padding: 7px 10px; overflow-y: auto; border: 1px solid ui.$control; border-radius: ui.$radius-sm; color: ui.$ink; background: #fff; font: inherit; font-size: ui.$fs-body; line-height: 20px; resize: none; }
+.textarea:focus { outline: none; border-color: ui.$accent-strong; box-shadow: 0 0 0 3px rgba(255, 201, 10, .22); }
+/* Ô Người nhận: hàng nhãn gồm tên ô và nút chọn loại người nhận (không đủ chỗ thì nút xuống dòng, vẫn trong ô); ô nhập ở
+   dưới cùng. Thẻ label không tạo hộp (display: contents) để nút chọn nằm ngoài label mà vẫn chung hàng với tên ô. Ô này
+   luôn bắt đầu hàng mới để Người nhận, STK, Ngân hàng đứng cạnh nhau. */
+.payeeCell { flex-flow: row wrap; align-content: flex-end; align-items: center; justify-content: flex-start; gap: ui.$space-1 ui.$space-2; grid-column-start: 1; }
+.payeeLabel { display: contents; }
+.payeeLabel > .modalLabel { order: 1; }
+.payeeControl { order: 3; flex: 1 0 100%; width: 100%; min-width: 0; }
+.payeeMode { display: inline-flex; flex: none; order: 2; height: 28px; box-sizing: border-box; margin-left: auto; padding: 2px; border-radius: ui.$radius-sm; background: #f3f4f6; }
+.payeeMode button { padding: 0 8px; border: 0; border-radius: 4px; color: ui.$muted; background: transparent; font: inherit; font-size: 11px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.payeeMode button:hover:not(:disabled) { color: ui.$ink; }
+.payeeMode button:disabled { cursor: not-allowed; opacity: .6; }
+.payeeMode .payeeModeOn { background: #fff; box-shadow: 0 0 0 1px ui.$control; color: ui.$ink; font-weight: 600; }
+.modalLabel { display: flex; flex-wrap: wrap; gap: ui.$space-1; align-items: baseline; color: ui.$muted; font-size: ui.$fs-small; font-weight: 500; line-height: 16px; }
+.modalLabel em { color: ui.$danger; font-style: normal; }
+.modalLabel small { padding: 0 6px; border-radius: 999px; background: #f3f4f6; color: ui.$muted; font-size: 11px; font-weight: 500; white-space: nowrap; }
+/* Gợi ý thiếu STK: biểu tượng cạnh nhãn, chú thích khi rê chuột; luôn giữ chỗ (ẩn bằng visibility) nên không xô ô. */
+.hintIcon { display: inline-flex; align-self: center; flex: none; width: 13px; height: 13px; color: ui.$accent-strong; cursor: help; }
+.hintIconOff { visibility: hidden; }
+.modalForm .input { height: 36px; border-color: ui.$control; border-radius: ui.$radius-sm; color: ui.$ink; font-size: ui.$fs-body; }
+.modalForm .input:focus { border-color: ui.$accent-strong; box-shadow: 0 0 0 3px rgba(255, 201, 10, .22); }
+.modalForm .unit { color: ui.$muted; font-size: ui.$fs-control; }
+.modalForm .hint { font-size: ui.$fs-small; }
+.modalReadonly { display: grid; gap: ui.$space-2; padding-top: ui.$space-3; border-top: 1px solid ui.$line; }
+.modalSubhead { margin: 0; color: ui.$muted; font-size: ui.$fs-small; font-weight: 600; }
+.modalValues { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: ui.$space-1 ui.$space-4; margin: 0; }
+.modalValues > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: ui.$space-2; align-items: baseline; min-width: 0; }
+.modalValues dt { overflow: hidden; color: ui.$muted; font-size: ui.$fs-small; text-overflow: ellipsis; white-space: nowrap; }
+.modalValues dt small { margin-left: ui.$space-1; color: ui.$faint; font-size: 11px; }
+.modalValues dd { min-width: 0; margin: 0; overflow: hidden; color: ui.$ink; font-size: ui.$fs-body; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+/* Màn từ 1024px (lưới từ 3-4 cột): ô Người nhận chiếm 2 cột để tên ô và nút chọn loại đứng chung một hàng. */
+@media (min-width: 1024px) {
+  .payeeCell { grid-column: 1 / span 2; }
+}

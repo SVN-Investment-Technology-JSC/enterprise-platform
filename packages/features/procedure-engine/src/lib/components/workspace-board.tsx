@@ -15,6 +15,7 @@ import type {
   RelinkProcedureWorkspaceRequest,
   ProcedureInstanceStep,
   ProcedureRaciRole,
+  ProcedureApplyAction,
   ProcedureRuntimeAction,
   ProcedureSubtaskExecutionMode,
   ProcedureSubtaskInput,
@@ -29,21 +30,27 @@ import {
   MinimalPopupForm,
   SearchableSelect,
   formatDateTime as formatSharedDateTime,
+  retainProcedureRoom,
 } from '@enterprise-platform/shared-ui';
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, ChevronLeft, ChevronRight, Download, FileText, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, FileText, Paperclip, Plus, Search, X } from 'lucide-react';
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
 import { DeleteInstanceDialog, RelinkWorkspaceDialog } from './instance-admin-dialogs';
 import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
+import { useInstanceProjectLookup } from './use-instance-project';
+import { usePayeePicker } from './use-payee-picker';
 import {
   instanceProgress,
   progressLabel,
@@ -52,37 +59,43 @@ import {
 } from './instance-flow-view';
 import { chatPeopleOf } from '../chat-people';
 import { ChatPanel } from './chat-panel';
-import { FinanceVoucherCard } from './finance-voucher-card';
-import financeStyles from './finance-voucher-card.module.scss';
+import { FinanceVoucherCard, FinanceWaitingNote } from './finance-voucher-card';
 import { HistoryPanel } from './history-panel';
-import { InstanceSourceValue, SourceSummaryCard } from './instance-source';
+import {
+  InstanceProjectValue,
+  InstanceSourceValue,
+  SourceSummaryCard,
+  instanceWorkspaceProject,
+} from './instance-source';
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { StartInstanceForm, type StartHandoff, type StartProcedureInput } from './start-instance-form';
 import { StepDetailDialog } from './step-detail-dialog';
 import { stepCommentPrompt } from './comment-prompt';
 import { SubtaskPanel } from './subtask-panel';
+import type { TimelineEntry } from './instance-flow-view';
+import {
+  DATE_SORT_OPTIONS,
+  PAGE_SIZE_OPTIONS,
+  ROLE_HUMAN_LABEL,
+  SLA_FILTER_OPTIONS,
+  SOURCE_FILTER_OPTIONS,
+  STATUS_LABEL,
+  STEP_STATUS_LABEL,
+} from './workspace-board-options';
+import { CaseLayoutA, CASE_LAYOUT_A_DOCK, type CaseOpenMode } from './case-layout-a/case-layout-a';
+import { CaseLayoutToggle, useCaseLayout } from './case-layout-a/case-layout';
+import { StepPeopleProgress } from './case-layout-a/case-flow';
+import caseStyles from './case-layout-a/case-layout-a.module.scss';
+import { isMyActive, isMyDone } from '../procedure-overview';
+import { currentWaiting, type SubjectResolver } from '../step-people';
 import styles from './workspace-board.module.scss';
 
-type Filter = 'all' | 'urgent' | ProcedureInstance['status'];
-
-const STATUS_LABEL: Record<ProcedureInstance['status'], string> = {
-  running: 'Đang xử lý',
-  completed: 'Hoàn thành',
-  rejected: 'Từ chối',
-  cancelled: 'Đã huỷ',
-  reversed: 'Đã huỷ hiệu lực',
-};
-
-const STEP_STATUS_LABEL: Record<string, string> = {
-  pending: 'Chờ xử lý',
-  running: 'Đang thực hiện',
-  completed: 'Hoàn thành',
-  rejected: 'Từ chối',
-  returned: 'Trả lại',
-  skipped: 'Nhánh không đi',
-  cancelled: 'Đã huỷ',
-};
+/**
+ * Chỉ có ở giao diện mới: `watching` — hồ sơ đang chạy mình thấy được nhưng chưa tới lượt mình; `mine-done` — "Bạn đã xử
+ * lý", hồ sơ mình đã làm xong phần mình (luật `isMyDone`, trước là tab "Bạn thực hiện – Hoàn thành" của Tổng quan).
+ */
+type Filter = 'all' | 'urgent' | 'watching' | 'mine-done' | ProcedureInstance['status'];
 
 const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
   approve: 'Phê duyệt',
@@ -94,6 +107,8 @@ const ACTION_LABEL: Record<ProcedureRuntimeAction, string> = {
 };
 
 const ROLE_ORDER: readonly ProcedureRaciRole[] = ['S', 'R', 'E', 'C', 'A', 'I'];
+/** Thứ tự ưu tiên khi người chốt bước giữ nhiều vai ở bước đó. */
+const PERFORMER_ROLE_ORDER: readonly ProcedureRaciRole[] = ['A', 'R', 'E', 'C', 'S', 'I'];
 
 function formatDateTime(value?: string): string {
   return formatSharedDateTime(value, '—');
@@ -258,7 +273,18 @@ export function WorkspaceBoard({
   onSupplementFile,
   headSlot,
   embedded = false,
+  onChanged,
+  onNotice,
+  onError,
 }: {
+  /**
+   * Giao diện mới: nạp lại danh sách sau khi duyệt / không duyệt hàng loạt trên bảng (vắng thì nạp lại từng hồ sơ đã chọn
+   * bằng `onRefreshInstance`).
+   */
+  onChanged?: () => void | Promise<void>;
+  /** Giao diện mới: báo kết quả / lỗi của thao tác hàng loạt trên bảng. */
+  onNotice?: (message: string) => void;
+  onError?: (message: string) => void;
   /**
    * Chỉ hiện chi tiết MỘT hồ sơ (`instances` chỉ có hồ sơ đó), không có thanh công cụ, danh sách và nút tạo đơn:
    * dùng khi nhúng màn xử lý hồ sơ vào khung khác như drawer ngoài Dashboard.
@@ -285,7 +311,7 @@ export function WorkspaceBoard({
   instances: ProcedureInstance[];
   onAction: (
     instanceId: string,
-    action: ProcedureRuntimeAction,
+    action: ProcedureApplyAction,
     comment?: string,
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
@@ -358,7 +384,8 @@ export function WorkspaceBoard({
   }, [initialInstanceId, instances]);
   // Trao đổi, tệp và nhật ký mở thành tab ngay trong khung chi tiết.
   const [detailTab, setDetailTab] = useState<'flow' | 'chat' | 'files' | 'history'>('flow');
-  const [activeStepDrawer, setActiveStepDrawer] = useState<{ step: ProcedureInstanceStep; tab: 'execution' | 'chat' | 'files' } | null>(null);
+  // Lưu id bước (không lưu cả bước): hồ sơ nạp lại thì drawer đọc bước mới nhất, không giữ bản chụp cũ.
+  const [activeStepDrawer, setActiveStepDrawer] = useState<{ stepId: string; tab: 'execution' | 'chat' | 'files' } | null>(null);
   // Bước đã đi qua đang mở popup xem lại; lưu id để popup theo dữ liệu mới nhất của hồ sơ.
   const [detailStepId, setDetailStepId] = useState<string | null>(null);
   const [comment, setComment] = useState('');
@@ -368,6 +395,18 @@ export function WorkspaceBoard({
   const [creating, setCreating] = useState(false);
   const [attachQueue, setAttachQueue] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Giao diện của màn (A mới hoặc cũ), nhớ theo trình duyệt. Nhúng trong khung khác luôn dùng giao diện cũ.
+  const [caseLayout, setCaseLayout] = useCaseLayout();
+  const layoutA = !embedded && caseLayout === 'a';
+  // Tab "Đang theo dõi" và "Bạn đã xử lý" chỉ có ở giao diện mới; sang giao diện cũ thì coi như "Đang xử lý".
+  const activeFilter: Filter = !layoutA && (filter === 'watching' || filter === 'mine-done') ? 'running' : filter;
+  // Giao diện mới: hồ sơ mở trong cửa sổ theo `#workspace/<id>`; đóng cửa sổ (hay Back về `#workspace`) là bỏ chọn.
+  const previousInitialId = useRef(initialInstanceId);
+  useEffect(() => {
+    const previous = previousInitialId.current;
+    previousInitialId.current = initialInstanceId;
+    if (layoutA && previous && !initialInstanceId) setSelectedId(undefined);
+  }, [initialInstanceId, layoutA]);
 
   // Nội dung do module hoặc hồ sơ khác chuyển sang: mở form tạo đơn, form tự điền theo `handoff`.
   useEffect(() => {
@@ -383,10 +422,17 @@ export function WorkspaceBoard({
     const toTime = to ? new Date(`${to}T23:59:59.999`).getTime() : undefined;
 
     const matched = instances.filter((instance) => {
-      if (filter === 'urgent') {
+      // Giao diện mới: "Đang xử lý" và "Duyệt gấp / SLA" chỉ gồm hồ sơ tới lượt mình (`isMyActive`); hồ sơ đang chạy mà
+      // chưa tới lượt nằm ở "Đang theo dõi"; "Bạn đã xử lý" gồm hồ sơ mình đã làm xong phần mình. Giao diện cũ giữ nguyên.
+      if (layoutA && (activeFilter === 'running' || activeFilter === 'urgent') && !isMyActive(instance)) return false;
+      if (activeFilter === 'watching') {
+        if (instance.status !== 'running' || isMyActive(instance)) return false;
+      } else if (activeFilter === 'mine-done') {
+        if (!isMyDone(instance, actorId ?? '')) return false;
+      } else if (activeFilter === 'urgent') {
         const sla = evaluateInstanceSla(instance);
         if (instance.status !== 'running' || (sla.state !== 'breached' && sla.state !== 'warning')) return false;
-      } else if (filter !== 'all' && instance.status !== filter) {
+      } else if (activeFilter !== 'all' && instance.status !== activeFilter) {
         return false;
       }
 
@@ -410,24 +456,47 @@ export function WorkspaceBoard({
         ? right.startedAt.localeCompare(left.startedAt)
         : left.startedAt.localeCompare(right.startedAt),
     );
-  }, [filter, instances, query, source, slaFilter, from, to, dateSort]);
+  }, [activeFilter, layoutA, instances, actorId, query, source, slaFilter, from, to, dateSort]);
 
   const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
   useEffect(() => {
     if (!jumpToPageOf) return;
+    // Giao diện mới: bảng tự đưa trang tới hồ sơ đang mở (theo thứ tự của bảng). Hồ sơ đang chạy thì đưa về đúng tab tới
+    // lượt mình ("Đang xử lý", "Duyệt gấp / SLA") hay "Đang theo dõi".
+    if (layoutA) {
+      const target = instances.find((instance) => instance.id === jumpToPageOf);
+      if (target?.status === 'running') {
+        const mine = isMyActive(target);
+        setFilter((current) =>
+          current === 'all' ? current : !mine ? 'watching' : current === 'urgent' ? current : 'running',
+        );
+      }
+      setJumpToPageOf(undefined);
+      return;
+    }
     const index = visible.findIndex((instance) => instance.id === jumpToPageOf);
     if (index < 0) return;
     setPage(Math.floor(index / pageSize) + 1);
     setJumpToPageOf(undefined);
-  }, [jumpToPageOf, visible, pageSize]);
+  }, [jumpToPageOf, visible, pageSize, layoutA, instances]);
   const currentPage = Math.min(page, pageCount);
   const paged = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const filtersActive =
     source !== 'all' || slaFilter !== 'all' || Boolean(from) || Boolean(to);
 
+  // Hồ sơ đang mở tìm trong TOÀN BỘ danh sách, không chỉ phần khớp bộ lọc: nạp lại ngầm (thời gian thực / định kỳ) mà
+  // hồ sơ rời bộ lọc (vd vừa hoàn tất khi đang ở "Đang xử lý") thì vẫn giữ nguyên hồ sơ đó cùng ý kiến đang gõ, không
+  // nhảy sang hồ sơ khác. Chưa chọn gì, hoặc hồ sơ đã chọn không còn, mới lấy hồ sơ đầu trang.
+  // Giao diện mới: chỉ có hồ sơ đang chọn khi cửa sổ hồ sơ mở (không tự lấy hồ sơ đầu trang).
   const selected =
-    visible.find((instance) => instance.id === selectedId) ?? paged[0] ?? visible[0];
+    (selectedId ? instances.find((instance) => instance.id === selectedId) : undefined) ??
+    (layoutA ? undefined : (paged[0] ?? visible[0]));
+  const drawerStep = activeStepDrawer
+    ? selected?.steps.find((step) => step.id === activeStepDrawer.stepId)
+    : undefined;
+  // Vào phòng thời gian thực của hồ sơ đang mở; màn cha nghe `procedure.instance.changed` và nạp lại.
+  useEffect(() => (selected?.id ? retainProcedureRoom(selected.id) : undefined), [selected?.id]);
   // Những NGƯỜI có thể được nhắc: vai giao cho chức danh/đơn vị được mở rộng thành từng người đang giữ.
   const chatPeople = useMemo(
     () => (selected ? chatPeopleOf(selected, organization, actorId) : []),
@@ -435,6 +504,7 @@ export function WorkspaceBoard({
   );
 
   const [headerCancelOpen, setHeaderCancelOpen] = useState(false);
+  const [headerWithdrawOpen, setHeaderWithdrawOpen] = useState(false);
   const [reverseOpen, setReverseOpen] = useState(false);
   /** Hộp "Xoá đơn" / "Đổi công việc liên kết" đang mở cho hồ sơ đang chọn. */
   const [adminDialog, setAdminDialog] = useState<'delete' | 'relink'>();
@@ -447,12 +517,13 @@ export function WorkspaceBoard({
     setComment('');
     setAttachQueue([]);
     setHeaderCancelOpen(false);
+    setHeaderWithdrawOpen(false);
   }, [selected?.id]);
 
   /** Upload queued files first, then execute the workflow action */
   const handleActionWithAttach = async (
     instanceId: string,
-    action: ProcedureRuntimeAction,
+    action: ProcedureApplyAction,
     comment?: string,
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
@@ -511,12 +582,68 @@ export function WorkspaceBoard({
     const rejected = instances.filter((i) => i.status === 'rejected').length;
     const cancelled = instances.filter((i) => i.status === 'cancelled').length;
     const reversed = instances.filter((i) => i.status === 'reversed').length;
-    const urgent = instances.filter((inst) => {
+    const isUrgent = (inst: ProcedureInstance) => {
       const sla = evaluateInstanceSla(inst);
       return inst.status === 'running' && (sla.state === 'breached' || sla.state === 'warning');
-    }).length;
-    return { total, processing, completed, rejected, cancelled, reversed, urgent };
-  }, [instances]);
+    };
+    const urgent = instances.filter(isUrgent).length;
+    // Giao diện mới: tách hồ sơ đang chạy thành tới lượt mình / đang theo dõi.
+    const myTurn = instances.filter((i) => i.status === 'running' && isMyActive(i)).length;
+    const myUrgent = instances.filter((i) => isUrgent(i) && isMyActive(i)).length;
+    const watching = processing - myTurn;
+    const myDone = instances.filter((i) => isMyDone(i, actorId ?? '')).length;
+    return { total, processing, completed, rejected, cancelled, reversed, urgent, myTurn, myUrgent, watching, myDone };
+  }, [instances, actorId]);
+
+  // Giao diện mới: mở / chuyển / đóng cửa sổ hồ sơ, ghi theo `#workspace/<id>` để tải lại trang hay gửi đường dẫn vẫn mở
+  // đúng hồ sơ. Đánh dấu đã xử lý đường dẫn để hiệu ứng "mở thẳng qua đường dẫn" không đặt lại bộ lọc người dùng đang dùng.
+  const writeCaseHash = (instanceId: string | undefined, mode: CaseOpenMode) => {
+    if (typeof window === 'undefined') return;
+    const current = window.location.hash;
+    if (current && current !== '#workspace' && !current.startsWith('#workspace/')) return;
+    const next = instanceId ? `#workspace/${encodeURIComponent(instanceId)}` : '#workspace';
+    if (current === next) return;
+    try {
+      if (mode === 'push') window.location.hash = next.slice(1);
+      else window.location.replace(next);
+    } catch {
+      // Trình duyệt không cho đổi địa chỉ: cửa sổ vẫn mở / đóng theo lựa chọn.
+    }
+  };
+  const openCase = (instanceId: string, mode: CaseOpenMode) => {
+    deepLinked.current = encodeURIComponent(instanceId);
+    setSelectedId(instanceId);
+    writeCaseHash(instanceId, mode);
+  };
+  const closeCase = () => {
+    setSelectedId(undefined);
+    writeCaseHash(undefined, 'replace');
+  };
+  /** Chọn hồ sơ từ trong chi tiết (hồ sơ điều chỉnh, hồ sơ liên quan): giao diện mới thì chuyển cửa sổ sang hồ sơ đó. */
+  const selectCase = (instanceId: string | undefined) => {
+    if (layoutA && instanceId) openCase(instanceId, 'replace');
+    else setSelectedId(instanceId);
+  };
+
+  // Xuất Excel và Tạo đơn: dùng ở cả hai giao diện (giao diện cũ thêm nút Thẻ / Bảng phía trước).
+  const exportCreateActions = (
+    <>
+      <button type="button" className={styles.ghost} onClick={exportExcel} title="Xuất file danh sách CSV">
+        <Download size={15} aria-hidden /> Xuất Excel
+      </button>
+      {published.length > 0 && canCreateInstances ? (
+        <button
+          type="button"
+          className={styles.primary}
+          onClick={() => setCreating(true)}
+          aria-haspopup="dialog"
+          aria-expanded={creating}
+        >
+          <Plus size={15} strokeWidth={2.2} aria-hidden /> Tạo đơn / yêu cầu
+        </button>
+      ) : null}
+    </>
+  );
 
   const headActions = (
     <>
@@ -538,23 +665,16 @@ export function WorkspaceBoard({
           Bảng
         </button>
       </div>
-      <button type="button" className={styles.ghost} onClick={exportExcel} title="Xuất file danh sách CSV">
-        <Download size={15} aria-hidden /> Xuất Excel
-      </button>
-      {published.length > 0 && canCreateInstances ? (
-        <button
-          type="button"
-          className={styles.primary}
-          onClick={() => setCreating(true)}
-          aria-haspopup="dialog"
-          aria-expanded={creating}
-        >
-          <Plus size={15} strokeWidth={2.2} aria-hidden /> Tạo đơn / yêu cầu
-        </button>
-      ) : null}
+      {exportCreateActions}
     </>
   );
 
+  // Giao diện mới: tra chức danh / đơn vị / nhân sự ra người đang giữ, để hiện "đang chờ ai" bằng tên người.
+  const resolveSubject: SubjectResolver = (subjectId) => {
+    const subject = roleLabels.get(subjectId);
+    return subject ? { title: subject.title, people: subject.holderNames } : undefined;
+  };
+  const selectedCurrent = selected?.steps.find((step) => step.id === selected.currentStepId);
   const actionPanel = selected ? (
     <ActionPanel
       busy={busy}
@@ -603,12 +723,54 @@ export function WorkspaceBoard({
           ? (input) => onRequestMaterials(selected.id, input)
           : undefined
       }
+      classNames={layoutA ? CASE_LAYOUT_A_DOCK : undefined}
+      concise={layoutA}
+      resolveSubject={layoutA ? resolveSubject : undefined}
+      leading={
+        layoutA && selectedCurrent ? (
+          <>
+            {/* Ai trong bước đã xong phần mình (vd người xem xét đã xem xét), ai đang được chờ. */}
+            <StepPeopleProgress
+              instance={selected}
+              step={selectedCurrent}
+              resolveSubject={resolveSubject}
+              className={caseStyles.stageListPanel}
+            />
+            <FinanceVoucherCard step={selectedCurrent} onRefresh={() => onRefreshInstance?.(selected.id)} />
+            <StepDocuments
+              files={(attachments ?? []).filter(
+                (file) => file.instanceId === selected.id && file.stepInstanceId === selectedCurrent.id,
+              )}
+            />
+          </>
+        ) : undefined
+      }
     />
   ) : null;
 
   const entries = selected ? timelineEntries(selected) : [];
+  // Thông tin hồ sơ luôn nêu dự án bằng tên; hồ sơ cũ chưa lưu tên dự án thì đọc bộ nhớ chung (bảng đã tra sẵn), thiếu mới
+  // tra bù từ Workspace.
+  const { project: selectedProject, pending: selectedProjectPending } = useInstanceProjectLookup(selected);
+  // Bước sẽ được mở lại khi hoàn duyệt: đặt nút ngay trên dòng bước đó của tiến trình, để người vừa duyệt xong (đã
+  // rời bước, không còn vai ở bước hiện tại) thấy rõ mình rút lại được.
+  const withdrawStepId = selected?.status === 'running' && selected.authorization?.canWithdraw
+    ? selected.authorization.withdrawStepId
+    : undefined;
   // Người submit thực tế của hồ sơ (vai S của bước đầu): dùng cho QT-U3.
   const submitterName = selected?.activity.find((entry) => entry.action === 'start')?.actorName;
+  // Vai của người đã chốt một bước, theo phân công của bước (giao cho chính người đó, hay cho chức danh / đơn vị người đó
+  // đang giữ); nhiều vai thì lấy vai quyết định trước. Chỉ để hiện cạnh tên người xử lý trên tiến trình.
+  const performerRole = (step: ProcedureInstanceStep, performerId?: string, performerName?: string) => {
+    const roles = step.assignments
+      .filter(
+        (item) =>
+          (performerId && item.subjectId === performerId) ||
+          (performerName && roleLabels.get(item.subjectId)?.holderNames?.includes(performerName)),
+      )
+      .map((item) => item.role);
+    return PERFORMER_ROLE_ORDER.find((role) => roles.includes(role));
+  };
   const detailStep = selected?.steps.find((step) => step.id === detailStepId);
   const currentInTimeline = entries.some(
     (entry) => entry.kind === 'step' && entry.step.id === selected?.currentStepId,
@@ -616,10 +778,72 @@ export function WorkspaceBoard({
   const pageStart = (currentPage - 1) * pageSize + 1;
   const pageEnd = Math.min(currentPage * pageSize, visible.length);
 
-  return (
-    <section className={`${styles.workspace} ${embedded ? styles.embedded : ''}`}>
-      {embedded ? null : headSlot ? createPortal(headActions, headSlot) : <div className={styles.topBar}>{headActions}</div>}
+  // Đổi bộ lọc, tìm kiếm, sắp xếp, cỡ trang: luôn về trang 1 (dùng chung cho cả hai giao diện).
+  const selectFilter = (value: Filter) => {
+    setFilter(value);
+    setPage(1);
+  };
+  const changeQuery = (value: string) => {
+    setQuery(value);
+    setPage(1);
+  };
+  const changeSlaFilter = (value: string) => {
+    setSlaFilter((value || 'all') as typeof slaFilter);
+    setPage(1);
+  };
+  const changeSource = (value: string) => {
+    setSource((value || 'all') as typeof source);
+    setPage(1);
+  };
+  const changeDateSort = (value: string) => {
+    setDateSort((value || 'newest') as 'newest' | 'oldest');
+    setPage(1);
+  };
+  const changePageSize = (value: string) => {
+    setPageSize(Number(value) || 15);
+    setPage(1);
+  };
+  const canReset = filtersActive || Boolean(query) || filter !== 'all';
+  const resetFilters = () => {
+    setFilter('all');
+    setSlaFilter('all');
+    setSource('all');
+    setFrom('');
+    setTo('');
+    setQuery('');
+    setPage(1);
+  };
+  // Nút đổi giao diện, hiện ở cả hai giao diện (không có khi nhúng).
+  const layoutToggle = embedded ? null : <CaseLayoutToggle value={caseLayout} onChange={setCaseLayout} />;
 
+  // Các tab trạng thái của thanh lọc (dùng chung cho giao diện cũ và giao diện A).
+  // Giao diện mới: "Đang xử lý" / "Duyệt gấp / SLA" đếm hồ sơ tới lượt mình, thêm "Đang theo dõi" cho phần còn lại và
+  // "Bạn đã xử lý" cho hồ sơ mình đã làm xong phần mình.
+  const statusTabItems: ReadonlyArray<readonly [Filter, string, number]> = layoutA
+    ? [
+        ['running', 'Đang xử lý', stats.myTurn],
+        ['urgent', 'Duyệt gấp / SLA', stats.myUrgent],
+        ['watching', 'Đang theo dõi', stats.watching],
+        ['mine-done', 'Bạn đã xử lý', stats.myDone],
+        ['completed', 'Hoàn thành', stats.completed],
+        ['rejected', 'Từ chối', stats.rejected],
+        ['cancelled', 'Đã huỷ', stats.cancelled],
+        ['reversed', 'Đã huỷ hiệu lực', stats.reversed],
+        ['all', 'Tất cả', stats.total],
+      ]
+    : [
+        ['running', 'Đang xử lý', stats.processing],
+        ['urgent', 'Duyệt gấp / SLA', stats.urgent],
+        ['completed', 'Hoàn thành', stats.completed],
+        ['rejected', 'Từ chối', stats.rejected],
+        ['cancelled', 'Đã huỷ', stats.cancelled],
+        ['reversed', 'Đã huỷ hiệu lực', stats.reversed],
+        ['all', 'Tất cả', stats.total],
+      ];
+
+  // Hộp thoại của màn (tạo đơn, xoá đơn, đổi công việc, huỷ hiệu lực): dùng chung cho cả hai giao diện.
+  const overlaysTop = (
+    <>
       {canCreateInstances && !embedded ? (
         <StartInstanceForm
           open={creating}
@@ -753,690 +977,494 @@ export function WorkspaceBoard({
           </form>
         </MinimalPopupForm>
       ) : null}
+    </>
+  );
 
-      {/* Thanh lọc: trạng thái thành tab có số đếm, bộ lọc khác gọn trên cùng một hàng. */}
-      {embedded ? null : <div className={styles.toolbar}>
-        <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
-          {(
-            [
-              ['running', 'Đang xử lý', stats.processing],
-              ['urgent', 'Duyệt gấp / SLA', stats.urgent],
-              ['completed', 'Hoàn thành', stats.completed],
-              ['rejected', 'Từ chối', stats.rejected],
-              ['cancelled', 'Đã huỷ', stats.cancelled],
-              ['reversed', 'Đã huỷ hiệu lực', stats.reversed],
-              ['all', 'Tất cả', stats.total],
-            ] as const
-          ).map(([value, label, count]) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={filter === value}
-              className={`${styles.statusTab} ${filter === value ? styles.statusTabOn : ''} ${
-                value === 'urgent' && count > 0 ? styles.statusTabUrgent : ''
-              }`}
-              onClick={() => {
-                setFilter(value);
-                setPage(1);
-              }}
+  // Bảng danh sách khi xem dạng Bảng.
+  const masterTable = (
+    <table className={styles.masterTable}>
+      <thead>
+        <tr>
+          <th>Mã hồ sơ</th>
+          <th>Tiêu đề</th>
+          <th>Quy trình</th>
+          <th>Tiến độ</th>
+          <th>SLA</th>
+          <th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        {paged.map((instance) => {
+          const isSel = instance.id === selected?.id;
+          // Tiến độ trên đường đi thực tế: bước ở nhánh không đi không tính.
+          const progress = instanceProgress(instance);
+          return (
+            <tr
+              key={instance.id}
+              onClick={() => setSelectedId(instance.id)}
+              className={`${styles.masterTableRow} ${isSel ? styles.masterTableRowActive : ''}`}
             >
-              {label}
-              <span className={styles.statusTabCount}>{count}</span>
-            </button>
-          ))}
-        </div>
+              <td className={styles.code}>{instance.code}</td>
+              <td className={styles.tdTitle} title={instance.title}>
+                <span className={styles.clamp2}>{instance.title}</span>
+              </td>
+              <td className={styles.tdMuted} title={instance.definitionName}>
+                {instance.definitionCode}
+              </td>
+              <td
+                className={styles.tdNum}
+                title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
+              >
+                {progressLabel(progress)}
+              </td>
+              <td>
+                <SlaBadge view={evaluateInstanceSla(instance)} />
+              </td>
+              <td>
+                <span className={`${styles.badge} ${styles[instance.status]}`}>
+                  {STATUS_LABEL[instance.status]}
+                </span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
 
-        <div className={styles.toolbarFilters}>
-          <label className={styles.searchWrapper}>
-            <span className={styles.searchIcon}>
-              <Search size={14} strokeWidth={2} aria-hidden />
-            </span>
-            <input
-              className={styles.search}
-              aria-label="Tìm hồ sơ"
-              placeholder="Tìm mã PROC, tiêu đề..."
-              value={query}
-              onChange={(event) => { setQuery(event.target.value); setPage(1); }}
-            />
-          </label>
-          <SearchableSelect
-            className={styles.filterCombo}
-            clearable={false}
-            value={slaFilter}
-            options={[
-              { value: 'all', label: 'SLA: Tất cả' },
-              { value: 'breached', label: 'Quá hạn' },
-              { value: 'warning', label: 'Sắp đến hạn' },
-              { value: 'ok', label: 'Còn hạn' },
-              { value: 'none', label: 'Không cài' },
-            ]}
-            onChange={(value) => {
-              setSlaFilter((value || 'all') as typeof slaFilter);
-              setPage(1);
-            }}
-          />
-          <SearchableSelect
-            className={styles.filterCombo}
-            clearable={false}
-            value={source}
-            options={[
-              { value: 'all', label: 'Nguồn: Tất cả' },
-              { value: 'manual', label: 'Thủ công' },
-              { value: 'maintenance_occurrence', label: 'Bảo trì' },
-              { value: 'auto_from_parent', label: 'Tự động' },
-            ]}
-            onChange={(value) => {
-              setSource((value || 'all') as typeof source);
-              setPage(1);
-            }}
-          />
-          {filtersActive || query || filter !== 'all' ? (
-            <button
-              type="button"
-              className={styles.resetBtn}
-              onClick={() => {
-                setFilter('all');
-                setSlaFilter('all');
-                setSource('all');
-                setFrom('');
-                setTo('');
-                setQuery('');
-                setPage(1);
-              }}
-              title="Đặt lại tất cả bộ lọc"
-            >
-              Đặt lại
-            </button>
+  // Nút ở đầu khung chi tiết (Hoàn duyệt, Huỷ hồ sơ, Huỷ hiệu lực, Đổi dự án / công việc, Xoá đơn).
+  const headerActions = selected ? (
+    <>
+      {/* Hoàn duyệt: người vừa duyệt xong rút lại khi bước kế tiếp chưa ai xử lý. */}
+      {selected.status === 'running' && selected.authorization?.canWithdraw ? (
+        <div className={styles.popconfirmWrapper}>
+          <button
+            type="button"
+            className={styles.headerWithdrawBtn}
+            disabled={busy === `withdraw:${selected.id}` || isSubmitting}
+            onClick={() => setHeaderWithdrawOpen((prev) => !prev)}
+          >
+            Hoàn duyệt
+          </button>
+
+          {headerWithdrawOpen ? (
+            <div className={`${styles.popconfirmBox} ${styles.popconfirmBelow}`}>
+              <div className={styles.popconfirmArrow} />
+              <div className={styles.popconfirmTitle}>
+                Hoàn duyệt và quay lại bước “{selected.authorization.withdrawStepName}”?
+              </div>
+              <div className={styles.popconfirmDesc}>
+                Hồ sơ trở về chỗ bạn vừa xử lý để bạn làm lại. Chỉ rút lại được khi bước kế tiếp chưa ai xử lý.
+              </div>
+              <div className={styles.popconfirmActions}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => setHeaderWithdrawOpen(false)}
+                >
+                  Không
+                </button>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={() => {
+                    setHeaderWithdrawOpen(false);
+                    void handleActionWithAttach(selected.id, 'withdraw');
+                  }}
+                >
+                  Hoàn duyệt
+                </button>
+              </div>
+            </div>
           ) : null}
         </div>
-      </div>}
+      ) : null}
 
-      {/* Danh sách bên trái, chi tiết bên phải; mỗi bên tự cuộn trong khung của mình. */}
-      <div className={`${styles.split} ${viewMode === 'table' ? styles.splitTable : ''}`}>
-        {embedded ? null : <section className={styles.listPane} aria-label="Danh sách hồ sơ">
-          <div className={styles.listHead}>
-            <span>
-              <strong>{visible.length}</strong> hồ sơ
-            </span>
-            <SearchableSelect
-              className={styles.sortCombo}
-              clearable={false}
-              value={dateSort}
-              options={[
-                { value: 'newest', label: 'Mới nhất' },
-                { value: 'oldest', label: 'Cũ nhất' },
-              ]}
-              onChange={(value) => {
-                setDateSort((value || 'newest') as 'newest' | 'oldest');
-                setPage(1);
-              }}
-            />
-          </div>
+      {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
+      {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
+        <div className={styles.popconfirmWrapper}>
+          <button
+            type="button"
+            className={styles.headerCancelBtn}
+            disabled={busy === `cancel:${selected.id}` || isSubmitting}
+            onClick={() => setHeaderCancelOpen((prev) => !prev)}
+          >
+            Huỷ hồ sơ
+          </button>
 
-          {visible.length === 0 ? (
-            <div className={styles.empty}>
-              <h2>Không có hồ sơ nào khớp bộ lọc</h2>
-              <p>Thử đổi điều kiện lọc hoặc tạo yêu cầu mới.</p>
-            </div>
-          ) : viewMode === 'table' ? (
-            <div className={styles.listBody}>
-              <table className={styles.masterTable}>
-                <thead>
-                  <tr>
-                    <th>Mã hồ sơ</th>
-                    <th>Tiêu đề</th>
-                    <th>Quy trình</th>
-                    <th>Tiến độ</th>
-                    <th>SLA</th>
-                    <th>Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paged.map((instance) => {
-                    const isSel = instance.id === selected?.id;
-                    // Tiến độ trên đường đi thực tế: bước ở nhánh không đi không tính.
-                    const progress = instanceProgress(instance);
-                    return (
-                      <tr
-                        key={instance.id}
-                        onClick={() => setSelectedId(instance.id)}
-                        className={`${styles.masterTableRow} ${isSel ? styles.masterTableRowActive : ''}`}
-                      >
-                        <td className={styles.code}>{instance.code}</td>
-                        <td className={styles.tdTitle} title={instance.title}>
-                          <span className={styles.clamp2}>{instance.title}</span>
-                        </td>
-                        <td className={styles.tdMuted} title={instance.definitionName}>
-                          {instance.definitionCode}
-                        </td>
-                        <td
-                          className={styles.tdNum}
-                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
-                        >
-                          {progressLabel(progress)}
-                        </td>
-                        <td>
-                          <SlaBadge view={evaluateInstanceSla(instance)} />
-                        </td>
-                        <td>
-                          <span className={`${styles.badge} ${styles[instance.status]}`}>
-                            {STATUS_LABEL[instance.status]}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className={styles.listBody}>
-              {paged.map((instance) => {
-                const progress = instanceProgress(instance);
-                const percent = progressPercent(progress);
-                const current = instance.steps.find((step) => step.id === instance.currentStepId);
-                return (
-                  <button
-                    key={instance.id}
-                    type="button"
-                    className={`${styles.caseRow} ${instance.id === selected?.id ? styles.caseRowOn : ''}`}
-                    aria-current={instance.id === selected?.id ? 'true' : undefined}
-                    onClick={() => setSelectedId(instance.id)}
-                  >
-                    {/* QT-U6: ẩn mã hồ sơ VÀ mã quy trình ở thẻ preview (đã có đủ khi mở
-                        chi tiết); vẫn tìm được qua ô tìm kiếm. Chỉ hiện badge SLA khi có. */}
-                    {evaluateInstanceSla(instance).state !== 'none' ? (
-                      <span className={styles.caseRowTop}>
-                        <SlaBadge view={evaluateInstanceSla(instance)} />
-                      </span>
-                    ) : null}
-                    <span className={styles.caseRowTitle} title={instance.title}>
-                      {instance.title}
-                    </span>
-                    <span className={styles.caseRowFoot}>
-                      {instance.status === 'running' ? (
-                        <span
-                          className={styles.caseRowStep}
-                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
-                        >
-                          Bước {progressLabel(progress)}
-                          {current ? ` · ${current.name}` : ''}
-                        </span>
-                      ) : (
-                        <span className={styles.caseRowStep}>
-                          <span className={`${styles.badge} ${styles[instance.status]}`}>
-                            {STATUS_LABEL[instance.status]}
-                          </span>
-                        </span>
-                      )}
-                      <span className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
-                        <span className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
-                      </span>
-                      <span className={styles.caseRowPct}>{percent}%</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {visible.length > 0 ? (
-            <div className={styles.pager}>
-              <span className={styles.pagerInfo}>
-                {pageStart}–{pageEnd} / {visible.length}
-              </span>
-              <SearchableSelect
-                className={styles.pagerCombo}
-                clearable={false}
-                value={String(pageSize)}
-                options={[15, 30, 45, 60].map((size) => ({ value: String(size), label: `${size} / trang` }))}
-                onChange={(value) => {
-                  setPageSize(Number(value) || 15);
-                  setPage(1);
-                }}
-              />
-              <button
-                type="button"
-                className={styles.pagerBtn}
-                aria-label="Trang trước"
-                disabled={currentPage <= 1}
-                onClick={() => setPage(currentPage - 1)}
-              >
-                <ChevronLeft size={15} aria-hidden />
-              </button>
-              <span className={styles.pagerPage}>
-                {currentPage}/{pageCount}
-              </span>
-              <button
-                type="button"
-                className={styles.pagerBtn}
-                aria-label="Trang sau"
-                disabled={currentPage >= pageCount}
-                onClick={() => setPage(currentPage + 1)}
-              >
-                <ChevronRight size={15} aria-hidden />
-              </button>
+          {headerCancelOpen ? (
+            <div className={`${styles.popconfirmBox} ${styles.popconfirmBelow}`}>
+              <div className={styles.popconfirmArrow} />
+              <div className={styles.popconfirmTitle}>
+                Xác nhận huỷ hồ sơ này?
+              </div>
+              <div className={styles.popconfirmDesc}>
+                Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
+              </div>
+              <div className={styles.popconfirmActions}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => setHeaderCancelOpen(false)}
+                >
+                  Không
+                </button>
+                <button
+                  type="button"
+                  className={styles.danger}
+                  onClick={() => {
+                    setHeaderCancelOpen(false);
+                    void handleActionWithAttach(selected.id, 'cancel');
+                  }}
+                >
+                  Đồng ý huỷ
+                </button>
+              </div>
             </div>
           ) : null}
-        </section>}
+        </div>
+      ) : null}
 
-        <section
-          className={styles.detailPane}
-          aria-label={selected ? `Chi tiết hồ sơ ${selected.code}` : 'Chi tiết hồ sơ'}
+      {/* Huỷ hiệu lực: hồ sơ đã hoàn thành hoặc đã từ chối, chỉ Quản trị viên Quy trình */}
+      {canReverse &&
+      onReverse &&
+      (selected.status === 'completed' || selected.status === 'rejected') ? (
+        <button
+          type="button"
+          className={styles.headerCancelBtn}
+          disabled={reverseBusy}
+          onClick={() => {
+            setReverseReason('');
+            setReverseAdjust(true);
+            setReverseError(undefined);
+            setReverseOpen(true);
+          }}
         >
-          {selected ? (
-            <>
-              <header className={styles.detailHead}>
-                <div className={styles.detailHeadRow}>
-                  {/* QT-U6: ẩn mã Yêu cầu (id hồ sơ) để header gọn hơn. */}
-                  <span className={`${styles.badge} ${styles[selected.status]}`}>
-                    {STATUS_LABEL[selected.status]}
-                  </span>
-                  <SlaBadge view={evaluateInstanceSla(selected)} />
-                  <span className={styles.spacer} />
+          Huỷ hiệu lực
+        </button>
+      ) : null}
 
-                  {/* Nút Huỷ hồ sơ dành cho Admin / Quản trị viên */}
-                  {selected.authorization?.availableActions.includes('cancel') && selected.status === 'running' ? (
-                    <div className={styles.popconfirmWrapper}>
-                      <button
-                        type="button"
-                        className={styles.headerCancelBtn}
-                        disabled={busy === `cancel:${selected.id}` || isSubmitting}
-                        onClick={() => setHeaderCancelOpen((prev) => !prev)}
-                      >
-                        Huỷ hồ sơ
-                      </button>
+      {/* Đổi dự án / công việc: người tham gia đơn trừ người chỉ xem. Xoá đơn: vai A của đơn hoặc quản trị. */}
+      {onRelinkWorkspace && selected.authorization?.canRelinkWorkspace ? (
+        <button
+          type="button"
+          className={styles.headerCancelBtn}
+          onClick={() => setAdminDialog('relink')}
+        >
+          Đổi dự án / công việc
+        </button>
+      ) : null}
+      {onDeleteInstance && selected.authorization?.canDelete ? (
+        <button
+          type="button"
+          className={styles.headerCancelBtn}
+          onClick={() => setAdminDialog('delete')}
+        >
+          Xoá đơn
+        </button>
+      ) : null}
+    </>
+  ) : null;
 
-                      {headerCancelOpen ? (
-                        <div className={`${styles.popconfirmBox} ${styles.popconfirmBelow}`}>
-                          <div className={styles.popconfirmArrow} />
-                          <div className={styles.popconfirmTitle}>
-                            Xác nhận huỷ hồ sơ này?
-                          </div>
-                          <div className={styles.popconfirmDesc}>
-                            Hành động huỷ chỉ dành cho Quản trị viên, sẽ kết thúc toàn bộ quy trình ngay lập tức và không thể hoàn tác.
-                          </div>
-                          <div className={styles.popconfirmActions}>
-                            <button
-                              type="button"
-                              className={styles.ghost}
-                              onClick={() => setHeaderCancelOpen(false)}
-                            >
-                              Không
-                            </button>
-                            <button
-                              type="button"
-                              className={styles.danger}
-                              onClick={() => {
-                                setHeaderCancelOpen(false);
-                                void handleActionWithAttach(selected.id, 'cancel');
-                              }}
-                            >
-                              Đồng ý huỷ
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-
-                  {/* Huỷ hiệu lực: hồ sơ đã hoàn thành hoặc đã từ chối, chỉ Quản trị viên Quy trình */}
-                  {canReverse &&
-                  onReverse &&
-                  (selected.status === 'completed' || selected.status === 'rejected') ? (
-                    <button
-                      type="button"
-                      className={styles.headerCancelBtn}
-                      disabled={reverseBusy}
-                      onClick={() => {
-                        setReverseReason('');
-                        setReverseAdjust(true);
-                        setReverseError(undefined);
-                        setReverseOpen(true);
-                      }}
-                    >
-                      Huỷ hiệu lực
-                    </button>
-                  ) : null}
-
-                  {/* Đổi công việc liên kết / Xoá đơn: người giữ vai A của đơn hoặc quản trị. */}
-                  {onRelinkWorkspace && selected.authorization?.canRelinkWorkspace ? (
-                    <button
-                      type="button"
-                      className={styles.headerCancelBtn}
-                      onClick={() => setAdminDialog('relink')}
-                    >
-                      Đổi công việc liên kết
-                    </button>
-                  ) : null}
-                  {onDeleteInstance && selected.authorization?.canDelete ? (
-                    <button
-                      type="button"
-                      className={styles.headerCancelBtn}
-                      onClick={() => setAdminDialog('delete')}
-                    >
-                      Xoá đơn
-                    </button>
-                  ) : null}
-                </div>
-
-                <h2 className={styles.detailTitle}>{selected.title}</h2>
-                {/* QT-U6: mã hồ sơ hiện ngay dưới tên (đã ẩn ở thẻ preview). */}
-                <div className={styles.detailCode}>{selected.code}</div>
-                {selected.reversal ? (
-                  <div className={styles.reversalNote} role="note">
-                    <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
-                    <span className={styles.reversalMeta}>
-                      {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
-                      {formatDateTime(selected.reversal.reversedAt)}
-                    </span>
-                    <span>
-                      <b>Lý do:</b> {selected.reversal.reason}
-                    </span>
-                    {(() => {
-                      const adjustments = instances.filter(
-                        (item) => item.adjustmentOf?.instanceId === selected.id,
-                      );
-                      if (adjustments.length)
-                        return (
-                          <span>
-                            <b>Hồ sơ điều chỉnh:</b>{' '}
-                            {adjustments.map((item, index) => (
-                              <span key={item.id}>
-                                {index ? ', ' : ''}
-                                <button
-                                  type="button"
-                                  className={styles.linkButton}
-                                  onClick={() => setSelectedId(item.id)}
-                                >
-                                  {item.code}
-                                </button>
-                              </span>
-                            ))}
-                          </span>
-                        );
-                      if (!selected.reversal.adjustmentRequested) return null;
-                      return (
-                        <span>
-                          <b>Điều chỉnh:</b>{' '}
-                          {selected.sourceType === 'hrm_request'
-                            ? 'người gửi đơn đã được mời gửi đơn điều chỉnh ở HRM.'
-                            : 'đang chờ người giữ vai S lập hồ sơ điều chỉnh.'}
-                        </span>
-                      );
-                    })()}
-                  </div>
-                ) : null}
-                {selected.adjustmentOf ? (
-                  <p className={styles.createFormHint} style={{ margin: '0 0 8px' }}>
-                    Hồ sơ điều chỉnh cho{' '}
-                    {instances.some((item) => item.id === selected.adjustmentOf?.instanceId) ? (
+  // Ghi chú huỷ hiệu lực và hồ sơ điều chỉnh dưới tên hồ sơ.
+  const reversalNotes = selected ? (
+    <>
+      {selected.reversal ? (
+        <div className={styles.reversalNote} role="note">
+          <strong className={styles.reversalTitle}>Đã huỷ hiệu lực</strong>
+          <span className={styles.reversalMeta}>
+            {selected.reversal.reversedByName ?? 'Quản trị viên'} ·{' '}
+            {formatDateTime(selected.reversal.reversedAt)}
+          </span>
+          <span>
+            <b>Lý do:</b> {selected.reversal.reason}
+          </span>
+          {(() => {
+            const adjustments = instances.filter(
+              (item) => item.adjustmentOf?.instanceId === selected.id,
+            );
+            if (adjustments.length)
+              return (
+                <span>
+                  <b>Hồ sơ điều chỉnh:</b>{' '}
+                  {adjustments.map((item, index) => (
+                    <span key={item.id}>
+                      {index ? ', ' : ''}
                       <button
                         type="button"
                         className={styles.linkButton}
-                        onClick={() => setSelectedId(selected.adjustmentOf?.instanceId)}
+                        onClick={() => selectCase(item.id)}
                       >
-                        {selected.adjustmentOf.instanceCode}
+                        {item.code}
                       </button>
-                    ) : (
-                      <strong>{selected.adjustmentOf.instanceCode}</strong>
-                    )}
-                    {' '}đã bị huỷ hiệu lực.
-                  </p>
-                ) : null}
-
-                <SourceSummaryCard summary={selected.sourceSummary} />
-
-                <dl className={styles.metaLine}>
-                  <div>
-                    <dt>Khởi tạo</dt>
-                    <dd>
-                      {selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}
-                      {selected.createdOnBehalfBy ? ` (do ${selected.createdOnBehalfBy.name} tạo hộ)` : ''}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Quy trình</dt>
-                    <dd>
-                      {selected.definitionName} · v{selected.definitionVersion}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Nguồn</dt>
-                    <dd>
-                      <InstanceSourceValue instance={selected} />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>
-                    <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
-                  </div>
-                </dl>
-
-                {selected.workspaceLink ? (
-                  <p
-                    className={`${styles.linkNote} ${
-                      selected.workspaceLink.status === 'rejected' ? styles.linkNoteError : ''
-                    }`}
-                  >
-                    {selected.workspaceLink.status === 'linked'
-                      ? `Công việc ${selected.workspaceLink.workItemCode ?? ''} trong dự án ${selected.workspaceLink.projectCode}.`
-                      : selected.workspaceLink.status === 'pending'
-                        ? `Đang tạo công việc trong dự án ${selected.workspaceLink.projectCode}…`
-                        : `Không tạo được công việc trong dự án ${selected.workspaceLink.projectCode}: ${selected.workspaceLink.error ?? 'lỗi không rõ'}`}
-                  </p>
-                ) : null}
-
-                <div className={styles.detailTabs} role="tablist" aria-label="Nội dung hồ sơ">
-                  {[
-                    {
-                      key: 'flow' as const,
-                      label: 'Tiến trình',
-                      count: progressLabel(instanceProgress(selected)),
-                    },
-                    {
-                      key: 'chat' as const,
-                      label: 'Trao đổi',
-                      count: selected.activity.filter((a) => a.action === 'comment').length,
-                    },
-                    {
-                      key: 'files' as const,
-                      label: 'Tệp & tài liệu',
-                      count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
-                    },
-                    {
-                      key: 'history' as const,
-                      label: 'Nhật ký',
-                      count: selected.activity.filter((a) => a.action !== 'comment').length,
-                    },
-                  ].map((tab) => (
-                    <button
-                      key={tab.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={detailTab === tab.key}
-                      className={`${styles.detailTab} ${detailTab === tab.key ? styles.detailTabOn : ''}`}
-                      onClick={() => setDetailTab(tab.key)}
-                    >
-                      {tab.label}
-                      {tab.count ? <span className={styles.detailTabCount}>{tab.count}</span> : null}
-                    </button>
+                    </span>
                   ))}
-                </div>
-              </header>
-
-              <div className={styles.detailBody}>
-                {detailTab === 'flow' ? (
-                  <>
-                    {/* Hồ sơ không có bước đang chạy trên dòng thời gian: khung xử lý đứng đầu như cũ. */}
-                    {currentInTimeline ? null : actionPanel}
-
-                    <ol className={styles.timeline}>
-                      {entries.map((entry) => {
-                        if (entry.kind === 'decision') {
-                          return (
-                            <li key={`decision:${entry.decision.id}`} className={styles.timelineItem}>
-                              <span className={`${styles.timelineNode} ${styles.nodeGateway}`} aria-hidden />
-                              <div className={styles.timelineBody}>
-                                <DecisionCard decision={entry.decision} instance={selected} />
-                              </div>
-                            </li>
-                          );
-                        }
-                        if (entry.kind === 'skipped') {
-                          return (
-                            <li key="skipped" className={`${styles.timelineItem} ${styles.timelineItemPending}`}>
-                              <span className={`${styles.timelineNode} ${styles.nodeSkipped}`} aria-hidden />
-                              <div className={styles.timelineBody}>
-                                <div className={styles.timelineSkipped}>
-                                  <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
-                                  <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
-                                </div>
-                              </div>
-                            </li>
-                          );
-                        }
-                        const step = entry.step;
-                        const isCur = step.id === selected.currentStepId;
-                        const isDone = step.status === 'completed';
-                        const isRejected = step.status === 'rejected';
-
-                        // Bước đã đi qua bấm được để xem lại ai làm, lúc nào, đã nhập gì.
-                        const canReview = !isCur && (isDone || isRejected);
-                        const openReview = (event: ReactMouseEvent | ReactKeyboardEvent) => {
-                          if ((event.target as HTMLElement).closest('a, button, input, textarea')) return;
-                          setDetailStepId(step.id);
-                        };
-
-                        const nodeClass = isDone
-                          ? styles.nodeCompleted
-                          : isRejected
-                            ? styles.nodeRejected
-                            : isCur
-                              ? styles.nodeActive
-                              : styles.nodePending;
-
-                        return (
-                          <li
-                            key={step.id}
-                            className={`${styles.timelineItem} ${isCur ? styles.timelineItemCurrent : ''} ${
-                              !isCur && !isDone && !isRejected ? styles.timelineItemPending : ''
-                            }`}
-                          >
-                            <span className={`${styles.timelineNode} ${nodeClass}`} aria-hidden>
-                              {isDone ? (
-                                <Check size={12} strokeWidth={3} />
-                              ) : isRejected ? (
-                                <X size={12} strokeWidth={3} />
-                              ) : (
-                                step.order
-                              )}
-                            </span>
-                            <div
-                              className={`${styles.timelineBody} ${canReview ? styles.timelineBodyClickable : ''}`}
-                              {...(canReview
-                                ? {
-                                    role: 'button',
-                                    tabIndex: 0,
-                                    title: 'Xem chi tiết bước',
-                                    onClick: openReview,
-                                    onKeyDown: (event: ReactKeyboardEvent) => {
-                                      if (event.key === 'Enter' || event.key === ' ') {
-                                        event.preventDefault();
-                                        openReview(event);
-                                      }
-                                    },
-                                  }
-                                : {})}
-                            >
-                              <div className={styles.timelineHead}>
-                                <span className={styles.timelineOrder}>
-                                  Bước {step.order}
-                                  {isCur ? ' · Đang thực hiện' : ''}
-                                </span>
-                                <span className={styles.timelineName}>{step.name}</span>
-                                <SlaBadge
-                                  view={evaluateStepSla(step, selected)}
-                                  slaHours={step.slaHours}
-                                  startedAt={step.startedAt}
-                                />
-                              </div>
-
-                              <div className={styles.roleList}>
-                                {roleLines(step, roleLabels).map((line) => (
-                                  <RoleLine key={line.role} line={line} submitterName={submitterName} />
-                                ))}
-                              </div>
-
-                              <FinanceVoucherCard step={step} />
-
-                              {/* QT-U1: tài liệu nộp ở chính bước này, để bước sau xem được bước trước up gì. */}
-                              <StepDocuments
-                                files={(attachments ?? []).filter(
-                                  (file) =>
-                                    file.instanceId === selected.id && file.stepInstanceId === step.id,
-                                )}
-                              />
-
-                              {isCur ? actionPanel : null}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-
-              <MaterialStatus
-                instance={selected}
-                busy={busy}
-                onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
-              />
-
-              <LinkedPanel
-                instance={selected}
-                instances={instances}
-                onOpen={(instanceId) => setSelectedId(instanceId)}
-              />
-                  </>
-                ) : (
-                  <div className={styles.tabPanel}>
-                    {detailTab === 'chat' ? (
-                      <ChatPanel
-                        key={selected.id}
-                        instance={selected}
-                        busy={busy}
-                        participants={chatPeople}
-                        currentUserId={actorId}
-                        onRefreshInstance={onRefreshInstance}
-                        onSend={(body, mentions, replyToId) =>
-                          onSendComment?.(selected.id, body, mentions, replyToId)
-                        }
-                      />
-                    ) : detailTab === 'files' ? (
-                      <AttachmentPanel
-                        instance={selected}
-                        attachments={attachments ?? []}
-                        busy={busy}
-                        onUpload={(file) => onUploadFile?.(selected.id, file)}
-                        onSupplement={
-                          onSupplementFile ? (file) => onSupplementFile(selected.id, file) : undefined
-                        }
-                      />
-                    ) : (
-                      <HistoryPanel instance={selected} />
-                    )}
-                  </div>
-                )}
-              </div>
-            </>
+                </span>
+              );
+            if (!selected.reversal.adjustmentRequested) return null;
+            return (
+              <span>
+                <b>Điều chỉnh:</b>{' '}
+                {selected.sourceType === 'hrm_request'
+                  ? 'người gửi đơn đã được mời gửi đơn điều chỉnh ở HRM.'
+                  : 'đang chờ người giữ vai S lập hồ sơ điều chỉnh.'}
+              </span>
+            );
+          })()}
+        </div>
+      ) : null}
+      {selected.adjustmentOf ? (
+        <p className={styles.createFormHint} style={{ margin: '0 0 8px' }}>
+          Hồ sơ điều chỉnh cho{' '}
+          {instances.some((item) => item.id === selected.adjustmentOf?.instanceId) ? (
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => selectCase(selected.adjustmentOf?.instanceId)}
+            >
+              {selected.adjustmentOf.instanceCode}
+            </button>
           ) : (
-            <div className={styles.empty}>
-              <p>Chọn một hồ sơ bên trái để xem chi tiết</p>
-            </div>
+            <strong>{selected.adjustmentOf.instanceCode}</strong>
           )}
-        </section>
-      </div>
+          {' '}đã bị huỷ hiệu lực.
+        </p>
+      ) : null}
+    </>
+  ) : null;
 
+  // Ghi chú công việc liên kết bên Workspace.
+  const workspaceLinkNote = selected?.workspaceLink ? (
+    <p
+      className={`${styles.linkNote} ${
+        selected.workspaceLink.status === 'rejected' ? styles.linkNoteError : ''
+      }`}
+    >
+      {selected.workspaceLink.status === 'linked'
+        ? `Công việc ${selected.workspaceLink.workItemCode ?? ''} trong dự án ${selected.workspaceLink.projectCode}.`
+        : selected.workspaceLink.status === 'pending'
+          ? `Đang tạo công việc trong dự án ${selected.workspaceLink.projectCode}…`
+          : `Không tạo được công việc trong dự án ${selected.workspaceLink.projectCode}: ${selected.workspaceLink.error ?? 'lỗi không rõ'}`}
+    </p>
+  ) : null;
+
+  // Các tab nội dung hồ sơ cùng số đếm.
+  const detailTabItems = selected
+    ? [
+        {
+          key: 'flow' as const,
+          label: 'Tiến trình',
+          count: progressLabel(instanceProgress(selected)),
+        },
+        {
+          key: 'chat' as const,
+          label: 'Trao đổi',
+          count: selected.activity.filter((a) => a.action === 'comment').length,
+        },
+        {
+          key: 'files' as const,
+          label: 'Tệp & tài liệu',
+          count: (attachments ?? []).filter((a) => a.instanceId === selected.id).length,
+        },
+        {
+          key: 'history' as const,
+          label: 'Nhật ký',
+          count: selected.activity.filter((a) => a.action !== 'comment').length,
+        },
+      ]
+    : [];
+
+  // Một dòng trên tiến trình: bước, thẻ rẽ nhánh hoặc nhóm nhánh không đi. Bước đang chạy chứa khung xử lý.
+  const renderEntry = (entry: TimelineEntry) => {
+    if (!selected) return null;
+    if (entry.kind === 'decision') {
+      return (
+        <li key={`decision:${entry.decision.id}`} className={styles.timelineItem}>
+          <span className={`${styles.timelineNode} ${styles.nodeGateway}`} aria-hidden />
+          <div className={styles.timelineBody}>
+            <DecisionCard decision={entry.decision} instance={selected} />
+          </div>
+        </li>
+      );
+    }
+    if (entry.kind === 'skipped') {
+      return (
+        <li key="skipped" className={`${styles.timelineItem} ${styles.timelineItemPending}`}>
+          <span className={`${styles.timelineNode} ${styles.nodeSkipped}`} aria-hidden />
+          <div className={styles.timelineBody}>
+            <div className={styles.timelineSkipped}>
+              <strong>Nhánh không đi ({entry.steps.length} bước)</strong>
+              <span>{entry.steps.map((item) => item.name).join(' · ')}</span>
+            </div>
+          </div>
+        </li>
+      );
+    }
+    const step = entry.step;
+    const isCur = step.id === selected.currentStepId;
+    const isDone = step.status === 'completed';
+    const isRejected = step.status === 'rejected';
+
+    // Bước đã đi qua bấm được để xem lại ai làm, lúc nào, đã nhập gì.
+    const canReview = !isCur && (isDone || isRejected);
+    const openReview = (event: ReactMouseEvent | ReactKeyboardEvent) => {
+      if ((event.target as HTMLElement).closest('a, button, input, textarea')) return;
+      setDetailStepId(step.id);
+    };
+
+    // Giao diện mới: bước đang làm là MỘT khung "Việc cần làm" (đầu khung, phiếu, tài liệu, ô nhập, ý kiến, nút) do
+    // `ActionPanel` vẽ; không lặp tên bước, dòng vai và khung vàng của thẻ cũ.
+    if (layoutA && isCur) {
+      return (
+        <li key={step.id} className={`${styles.timelineItem} ${caseStyles.taskItem}`}>
+          <span className={`${styles.timelineNode} ${styles.nodeActive}`} aria-hidden>
+            {step.order}
+          </span>
+          <div className={`${styles.timelineBody} ${caseStyles.taskBody}`}>{actionPanel}</div>
+        </li>
+      );
+    }
+
+    const nodeClass = isDone
+      ? styles.nodeCompleted
+      : isRejected
+        ? styles.nodeRejected
+        : isCur
+          ? styles.nodeActive
+          : styles.nodePending;
+
+    return (
+      <li
+        key={step.id}
+        className={`${styles.timelineItem} ${isCur ? styles.timelineItemCurrent : ''} ${
+          !isCur && !isDone && !isRejected ? styles.timelineItemPending : ''
+        }`}
+      >
+        <span className={`${styles.timelineNode} ${nodeClass}`} aria-hidden>
+          {isDone ? (
+            <Check size={12} strokeWidth={3} />
+          ) : isRejected ? (
+            <X size={12} strokeWidth={3} />
+          ) : (
+            step.order
+          )}
+        </span>
+        <div
+          className={`${styles.timelineBody} ${canReview ? styles.timelineBodyClickable : ''}`}
+          {...(canReview
+            ? {
+                role: 'button',
+                tabIndex: 0,
+                title: 'Xem chi tiết bước',
+                onClick: openReview,
+                onKeyDown: (event: ReactKeyboardEvent) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openReview(event);
+                  }
+                },
+              }
+            : {})}
+        >
+          <div className={styles.timelineHead}>
+            <span className={styles.timelineOrder}>
+              Bước {step.order}
+              {isCur ? ' · Đang thực hiện' : ''}
+            </span>
+            <span className={styles.timelineName}>{step.name}</span>
+            <SlaBadge
+              view={evaluateStepSla(step, selected)}
+              slaHours={step.slaHours}
+              startedAt={step.startedAt}
+            />
+          </div>
+
+          <div className={styles.roleList}>
+            {roleLines(step, roleLabels).map((line) => (
+              <RoleLine key={line.role} line={line} submitterName={submitterName} />
+            ))}
+          </div>
+
+          <FinanceVoucherCard step={step} onRefresh={() => onRefreshInstance?.(selected.id)} />
+
+          {/* QT-U1: tài liệu nộp ở chính bước này, để bước sau xem được bước trước up gì. */}
+          <StepDocuments
+            files={(attachments ?? []).filter(
+              (file) =>
+                file.instanceId === selected.id && file.stepInstanceId === step.id,
+            )}
+          />
+
+          {/* Bước vừa xong mà người này còn rút lại được: nút Hoàn duyệt nằm ngay trên bước đó. */}
+          {withdrawStepId === step.id && !isCur ? (
+            <WithdrawCallout
+              text={
+                layoutA
+                  ? 'Bạn còn hoàn duyệt được bước này.'
+                  : 'Bạn vừa xử lý xong bước này. Bước sau chưa ai xử lý nên bạn còn hoàn duyệt được để làm lại.'
+              }
+              busy={busy === `withdraw:${selected.id}` || isSubmitting}
+              onWithdraw={() => void handleActionWithAttach(selected.id, 'withdraw')}
+            />
+          ) : null}
+
+          {isCur ? actionPanel : null}
+        </div>
+      </li>
+    );
+  };
+
+  // Vật tư của bước hiện tại và hồ sơ liên quan, dưới tiến trình.
+  const flowExtras = selected ? (
+    <>
+      <MaterialStatus
+        instance={selected}
+        busy={busy}
+        onRecheck={onRecheckMaterials ? () => onRecheckMaterials(selected.id) : undefined}
+      />
+
+      <LinkedPanel
+        instance={selected}
+        instances={instances}
+        onOpen={(instanceId) => selectCase(instanceId)}
+      />
+    </>
+  ) : null;
+
+  // Nội dung tab Trao đổi / Tệp & tài liệu / Nhật ký.
+  const otherTabPanel = selected ? (
+    <div className={styles.tabPanel}>
+      {detailTab === 'chat' ? (
+        <ChatPanel
+          key={selected.id}
+          instance={selected}
+          busy={busy}
+          participants={chatPeople}
+          currentUserId={actorId}
+          onRefreshInstance={onRefreshInstance}
+          onSend={(body, mentions, replyToId) =>
+            onSendComment?.(selected.id, body, mentions, replyToId)
+          }
+        />
+      ) : detailTab === 'files' ? (
+        <AttachmentPanel
+          instance={selected}
+          attachments={attachments ?? []}
+          busy={busy}
+          onUpload={(file) => onUploadFile?.(selected.id, file)}
+          onSupplement={
+            onSupplementFile ? (file) => onSupplementFile(selected.id, file) : undefined
+          }
+        />
+      ) : (
+        <HistoryPanel instance={selected} />
+      )}
+    </div>
+  ) : null;
+
+  // Popup xem lại bước đã qua và ngăn kéo bước.
+  const overlaysBottom = (
+    <>
       {selected && detailStep ? (
         <StepDetailDialog
           instance={selected}
@@ -1447,7 +1475,7 @@ export function WorkspaceBoard({
           ))}
           extra={
             <>
-              <FinanceVoucherCard step={detailStep} />
+              <FinanceVoucherCard step={detailStep} onRefresh={() => onRefreshInstance?.(selected.id)} />
               <StepDocuments
                 files={(attachments ?? []).filter(
                   (file) => file.instanceId === selected.id && file.stepInstanceId === detailStep.id,
@@ -1462,7 +1490,7 @@ export function WorkspaceBoard({
       {/* ========================================================================= */}
       {/* 4. SLIDE-OVER NODE WORKSPACE DRAWER (3 AXES: XỬ LÝ · TRAO ĐỔI · TỆP)       */}
       {/* ========================================================================= */}
-      {activeStepDrawer && selected ? (
+      {activeStepDrawer && selected && drawerStep ? (
         <div
           style={{
             position: 'fixed',
@@ -1512,12 +1540,12 @@ export function WorkspaceBoard({
                         borderRadius: '4px',
                       }}
                     >
-                      BƯỚC {activeStepDrawer.step.order}
+                      BƯỚC {drawerStep.order}
                     </span>
-                    <span className={`${styles.badge} ${styles[activeStepDrawer.step.status]}`}>
-                      {STEP_STATUS_LABEL[activeStepDrawer.step.status] ?? activeStepDrawer.step.status}
+                    <span className={`${styles.badge} ${styles[drawerStep.status]}`}>
+                      {STEP_STATUS_LABEL[drawerStep.status] ?? drawerStep.status}
                     </span>
-                    {activeStepDrawer.step.slaHours ? (
+                    {drawerStep.slaHours ? (
                       <span
                         style={{
                           fontSize: '12px',
@@ -1527,12 +1555,12 @@ export function WorkspaceBoard({
                           borderRadius: '4px',
                         }}
                       >
-                        SLA: {activeStepDrawer.step.slaHours}h
+                        SLA: {drawerStep.slaHours}h
                       </span>
                     ) : null}
                   </div>
                   <h3 style={{ margin: '6px 0 2px', fontSize: '16px', fontWeight: 800, color: 'var(--ink)' }}>
-                    {activeStepDrawer.step.name}
+                    {drawerStep.name}
                   </h3>
                   <p style={{ margin: 0, fontSize: '13px', color: 'var(--faint)' }}>
                     Hồ sơ: <strong style={{ color: 'var(--ink)' }}>{selected.code}</strong> · {selected.title}
@@ -1585,7 +1613,7 @@ export function WorkspaceBoard({
                     color: activeStepDrawer.tab === 'chat' ? '#ffffff' : 'var(--ink)',
                   }}
                 >
-                  2. Trao đổi ({selected.activity.filter((a) => !a.stepInstanceId || a.stepInstanceId === activeStepDrawer.step.id).length})
+                  2. Trao đổi ({selected.activity.filter((a) => !a.stepInstanceId || a.stepInstanceId === drawerStep.id).length})
                 </button>
                 <button
                   type="button"
@@ -1601,7 +1629,7 @@ export function WorkspaceBoard({
                     color: activeStepDrawer.tab === 'files' ? '#ffffff' : 'var(--ink)',
                   }}
                 >
-                  3. Tệp ({attachments.filter((a) => a.instanceId === selected.id && a.stepInstanceId === activeStepDrawer.step.id).length})
+                  3. Tệp ({attachments.filter((a) => a.instanceId === selected.id && a.stepInstanceId === drawerStep.id).length})
                 </button>
               </div>
             </div>
@@ -1614,7 +1642,7 @@ export function WorkspaceBoard({
                     Phân vai RCSI cho bước này
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-                    {activeStepDrawer.step.assignments.map((asgn) => {
+                    {drawerStep.assignments.map((asgn) => {
                       // Vai thuộc chức danh/đơn vị; người đang giữ chỉ là thông tin phụ.
                       const subject = roleLabels.get(asgn.subjectId);
                       const holderLabel = subject
@@ -1665,13 +1693,13 @@ export function WorkspaceBoard({
                   </div>
 
                   {/* Step Material Requirements */}
-                  {activeStepDrawer.step.materials && activeStepDrawer.step.materials.length > 0 ? (
+                  {drawerStep.materials && drawerStep.materials.length > 0 ? (
                     <div style={{ borderTop: '1px solid var(--line)', paddingTop: '16px' }}>
                       <h4 style={{ fontSize: '13px', fontWeight: 700, margin: '0 0 10px', textTransform: 'uppercase', color: 'var(--muted)' }}>
                         Vật tư / Thiết bị yêu cầu cho bước
                       </h4>
                       <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {activeStepDrawer.step.materials.map((mat) => (
+                        {drawerStep.materials.map((mat) => (
                           <li
                             key={mat.materialCode}
                             style={{
@@ -1710,7 +1738,7 @@ export function WorkspaceBoard({
                   <AttachmentPanel
                     instance={selected}
                     attachments={attachments.filter(
-                      (a) => !a.stepInstanceId || a.stepInstanceId === activeStepDrawer.step.id,
+                      (a) => !a.stepInstanceId || a.stepInstanceId === drawerStep.id,
                     )}
                     busy={busy}
                     onUpload={(file) => onUploadFile?.(selected.id, file)}
@@ -1724,6 +1752,385 @@ export function WorkspaceBoard({
           </div>
         </div>
       ) : null}
+    </>
+  );
+
+  // Giao diện mới: cùng state, cùng khối, chỉ sắp lại (bảng + cửa sổ hồ sơ). Bỏ giao diện cũ sau này: giữ nhánh này, xoá
+  // phần `return` cũ bên dưới.
+  if (layoutA) {
+    return (
+      <CaseLayoutA
+        toolbar={{
+          statusTabs: statusTabItems,
+          filter,
+          onFilter: selectFilter,
+          query,
+          onQuery: changeQuery,
+          slaFilter,
+          onSlaFilter: changeSlaFilter,
+          source,
+          onSource: changeSource,
+          canReset,
+          onReset: resetFilters,
+          headActions: exportCreateActions,
+          layoutToggle,
+        }}
+        board={{
+          instances,
+          visible,
+          totalCount: instances.length,
+          definitions,
+          actorId,
+          // "Bạn đã xử lý": dòng hiện bước mình xử lý gần nhất, như tab "Hoàn thành" của Tổng quan cũ.
+          rowTab: activeFilter === 'mine-done' ? 'mine-done' : 'all',
+          page: currentPage,
+          pageSize,
+          onPage: setPage,
+          onPageSize: changePageSize,
+          // Thao tác trên dòng đi đúng đường xử lý hồ sơ của màn (báo bận, lỗi, nạp lại do màn cha lo).
+          runAction: (instance, kind, text) => onAction(instance.id, kind, text),
+          afterBulk: async (ids) => {
+            if (onChanged) await onChanged();
+            else await Promise.all(ids.map((id) => onRefreshInstance?.(id)));
+          },
+          onNotice,
+          onError,
+          openId: selected?.id,
+          onOpen: openCase,
+          onClose: closeCase,
+        }}
+        detail={
+          selected
+            ? {
+                instance: selected,
+                project: selectedProject,
+                projectPending: selectedProjectPending,
+                headerActions,
+                reversalNotes,
+                tabs: detailTabItems,
+                tab: detailTab,
+                onTab: setDetailTab,
+                entries,
+                currentInTimeline,
+                actionPanel,
+                renderEntry,
+                flowExtras,
+                otherTabPanel,
+                withdrawStepId,
+                attachments: attachments ?? [],
+                renderRoles: (step) =>
+                  roleLines(step, roleLabels).map((line) => (
+                    <RoleLine key={line.role} line={line} submitterName={submitterName} />
+                  )),
+                performerRole,
+                resolveSubject,
+              }
+            : undefined
+        }
+        overlaysTop={overlaysTop}
+        overlaysBottom={overlaysBottom}
+      />
+    );
+  }
+
+  return (
+    <section className={`${styles.workspace} ${embedded ? styles.embedded : ''}`}>
+      {embedded ? null : headSlot ? (
+        createPortal(<>{headActions}{layoutToggle}</>, headSlot)
+      ) : (
+        <div className={styles.topBar}>{headActions}{layoutToggle}</div>
+      )}
+
+      {overlaysTop}
+
+      {/* Thanh lọc: trạng thái thành tab có số đếm, bộ lọc khác gọn trên cùng một hàng. */}
+      {embedded ? null : <div className={styles.toolbar}>
+        <div className={styles.statusTabs} role="tablist" aria-label="Lọc theo trạng thái">
+          {statusTabItems.map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={activeFilter === value}
+              className={`${styles.statusTab} ${activeFilter === value ? styles.statusTabOn : ''} ${
+                value === 'urgent' && count > 0 ? styles.statusTabUrgent : ''
+              }`}
+              onClick={() => selectFilter(value)}
+            >
+              {label}
+              <span className={styles.statusTabCount}>{count}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className={styles.toolbarFilters}>
+          <label className={styles.searchWrapper}>
+            <span className={styles.searchIcon}>
+              <Search size={14} strokeWidth={2} aria-hidden />
+            </span>
+            <input
+              className={styles.search}
+              aria-label="Tìm hồ sơ"
+              placeholder="Tìm mã PROC, tiêu đề..."
+              value={query}
+              onChange={(event) => changeQuery(event.target.value)}
+            />
+          </label>
+          <SearchableSelect
+            className={styles.filterCombo}
+            clearable={false}
+            value={slaFilter}
+            options={SLA_FILTER_OPTIONS}
+            onChange={changeSlaFilter}
+          />
+          <SearchableSelect
+            className={styles.filterCombo}
+            clearable={false}
+            value={source}
+            options={SOURCE_FILTER_OPTIONS}
+            onChange={changeSource}
+          />
+          {canReset ? (
+            <button
+              type="button"
+              className={styles.resetBtn}
+              onClick={resetFilters}
+              title="Đặt lại tất cả bộ lọc"
+            >
+              Đặt lại
+            </button>
+          ) : null}
+        </div>
+      </div>}
+
+      {/* Danh sách bên trái, chi tiết bên phải; mỗi bên tự cuộn trong khung của mình. */}
+      <div className={`${styles.split} ${viewMode === 'table' ? styles.splitTable : ''}`}>
+        {embedded ? null : <section className={styles.listPane} aria-label="Danh sách hồ sơ">
+          <div className={styles.listHead}>
+            <span>
+              <strong>{visible.length}</strong> hồ sơ
+            </span>
+            <SearchableSelect
+              className={styles.sortCombo}
+              clearable={false}
+              value={dateSort}
+              options={DATE_SORT_OPTIONS}
+              onChange={changeDateSort}
+            />
+          </div>
+
+          {visible.length === 0 ? (
+            <div className={styles.empty}>
+              <h2>Không có hồ sơ nào khớp bộ lọc</h2>
+              <p>Thử đổi điều kiện lọc hoặc tạo yêu cầu mới.</p>
+            </div>
+          ) : viewMode === 'table' ? (
+            <div className={styles.listBody}>
+              {masterTable}
+            </div>
+          ) : (
+            <div className={styles.listBody}>
+              {paged.map((instance) => {
+                const progress = instanceProgress(instance);
+                const percent = progressPercent(progress);
+                const current = instance.steps.find((step) => step.id === instance.currentStepId);
+                const project = instanceWorkspaceProject(instance);
+                return (
+                  <button
+                    key={instance.id}
+                    type="button"
+                    className={`${styles.caseRow} ${instance.id === selected?.id ? styles.caseRowOn : ''}`}
+                    aria-current={instance.id === selected?.id ? 'true' : undefined}
+                    onClick={() => setSelectedId(instance.id)}
+                  >
+                    {/* QT-U6: ẩn mã hồ sơ VÀ mã quy trình ở thẻ preview (đã có đủ khi mở
+                        chi tiết); vẫn tìm được qua ô tìm kiếm. Chỉ hiện badge SLA khi có. */}
+                    {evaluateInstanceSla(instance).state !== 'none' ? (
+                      <span className={styles.caseRowTop}>
+                        <SlaBadge view={evaluateInstanceSla(instance)} />
+                      </span>
+                    ) : null}
+                    <span className={styles.caseRowTitle} title={instance.title}>
+                      {instance.title}
+                    </span>
+                    <span className={styles.caseRowFoot}>
+                      {/* Hồ sơ của dự án: tên dự án ngay trên thẻ (mã khi hồ sơ cũ chưa lưu tên), mã khi rê chuột. */}
+                      {project ? (
+                        <span
+                          className={styles.caseRowProject}
+                          title={`Dự án ${project.projectName ? `${project.projectName} · ` : ''}${project.projectCode}`}
+                        >
+                          {project.projectName || project.projectCode}
+                        </span>
+                      ) : null}
+                      {instance.status === 'running' ? (
+                        <span
+                          className={styles.caseRowStep}
+                          title={progress.isEstimate ? 'Còn điểm rẽ nhánh phía trước nên tổng số bước là ước lượng' : undefined}
+                        >
+                          Bước {progressLabel(progress)}
+                          {current ? ` · ${current.name}` : ''}
+                        </span>
+                      ) : (
+                        <span className={styles.caseRowStep}>
+                          <span className={`${styles.badge} ${styles[instance.status]}`}>
+                            {STATUS_LABEL[instance.status]}
+                          </span>
+                        </span>
+                      )}
+                      <span className={styles.miniProgressBar} title={`Tiến độ ${percent}%`}>
+                        <span className={styles.miniProgressFill} style={{ width: `${percent}%` }} />
+                      </span>
+                      <span className={styles.caseRowPct}>{percent}%</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {visible.length > 0 ? (
+            <div className={styles.pager}>
+              <span className={styles.pagerInfo}>
+                {pageStart}–{pageEnd} / {visible.length}
+              </span>
+              <SearchableSelect
+                className={styles.pagerCombo}
+                clearable={false}
+                value={String(pageSize)}
+                options={PAGE_SIZE_OPTIONS}
+                onChange={changePageSize}
+              />
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang trước"
+                disabled={currentPage <= 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                <ChevronLeft size={15} aria-hidden />
+              </button>
+              <span className={styles.pagerPage}>
+                {currentPage}/{pageCount}
+              </span>
+              <button
+                type="button"
+                className={styles.pagerBtn}
+                aria-label="Trang sau"
+                disabled={currentPage >= pageCount}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                <ChevronRight size={15} aria-hidden />
+              </button>
+            </div>
+          ) : null}
+        </section>}
+
+        <section
+          className={styles.detailPane}
+          aria-label={selected ? `Chi tiết hồ sơ ${selected.code}` : 'Chi tiết hồ sơ'}
+        >
+          {selected ? (
+            <>
+              <header className={styles.detailHead}>
+                <div className={styles.detailHeadRow}>
+                  {/* QT-U6: ẩn mã Yêu cầu (id hồ sơ) để header gọn hơn. */}
+                  <span className={`${styles.badge} ${styles[selected.status]}`}>
+                    {STATUS_LABEL[selected.status]}
+                  </span>
+                  <SlaBadge view={evaluateInstanceSla(selected)} />
+                  <span className={styles.spacer} />
+
+                  {headerActions}
+                </div>
+
+                <h2 className={styles.detailTitle}>{selected.title}</h2>
+                {/* QT-U6: mã hồ sơ hiện ngay dưới tên (đã ẩn ở thẻ preview). */}
+                <div className={styles.detailCode}>{selected.code}</div>
+                {reversalNotes}
+
+                <SourceSummaryCard summary={selected.sourceSummary} />
+
+                <dl className={styles.metaLine}>
+                  <div>
+                    <dt>Khởi tạo</dt>
+                    <dd>
+                      {selected.activity.find((entry) => entry.action === 'start')?.actorName ?? '—'}
+                      {selected.createdOnBehalfBy ? ` (do ${selected.createdOnBehalfBy.name} tạo hộ)` : ''}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Quy trình</dt>
+                    <dd>
+                      {selected.definitionName} · v{selected.definitionVersion}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Nguồn</dt>
+                    <dd>
+                      <InstanceSourceValue instance={selected} />
+                    </dd>
+                  </div>
+                  {/* Hồ sơ của dự án: hiện dự án nào, bấm mở thẳng dự án / công việc bên Workspace. */}
+                  {selectedProject ? (
+                    <div>
+                      <dt>Dự án</dt>
+                      <dd>
+                        <InstanceProjectValue project={selectedProject} />
+                      </dd>
+                    </div>
+                  ) : null}
+                  <div>
+                    <dt>{selected.completedAt ? 'Hoàn tất' : 'Mở đơn'}</dt>
+                    <dd>{formatDateTime(selected.completedAt ?? selected.startedAt)}</dd>
+                  </div>
+                </dl>
+
+                {workspaceLinkNote}
+
+                <div className={styles.detailTabs} role="tablist" aria-label="Nội dung hồ sơ">
+                  {detailTabItems.map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={detailTab === tab.key}
+                      className={`${styles.detailTab} ${detailTab === tab.key ? styles.detailTabOn : ''}`}
+                      onClick={() => setDetailTab(tab.key)}
+                    >
+                      {tab.label}
+                      {tab.count ? <span className={styles.detailTabCount}>{tab.count}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              </header>
+
+              <div className={styles.detailBody}>
+                {detailTab === 'flow' ? (
+                  <>
+                    {/* Hồ sơ không có bước đang chạy trên dòng thời gian: khung xử lý đứng đầu như cũ. */}
+                    {currentInTimeline ? null : actionPanel}
+
+                    <ol className={styles.timeline}>
+                      {entries.map(renderEntry)}
+                    </ol>
+
+              {flowExtras}
+                  </>
+                ) : (
+                  otherTabPanel
+                )}
+              </div>
+            </>
+          ) : (
+            <div className={styles.empty}>
+              <p>Chọn một hồ sơ bên trái để xem chi tiết</p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {overlaysBottom}
 
     </section>
   );
@@ -1761,6 +2168,36 @@ function StepDocuments({ files }: { files: readonly ProcedureAttachment[] }) {
           ),
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Lời mời hoàn duyệt cho người vừa xử lý xong, đặt ngay chỗ người đó nhìn: dòng bước sẽ được mở lại trên tiến trình,
+ * hoặc khung xử lý của bước hiện tại khi họ không còn vai ở đó. Quyền vẫn do server quyết (`canWithdraw`).
+ */
+function WithdrawCallout({
+  text,
+  busy,
+  onWithdraw,
+}: {
+  text: string;
+  busy: boolean;
+  onWithdraw: () => void;
+}) {
+  return (
+    // Chặn bấm chuột và phím Enter/Space nổi lên dòng bước (dòng bước bấm được để mở popup xem lại): bấm vào lời mời
+    // không mở popup, và nút vẫn bấm bằng bàn phím được.
+    <div
+      className={styles.withdrawCallout}
+      role="note"
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => event.stopPropagation()}
+    >
+      <span className={styles.withdrawCalloutText}>{text}</span>
+      <button type="button" className={styles.headerWithdrawBtn} disabled={busy} onClick={onWithdraw}>
+        {busy ? 'Đang xử lý…' : 'Hoàn duyệt'}
+      </button>
     </div>
   );
 }
@@ -1829,7 +2266,27 @@ function ActionPanel({
   onUploadEvidence,
   onRequestMaterials,
   onSaveAttributes,
+  classNames,
+  concise = false,
+  resolveSubject,
+  leading,
 }: {
+  /**
+   * Chỉ đổi cách trình bày (không đổi logic, nút, xác nhận): cửa sổ hồ sơ của giao diện mới. Bỏ chữ giải thích dài; khung
+   * thành một khung "Việc cần làm" có một dòng đầu (tên bước, vai của bạn; hạn đã có ở đầu cửa sổ, không có Lưu nháp: giá
+   * trị vừa nhập đi cùng Hoàn tất / Phê duyệt), ô nhập một lưới co giãn, ô ý kiến một dòng có nút "Đính kèm tệp" bên phải
+   * (pha khởi tạo S không có ô ý kiến, nút đính kèm ở đầu trái hàng nút), tệp đã chọn dạng chip.
+   */
+  concise?: boolean;
+  /** Giao diện mới: tra chủ thể phân công ra người, để dòng đầu ghi "Đang chờ <tên người>". */
+  resolveSubject?: SubjectResolver;
+  /** Giao diện mới: khối của bước đang làm đặt ngay dưới dòng đầu (phiếu Tài chính, tài liệu của bước). */
+  leading?: ReactNode;
+  /**
+   * Chỉ thêm class (không đổi logic): giao diện A dùng để ghim hàng nút thao tác ở đáy khung chi tiết.
+   * `dock` gắn vào khối ý kiến + nút, `actionRow` gắn vào hàng nút thao tác.
+   */
+  classNames?: { readonly dock?: string; readonly actionRow?: string };
   busy?: string;
   isSubmitting?: boolean;
   comment: string;
@@ -1838,7 +2295,7 @@ function ActionPanel({
   attachQueue: File[];
   onAttachQueue: (files: File[]) => void;
   onAction: (
-    action: ProcedureRuntimeAction,
+    action: ProcedureApplyAction,
     comment?: string,
     returnToStepId?: string,
     attributeValues?: Record<string, ProcedureAttributeValue>,
@@ -1909,6 +2366,10 @@ function ActionPanel({
     for (const member of organization?.members ?? []) seen.set(member.userId, member.displayName);
     return [...seen].map(([userId, displayName]) => ({ userId, displayName }));
   }, [organization]);
+  // Hồ sơ thanh toán: "Người nhận" là ô chọn nhân sự, mặc định người tạo hồ sơ; STK, ngân hàng lấy theo hồ sơ nhân sự
+  // của người được chọn (HRM che STK nếu người đang nhập không phải chính chủ và không có quyền xem dữ liệu nhạy cảm).
+  // Phải đứng sau effect xoá nháp ở trên.
+  const payee = usePayeePicker({ instance, draft: attributeDraft, setDraft: setAttributeDraft, members, actorId });
   const [attachOpen, setAttachOpen] = useState(false);
   const [wbsOpen, setWbsOpen] = useState(false);
   const [confirmRejectOpen, setConfirmRejectOpen] = useState(false);
@@ -1947,13 +2408,130 @@ function ActionPanel({
   // Pure "I" (Informed) role check — read-only notice
   const isRoleI = myRoles.length === 1 && myRoles[0] === 'I' && actions.length === 0;
 
-  const isActionBusy = (action: ProcedureRuntimeAction) =>
+  const isActionBusy = (action: ProcedureApplyAction) =>
     busy === `${action}:${instance.id}` || isSubmitting;
 
+  const saveDraft = onSaveAttributes
+    ? () => void onSaveAttributes(attributeDraft).then(() => setAttributeDraft({}))
+    : undefined;
+  // Thêm tệp vào hàng chờ (tải lên khi bấm thao tác), dùng cho cả hai cách trình bày.
+  const queueFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    if (files.length > 0) {
+      onAttachQueue([...attachQueue, ...files]);
+    }
+    event.target.value = '';
+  };
+  const queuedChips =
+    attachQueue.length > 0 ? (
+      <div className={styles.attachChipList}>
+        {attachQueue.map((file, idx) => (
+          <span key={idx} className={styles.attachChip}>
+            <span className={styles.attachChipName} title={file.name}>{file.name}</span>
+            <span className={styles.attachChipSize}>
+              ({(file.size / 1024).toFixed(0)} KB)
+            </span>
+            <button
+              type="button"
+              className={styles.attachChipRemove}
+              aria-label="Xoá tệp"
+              onClick={() =>
+                onAttachQueue(attachQueue.filter((_, i) => i !== idx))
+              }
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+    ) : null;
+
+  // Giao diện mới: ô ý kiến một dòng, tự cao theo nội dung (tính cả viền để không hiện thanh cuộn thừa).
+  const commentRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const field = commentRef.current;
+    if (!concise || !field) return;
+    field.style.height = 'auto';
+    field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+  }, [comment, concise]);
+
+  // Giao diện mới: dòng đầu duy nhất của khung "Việc cần làm".
+  const running = instance.status === 'running';
+  const stage = authorization?.currentRoleStage ?? current?.currentRoleStage ?? undefined;
+  const myRole = stage && myRoles.includes(stage) ? stage : PERFORMER_ROLE_ORDER.find((role) => myRoles.includes(role));
+  const waiting = concise && effectiveActions.length === 0 ? currentWaiting(instance, resolveSubject) : undefined;
+  const taskHead =
+    concise && running && current ? (
+      <header className={caseStyles.taskHead} data-task-head="">
+        <div className={caseStyles.taskTitle}>
+          <h3 className={caseStyles.taskName} title={`Bước ${current.order} · ${current.name}`}>
+            <span className={caseStyles.taskOrder}>Bước {current.order}</span>
+            {current.name}
+          </h3>
+          {myRole ? (
+            <span className={caseStyles.youChip} title={`Vai của bạn ở bước này: ${myRoles.map((role) => ROLE_HUMAN_LABEL[role]).join(', ')}`}>
+              Bạn · {ROLE_HUMAN_LABEL[myRole]}
+            </span>
+          ) : authorization?.isOverride && effectiveActions.length > 0 ? (
+            <span className={caseStyles.youChip}>Bạn · Xử lý thay</span>
+          ) : null}
+          {authorization?.isDelegated ? <span className={caseStyles.taskTag}>được uỷ quyền</span> : null}
+          {authorization?.isEscalated ? <span className={caseStyles.taskTag}>xử lý thay cấp dưới</span> : null}
+          {waiting ? (
+            <span className={caseStyles.taskWaiting} title={`Đang chờ ${waiting.title}`}>
+              Đang chờ <b>{waiting.text}</b>
+            </span>
+          ) : null}
+        </div>
+      </header>
+    ) : null;
+
+  // Giao diện mới, pha khởi tạo (S): không có ô ý kiến (người duyệt đọc các ô đã nhập; thao tác vẫn gửi ý kiến rỗng như
+  // khi để trống ô). Nút "Đính kèm tệp" chuyển sang đầu trái hàng nút thao tác, cùng hàng chờ và cách tải lên như cũ.
+  const hideComment = concise && stage === 'S';
+  const attachControl = concise ? (
+    <>
+      <input ref={fileInputRef} type="file" multiple hidden onChange={queueFiles} />
+      <button type="button" className={caseStyles.attachBtn} onClick={() => fileInputRef.current?.click()}>
+        <Paperclip size={14} aria-hidden /> Đính kèm tệp
+      </button>
+    </>
+  ) : null;
+
+  // Ô ý kiến (dùng cho cả hai cách trình bày). Giao diện mới: một dòng, nhãn chỉ dành cho trình đọc màn hình.
+  const commentField = (
+    <label className={concise ? `${styles.commentField} ${caseStyles.taskComment}` : styles.commentField}>
+      <span className={concise ? `${styles.commentLabel} ${caseStyles.srOnly}` : styles.commentLabel}>
+        {concise ? 'Ý kiến / ghi chú' : commentCopy.label}
+      </span>
+      <textarea
+        ref={commentRef}
+        rows={concise ? 1 : 2}
+        placeholder={concise ? 'Ý kiến / ghi chú…' : commentCopy.placeholder}
+        value={comment}
+        onChange={(event) => onComment(event.target.value)}
+        onKeyDown={(e) => {
+          if (e.ctrlKey && e.key === 'Enter') {
+            const primaryAction = effectiveActions.find((a) => a === 'approve' || a === 'complete');
+            // QT-L3: vẫn đi qua bước xác nhận modal thay vì chạy thẳng.
+            if (primaryAction && !isActionBusy(primaryAction)) {
+              setConfirmPrimary(primaryAction);
+            }
+          }
+        }}
+      />
+    </label>
+  );
+
   return (
-    <div className={styles.actionPanel}>
+    <div
+      className={concise ? `${styles.actionPanel} ${caseStyles.taskPanel}` : styles.actionPanel}
+      {...(concise ? { role: 'region', 'aria-label': 'Việc cần làm' } : {})}
+    >
+      {taskHead}
+      {concise && running ? leading : null}
       {/* Role badges */}
-      {myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated ? (
+      {!concise && (myRoles.length > 0 || authorization?.isDelegated || authorization?.isEscalated) ? (
         <p className={styles.myRoles}>
           Vai của bạn:{' '}
           {myRoles.map((role) => (
@@ -1975,14 +2553,24 @@ function ActionPanel({
               ? 'Hồ sơ đã hoàn thành, không còn bước cần xử lý.'
               : 'Hồ sơ đã kết thúc, không còn bước cần xử lý.'}
         </p>
-      ) : isRoleI ? (
-        <p className={styles.panelHint}>
-          Bạn giữ vai I ở bước này.
-        </p>
-      ) : !canAct ? (
-        <p className={styles.panelHint}>
-          Bạn không giữ vai ở bước này.
-        </p>
+      ) : isRoleI || !canAct ? (
+        <>
+          <p className={styles.panelHint}>
+            {isRoleI ? 'Bạn giữ vai I ở bước này.' : 'Bạn không giữ vai ở bước này.'}
+          </p>
+          {/* Người vừa duyệt xong bước trước đã rời bước đó: vẫn rút lại được ngay tại đây khi bước này chưa ai xử lý. */}
+          {authorization?.canWithdraw ? (
+            <WithdrawCallout
+              text={
+                concise
+                  ? `Bạn còn hoàn duyệt được bước “${authorization.withdrawStepName ?? 'trước'}”.`
+                  : `Bạn vừa xử lý xong bước “${authorization.withdrawStepName ?? 'trước'}”. Bước này chưa ai xử lý nên bạn còn hoàn duyệt được để làm lại.`
+              }
+              busy={Boolean(isActionBusy('withdraw'))}
+              onWithdraw={() => onAction('withdraw')}
+            />
+          ) : null}
+        </>
       ) : (
         <>
           {/* 4. WBS Inline Section (for E role, collapsible) */}
@@ -2038,45 +2626,35 @@ function ActionPanel({
             busy={busy === 'attributes' || isSubmitting}
             members={members}
             attachments={attachments.filter((file) => file.instanceId === instance.id)}
-            onSaveDraft={
-              onSaveAttributes
-                ? () => void onSaveAttributes(attributeDraft).then(() => setAttributeDraft({}))
-                : undefined
-            }
+            payee={payee}
+            onSaveDraft={saveDraft}
+            variant={concise ? 'modal' : 'default'}
           />
 
           {/* QT-U5: ô "trả lại về bước" + xác nhận nằm trong pop-up nền mờ (xem cuối panel). */}
 
-          {current?.integration?.module === 'finance' && current.status === 'active' ? (
-            <p className={financeStyles.waitingNote}>
-              Bước này đóng khi kế toán ghi sổ phiếu ở module Tài chính; kế toán trả hồ sơ thì hồ sơ tự quay về bước đã cấu
-              hình. Ở đây chỉ gửi trao đổi.
-            </p>
+          {!concise && current?.integration?.module === 'finance' && current.status === 'active' ? (
+            <FinanceWaitingNote step={current} />
           ) : null}
 
           {/* Ý kiến và nút thao tác ghim ở đáy khung chi tiết: bước dài vẫn bấm được ngay. */}
-          <div className={styles.actionDock}>
+          <div className={classNames?.dock ? `${styles.actionDock} ${classNames.dock}` : styles.actionDock}>
             {/* 2. Textarea (Adaptable by RACIE role) */}
-            <label className={styles.commentField}>
-              <span className={styles.commentLabel}>{commentCopy.label}</span>
-              <textarea
-                rows={2}
-                placeholder={commentCopy.placeholder}
-                value={comment}
-                onChange={(event) => onComment(event.target.value)}
-                onKeyDown={(e) => {
-                  if (e.ctrlKey && e.key === 'Enter') {
-                    const primaryAction = effectiveActions.find((a) => a === 'approve' || a === 'complete');
-                    // QT-L3: vẫn đi qua bước xác nhận modal thay vì chạy thẳng.
-                    if (primaryAction && !isActionBusy(primaryAction)) {
-                      setConfirmPrimary(primaryAction);
-                    }
-                  }
-                }}
-              />
-            </label>
-
-            {/* 3. Attachment section — Toggle Dropzone */}
+            {/* 3. Đính kèm: giao diện mới là ô ý kiến một dòng + nút mở chọn tệp ngay bên phải, tệp đã chọn dạng chip bên
+                dưới; giao diện cũ là ô ý kiến rồi khung thả tệp. */}
+            {hideComment ? (
+              queuedChips ? <div className={caseStyles.taskComposer}>{queuedChips}</div> : null
+            ) : concise ? (
+              <div className={caseStyles.taskComposer}>
+                <div className={caseStyles.taskCommentRow} data-comment-row="">
+                  {commentField}
+                  {attachControl}
+                </div>
+                {queuedChips}
+              </div>
+            ) : (
+            <>
+            {commentField}
             <div className={styles.attachSection}>
               <button
                 type="button"
@@ -2101,37 +2679,10 @@ function ActionPanel({
                     type="file"
                     multiple
                     hidden
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files ?? []);
-                      if (files.length > 0) {
-                        onAttachQueue([...attachQueue, ...files]);
-                      }
-                      e.target.value = '';
-                    }}
+                    onChange={queueFiles}
                   />
 
-                  {attachQueue.length > 0 ? (
-                    <div className={styles.attachChipList}>
-                      {attachQueue.map((file, idx) => (
-                        <span key={idx} className={styles.attachChip}>
-                          <span className={styles.attachChipName} title={file.name}>{file.name}</span>
-                          <span className={styles.attachChipSize}>
-                            ({(file.size / 1024).toFixed(0)} KB)
-                          </span>
-                          <button
-                            type="button"
-                            className={styles.attachChipRemove}
-                            aria-label="Xoá tệp"
-                            onClick={() =>
-                              onAttachQueue(attachQueue.filter((_, i) => i !== idx))
-                            }
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
+                  {queuedChips}
 
                   <div className={styles.attachActionsRow}>
                     <button
@@ -2141,22 +2692,56 @@ function ActionPanel({
                     >
                       Chọn tệp từ máy tính
                     </button>
-                    <span className={styles.attachSubtext}>
-                      Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
-                    </span>
+                    {concise ? null : (
+                      <span className={styles.attachSubtext}>
+                        Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
+                      </span>
+                    )}
                   </div>
                 </div>
               ) : null}
             </div>
+            </>
+            )}
 
             {/* Action buttons */}
             {effectiveActions.length === 0 ? (
-              <p className={styles.panelHint}>
-                Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
-              </p>
+              <>
+                {/* Giao diện mới: dòng đầu khung đã ghi "Đang chờ <ai>". */}
+                {concise ? null : (
+                  <p className={styles.panelHint}>
+                    Chưa tới lượt bạn: bước này đang ở pha {current?.currentRoleStage ?? '—'}.
+                  </p>
+                )}
+                {/* Người vừa xử lý pha trước đó rút lại được ngay tại đây khi pha sau chưa ai làm. */}
+                {authorization?.canWithdraw ? (
+                  <div
+                    className={classNames?.actionRow ? `${styles.actionRow} ${classNames.actionRow}` : styles.actionRow}
+                    data-pinned-actions={classNames ? 'true' : undefined}
+                  >
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      disabled={isActionBusy('withdraw')}
+                      onClick={() => onAction('withdraw')}
+                    >
+                      {isActionBusy('withdraw') ? 'Đang xử lý…' : 'Hoàn duyệt'}
+                    </button>
+                    {concise ? null : (
+                      <span className={styles.attachSubtext}>
+                        Rút lại lần xử lý vừa rồi để làm lại, khi người sau chưa xử lý.
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+              </>
             ) : (
               <>
-                <div className={styles.actionRow}>
+                <div
+                  className={classNames?.actionRow ? `${styles.actionRow} ${classNames.actionRow}` : styles.actionRow}
+                  data-pinned-actions={classNames ? 'true' : undefined}
+                >
+                  {hideComment ? <span className={caseStyles.barAttach}>{attachControl}</span> : null}
                   {effectiveActions
                     .filter((action) => action !== 'approve' && action !== 'complete' && action !== 'comment' && action !== 'cancel')
                     .map((action) => {

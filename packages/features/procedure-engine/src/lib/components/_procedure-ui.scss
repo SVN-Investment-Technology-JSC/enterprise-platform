@@ -1,0 +1,251 @@
+// Token và mixin giao diện dùng chung cho các màn của Quy trình: "Hồ sơ xử lý" (giao diện A, `case-layout-a/`), bảng hồ sơ
+// (`case-table/`) và form thuộc tính, để các màn nhìn như một hệ thống: cùng màu, cỡ chữ, khoảng cách, chiều cao
+// ô điều khiển, kiểu tab dạng phân đoạn, dòng tiêu đề nhóm dự án, chip, khung thẻ / bảng và ảnh chữ tắt.
+// Chỉ có biến và mixin (không sinh class), nên dùng được trong mọi file `.module.scss` bằng `@use`.
+
+// ---- Màu ----
+$ink: #18181b;
+$muted: #6b7280;
+$faint: #9ca3af;
+$line: #eef0f3;
+$control: #e5e7eb;
+$surface: #ffffff;
+$head-bg: #fafbfc;
+$hover-bg: #f4f6f9;
+$blue: #2563eb;
+$blue-hover: #1d4ed8;
+$blue-soft: #eff6ff;
+$accent: #ffc90a;
+$accent-strong: #d9ab00;
+$accent-ink: #6b4e00;
+$accent-soft: #fffbea;
+$danger: #dc2626;
+$danger-ink: #b91c1c;
+$danger-soft: #fef2f2;
+$success: #059669;
+$success-ink: #047857;
+$success-soft: #ecfdf5;
+// Dòng tiêu đề nhóm dự án: tên dự án chữ đỏ trên nền xám rất nhạt.
+$group-ink: #dc2626;
+$group-bg: #f6f7f9;
+$selected-bg: $accent-soft;
+
+// ---- Khoảng cách (thang 4/8/12/16) ----
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+
+// ---- Cỡ chữ ----
+$fs-body: 14px;
+$fs-control: 13px;
+$fs-small: 12px;
+$fs-title: 18px;
+
+// ---- Bo góc, chiều cao ô điều khiển ----
+$radius-sm: 6px;
+$radius: 8px;
+$radius-card: 10px;
+$control-h: 32px;
+
+// Khung thẻ / bảng: viền mảnh, bo 10px, nền trắng.
+@mixin card {
+  border: 1px solid $line;
+  border-radius: $radius-card;
+  background: $surface;
+}
+
+// Tiêu đề nhỏ: 12px in hoa, đậm, màu nhạt (tiêu đề cột, tiêu đề mục).
+@mixin small-head {
+  color: $muted;
+  font-size: $fs-small;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+// Thanh công cụ: một hàng, xuống hàng gọn khi hẹp.
+@mixin toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $space-2 $space-3;
+  min-width: 0;
+}
+
+// Tab dạng phân đoạn (cùng kiểu ở cả hai màn): khung xám nhạt, mục đang chọn nền trắng viền mảnh, số đếm vàng.
+@mixin segmented {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px;
+  overflow-x: auto;
+  border-radius: $radius;
+  background: #f3f4f6;
+  scrollbar-width: none;
+}
+
+@mixin segmented-item {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: $control-h - 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: $muted;
+  font: inherit;
+  font-size: $fs-control;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    color: $ink;
+  }
+
+  &:focus-visible {
+    outline: 2px solid $blue;
+    outline-offset: 1px;
+  }
+}
+
+@mixin segmented-item-on {
+  background: $surface;
+  box-shadow: 0 0 0 1px $control;
+  color: $ink;
+  font-weight: 600;
+}
+
+@mixin segmented-count {
+  min-width: 18px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: $control;
+  color: #374151;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+
+@mixin segmented-count-on {
+  background: $accent;
+  color: $accent-ink;
+}
+
+// Ô tìm kiếm cao 32px, biểu tượng kính lúp bên trái.
+@mixin search-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: $control-h;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid $control;
+  border-radius: $radius;
+  background: $surface;
+  color: $faint;
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: $ink;
+    font: inherit;
+    font-size: $fs-control;
+  }
+
+  &:focus-within {
+    border-color: $accent-strong;
+    box-shadow: 0 0 0 3px rgba(255, 201, 10, 0.22);
+  }
+}
+
+// Nút phụ cao 32px, viền xám, nền trắng.
+@mixin button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: $control-h;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid $control;
+  border-radius: $radius;
+  background: $surface;
+  color: $ink;
+  font: inherit;
+  font-size: $fs-control;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: $hover-bg;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// Dòng tiêu đề nhóm dự án.
+@mixin group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 0 $space-3;
+  border: 0;
+  border-bottom: 1px solid $line;
+  background: $group-bg;
+  color: $group-ink;
+  font: inherit;
+  font-size: $fs-small;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+// Chip nhỏ (trạng thái, SLA, "chờ"): bo tròn, chữ 12px.
+@mixin chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  font-size: $fs-small;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// Ảnh chữ tắt tròn 24px.
+@mixin avatar {
+  display: inline-grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}

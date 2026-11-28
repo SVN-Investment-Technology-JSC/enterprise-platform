@@ -1,6 +1,7 @@
 import type {
   ContractDetail,
   ContractLine,
+  ContractQuotePreview,
   ContractStatus,
   ContractSummary,
   ContractType,
@@ -50,6 +51,9 @@ export interface ContractRecord {
 
 export type ContractLineRecord = ContractLine;
 
+/** Phần đầu hợp đồng lập từ báo giá; `value` rỗng là lấy tổng phiên bản khách chấp nhận. */
+export type ContractQuoteRecord = Omit<ContractRecord, 'value'> & { readonly value: number | null };
+
 export interface ContractTransition {
   readonly from: ContractStatus;
   readonly to: Exclude<ContractStatus, 'DRAFT' | 'ACTIVE'>;
@@ -63,6 +67,14 @@ export interface ContractStore {
   getContract(tenantId: string, scope: CrmDataScope, id: string): Promise<ContractDetail | undefined>;
   /** Tạo hợp đồng Nháp cùng dòng và nhật ký. Trả id. */
   createContract(tenantId: string, record: ContractRecord, lines: readonly ContractLineRecord[], actorId: string): Promise<string>;
+  /**
+   * Tạo hợp đồng Nháp gắn báo giá trong một transaction: khoá báo giá, kiểm lại (khách chấp nhận, chưa chuyển hay
+   * gắn, cùng khách), dòng lấy từ phiên bản khách chấp nhận như khi chuyển báo giá, `value` rỗng thì lấy tổng phiên
+   * bản; đánh dấu báo giá đã chuyển và ghi nhật ký báo giá. Không sinh đơn bán. Trả id.
+   */
+  createContractFromQuote(tenantId: string, quoteId: string, record: ContractQuoteRecord, actorId: string): Promise<string>;
+  /** Dòng, giá trị hợp đồng sẽ lấy từ báo giá (không khoá, không ghi); báo giá không gắn được thì 409. */
+  quoteContractPreview(tenantId: string, quoteId: string): Promise<ContractQuotePreview>;
   /**
    * Sửa hợp đồng Nháp. `lines` rỗng (`undefined`) giữ dòng đang có; `terms`
    * có khi giá trị đổi (số tiền đợt phần trăm tính lại).

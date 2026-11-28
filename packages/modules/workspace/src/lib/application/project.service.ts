@@ -836,6 +836,50 @@ export class ProjectService {
     return this.store.member.replaceAll(actor.tenantId, projectId, actor.userId, members);
   }
 
+  /**
+   * Danh sách dự án còn mở để CHỌN (vd ô "Dự án" khi mở hay đổi dự án cho hồ sơ Quy trình): mã, tên, vai và quyền của người gọi.
+   * Cùng phạm vi thấy như danh sách dự án (quản trị thấy mọi dự án, người khác chỉ dự án mình là thành viên) nhưng chỉ một câu
+   * SQL, không tính thống kê, và quyền tính theo từng loại vai thay vì từng dự án, nên nhanh hơn nhiều so với lật từng trang.
+   */
+  async openOptions(actor: WorkspaceActor): Promise<
+    ReadonlyArray<{
+      readonly id: string;
+      readonly code: string;
+      readonly name: string;
+      readonly myRole?: ProjectRole;
+      readonly myPermissions: ProjectPermission[];
+    }>
+  > {
+    const rows = await this.store.project.openOptions(actor.tenantId, actor.userId, !seesAllProjects(actor));
+    const byRole = new Map<string, ProjectPermission[]>();
+    const permissionsFor = async (role: ProjectRole | undefined) => {
+      const key = role ?? '';
+      let found = byRole.get(key);
+      if (!found) {
+        const permissions = role && this.roles ? await this.roles.permissionsOf(actor.tenantId, role) : undefined;
+        found = effectivePermissions({
+          role,
+          isTenantAdmin: actor.isTenantAdmin,
+          canAdminProjects: actor.canAdminProjects,
+          permissions,
+        });
+        byRole.set(key, found);
+      }
+      return found;
+    };
+    const result = [];
+    for (const row of rows) {
+      result.push({
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        ...(row.role ? { myRole: row.role } : {}),
+        myPermissions: await permissionsFor(row.role),
+      });
+    }
+    return result;
+  }
+
   /** Vai trò và quyền của người gọi trong nhiều dự án cùng lúc. */
   private async rolesOf(
     actor: WorkspaceActor,

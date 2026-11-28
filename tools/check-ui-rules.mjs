@@ -24,7 +24,6 @@ const BASELINE = {
   'packages/features/procedure-engine/src/lib/components/organization-board.tsx': { select: 4 },
   'packages/features/procedure-engine/src/lib/components/rcsi-board.tsx': { select: 3 },
   'packages/features/procedure-engine/src/lib/components/subtask-panel.tsx': { emoji: 1, select: 6 },
-  'packages/features/procedure-engine/src/lib/procedure-dashboard.cards.tsx': { select: 1 },
 };
 
 const RULES = {

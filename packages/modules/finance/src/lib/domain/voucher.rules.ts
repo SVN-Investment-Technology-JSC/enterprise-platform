@@ -4,7 +4,10 @@ import {
   FINANCE_NOTE_MAX_LENGTH,
   FINANCE_VOUCHER_KINDS,
   financeLineTotal,
+  financeMissingFields,
+  financeMissingFieldsMessage,
   roundMoney,
+  type FinanceAccountType,
   type FinanceVoucherInvoice,
   type FinanceVoucherKind,
   type FinanceAllocationInput,
@@ -200,7 +203,8 @@ function normalizeAllocation(raw: FinanceAllocationInput | null | undefined, isT
 }
 
 export interface SubmitReferences {
-  account: { name: string; isActive: boolean; openingDate: string } | null;
+  /** `accountType` cho biết tài khoản ngân hàng hay quỹ tiền mặt (phiếu chi chuyển khoản cần thông tin người nhận); vắng thì bỏ qua. */
+  account: { name: string; isActive: boolean; openingDate: string; accountType?: FinanceAccountType } | null;
   dest: { name: string; isActive: boolean; openingDate: string } | null;
   reason: { kind: string; isActive: boolean; requireProject?: boolean } | null;
   counterpartyGroup: { isActive: boolean } | null;
@@ -208,32 +212,50 @@ export interface SubmitReferences {
   requireAllocation?: boolean;
 }
 
-/** Điều kiện để gửi duyệt: trả danh sách lỗi (rỗng nghĩa là hợp lệ). */
+/**
+ * Điều kiện để gửi duyệt và để duyệt ghi sổ: trả danh sách lỗi (rỗng nghĩa là hợp lệ). Phiếu thu/chi: lỗi đầu là câu "Còn thiếu: ..."
+ * gom mọi trường bắt buộc chưa nhập (luật chung `financeMissingFields` của contracts-finance, giao diện dùng đúng luật này), sau đó
+ * là lỗi của giá trị đã nhập (lý do sai loại, tài khoản ngừng dùng...). Lệnh chuyển tiền giữ luật riêng.
+ */
 export function validateForSubmit(voucher: NormalizedVoucher, refs: SubmitReferences): string[] {
   const errors: string[] = [];
   const isTransfer = voucher.kind === 'TRANSFER';
-  if (voucher.totalAmount <= 0) errors.push('Số tiền phải lớn hơn 0.');
   if (!isTransfer) {
-    if (!voucher.lines.length) errors.push('Cần ít nhất một dòng chi tiết.');
+    const missing = financeMissingFields({
+      kind: voucher.kind,
+      voucherDate: voucher.voucherDate,
+      postingDate: voucher.postingDate,
+      content: voucher.content,
+      totalAmount: voucher.totalAmount,
+      reasonId: voucher.reasonId,
+      accountId: voucher.accountId,
+      accountType: refs.account?.accountType ?? null,
+      counterpartyGroupId: voucher.counterpartyGroupId,
+      counterpartyName: voucher.counterpartyName,
+      counterpartyAccountNo: voucher.counterpartyAccountNo,
+      counterpartyBank: voucher.counterpartyBank,
+      hasAllocation: Boolean(voucher.allocation),
+      // Bắt buộc chọn dự án khi cài đặt chung bật, hoặc khi lý do của phiếu bắt buộc (như "Chi theo dự án").
+      allocationRequired: Boolean(refs.reason?.requireProject || refs.requireAllocation),
+    });
+    if (missing.length) errors.push(financeMissingFieldsMessage(voucher.kind, missing));
     if (voucher.lines.some((line) => line.total <= 0)) errors.push('Mỗi dòng chi tiết phải có thành tiền lớn hơn 0.');
-    if (!voucher.reasonId) errors.push(voucher.kind === 'RECEIPT' ? 'Chọn lý do thu.' : 'Chọn lý do chi.');
-    else if (!refs.reason) errors.push('Lý do không tồn tại.');
-    else {
-      if (refs.reason.kind !== voucher.kind) errors.push('Lý do không đúng loại phiếu.');
-      if (!refs.reason.isActive) errors.push('Lý do đã ngừng sử dụng.');
+    if (voucher.reasonId) {
+      if (!refs.reason) errors.push('Lý do không tồn tại.');
+      else {
+        if (refs.reason.kind !== voucher.kind) errors.push('Lý do không đúng loại phiếu.');
+        if (!refs.reason.isActive) errors.push('Lý do đã ngừng sử dụng.');
+      }
     }
-    if (!voucher.counterpartyGroupId) errors.push(voucher.kind === 'RECEIPT' ? 'Chọn đối tượng thu.' : 'Chọn đối tượng chi.');
-    else if (!refs.counterpartyGroup) errors.push('Đối tượng không tồn tại.');
-    else if (!refs.counterpartyGroup.isActive) errors.push('Đối tượng đã ngừng sử dụng.');
-  }
-  // Bắt buộc chọn dự án khi cài đặt chung bật, hoặc khi lý do của phiếu bắt buộc (như "Chi theo dự án").
-  if (!isTransfer && !voucher.allocation) {
-    if (refs.reason?.requireProject) errors.push('Lý do đã chọn bắt buộc hạch toán cho dự án: hãy chọn dự án ở mục Hạch toán nội bộ.');
-    else if (refs.requireAllocation) errors.push('Chọn dự án ở mục Hạch toán nội bộ (tenant đang bắt buộc hạch toán dự án).');
-  }
+    if (voucher.counterpartyGroupId) {
+      if (!refs.counterpartyGroup) errors.push('Đối tượng không tồn tại.');
+      else if (!refs.counterpartyGroup.isActive) errors.push('Đối tượng đã ngừng sử dụng.');
+    }
+  } else if (voucher.totalAmount <= 0) errors.push('Số tiền phải lớn hơn 0.');
   const accountLabel = isTransfer ? 'tài khoản nguồn' : voucher.kind === 'RECEIPT' ? 'tài khoản thu' : 'tài khoản chi';
-  if (!voucher.accountId) errors.push(`Chọn ${accountLabel}.`);
-  else if (!refs.account) errors.push(`${capitalize(accountLabel)} không tồn tại.`);
+  if (!voucher.accountId) {
+    if (isTransfer) errors.push(`Chọn ${accountLabel}.`);
+  } else if (!refs.account) errors.push(`${capitalize(accountLabel)} không tồn tại.`);
   else {
     if (!refs.account.isActive) errors.push(`${capitalize(accountLabel)} đã ngừng sử dụng.`);
     if (voucher.postingDate < refs.account.openingDate)
@@ -267,6 +289,11 @@ export interface PermissionInput {
   approvalMode: FinanceApprovalMode;
   /** Chế độ PROCEDURE: người dùng đang được giao bước hiện tại (null: chưa biết). */
   procedureCanAct: boolean | null;
+  /**
+   * Cách duyệt đang cấu hình cho loại phiếu. DIRECT (mặc định): phiếu nháp/bị từ chối được người duyệt "Duyệt ghi sổ" ngay, không
+   * cần gửi duyệt trước. PROCEDURE: phiếu phải gửi duyệt để chạy quy trình.
+   */
+  bindingMode?: 'DIRECT' | 'PROCEDURE';
 }
 
 /** Thao tác người xem được làm trên một phiếu. Server kiểm lại ở từng endpoint, đây chỉ để giao diện hiển thị nút. */
@@ -292,17 +319,22 @@ export function computeVoucherPermissions(input: PermissionInput): FinanceVouche
   // nháp) — phiếu đang chờ duyệt THEO QUY TRÌNH thì không, vì Procedure Engine đã nhận snapshot số liệu lúc gửi.
   const editableDraftLike = input.status === 'DRAFT' || input.status === 'REJECTED';
   const editablePending = pending && input.approvalMode === 'DIRECT';
-  const directDecision =
-    pending && input.approvalMode === 'DIRECT' && input.canApprove && (!mine || input.allowSelfApproval);
+  const selfAllowed = !mine || input.allowSelfApproval;
+  const directDecision = pending && input.approvalMode === 'DIRECT' && input.canApprove && selfAllowed;
+  // Chỉ còn hai trạng thái hiển thị (Nháp / Đã duyệt): phiếu nháp hoặc bị từ chối cũng "Duyệt ghi sổ" thẳng được khi loại phiếu
+  // duyệt trực tiếp; điều kiện đủ thông tin kiểm ở máy chủ lúc duyệt (và báo trước qua `approveBlockedReason`).
+  const draftDecision = editableDraftLike && (input.bindingMode ?? 'DIRECT') === 'DIRECT' && input.canApprove && selfAllowed;
   const procedureDecision = pending && input.approvalMode === 'PROCEDURE' && input.procedureCanAct === true;
   const decide = directDecision || procedureDecision;
+  const posted = input.status === 'APPROVED';
   return {
     canEdit: (editableDraftLike || editablePending) && owner,
     canSubmit: editableDraftLike && owner,
-    canApprove: decide,
+    canApprove: decide || draftDecision,
     canReject: decide,
-    canCancel: (editableDraftLike || pending) && (owner || (input.canApprove && input.status !== 'DRAFT')),
-    canReverse: input.status === 'APPROVED' && input.canApprove,
+    // Huỷ = xoá phiếu chưa ghi sổ; phiếu đã ghi sổ thì đảo bút toán rồi ẩn (chỉ người có quyền duyệt).
+    canCancel: ((editableDraftLike || pending) && (owner || (input.canApprove && input.status !== 'DRAFT'))) || (posted && input.canApprove),
+    canReverse: posted && input.canApprove,
     canDelete: (input.status === 'DRAFT' || editablePending) && owner,
     // Nơi gọi (có thông tin liên kết quy trình) bật cờ này sau khi tính.
     canRetryProcedure: false,

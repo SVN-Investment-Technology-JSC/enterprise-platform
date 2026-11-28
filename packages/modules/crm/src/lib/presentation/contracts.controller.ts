@@ -2,6 +2,7 @@ import type {
   ContractActionRequest,
   ContractDetail,
   ContractListQuery,
+  ContractQuotePreview,
   ContractSummary,
   CrmPage,
   SaveContractRequest,
@@ -28,6 +29,12 @@ export class ContractsController {
   @Get('contracts')
   list(@Req() request: CrmRequest, @Query() query: ContractListQuery): Promise<CrmPage<ContractSummary>> {
     return runCrm(() => this.contracts.list(crmActor(request), query));
+  }
+
+  /** Dòng, giá trị hợp đồng sẽ lấy từ báo giá khi lập hợp đồng gắn báo giá. */
+  @Get('contracts/quote-preview/:quoteId')
+  quotePreview(@Req() request: CrmRequest, @Param('quoteId') quoteId: string): Promise<ContractQuotePreview> {
+    return runCrm(() => this.contracts.quotePreview(crmActor(request), quoteId));
   }
 
   @Post('contracts')

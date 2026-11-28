@@ -220,6 +220,7 @@ import { PromotionsController } from './presentation/promotions.controller.js';
 import { PipelineConfigService } from './application/pipeline-config.service.js';
 import { CRM_PIPELINE_ADMIN_STORE, type PipelineAdminStore } from './application/pipeline-admin-store.port.js';
 import { PostgresPipelineAdminStore } from './infrastructure/postgres-pipeline-admin.store.js';
+import { LinkableController } from './presentation/linkable.controller.js';
 import { PipelinesController } from './presentation/pipelines.controller.js';
 
 /** Store Postgres dựng từ `CrmDatabase`. */
@@ -266,6 +267,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
     QuoteDocumentsController,
     PromotionsController,
     PipelinesController,
+    LinkableController,
   ],
   providers: [
     TenantDatabaseRegistry,
@@ -603,7 +605,8 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         inventory: InventoryClient,
         settings: SalesSettingsStore,
         dispatcher: IntegrationDispatcher,
-      ) => new ContractService(contracts, customers, catalog, scopes, inventory, settings, dispatcher),
+        quotes: QuoteStore,
+      ) => new ContractService(contracts, customers, catalog, scopes, inventory, settings, dispatcher, undefined, quotes),
       inject: [
         CRM_CONTRACT_STORE,
         CRM_CUSTOMER_STORE,
@@ -612,6 +615,7 @@ function store<T>(token: symbol, create: (database: CrmDatabase) => T) {
         CRM_INVENTORY_CLIENT,
         CRM_SALES_SETTINGS_STORE,
         CRM_INTEGRATION_DISPATCHER,
+        CRM_QUOTE_STORE,
       ],
     },
     {

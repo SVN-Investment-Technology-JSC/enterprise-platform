@@ -49,8 +49,9 @@ import {
   type ProcedureOption,
 } from '../procedure-api';
 import { sameUnread } from '../chat.model';
+import type { OverviewTab } from '../overview-tabs';
 import { procedureProgressToWrite } from '../procedure-progress-pull';
-import { branchOf, mergeNewProjectMembers, parentCandidateOptions } from '../project-tree.model';
+import { branchOf, mergeNewProjectMembers, parentCandidateOptions, reopenChainForMove } from '../project-tree.model';
 import * as api from '../workspace-api';
 import { PROJECT_STATUS_LABELS } from '../workspace-labels';
 import styles from '../workspace.module.scss';
@@ -82,6 +83,9 @@ import { TabChats } from './tab-chats';
 import { TabCalendar } from './tab-calendar';
 import { TabFinance } from './tab-finance';
 import { TabRequests } from './tab-requests';
+import { RelatedObjectsPanel, TabRelated } from './tab-related';
+import { useRelatedObjectKinds } from './use-related-object-kinds';
+import { finishProjectCreate } from '../related-objects-link';
 import { TabOverview } from './tab-overview';
 import { TabWork } from './tab-work';
 import { useProgressReport } from './use-progress-report';
@@ -100,7 +104,15 @@ import { pendingProcedureOf, type PendingProcedure } from '../procedure-pending'
  * Các tab của dự án. Chi tiết một công việc không còn là tab: bấm một dòng
  * trong bảng WBS thì mở hộp chi tiết của công việc đó.
  */
-type TabId = 'work-items' | 'calendar' | 'documents' | 'finance' | 'requests' | 'activity' | 'chats';
+type TabId =
+  | 'work-items'
+  | 'calendar'
+  | 'documents'
+  | 'finance'
+  | 'requests'
+  | 'related'
+  | 'activity'
+  | 'chats';
 
 const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'work-items', label: 'Công việc' },
@@ -108,6 +120,7 @@ const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'documents', label: 'Tài liệu' },
   { id: 'finance', label: 'Tài chính' },
   { id: 'requests', label: 'Đơn từ' },
+  { id: 'related', label: 'Liên quan' },
   { id: 'activity', label: 'Hoạt động' },
 ];
 
@@ -271,11 +284,24 @@ export function ProjectsView({
   const [chatOpen, setChatOpen] = useState(false);
   /** Tin cần cuộn tới khi mở khung trao đổi từ thông báo nhắc tên; bỏ khi đóng khung để lần mở sau không nhảy lại. */
   const [chatFocusMessageId, setChatFocusMessageId] = useState<string>();
+  /**
+   * Trao đổi của công việc là một tab trong hộp chi tiết (không còn là ngăn kéo). Lệnh "Mở trao đổi" hay link thông báo
+   * mở thẳng tab đó (`itemTabRequest`); `itemChatFocus` là tin cần làm nổi bật, chỉ áp cho đúng công việc đó.
+   */
+  const [itemTabRequest, setItemTabRequest] = useState<{ itemId: string; tab: OverviewTab }>();
+  const clearItemTabRequest = useCallback(() => setItemTabRequest(undefined), []);
+  const [itemChatFocus, setItemChatFocus] = useState<{ itemId: string; messageId?: string }>();
+  /** Tăng lên khi form sửa vừa gắn hay gỡ đối tượng liên quan, để các danh sách Liên quan đang mở tải lại. */
+  const [relatedToken, setRelatedToken] = useState(0);
   // Chỗ trên hàng tab dành cho công tắc và thanh lọc của tab Trao đổi (null cho tới khi hàng đó được dựng).
   const [chatToolsSlot, setChatToolsSlot] = useState<HTMLElement | null>(null);
   const [unread, setUnread] = useState<UnreadSummary>();
   const [me, setMe] = useState('');
   const [projectDocuments, setProjectDocuments] = useState<readonly DocumentSummary[]>([]);
+  /** Loại hồ sơ gắn được ở tab Liên quan; rỗng khi công ty không dùng module nào cung cấp hồ sơ. */
+  const relatedKinds = useRelatedObjectKinds();
+  /** Số đối tượng liên quan của dự án đang mở, cho con số cạnh tên tab; `undefined` khi chưa biết. */
+  const [relatedCount, setRelatedCount] = useState<number>();
   /** Thư mục tài liệu của dự án, để khung trao đổi tải tệp mới lên được. */
   const [projectFolders, setProjectFolders] = useState<readonly DocumentFolder[]>([]);
   const [startableProcedures, setStartableProcedures] = useState<readonly ProcedureOption[]>([]);
@@ -445,13 +471,15 @@ export function ProjectsView({
       } catch {
         messageId = undefined;
       }
-      setChatFocusMessageId(messageId);
       if (first === 'work_item' && detail.items.some((item) => item.id === second)) {
         setSelected({ kind: 'work-item', id: second });
+        setItemChatFocus({ itemId: second, messageId });
+        setItemTabRequest({ itemId: second, tab: 'chat' });
       } else {
+        setChatFocusMessageId(messageId);
         setSelected({ kind: 'project' });
+        setChatOpen(true);
       }
-      setChatOpen(true);
     }
   }, [notificationTarget, detail, openId]);
 
@@ -595,6 +623,23 @@ export function ProjectsView({
       .then((response) => setProjectFolders(response.items.filter((folder) => folder.isActive)))
       .catch(() => setProjectFolders([]));
   }, [openId, calendarToken]);
+
+  // Con số cạnh tên tab có khi tab Liên quan đã tải (`onCount`). Chỉ hỏi trước khi công ty không còn module nào
+  // cung cấp hồ sơ, để biết có ẩn tab được không; khi đó server không phải gọi sang module nào nên lời gọi rẻ.
+  // Có module thì không hỏi trước: mỗi lần mở dự án mà đọc sang module khác là quá nặng cho một con số.
+  const relatedProbe = relatedKinds.loaded && relatedKinds.kinds.length === 0;
+  useEffect(() => {
+    setRelatedCount(undefined);
+    if (!openId || !relatedProbe) return;
+    let alive = true;
+    api
+      .listProjectRelatedObjects(openId)
+      .then((result) => alive && setRelatedCount(result.items.length))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [openId, relatedProbe]);
 
   // Chấm đỏ cập nhật ngay khi có tín hiệu realtime của dự án đang mở; nhịp hỏi
   // lại 30 giây chỉ còn là lưới an toàn khi mất kết nối hoặc broker chậm.
@@ -745,6 +790,12 @@ export function ProjectsView({
 
 
   /**
+   * Tab Liên quan ẩn khi chắc chắn vô ích: công ty không dùng module nào cung cấp hồ sơ gắn được VÀ dự án không còn
+   * liên kết cũ nào (liên kết tới module đã thu hồi vẫn phải xem được).
+   */
+  const relatedHidden = relatedKinds.loaded && relatedKinds.kinds.length === 0 && relatedCount === 0;
+
+  /**
    * Tab Tài chính chỉ có mặt khi server đã gửi số liệu xuống.
    *
    * Dựa vào sự có mặt của `project.finance` thay vì tự suy từ vai trò: server
@@ -752,8 +803,13 @@ export function ProjectsView({
    * payload. Tab bị gỡ khỏi thanh — không làm mờ, không để một tab trống.
    */
   const visibleTabs = useMemo(
-    () => TABS.filter((entry) => entry.id !== 'finance' || Boolean(detail?.project.finance)),
-    [detail],
+    () =>
+      TABS.filter(
+        (entry) =>
+          (entry.id !== 'finance' || Boolean(detail?.project.finance)) &&
+          (entry.id !== 'related' || !relatedHidden),
+      ),
+    [detail, relatedHidden],
   );
 
   // Đang đứng ở tab Tài chính mà chuyển sang dự án không được xem tài chính
@@ -761,6 +817,10 @@ export function ProjectsView({
   useEffect(() => {
     if (tab === 'finance' && detail && !detail.project.finance) setTab('work-items');
   }, [tab, detail]);
+
+  useEffect(() => {
+    if (tab === 'related' && relatedHidden) setTab('work-items');
+  }, [tab, relatedHidden]);
 
   // Chi tiết dự án vừa tải: áp việc và tab ghi trên đường dẫn (tải lại trang,
   // Back sang dự án khác, link được chia sẻ).
@@ -820,6 +880,9 @@ export function ProjectsView({
   const canDeleteItem = Boolean(role) && permissions.has('work_item.delete');
   const canChangeProjectStatus = permissions.has('project.update_status');
   const canManageMembers = permissions.has('project.manage_members');
+  // Nhóm báo cáo: mọi thành viên (vai nào cũng được), người tạo và quản trị đều đổi được, kể cả dự án đã lưu trữ. Ai mở
+  // được chi tiết dự án đều thuộc một trong các diện đó (người ngoài đã nhận 403), server vẫn kiểm lại.
+  const canChangeReportGroup = Boolean(detail);
 
   /**
    * Kéo tiến độ của hồ sơ quy trình về công việc, mỗi lần mở công việc đó.
@@ -1063,7 +1126,14 @@ export function ProjectsView({
         if (openId) void refreshDetail(openId);
         return;
       case 'open-chat':
-        setChatOpen(true);
+        // Công việc: mở hộp chi tiết ở tab Trao đổi; dự án: ngăn kéo như cũ.
+        if (node.kind === 'work-item') {
+          setSelected(node);
+          setItemTabRequest({ itemId: node.id, tab: 'chat' });
+        } else {
+          setSelected({ kind: 'project' });
+          setChatOpen(true);
+        }
         return;
       case 'retry-procedure': {
         if (!item) return;
@@ -1207,7 +1277,9 @@ export function ProjectsView({
       ? detail?.items.length
       : id === 'documents'
         ? projectDocuments.length
-        : undefined;
+        : id === 'related'
+          ? relatedCount
+          : undefined;
 
   return (
     <div className={styles.projectPage}>
@@ -1292,6 +1364,14 @@ export function ProjectsView({
             documentCount={projectDocuments.length}
             onOpenMembers={() => setMembersOpen(true)}
             canChangeStatus={canChangeProjectStatus}
+            canChangeReportGroup={canChangeReportGroup}
+            onChangeReportGroup={async (reportGroupId) => {
+              await attempt(
+                () => api.setProjectReportGroup(detail.project.id, { reportGroupId }),
+                'Không đổi được nhóm báo cáo.',
+                true,
+              );
+            }}
             viewSwitch={viewSwitch}
             onChangeStatus={async (status) => {
               const changed = await attempt(
@@ -1432,6 +1512,16 @@ export function ProjectsView({
                   currentUserId={me}
                 />
               ) : null}
+              {tab === 'related' ? (
+                <TabRelated
+                  key={detail.project.id}
+                  projectId={detail.project.id}
+                  items={detail.items}
+                  kinds={relatedKinds.kinds}
+                  onCount={setRelatedCount}
+                  reloadToken={relatedToken}
+                />
+              ) : null}
               {tab === 'activity' ? (
                 <TabActivity
                   entries={detail.activity}
@@ -1501,7 +1591,6 @@ export function ProjectsView({
             onReportQuantity={() => reportQuantity(selectedItem)}
             onAddChild={() => onAction('add-child', selected)}
             unread={nodeUnread}
-            onOpenChat={() => setChatOpen(true)}
             onMore={(at) => setMenu({ ...at, node: selected })}
             quickAction={quickActionFor(selectedItem)}
             startableProcedures={startableProcedures}
@@ -1607,13 +1696,62 @@ export function ProjectsView({
                 onCount={onCount}
               />
             )}
+            // Đối tượng liên quan của riêng công việc này, cạnh tab Tài liệu.
+            renderRelated={
+              relatedHidden
+                ? undefined
+                : (onCount) => (
+                    <RelatedObjectsPanel
+                      target={{ type: 'work_item', id: selectedItem.id }}
+                      items={detail.items}
+                      kinds={relatedKinds.kinds}
+                      onCount={onCount}
+                      reloadToken={relatedToken}
+                    />
+                  )
+            }
+            // Trao đổi của công việc: một tab riêng, chỉ dựng khi tab đang mở.
+            chatUnread={unread?.byNode[selectedItem.id] ?? 0}
+            tabRequest={itemTabRequest?.itemId === selectedItem.id ? itemTabRequest.tab : undefined}
+            onTabRequestHandled={clearItemTabRequest}
+            renderChat={() => (
+              <ChatDrawer
+                key={selectedItem.id}
+                inline
+                open
+                entityType="work_item"
+                entityId={selectedItem.id}
+                title={`${selectedItem.code} · ${selectedItem.title}`}
+                members={detail.members}
+                canWrite={chatCanWrite}
+                canUpload={!archived}
+                readOnlyNote={
+                  archived && !chatCanWrite && !chatOnArchivedAllowed
+                    ? 'Dự án đã lưu trữ nên không nhắn tin được. Quản trị viên có thể bật nhắn tin trong Cài đặt, mục Cấu hình chung.'
+                    : undefined
+                }
+                documents={projectDocuments}
+                folders={projectFolders}
+                projectId={openId}
+                onDocumentUploaded={() => setCalendarToken((token) => token + 1)}
+                currentUserId={me}
+                focusMessageId={itemChatFocus?.itemId === selectedItem.id ? itemChatFocus.messageId : undefined}
+                onClose={() => undefined}
+                onChanged={() => {
+                  if (!openId) return;
+                  void refreshUnread(openId);
+                  invalidateChatFeed(openId, [selectedItem.id]);
+                }}
+              />
+            )}
           />
         </WorkItemDialog>
       ) : null}
 
       {/* Trao đổi là ngăn kéo trượt từ cạnh phải, không chiếm một cột cố định. */}
       <ChatDrawer
-        open={chatOpen && Boolean(detail)}
+        // Chỉ còn cho luồng chat cấp dự án; trao đổi của công việc nằm trong hộp chi tiết.
+        open={chatOpen && Boolean(detail) && selected.kind === 'project'}
         entityType={(selected.kind === 'project' ? 'project' : 'work_item') as ChatEntityType}
         entityId={selected.kind === 'project' ? (detail?.project.id ?? '') : selected.id}
         title={
@@ -1653,25 +1791,16 @@ export function ProjectsView({
         open={projectForm.open}
         project={projectForm.edit}
         onClose={() => setProjectForm({ open: false })}
+        onRelatedChanged={() => setRelatedToken((token) => token + 1)}
         // Người tạo tự thành chủ nhiệm, nên luôn được đặt giá trị hợp đồng.
         financeEnabled={projectForm.edit ? Boolean(detail?.project.finance) : true}
-        onCreate={async (input: CreateProjectRequest, contractValue, members) => {
+        onCreate={async (input: CreateProjectRequest, contractValue, members, relatedObjects, reportGroupId) => {
           const created = await api.createProject(input);
           const warning = initialTasksWarning(created);
           if (warning) setError(warning);
-          // Số tiền đi đường riêng: endpoint tài chính có hàng rào quyền khác.
-          if (contractValue !== undefined) {
-            await api.updateProjectFinance(created.id, { contractValue });
-          }
-          // Thành viên cũng đi đường riêng (PUT .../members) — endpoint này thay
-          // cả danh sách và cần đúng một chủ nhiệm, nên phải gộp cùng người tạo
-          // (đã là chủ nhiệm) thay vì gửi mỗi người mới.
-          if (members && members.length > 0) {
-            const existing = await api.listMembers(created.id);
-            await api.setMembers(created.id, {
-              members: mergeNewProjectMembers(existing.items, members),
-            });
-          }
+          // Số tiền, thành viên và đối tượng liên quan đi đường riêng; liên kết hỏng chỉ cảnh báo, dự án vẫn giữ.
+          const warnings = await finishProjectCreate(created, { contractValue, members, relatedObjects, reportGroupId });
+          for (const text of warnings) toast.warning(text);
           await refreshList();
           onProjectsChanged?.();
           openProject(created.id);
@@ -1692,6 +1821,7 @@ export function ProjectsView({
         open={itemForm.open}
         item={itemForm.edit}
         parent={itemForm.parent}
+        onRelatedChanged={() => setRelatedToken((token) => token + 1)}
         parentItem={
           itemForm.edit?.parentId ? (detail?.items ?? []).find((candidate) => candidate.id === itemForm.edit?.parentId) : undefined
         }
@@ -1721,12 +1851,13 @@ export function ProjectsView({
           }
           // Tạo công việc; chọn "Theo quy trình" thì gửi kèm quy trình — Workspace
           // ghi yêu cầu và phát sự kiện, hồ sơ do Quy trình tự mở rồi báo về.
-          await api.createWorkItem({
+          const created = await api.createWorkItem({
             ...input,
             projectId: detail.project.id,
             procedureDefinitionId,
           });
           await refreshDetail(detail.project.id);
+          return created;
         }}
         onUpdate={async (input: UpdateWorkItemRequest, addMemberUserIds?: string[]) => {
           if (!itemForm.edit || !detail) return;
@@ -1789,10 +1920,18 @@ export function ProjectsView({
         item={moving}
         items={detail?.items ?? []}
         onClose={() => setMoving(undefined)}
-        onMove={async (parentId) => {
+        onMove={async (parentId, reopenParent) => {
           if (!moving) return;
+          const reopened = reopenChainForMove(detail?.items ?? [], moving, parentId);
           // Lỗi ném ra để hộp thoại tự hiện.
-          await api.moveWorkItem(moving.id, { parentId });
+          await api.moveWorkItem(moving.id, { parentId, reopenParent: reopenParent || undefined });
+          if (reopened.length > 0) {
+            toast.success(
+              `Đã chuyển ${moving.code} và mở lại ${reopened.map((node) => node.code).join(', ')} về "Đang làm"; tiến độ được tính lại và người thực hiện đã được thông báo.`,
+            );
+          } else {
+            toast.success(`Đã chuyển ${moving.code}.`);
+          }
           if (openId) await refreshDetail(openId);
         }}
       />

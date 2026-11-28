@@ -75,10 +75,9 @@ export function ProgressMethodFields({
   readonly creating: boolean;
   readonly idPrefix: string;
 }) {
-  const info = WORK_ITEM_PROGRESS_METHOD_INFO[value.progressMethod];
   return (
     <>
-      <Field label="Cách tính tiến độ" hint={info.description}>
+      <Field label="Cách tính tiến độ">
         <Choice
           label="Cách tính tiến độ công việc"
           value={value.progressMethod}
@@ -111,7 +110,7 @@ export function ProgressMethodFields({
         </div>
       ) : null}
       {value.progressMethod === 'checklist' && creating ? (
-        <Field label="Đầu việc" hint="Mỗi dòng một đầu việc, theo đúng thứ tự. Thêm hay bớt sau ở tab Tổng quan của công việc.">
+        <Field label="Đầu việc">
           <textarea
             id={`${idPrefix}-checklist`}
             rows={4}

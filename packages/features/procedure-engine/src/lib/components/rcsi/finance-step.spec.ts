@@ -10,6 +10,7 @@ import {
   financeAttributeCandidates,
   financeReturnTargets,
   financeVoucherCard,
+  financeVoucherEmbedHref,
   financeVoucherHref,
 } from './finance-step';
 
@@ -118,5 +119,10 @@ describe('thẻ phiếu trên hồ sơ', () => {
   it('dựng link mở phiếu theo loại phiếu', () => {
     expect(financeVoucherHref('PAYMENT', 'v1')).toBe('/modules/finance/payments/v1');
     expect(financeVoucherHref('RECEIPT', 'v2')).toBe('/modules/finance/receipts/v2');
+  });
+
+  it('dựng link trang phiếu nhúng cho popup, mã phiếu được mã hoá', () => {
+    expect(financeVoucherEmbedHref('PAYMENT', 'v1')).toBe('/modules/finance/embed/payments/v1');
+    expect(financeVoucherEmbedHref('RECEIPT', 'a/b')).toBe('/modules/finance/embed/receipts/a%2Fb');
   });
 });

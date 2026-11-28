@@ -88,6 +88,7 @@ import type {
   ContractActionRequest,
   ContractDetail,
   ContractListQuery,
+  ContractQuotePreview,
   ContractSummary,
   ConvertQuoteResult,
   CreateSalesOrderRequest,
@@ -476,6 +477,9 @@ export const listContracts = (query: ContractListQuery) =>
   request<CrmPage<ContractSummary>>(`/contracts${toQuery(query)}`, { cache: 'no-store' });
 export const getContract = (id: string) => request<ContractDetail>(`/contracts/${encodeURIComponent(id)}`, { cache: 'no-store' });
 export const createContract = (body: SaveContractRequest) => send<ContractDetail>('POST', '/contracts', body);
+/** Dòng, giá trị hợp đồng sẽ lấy từ báo giá khi lập hợp đồng gắn báo giá. */
+export const getContractQuotePreview = (quoteId: string) =>
+  request<ContractQuotePreview>(`/contracts/quote-preview/${encodeURIComponent(quoteId)}`, { cache: 'no-store' });
 export const updateContract = (id: string, body: Partial<SaveContractRequest>) =>
   send<ContractDetail>('PATCH', `/contracts/${encodeURIComponent(id)}`, body);
 export const savePaymentTerms = (id: string, body: SavePaymentTermsRequest) =>

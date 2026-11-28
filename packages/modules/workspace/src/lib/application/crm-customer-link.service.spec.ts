@@ -52,7 +52,7 @@ describe('CrmCustomerLinkService', () => {
   it('tìm ở Bán hàng kèm id bản sao đã có (TC-INT-13)', async () => {
     const { service, directory } = setup();
     const result = await service.search(member, { search: '  minh ' });
-    expect(directory.lookup).toHaveBeenCalledWith('t1', { search: 'minh', limit: 50 });
+    expect(directory.lookup).toHaveBeenCalledWith('t1', { search: 'minh', limit: 100 });
     expect(result).toEqual({
       enabled: true,
       items: [

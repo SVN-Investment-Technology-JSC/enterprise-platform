@@ -83,6 +83,7 @@ const NOTIFICATION_EVENTS = [
   'workspace.chat.typing',
   'procedure.comment.changed',
   'procedure.comment.typing',
+  'procedure.instance.changed',
   'authorization.changed',
   'core.chat.changed',
   'core.chat.typing',

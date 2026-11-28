@@ -4,6 +4,9 @@ import { InMemoryProcedureStore } from '../infrastructure/in-memory-procedure-st
 import type { InitiatorActorResolver } from './initiator-actor.port.js';
 import { ProcedureEngineApplication } from './procedure-engine.application.js';
 
+/** Hồ sơ người dùng tự mở phải gắn dự án (luật bắt buộc chọn dự án). */
+const TEST_WORKSPACE_LINK = { projectId: '0a0a0a0a-0000-4000-8000-00000000d001', projectCode: 'DA-TEST' };
+
 const person = (userId: string, overrides: Partial<ProcedureActor> = {}): ProcedureActor => ({
   tenantId: 'tenant-a',
   userId,
@@ -71,9 +74,10 @@ describe('Tạo đơn hộ (người submit khác người tạo)', () => {
   it('mặc định người tạo là người submit: không có vai S thì không tạo được', async () => {
     const { application, definitionId } = await setup();
     await expect(
-      application.startInstance(clerk, { definitionId, title: 'Tạm ứng', idempotencyKey: 'k1' }),
+      application.startInstance(clerk, { workspaceLink: TEST_WORKSPACE_LINK, definitionId, title: 'Tạm ứng', idempotencyKey: 'k1' }),
     ).rejects.toMatchObject({ code: 'forbidden' });
     const own = await application.startInstance(employee, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId,
       title: 'Tạm ứng',
       idempotencyKey: 'k2',
@@ -86,6 +90,7 @@ describe('Tạo đơn hộ (người submit khác người tạo)', () => {
   it('người tạo không cần vai S; người submit thành người khởi tạo, người tạo được uỷ quyền vai S ở bước đầu', async () => {
     const { application, definitionId } = await setup();
     const started = await application.startInstance(clerk, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId,
       title: 'Tạm ứng công tác',
       idempotencyKey: 'k3',
@@ -119,6 +124,7 @@ describe('Tạo đơn hộ (người submit khác người tạo)', () => {
     const { application, definitionId } = await setup();
     // Người có vai S nộp hộ cho bất kỳ ai trong tenant.
     const forOutsider = await application.startInstance(employee, {
+      workspaceLink: TEST_WORKSPACE_LINK,
       definitionId,
       title: 'Tạm ứng',
       idempotencyKey: 'k4',
@@ -129,6 +135,7 @@ describe('Tạo đơn hộ (người submit khác người tạo)', () => {
 
     await expect(
       application.startInstance(clerk, {
+        workspaceLink: TEST_WORKSPACE_LINK,
         definitionId,
         title: 'Tạm ứng',
         idempotencyKey: 'k5',
@@ -137,6 +144,7 @@ describe('Tạo đơn hộ (người submit khác người tạo)', () => {
     ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('chưa được phân vai S') });
     await expect(
       application.startInstance(clerk, {
+        workspaceLink: TEST_WORKSPACE_LINK,
         definitionId,
         title: 'Tạm ứng',
         idempotencyKey: 'k6',

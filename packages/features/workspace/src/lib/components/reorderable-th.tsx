@@ -1,6 +1,6 @@
 'use client';
 
-import { GripVertical, RotateCcw } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, GripVertical, RotateCcw } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -50,6 +50,12 @@ export interface ReorderableThProps {
    * và `th` nhận độ rộng đã lưu. Mọi `th` của cùng một bảng phải nhận CÙNG đối tượng này.
    */
   readonly sizing?: ColumnWidths;
+  /**
+   * Sắp xếp theo cột: có `onSort` thì cạnh tay nắm kéo độ rộng có nút nhỏ để bấm sắp xếp; `sortDirection` là chiều đang áp
+   * (không có là chưa sắp theo cột này).
+   */
+  readonly sortDirection?: 'asc' | 'desc';
+  readonly onSort?: () => void;
 }
 
 const MIME = 'application/x-workspace-column';
@@ -73,6 +79,8 @@ export function ReorderableTh({
   scope = 'col',
   label,
   sizing,
+  sortDirection,
+  onSort,
 }: ReorderableThProps) {
   const [over, setOver] = useState<'before' | 'after' | undefined>();
   const [handleHot, setHandleHot] = useState(false);
@@ -227,6 +235,7 @@ export function ReorderableTh({
       className={cn(
         'group/th relative',
         !isPinned && 'cursor-grab active:cursor-grabbing',
+        onSort && styles.columnSortable,
         sized !== undefined &&
           'overflow-hidden text-ellipsis whitespace-nowrap',
         over === 'before' && 'shadow-[inset_3px_0_0_0_var(--primary)]',
@@ -241,6 +250,7 @@ export function ReorderableTh({
           : `Kéo để đổi chỗ cột ${label} (hoặc nhấn Alt cùng mũi tên trái/phải)`
       }
       data-column-id={id}
+      aria-sort={onSort ? (sortDirection === 'asc' ? 'ascending' : sortDirection === 'desc' ? 'descending' : 'none') : undefined}
       onKeyDown={onKeyDown}
       onDragStart={(event) => {
         if (isPinned) return;
@@ -272,6 +282,29 @@ export function ReorderableTh({
       onDragEnd={() => setOver(undefined)}
     >
       {children}
+      {onSort ? (
+        <button
+          type="button"
+          draggable={false}
+          className={cn(styles.columnSortButton, sortDirection && styles.columnSortButtonOn)}
+          aria-label={
+            sortDirection === 'asc'
+              ? `Đang sắp xếp ${label} tăng dần; bấm để giảm dần`
+              : sortDirection === 'desc'
+                ? `Đang sắp xếp ${label} giảm dần; bấm để bỏ sắp xếp`
+                : `Sắp xếp theo ${label}`
+          }
+          title={sortDirection === 'asc' ? 'Tăng dần' : sortDirection === 'desc' ? 'Giảm dần' : 'Sắp xếp'}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSort();
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onDragStart={(event) => event.preventDefault()}
+        >
+          {sortDirection === 'asc' ? <ArrowUp aria-hidden /> : sortDirection === 'desc' ? <ArrowDown aria-hidden /> : <ArrowUpDown aria-hidden />}
+        </button>
+      ) : null}
       {sizing ? (
         <span
           role="separator"
