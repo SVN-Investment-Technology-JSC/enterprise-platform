@@ -57,10 +57,10 @@ function HubInner({
               title={note}
               scroll={false}
               replace
-              className={`-mb-px whitespace-nowrap border-b-2 px-3 py-1.5 text-xs font-semibold transition-colors ${
+              className={`-mb-px whitespace-nowrap border-b-2 px-3 py-1.5 text-sm transition-colors ${
                 selected
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
+                  ? 'border-blue-600 font-semibold text-blue-700'
+                  : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
               }`}
             >
               {tab.label}

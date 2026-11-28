@@ -70,9 +70,6 @@ export default async function TenantRolesPage() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           Quản lý vai trò & Phân quyền tổ chức
         </h1>
-        <p className="text-sm text-slate-500">
-          Định nghĩa vai trò nhân sự, kiểm soát phạm vi phân hệ truy cập và ma trận quyền hạn theo nguyên tắc bảo mật tối thiểu.
-        </p>
       </div>
 
       <TenantRoles initialRoles={roles} />

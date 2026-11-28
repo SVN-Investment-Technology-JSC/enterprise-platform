@@ -104,14 +104,7 @@ export function PendingView() {
   return (
     <section className={extras.view} aria-label="Chờ duyệt">
       <div className={extras.viewHead}>
-        <div>
-          <h2>Chờ duyệt</h2>
-          <p className={extras.viewDesc}>
-            {canModerate
-              ? 'Duyệt hoặc từ chối bài đăng trên Tường công ty, và theo dõi bài của chính bạn.'
-              : 'Theo dõi bài của bạn đang chờ duyệt hoặc bị từ chối.'}
-          </p>
-        </div>
+        <h2>Chờ duyệt</h2>
         <div className={extras.segmented} role="tablist" aria-label="Loại bài">
           {tabs.map((item) => (
             <button
@@ -182,8 +175,7 @@ function ApprovalSetting() {
       <div className={extras.settingText}>
         <strong>Bài trên Tường công ty cần duyệt</strong>
         <span>
-          Khi bật, bài của người không phải kiểm duyệt viên sẽ vào hàng chờ
-          duyệt trước khi hiện. Bài trong nhóm không bị ảnh hưởng.
+          Không áp dụng cho bài trong nhóm và bài của kiểm duyệt viên.
         </span>
         {error ? (
           <span role="alert" style={{ color: 'var(--ep-danger)' }}>
@@ -214,7 +206,6 @@ function ReviewList({ onDecided }: { readonly onDecided: () => void }) {
       fetchPage={fetchPage}
       keep={isAwaiting}
       emptyTitle="Không có bài nào chờ duyệt"
-      emptyHint="Bài mới cần duyệt sẽ xuất hiện tại đây."
       renderActions={(post, actions) => (
         <ReviewActions post={post} actions={actions} onDecided={onDecided} />
       )}
@@ -249,9 +240,6 @@ function MineList({
           ? (post, actions) =>
               post.capabilities.canEdit ? (
                 <div className={extras.itemActions}>
-                  <span className={styles.muted}>
-                    Sửa bài theo góp ý rồi gửi duyệt lại.
-                  </span>
                   <span style={{ flex: 1 }} />
                   <button
                     type="button"
@@ -385,8 +373,7 @@ function RejectDialog({
           onChange={(event) => setReason(event.target.value)}
         />
         <span className={styles.fieldHint}>
-          {reason.length}/{SOCIAL_REJECT_REASON_MAX} ký tự. Tác giả nhận được lý
-          do này và có thể sửa rồi gửi lại.
+          {reason.length}/{SOCIAL_REJECT_REASON_MAX} ký tự. Tác giả sẽ thấy lý do này.
         </span>
       </label>
     </Dialog>

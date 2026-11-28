@@ -200,10 +200,7 @@ export function ProfileCorrectionDialog({
       <DialogContent className="max-w-2xl p-0">
         <DialogHeader className="p-5 border-b border-slate-200 bg-slate-50">
           <DialogTitle>Đề nghị đính chính hồ sơ</DialogTitle>
-          <DialogDescription>
-            Nhập giá trị đúng cho các mục cần đính chính. Phòng Nhân sự đối chiếu
-            minh chứng rồi mới cập nhật vào hồ sơ.
-          </DialogDescription>
+          <DialogDescription>Hồ sơ chỉ cập nhật sau khi Phòng Nhân sự đối chiếu minh chứng.</DialogDescription>
         </DialogHeader>
 
         <div className="p-5 space-y-4 text-xs max-h-[70vh] overflow-y-auto">

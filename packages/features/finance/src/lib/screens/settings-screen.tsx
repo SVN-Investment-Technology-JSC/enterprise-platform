@@ -156,10 +156,7 @@ function CatalogPanel({
               {supportsProject ? (
                 <label className="flex items-start gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={form.requireProject} onChange={(e) => setForm({ ...form, requireProject: e.target.checked })} className="mt-0.5 size-4 rounded border-slate-300" />
-                  <span>
-                    Bắt buộc chọn dự án
-                    <span className="block text-xs text-slate-500">Phiếu dùng lý do này phải hạch toán cho một dự án mới gửi duyệt và ghi sổ được (ví dụ lý do "Chi theo dự án").</span>
-                  </span>
+                  Bắt buộc chọn dự án
                 </label>
               ) : null}
             </div>
@@ -239,10 +236,6 @@ function ApprovalPanel() {
 
   return (
     <section aria-label="Quy trình duyệt" className="space-y-3">
-      <p className="text-sm text-slate-600">
-        Chọn cách duyệt cho từng loại phiếu. Duyệt qua quy trình thì người duyệt do quy trình quyết định và tiền chỉ được ghi sổ khi quy trình hoàn tất.
-        Phiếu đã gửi duyệt giữ nguyên cách duyệt lúc gửi.
-      </p>
       <ErrorBanner message={error} />
       {definitionsError ? <p role="status" className="rounded-lg bg-amber-50 p-2 text-sm text-amber-800">{definitionsError}</p> : null}
       {bindings.map((binding) => {
@@ -294,9 +287,8 @@ function ApprovalPanel() {
         );
       })}
       <p className="text-xs text-slate-500">
-        Quy trình có thể dùng các thuộc tính do phiếu tự điền: so_tien, noi_dung, ma_phieu, loai_phieu, ly_do, tai_khoan, tai_khoan_dich, doi_tuong,
-        nguoi_nop_nhan, hach_toan_noi_bo, ngay_hach_toan, ngay_lap (đúng kiểu dữ liệu). Thuộc tính bắt buộc khác sẽ không được chấp nhận. Có thể dùng số tiền để
-        rẽ nhánh thêm cấp duyệt cho phiếu lớn.
+        Thuộc tính phiếu tự điền: so_tien, noi_dung, ma_phieu, loai_phieu, ly_do, tai_khoan, tai_khoan_dich, doi_tuong, nguoi_nop_nhan, hach_toan_noi_bo,
+        ngay_hach_toan, ngay_lap. Quy trình có thuộc tính bắt buộc khác sẽ không được chấp nhận.
       </p>
     </section>
   );
@@ -328,11 +320,7 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
       <ErrorBanner message={error} />
       <Field
         label="Khoá sổ đến ngày"
-        hint={
-          settings.booksLockedUntil
-            ? `Hiện đang khoá đến ${dateVn(settings.booksLockedUntil)}. Phiếu có ngày hạch toán từ ngày này trở về trước không được duyệt; huỷ phiếu đã ghi sổ ghi bút toán đảo vào kỳ đang mở.`
-            : 'Chưa khoá sổ. Sau khi chốt kỳ kế toán, chọn ngày cuối kỳ để không ai ghi thêm vào kỳ đã chốt.'
-        }
+        hint={settings.booksLockedUntil ? `Hiện đang khoá đến ${dateVn(settings.booksLockedUntil)}.` : undefined}
       >
         {(id) => (
           <div className="w-44">
@@ -342,16 +330,13 @@ function BooksPanel({ settings, onSaved }: { settings: FinanceSettings; onSaved:
       </Field>
       <label className="flex items-start gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={selfApproval} onChange={(e) => setSelfApproval(e.target.checked)} className="mt-0.5 size-4 rounded border-slate-300" />
-        <span>
-          Cho phép người lập tự duyệt phiếu của mình
-          <span className="block text-xs text-slate-500">Mặc định tắt để tách người lập và người duyệt. Chỉ bật cho doanh nghiệp nhỏ chỉ có một kế toán.</span>
-        </span>
+        Cho phép người lập tự duyệt phiếu của mình
       </label>
       <label className="flex items-start gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={requireAllocation} onChange={(e) => setRequireAllocation(e.target.checked)} className="mt-0.5 size-4 rounded border-slate-300" />
         <span>
           Bắt buộc hạch toán dự án cho mọi phiếu thu/chi
-          <span className="block text-xs text-slate-500">Bật thì mọi phiếu thu/chi phải chọn dự án mới gửi duyệt và ghi sổ được, kể cả phiếu từ hồ sơ Quy trình. Muốn chỉ bắt buộc với một số khoản, để tắt ở đây và bật "Bắt buộc chọn dự án" ở từng lý do thu/chi (mục Lý do thu, Lý do chi). Mặc định tắt.</span>
+          <span className="block text-xs text-slate-500">Áp dụng cả phiếu từ hồ sơ Quy trình. Chỉ bắt buộc vài khoản thì bật ở từng lý do thu/chi.</span>
         </span>
       </label>
       <Button type="button" disabled={saving} onClick={() => void save()}>Lưu cấu hình</Button>
@@ -394,7 +379,7 @@ export default function SettingsScreen() {
               role="tab"
               aria-selected={tab === item.id}
               onClick={() => setTab(item.id)}
-              className={cn('border-b-2 px-3 py-2 text-sm', tab === item.id ? 'border-accent-strong font-semibold text-accent-text' : 'border-transparent text-slate-600 hover:text-slate-900')}
+              className={cn('border-b-2 px-3 py-2 text-sm', tab === item.id ? 'border-accent-strong font-semibold text-accent-text' : 'border-transparent font-medium text-slate-600 hover:text-slate-900')}
             >
               {item.label}
             </button>

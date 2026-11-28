@@ -11,7 +11,6 @@ import {
   Save,
   User,
   X,
-  Sparkles,
 } from 'lucide-react';
 import type {
   HrmEmployeeProfile,
@@ -659,10 +658,7 @@ export function EmployeeDetailDialog({
 
               {/* Mức hoàn thiện và badge thông báo có thể chỉnh sửa */}
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-slate-200/60 text-[14px]">
-                <div
-                  className="w-48 sm:w-56"
-                  title="Mức hoàn thiện hồ sơ nhân sự"
-                >
+                <div className="w-48 sm:w-56">
                   <div className="mb-1 flex items-center justify-between text-[14px] text-slate-500">
                     <span>Hồ sơ hoàn thiện</span>
                     <span className="font-mono font-bold text-slate-800">
@@ -689,19 +685,13 @@ export function EmployeeDetailDialog({
                   </div>
                 </div>
 
-                {/* Highlight chỉ báo tính năng chỉnh sửa */}
                 <div className="flex items-center gap-2">
-                  {!isEditing ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-[14px] font-semibold text-blue-700 border border-blue-200/80 shadow-2xs">
-                      <Sparkles className="size-3 text-blue-600" />
-                      {/* Chỉnh sửa trực tiếp trên Drawer */}
-                    </span>
-                  ) : (
+                  {isEditing ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[14px] font-bold text-amber-800 border border-amber-300 shadow-2xs animate-pulse">
                       <PencilLine className="size-3 text-amber-600" />
                       Đang ở chế độ chỉnh sửa
                     </span>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </SheetHeader>
@@ -716,19 +706,13 @@ export function EmployeeDetailDialog({
                       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs">
                         <PencilLine className="size-4.5" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-[15px] text-blue-950">
-                            Chế độ chỉnh sửa trực tiếp đang bật
-                          </span>
-                          <Badge className="bg-blue-600 text-white text-[14px] px-1.5 py-0.5 font-bold">
-                            Đang sửa
-                          </Badge>
-                        </div>
-                        <p className="text-[14px] text-blue-800/90 mt-0.5">
-                          Các trường có viền nổi bật màu xanh cho phép chỉnh sửa
-                          trực tiếp. Nhấn "Lưu thay đổi" khi hoàn tất.
-                        </p>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[15px] text-blue-950">
+                          Chế độ chỉnh sửa trực tiếp đang bật
+                        </span>
+                        <Badge className="bg-blue-600 text-white text-[14px] px-1.5 py-0.5 font-bold">
+                          Đang sửa
+                        </Badge>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1280,9 +1264,9 @@ export function EmployeeDetailDialog({
                       role="tab"
                       aria-selected={tab === id}
                       onClick={() => setTab(id)}
-                      className={`-mb-px border-b-2 px-3 py-2.5 text-[14px] font-semibold transition ${tab === id
-                          ? 'border-blue-600 text-blue-700 bg-white'
-                          : 'border-transparent text-slate-500 hover:text-slate-800'
+                      className={`-mb-px border-b-2 px-3 py-2 text-sm transition ${tab === id
+                          ? 'border-blue-600 font-semibold text-blue-700 bg-white'
+                          : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
                         }`}
                     >
                       {label}

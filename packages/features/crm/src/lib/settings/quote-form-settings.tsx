@@ -228,10 +228,6 @@ function QuoteTemplates() {
           <Plus size={14} /> Thêm mẫu
         </button>
       </div>
-      <p className={styles.muted}>
-        {ADJUSTMENT_MODE_HELP.LINE} {ADJUSTMENT_MODE_HELP.ORDER} Báo giá đã tạo
-        giữ nguyên chế độ của mẫu lúc tạo.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       <Table<QuoteTemplate>
         size="small"
@@ -361,10 +357,7 @@ function TemplateDialog({
             }
           />
         </Field>
-        <Field
-          label="Mẫu mặc định"
-          hint="Báo giá mới dùng mẫu này nếu người tạo không chọn"
-        >
+        <Field label="Mẫu mặc định">
           <label>
             <input
               type="checkbox"
@@ -503,9 +496,6 @@ function QuoteTypes() {
           <Plus size={14} /> Thêm loại
         </button>
       </div>
-      <p className={styles.muted}>
-        Loại đã tắt không được chọn cho báo giá mới; báo giá cũ vẫn giữ loại đó.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       <Table<QuoteType>
         size="small"
@@ -677,7 +667,7 @@ function QuoteCodePanel() {
           <Field
             label="Mẫu mã"
             wide
-            hint="Để trống để dùng mã mặc định BG, 2 số cuối của năm và 5 chữ số. Ví dụ: {yyyymmdd}/BG//{seq}"
+            hint="Để trống: dùng mã mặc định"
           >
             <input
               className={styles.input}
@@ -768,7 +758,6 @@ function QuoteLinePickerPanel() {
   return (
     <section className={styles.panel} aria-label="Cột khi thêm dòng báo giá">
       <h2 className={styles.title}>Cột khi thêm dòng báo giá</h2>
-      <p className={styles.muted}>Chọn các cột hiện trong hộp thoại "Thêm dòng báo giá". Cột Mã và Số lượng luôn hiện.</p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       {columns ? (
         <form
@@ -884,9 +873,6 @@ function QuoteCustomFields() {
           <Plus size={14} /> Thêm trường
         </button>
       </div>
-      <p className={styles.muted}>
-        Trường hiện ở form báo giá. Tắt trường thì không nhập được nữa nhưng giá trị đã lưu được giữ nguyên.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       <Table<CustomFieldDefinition>
         size="small"

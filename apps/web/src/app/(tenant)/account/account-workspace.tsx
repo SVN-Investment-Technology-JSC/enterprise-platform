@@ -57,7 +57,6 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
           />
         ) : null}
         <h1 className="m-0 text-[22px] font-bold tracking-[-0.3px]">Tài khoản của tôi</h1>
-        <p className="mt-1 text-[14px] text-slate-600">Quản lý thông tin cá nhân và bảo mật tài khoản.</p>
       </div>
 
       <div className="flex flex-wrap items-start gap-4">
@@ -93,7 +92,7 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
             <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-[#2563eb]" />
             {principal.kind === 'platform-admin'
               ? 'Họ tên và email của tài khoản quản trị nền tảng được cấu hình khi khởi tạo hệ thống.'
-              : 'Họ tên và email do quản trị viên doanh nghiệp quản lý. Liên hệ quản trị viên nếu cần thay đổi.'}
+              : 'Họ tên và email do quản trị viên doanh nghiệp quản lý.'}
           </p>
         </section>
 
@@ -111,7 +110,7 @@ export function AccountWorkspace({ principal }: { principal: AuthenticatedPrinci
                 Đổi mật khẩu
               </h2>
               <p className="mt-0.5 text-[13px] text-slate-500">
-                Cập nhật mật khẩu để bảo vệ tài khoản của bạn. Các phiên đăng nhập trên thiết bị khác sẽ bị đăng xuất.
+                Các phiên đăng nhập trên thiết bị khác sẽ bị đăng xuất.
               </p>
             </div>
           </div>
@@ -440,10 +439,6 @@ function ChangePasswordForm() {
             </li>
           ))}
         </ul>
-        <p className="m-0 mt-1 flex items-start gap-2 border-t border-[#eef0f3] pt-2.5 text-[13px] text-slate-500">
-          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          Không dùng lại mật khẩu của dịch vụ khác. Nên dùng cụm từ dài, dễ nhớ với bạn nhưng khó đoán với người khác.
-        </p>
       </div>
     </form>
   );

@@ -59,9 +59,6 @@ export function TimesheetReportPanel() {
 
   return (
     <div className="space-y-3">
-      <p className="max-w-[90ch] text-xs text-slate-500">
-        Bảng chấm công cả tháng theo từng ngày (thứ, ngày, ký hiệu công) kèm các cột tổng. Chọn tháng, phòng ban hoặc từng nhân viên rồi tải Excel.
-      </p>
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
         <ReportScopeBar scope={scope} onChange={setScope} options={options} hideRange />
         <div className="ml-auto">

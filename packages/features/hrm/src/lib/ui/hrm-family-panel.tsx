@@ -36,8 +36,6 @@ export function HrmFamilyPanel({
     setAction({
       title: row ? 'Cập nhật người thân' : 'Khai báo người thân',
       columns: 2,
-      description:
-        'Thông tin tự khai không tự tạo giảm trừ thuế. HR xác minh đăng ký giảm trừ tại màn hình riêng.',
       fields: [
         { key: 'fullName', label: 'Họ và tên', value: row?.fullName },
         {
@@ -166,7 +164,7 @@ export function HrmFamilyPanel({
         <div>
           <h3 className="text-sm font-semibold">Người thân và gia đình</h3>
           <p className="text-xs text-slate-500">
-            Thông tin tự khai. Giảm trừ chỉ áp dụng sau khi HR xác minh đăng ký.
+            Giảm trừ chỉ áp dụng sau khi HR xác minh.
           </p>
         </div>
         {!readOnly && (

@@ -286,7 +286,7 @@ export function StandaloneTasksView({
                 <TabsTrigger
                   key={value}
                   value={value}
-                  className="mb-0 h-7 flex-1 justify-center rounded-md border-b-0 px-2 text-xs data-active:bg-background data-active:shadow-sm"
+                  className="mb-0 h-8 flex-1 justify-center rounded-md border-b-0 px-2 text-sm data-active:bg-background data-active:shadow-sm"
                 >
                   {STANDALONE_TASK_SCOPE_LABELS[value]}
                 </TabsTrigger>
@@ -698,7 +698,7 @@ function TaskDetail({
           </h3>
           <p className={styles.muted}>
             Vai của bạn: {STANDALONE_TASK_ROLE_LABELS[myRole]}
-            {task.parentId ? ' · Việc con: người thực hiện tự hoàn thành, không cần duyệt' : ''}
+            {task.parentId ? ' · Việc con không cần duyệt' : ''}
           </p>
         </div>
         <div className={styles.documentActions}>
@@ -961,11 +961,9 @@ function TaskDetail({
         <dt>Giao lúc</dt>
         <dd>{formatDateTime(task.createdAt)}</dd>
       </dl>
-      {task.childCount > 0 ? (
+      {task.childCount > 0 && task.progressManual ? (
         <p className={`${styles.muted} mt-2.5`}>
-          {task.progressManual
-            ? `Đang dùng tiến độ nhập tay; tự tính từ các việc con là ${task.autoProgressPercent ?? 0}%.`
-            : 'Tiến độ tự tính từ trung bình các việc con chưa huỷ; gõ số ở ô Tiến độ để nhập tay.'}
+          {`Đang dùng tiến độ nhập tay; tự tính từ các việc con là ${task.autoProgressPercent ?? 0}%.`}
         </p>
       ) : null}
       </section>
@@ -1034,11 +1032,7 @@ function TaskDetail({
           ) : null}
         </div>
         {children.length === 0 ? (
-          <p className={styles.muted}>
-            {canAddChild
-              ? 'Chưa có việc con. Chia nhỏ công việc và giao cho người khác bằng "Thêm việc con".'
-              : 'Chưa có việc con.'}
-          </p>
+          <p className={styles.muted}>Chưa có việc con.</p>
         ) : (
           <ul className={styles.taskChildList}>
             {children.map((child) => (

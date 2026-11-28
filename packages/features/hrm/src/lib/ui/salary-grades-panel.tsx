@@ -553,7 +553,6 @@ export function SalaryGradesPanel() {
         <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg flex-col overflow-hidden bg-white p-0">
           <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12">
             <DialogTitle>{editing ? 'Chỉnh sửa ngạch lương' : 'Thêm ngạch lương mới'}</DialogTitle>
-            <DialogDescription>Danh mục ngạch lương dùng để gắn với chức danh và thang bậc.</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
             <SettingsField label="Mã ngạch lương" required htmlFor={`${uid}-code`}>

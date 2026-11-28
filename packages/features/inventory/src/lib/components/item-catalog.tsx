@@ -40,12 +40,12 @@ import { cn } from '../ui/cn';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Table, TableBody, TableCell, TableEmpty, TableHead, TableHeaderCell, TableRow, TableWrap } from '../ui/table';
-import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Sheet, SheetContent, SheetFooter, SheetHeader } from '../ui/sheet';
 
 const TAB_BTN =
-  'inline-flex cursor-pointer items-center gap-[0.4rem] whitespace-nowrap border-0 border-b-2 border-transparent bg-transparent px-[0.85rem] py-3 text-sm font-semibold text-slate-500 transition-all hover:text-slate-800';
-const TAB_BTN_ACTIVE = 'border-primary text-slate-900 hover:text-slate-900';
+  'inline-flex cursor-pointer items-center gap-[0.4rem] whitespace-nowrap border-0 border-b-2 border-transparent bg-transparent px-[0.85rem] py-2 text-sm font-medium text-slate-500 transition-all hover:text-slate-800';
+const TAB_BTN_ACTIVE = 'border-primary font-semibold text-slate-900 hover:text-slate-900';
 const STOCK_CARD = 'flex flex-col gap-[0.35rem] rounded-lg border border-slate-200 bg-slate-50 px-4 py-[0.85rem]';
 
 /** Màu chip tình trạng thiết bị (OPERATING, STOPPED, MAINTENANCE, DISPOSED). */
@@ -897,12 +897,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
               className="flex min-h-0 flex-col"
             >
               <DialogHeader>
-                <div>
-                  <DialogTitle>Cập nhật vật tư</DialogTitle>
-                  <DialogDescription>
-                    Điều chỉnh mã SKU, tên hiển thị, loại danh mục và trạng thái kho bãi.
-                  </DialogDescription>
-                </div>
+                <DialogTitle>Cập nhật vật tư</DialogTitle>
                 <CloseGuard dirty={editIsDirty} busy={busy} onClose={() => setEditingItem(null)}>
                   <DialogCloseButton />
                 </CloseGuard>
@@ -919,9 +914,6 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   value={editDraft.code}
                   onChange={(e) => setEditDraft((d) => ({ ...d, code: e.target.value }))}
                 />
-                <span className="text-[13px] text-slate-500">
-                  Mã định danh duy nhất của vật tư trong hệ thống.
-                </span>
               </div>
 
               {/* Trường Tên vật tư */}
@@ -934,9 +926,6 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                   value={editDraft.name}
                   onChange={(e) => setEditDraft((d) => ({ ...d, name: e.target.value }))}
                 />
-                <span className="text-[13px] text-slate-500">
-                  Tên gọi hiển thị trên danh mục và các biểu mẫu tác nghiệp.
-                </span>
               </div>
 
               {/* Trường Loại danh mục */}
@@ -954,9 +943,6 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                     })),
                   ]}
                 />
-                <span className="text-[13px] text-slate-500">
-                  Phân nhóm nghiệp vụ theo cấu hình danh mục của hệ thống.
-                </span>
               </div>
 
               {/* Trạng thái vận hành & Vị trí kho (nếu không phải quản lý cá thể theo sê-ri) */}
@@ -998,7 +984,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                 </div>
               ) : (
                 <div className="rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2.5 text-sm leading-[1.45] text-blue-800">
-                  Vật tư này được quản lý theo số sê-ri cá thể. Tình trạng và vị trí được cập nhật trực tiếp theo từng số sê-ri trong chi tiết dòng.
+                  Vật tư quản lý theo sê-ri: tình trạng và vị trí cập nhật theo từng sê-ri.
                 </div>
               )}
 
@@ -1094,7 +1080,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                 className={cn(TAB_BTN, drawerTab === 'storage' && TAB_BTN_ACTIVE)}
                 onClick={() => setDrawerTab('storage')}
               >
-                <Boxes size={14} />
+                <Boxes size={16} />
                 <span>1. Số lượng ở từng kho</span>
               </button>
 
@@ -1105,7 +1091,7 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                 className={cn(TAB_BTN, drawerTab === 'ledger' && TAB_BTN_ACTIVE)}
                 onClick={() => setDrawerTab('ledger')}
               >
-                <Clock size={14} />
+                <Clock size={16} />
                 <span>2. Lịch sử xuất nhập kho</span>
               </button>
             </div>
@@ -1182,9 +1168,6 @@ ${STOCK_COLUMN_TIP.available} (${formatNumber(available(item))})`}
                             </span>
                           ) : null}
                         </div>
-                        <span className="text-xs text-slate-500">
-                          Ngưỡng được lấy từ cấu hình vật tư và đối chiếu với tồn thực tế.
-                        </span>
                       </div>
                       <div className={STOCK_CARD}>
                         <span className="text-xs font-semibold text-slate-500">LỊCH BẢO QUẢN ĐỊNH KỲ</span>

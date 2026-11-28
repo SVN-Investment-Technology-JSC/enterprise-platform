@@ -856,7 +856,6 @@ export function InventoryScreen() {
       moduleKey="inventory"
       appearance="light"
       title="Kho & Tài sản"
-      subtitle="Tồn thực tế, khả dụng và luân chuyển vật tư theo từng kho."
       nav={NAV}
       view={tab}
       onViewChange={navigate}
@@ -907,7 +906,7 @@ export function InventoryScreen() {
           {returnTarget ? (
             <ReturnToStockDialog
               title={`Tháo dỡ / Thanh lý ${returnTarget.name}`}
-              description={`Tháo dỡ ${returnTarget.code} khỏi vị trí lắp đặt và nhập về kho. Đây là một lệnh nhập thật — sổ cái sẽ có thêm một bút toán. Mã vật tư không bị xoá.`}
+              description={`Lệnh nhập thật — sổ cái sẽ có thêm một bút toán. Mã vật tư không bị xoá.`}
               unit={returnTarget.unit}
               maxQuantity={1}
               isAsset={true}
@@ -951,7 +950,7 @@ export function InventoryScreen() {
           {uninstallTarget ? (
             <ReturnToStockDialog
               title={`Tháo dỡ ${uninstallTarget.asset.name}`}
-              description={`Tháo dỡ ${uninstallTarget.asset.code} khỏi cây và nhập ${uninstallTarget.line.materialCode} ngược về kho. Đang lắp ${uninstallTarget.line.quantity} ${uninstallTarget.line.unit ?? ''}.`}
+              description={`Đang lắp ${uninstallTarget.line.quantity} ${uninstallTarget.line.unit ?? ''}.`}
               unit={uninstallTarget.line.unit}
               maxQuantity={uninstallTarget.line.quantity}
               serialMaterialCode={
@@ -1154,8 +1153,6 @@ export function InventoryScreen() {
                 {
                   id: 'dashboard',
                   label: 'Thẻ tổng quan',
-                  description:
-                    'Chọn những thẻ hiện trên trang Tổng quan và sắp xếp thứ tự hiển thị.',
                   render: () => (
                     <DashboardCardPicker<InventoryDashboardData>
                       catalog={INVENTORY_DASHBOARD_CARDS}
@@ -1170,7 +1167,7 @@ export function InventoryScreen() {
                   id: 'asset-fields',
                   label: 'Hồ sơ vật tư',
                   description:
-                    'Chọn trường nào hiện trên hồ sơ vật tư. Tắt một trường chỉ ẩn nó khỏi giao diện, không xoá dữ liệu đã nhập.',
+                    'Tắt một trường chỉ ẩn nó khỏi giao diện, không xoá dữ liệu đã nhập.',
                   render: () =>
                     assetCatalogDraft ? (
                       <AssetCatalogEditor
@@ -1184,14 +1181,12 @@ export function InventoryScreen() {
                   id: 'warehouses',
                   label: 'Kho',
                   description:
-                    'Danh sách kho cho phiếu nhập/xuất chọn. Sửa xong là lưu ngay, không cần bấm Lưu. Kho còn hàng thì không ngừng dùng được.',
+                    'Sửa xong là lưu ngay, không cần bấm Lưu.',
                   render: () => <WarehouseEditor disabled={!canManage || savingCards} />,
                 },
                 {
                   id: 'units',
                   label: 'Đơn vị tính',
-                  description:
-                    'Danh sách đơn vị cho form vật tư chọn. Cho gõ tự do thì cùng một thứ vào kho dưới ba cái tên và không cộng gộp được.',
                   render: () => (
                     <UnitCatalogEditor
                       units={unitDraft}
@@ -1204,8 +1199,6 @@ export function InventoryScreen() {
                 {
                   id: 'trade',
                   label: 'Phân loại hàng hóa',
-                  description:
-                    'Khai báo phân loại (hàng hóa và dịch vụ mỗi nhóm một danh sách) và cách sử dụng (chỉ bán, chỉ tặng, đi kèm combo...) cho trang Kho hàng. Mục đang có mặt hàng dùng thì không xoá được.',
                   render: () =>
                     tradeDraft ? (
                       <div className="flex flex-col gap-5">
@@ -1295,9 +1288,9 @@ export function InventoryScreen() {
                     key={sub.id}
                     type="button"
                     className={cn(
-                      'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+                      'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-medium',
                       stockSubTab === sub.id
-                        ? 'bg-primary text-primary-foreground'
+                        ? 'bg-primary font-semibold text-primary-foreground'
                         : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
                     )}
                     onClick={() => setStockSubTab(sub.id)}

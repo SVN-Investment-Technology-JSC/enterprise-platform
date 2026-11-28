@@ -84,7 +84,6 @@ function fromRows(rows: readonly Row[]): ProcedureAttributeDefinition[] {
  */
 export function AttributeEditor({
   title,
-  subtitle,
   attributes,
   usedCodes,
   entrySteps,
@@ -93,7 +92,6 @@ export function AttributeEditor({
   onSave,
 }: {
   title: string;
-  subtitle: string;
   attributes: readonly ProcedureAttributeDefinition[] | undefined;
   /** Mã đang được điều kiện rẽ nhánh dùng — cảnh báo trước khi xoá. */
   usedCodes: ReadonlySet<string>;
@@ -130,7 +128,6 @@ export function AttributeEditor({
     <MinimalPopupForm
       isOpen
       title={title}
-      subtitle={subtitle}
       maxWidth={entrySteps?.length ? '1240px' : '860px'}
       onClose={onClose}
     >
@@ -248,7 +245,7 @@ export function AttributeEditor({
           <div className={styles.linkedAttributes}>
             <strong>Thuộc tính quy trình nhập ở bước này</strong>
             <span className={styles.hint}>
-              {linkedProcessAttributes.map((attribute) => attribute.name).join(', ')}. Chọn bước nhập ở “Thuộc tính QT”.
+              {linkedProcessAttributes.map((attribute) => attribute.name).join(', ')}
             </span>
           </div>
         ) : null}

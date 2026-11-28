@@ -765,7 +765,6 @@ export function OrganizationFlow({
           type="button"
           onClick={handleAutoLayout}
           className="flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-[#eef0f3] bg-white/95 px-2.5 text-xs font-semibold text-[#18181b] backdrop-blur hover:bg-[#f4f6f9] transition-all cursor-pointer"
-          title="Tự động căn chỉnh và sắp xếp lại các node thẳng hàng, đẹp mắt"
         >
           <Sparkles className="size-3.5 text-amber-700" />
           <span>Sắp xếp</span>

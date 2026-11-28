@@ -234,7 +234,7 @@ export function RemindDialog({
     <FormDialog
       open={Boolean(letter)}
       title="Đôn đốc xử lý"
-      subtitle={letter ? `Công văn ${letter.displayNo}, bước "${letter.stageLabel}": người đang xử lý nhận thông báo kèm lý do và lời nhắn.` : ''}
+      subtitle={letter ? `Công văn ${letter.displayNo} · bước "${letter.stageLabel}"` : ''}
       submitLabel="Gửi lời nhắc"
       submitting={busy}
       submitDisabled={!reason || !note.trim()}

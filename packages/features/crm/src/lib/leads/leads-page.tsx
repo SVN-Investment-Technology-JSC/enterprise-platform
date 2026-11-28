@@ -223,7 +223,7 @@ function LeadFormDialog({ lead, onClose, onSaved }: { lead?: Lead; onClose: () =
         <Field label="Email">
           <input className={styles.input} type="email" value={form.email} maxLength={200} onChange={(event) => set('email', event.target.value)} />
         </Field>
-        <Field label="Nguồn" hint="Ví dụ: Sự kiện, Website, Giới thiệu">
+        <Field label="Nguồn">
           <input className={styles.input} value={form.source} maxLength={100} onChange={(event) => set('source', event.target.value)} />
         </Field>
         <Field label="Người phụ trách" hint={lead ? undefined : 'Mặc định là bạn'}>
@@ -275,7 +275,7 @@ function ConvertLeadDialog({ lead, onClose, onConverted }: { lead: Lead; onClose
     <CrmDialog
       open
       title="Chuyển thành khách hàng và dự án bán hàng"
-      subtitle="Tạo khách hàng (hoặc gắn vào khách có cùng mã số thuế) và một dự án bán hàng ở giai đoạn Mới."
+      subtitle="Khách trùng mã số thuế sẽ được gắn vào khách sẵn có."
       submitLabel="Chuyển đổi"
       submitting={submitting}
       error={error}

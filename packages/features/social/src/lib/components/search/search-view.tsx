@@ -305,7 +305,7 @@ function Block<T>({
     );
   }
   if (isEmpty(remote.data)) {
-    return <EmptyState title="Không tìm thấy" text="Thử từ khoá khác hoặc bỏ bớt bộ lọc." />;
+    return <EmptyState title="Không tìm thấy" />;
   }
   return <>{children(remote.data)}</>;
 }

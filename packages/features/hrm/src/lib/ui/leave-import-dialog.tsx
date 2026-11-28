@@ -137,7 +137,7 @@ export function LeaveImportDialog({
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
           <DialogTitle>Import quỹ phép năm từ Excel</DialogTitle>
           <DialogDescription>
-            Mỗi dòng là một lần điều chỉnh: số dương cộng ngày phép, số âm trừ. Kết quả được ghi vào Lịch sử điều chỉnh kèm tài khoản thực hiện.
+            Mỗi dòng một lần điều chỉnh: số dương cộng ngày phép, số âm trừ.
           </DialogDescription>
         </DialogHeader>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">

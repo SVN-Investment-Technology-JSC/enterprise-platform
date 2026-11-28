@@ -161,7 +161,6 @@ export function StockTable({
             size="lg"
             className="gap-1.5"
             onClick={handleExport}
-            title="Xuất danh sách tồn kho ra tệp Excel"
           >
             <Download size={15} />
             <span>Xuất Excel</span>
@@ -308,7 +307,6 @@ export function StockTable({
                                 variant="link"
                                 size="xs"
                                 className="h-auto p-0 font-bold"
-                                title="Mở quy trình chuyển kho bên module Quy trình. Kho chỉ chuyển bạn sang đó kèm sẵn nội dung — số lượng chỉ đổi khi thủ kho thao tác."
                                 onClick={() =>
                                   onTransfer({
                                     materialCode: row.materialCode as string,
@@ -337,7 +335,6 @@ export function StockTable({
                                   size="sm"
                                   className="gap-[0.35rem]"
                                   disabled={busy}
-                                  title="Ngừng sử dụng mã vật tư này"
                                 >
                                   <Ban size={12} />
                                   <span>Ngừng dùng</span>

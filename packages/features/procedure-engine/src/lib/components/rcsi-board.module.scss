@@ -2855,13 +2855,6 @@
   margin: 0 0 4px 0;
 }
 
-.membersEmptyDesc {
-  font-size: 0.8125rem;
-  color: #64748b;
-  margin: 0;
-  line-height: 1.4;
-}
-
 .positionPreviewActions {
   display: flex;
   justify-content: flex-end;
@@ -3383,13 +3376,15 @@
 .filter,
 .filterOn {
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .filterOn {
   border-color: var(--accent-strong);
   background: #fffbea;
   color: var(--accent-ink);
+  font-weight: 600;
 }
 
 .orgToggle,

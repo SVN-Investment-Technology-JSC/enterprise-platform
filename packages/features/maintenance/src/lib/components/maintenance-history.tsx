@@ -277,16 +277,14 @@ export function MaintenanceHistory({
             </div>
           </div>
 
-          <Tip content="Xóa toàn bộ bộ lọc và đặt lại mặc định">
-            <Button
-              variant="outline"
-              size="lg"
-              className="rounded-md px-3"
-              onClick={() => onFilter({})}
-            >
-              Xoá bộ lọc
-            </Button>
-          </Tip>
+          <Button
+            variant="outline"
+            size="lg"
+            className="rounded-md px-3"
+            onClick={() => onFilter({})}
+          >
+            Xoá bộ lọc
+          </Button>
         </div>
 
         <div className="min-h-0 w-full flex-1 overflow-auto">
@@ -399,19 +397,15 @@ export function MaintenanceHistory({
               </Button>
             </span>
           </Tip>
-          <Tip content="Tải tiếp trang sau">
-            <span className="inline-flex">
-              <Button
-                variant="outline"
-                size="lg"
-                className="rounded-md px-3"
-                disabled={busy || !page?.nextCursor}
-                onClick={onLoadMore}
-              >
-                {busy ? 'Đang nạp…' : 'Sau →'}
-              </Button>
-            </span>
-          </Tip>
+          <Button
+            variant="outline"
+            size="lg"
+            className="rounded-md px-3"
+            disabled={busy || !page?.nextCursor}
+            onClick={onLoadMore}
+          >
+            {busy ? 'Đang nạp…' : 'Sau →'}
+          </Button>
         </TablePagerBar>
       </div>
 
@@ -561,7 +555,7 @@ export function MaintenanceHistory({
 
                 {loadedAttachments.length === 0 && !loadingAttachments ? (
                   <span style={{ fontSize: '13px', color: '#94a3b8', fontStyle: 'italic' }}>
-                    Chưa có tài liệu hay ảnh hiện trường nào được đính kèm.
+                    Chưa có tệp đính kèm.
                   </span>
                 ) : null}
 

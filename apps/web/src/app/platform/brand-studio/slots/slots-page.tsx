@@ -114,7 +114,6 @@ function matchesSlot(
   return tokens.every((token) => haystack.includes(token));
 }
 
-const GROUP_HINT = 'Chỉ để sắp xếp và lọc danh sách, không đổi cách icon hiển thị.';
 const COLOR_MODE_HINT = 'Giữ màu thương hiệu, hoặc lấy theo màu chữ xung quanh (hợp icon nhỏ trong menu).';
 
 /** Dòng chữ một dòng; chỉ khi bị cắt bằng dấu "…" thì rê chuột hay focus mới hiện tooltip đủ nội dung. */
@@ -705,7 +704,6 @@ export function SlotsPage() {
             ) : null
           }
           sectionRef={panelRef}
-          hint="Gán icon đã phát hành vào từng vị trí hiển thị trong ứng dụng"
           actions={
             <div className="flex flex-wrap items-center justify-end gap-2">
               <div className="relative w-60">
@@ -800,7 +798,6 @@ export function SlotsPage() {
               <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-200 py-10 text-center">
                 <SearchX aria-hidden className="size-8 text-slate-300" />
                 <p className="text-sm font-medium text-slate-700">Không tìm thấy vị trí phù hợp</p>
-                <p className="text-xs text-slate-500">Thử đổi từ khoá hoặc bỏ bộ lọc nhóm, trạng thái.</p>
               </div>
             ) : (
               <div className="divide-y divide-slate-200 rounded-md border border-slate-200">
@@ -971,7 +968,6 @@ export function SlotsPage() {
       <Dialog onOpenChange={setCreateOpen} open={createOpen}>
         <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
           <SlotDialogFrame
-            description="Định nghĩa vị trí sử dụng icon mới trong hệ thống để gán icon thương hiệu."
             error={createError}
             footer={
               <>
@@ -1015,7 +1011,7 @@ export function SlotsPage() {
             </SlotField>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <SlotField hint={GROUP_HINT} htmlFor="custom-slot-group" label="Nhóm vị trí">
+              <SlotField htmlFor="custom-slot-group" label="Nhóm vị trí">
                 <SlotGroupSelect
                   groups={groups}
                   name="custom-slot-group"
@@ -1072,9 +1068,8 @@ export function SlotsPage() {
           <SlotDialogFrame
             description={
               <>
-                {editBuiltIn ? 'Đổi cách hiển thị của vị trí hệ thống ' : 'Thay đổi thông tin cấu hình cho vị trí '}
-                <code className="font-mono text-xs">{editTarget?.id}</code>.
-                {editBuiltIn ? ' Mã vị trí không đổi được.' : null}
+                <code className="font-mono text-xs">{editTarget?.id}</code>
+                {editBuiltIn ? ' · Mã vị trí không đổi được.' : null}
               </>
             }
             error={editError}
@@ -1134,7 +1129,6 @@ export function SlotsPage() {
               <SlotField
                 action={renderFieldReset('group', () => setEditGroup(editTarget?.defaults?.group ?? 'custom'))}
                 footnote={renderFieldDefault('group', editTarget?.defaults?.group, (value) => groupLabels[value] || value)}
-                hint={GROUP_HINT}
                 htmlFor="edit-slot-group"
                 label="Nhóm vị trí"
               >

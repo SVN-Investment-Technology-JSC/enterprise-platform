@@ -179,11 +179,12 @@ export function ModuleShellLight<TViewId extends string = string>(
             <BrandLogo className={styles.brandLogo} />
             {collapsed ? null : (
               <div className={styles.brandText}>
-                <span className={styles.brandOrg}>SVN DTS</span>
                 <span className={styles.brandTitle}>{props.title}</span>
               </div>
             )}
-            {collapsed || props.hideModuleSwitcher ? null : <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} />}
+            {collapsed || props.hideModuleSwitcher ? null : (
+              <ModuleSwitcher moduleKey={props.moduleKey} homeHref={homeHref} dashboardHref={dashboardHref} />
+            )}
           </div>
 
           <div className={styles.user}>
@@ -308,7 +309,7 @@ export function ModuleShellLight<TViewId extends string = string>(
             {!props.hideHomeButton ? (
               <a
                 className={styles.squareButton}
-                href={homeHref}
+                href={dashboardHref}
                 title="Trang chủ"
                 aria-label="Trang chủ"
               >
@@ -371,15 +372,12 @@ export function ModuleShellLight<TViewId extends string = string>(
           <div className={styles.head}>
             {props.hideBreadcrumb ? null : (
             <nav className={styles.breadcrumb} aria-label="Đường dẫn">
-              {homeHref && !props.hideHomeButton ? (
+              {!props.hideHomeButton ? (
                 <>
-                  <a
-                    className={styles.crumbHome}
-                    href={homeHref}
-                    aria-label="Trang chủ"
-                    title="Trang chủ"
-                  >
+                  {/* "Trang chủ" (Bảng điều khiển) luôn là bậc đầu, có cả chữ để người dùng biết quay về đâu. */}
+                  <a className={styles.crumbHome} href={dashboardHref}>
                     <AppIcon slot="shell.home" fallback={HomeFallback} className={styles.icon} />
+                    <span>Trang chủ</span>
                   </a>
                   <span className={styles.crumbSep} aria-hidden>
                     ›
@@ -434,6 +432,26 @@ export function ModuleShellLight<TViewId extends string = string>(
 }
 
 /** Mục riêng của module trên thanh bên (xem `ModuleSidebarSection`). */
+/** Tên dòng ở mục riêng của thanh bên: chỉ khi bị cắt bằng dấu "…" mới có chú thích đủ tên khi rê chuột. */
+function SidebarItemLabel({ label }: { label: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [truncated, setTruncated] = useState(false);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setTruncated(element.scrollWidth > element.clientWidth + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [label]);
+  return (
+    <span ref={ref} className={styles.navLabel} title={truncated ? label : undefined}>
+      {label}
+    </span>
+  );
+}
+
 function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boolean }) {
   const { section, collapsed } = props;
   return (
@@ -509,12 +527,12 @@ function SidebarSection(props: { section: ModuleSidebarSection; collapsed: boole
           type="button"
           className={item.active ? `${styles.navItem} ${styles.navItemActive}` : styles.navItem}
           aria-current={item.active ? 'page' : undefined}
-          title={item.title ?? item.label}
+          title={item.title ?? (collapsed ? item.label : undefined)}
           aria-label={collapsed ? item.label : undefined}
           onClick={item.onSelect}
         >
           {item.leading ? <span className={styles.navIcon}>{item.leading}</span> : null}
-          {collapsed ? null : <span className={styles.navLabel}>{item.label}</span>}
+          {collapsed ? null : <SidebarItemLabel label={item.label} />}
           {!collapsed && item.trailing !== undefined ? (
             <span className={styles.sectionTrailing}>{item.trailing}</span>
           ) : null}

@@ -582,7 +582,6 @@ export function IconLibraryPage() {
         fill={wide}
         flush={mode === 'list' && library.ready && visible.length > 0}
         footer={library.ready && visible.length > 0 ? <LibraryPagerBar onPage={goToPage} onPageSize={changePageSize} slice={slice} /> : null}
-        hint="Bấm vào icon để mở trình thiết kế"
         icon={Images}
         id="icons-title"
         sectionRef={panelRef}

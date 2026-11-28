@@ -114,9 +114,6 @@ export function InventoryDashboard({
             Trung tâm Điều hành Kho &amp; Thiết bị
           </span>
           <h1 className="m-0 text-[1.25rem] font-bold tracking-[-0.02em] text-slate-900">Tổng quan Tài sản &amp; Tồn kho</h1>
-          <p className="m-0 mt-1 text-[14px] text-slate-500">
-            Theo dõi tổng lượng tồn kho, cảnh báo định mức Min/Max và tiến độ luân chuyển thiết bị.
-          </p>
         </div>
       </div>
 

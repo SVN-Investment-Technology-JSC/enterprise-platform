@@ -757,7 +757,7 @@ function NotificationList() {
             <NotificationAvatar module={notification.module} fallback={ModuleIcon} />
             <span className={styles.itemContent}>
               <span className={styles.itemTop}>
-                <strong>{notification.title}</strong>
+                <strong title={notification.title}>{notification.title}</strong>
                 <span className={styles.itemTime}>
                   {notification.readAt ? null : <span className={styles.unreadDot} title="Chưa đọc" />}
                   <time dateTime={notification.createdAt} title={formatDateTime(notification.createdAt)}>
@@ -765,10 +765,9 @@ function NotificationList() {
                   </time>
                 </span>
               </span>
-              <span className={styles.body}>{notification.body}</span>
+              <span className={styles.body} title={notification.body}>{notification.body}</span>
               <span className={styles.itemTags}>
                 <span className={`${styles.tag} ${styles.moduleTag}`}>{moduleLabel(notification.module)}</span>
-                <span className={`${styles.tag} ${styles.category}`}>{categoryLabel(notification.category)}</span>
                 {notification.priority === 'required' ? (
                   <span className={`${styles.tag} ${styles.priorityRequired}`}>{priorityLabel(notification.priority)}</span>
                 ) : notification.priority === 'actionable' ? (
@@ -1151,11 +1150,12 @@ export function formatNotificationTime(
   if (isSameDay) {
     const seconds = Math.round((time - now.getTime()) / 1000);
     const absSeconds = Math.abs(seconds);
-    if (absSeconds < 60) return `${timeStr} · vừa xong`;
+    // Trong ngày chỉ ghi "x phút trước" cho gọn; giờ chính xác nằm ở tooltip của thẻ <time>.
+    if (absSeconds < 60) return 'vừa xong';
     const minutes = Math.round(absSeconds / 60);
-    if (minutes < 60) return `${timeStr} · ${minutes} phút trước`;
+    if (minutes < 60) return `${minutes} phút trước`;
     const hours = Math.round(minutes / 60);
-    return `${timeStr} · ${hours} giờ trước`;
+    return `${hours} giờ trước`;
   }
 
   const yesterday = new Date(now);

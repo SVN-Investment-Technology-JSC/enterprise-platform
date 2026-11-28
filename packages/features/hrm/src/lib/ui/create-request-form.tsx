@@ -11,7 +11,6 @@ import {
   AlertCircle,
   DollarSign,
   FilePlus,
-  Info,
   Loader2,
   Plus,
   Send,
@@ -179,7 +178,6 @@ export function requestCatalogOf(
     {
       id: 'leave' as RequestKind,
       title: 'Đơn xin nghỉ phép',
-      desc: 'Nghỉ phép năm, nghỉ ốm BHXH, việc riêng có hưởng lương, nghỉ không lương theo quy chế.',
       tag: 'Tự động trừ quỹ phép',
       tagColor: 'emerald',
       balanceLabel: `Quỹ phép khả dụng: ${leaveFund !== '----' ? `${leaveFund} ngày` : '----'}`,
@@ -188,55 +186,49 @@ export function requestCatalogOf(
     {
       id: 'ot' as RequestKind,
       title: 'Đơn làm thêm giờ (OT)',
-      desc: 'Đăng ký làm thêm ngày thường (1.5x), làm đêm (2.0x), cuối tuần (2.0x) hoặc Lễ Tết (3.0x).',
       tag: 'Cần duyệt trước ca làm',
       tagColor: 'amber',
-      balanceLabel: 'Hệ số tính: 1.5x ~ 3.0x lương',
+      balanceLabel: '',
       iconBg: 'bg-amber-100 text-amber-800',
     },
     {
       id: 'business_trip' as RequestKind,
       title: 'Đơn đi công tác',
-      desc: 'Công tác thực địa, hỗ trợ dự án tỉnh xa, hội thảo chuyên môn; kèm chế độ phụ cấp công tác.',
       tag: 'Nội địa / Quốc tế',
       tagColor: 'blue',
-      balanceLabel: 'Chế độ: Phụ cấp + Lưu trú',
+      balanceLabel: '',
       iconBg: 'bg-blue-50 text-blue-700',
     },
     {
       id: 'shift_change' as RequestKind,
       title: 'Đơn đổi ca',
-      desc: 'Hoán đổi ca với đồng nghiệp (cần đồng nghiệp xác nhận) hoặc đề nghị chuyển sang ca làm việc khác trong khoảng ngày chọn.',
       tag: 'Hoán đổi / Chuyển ca',
       tagColor: 'blue',
-      balanceLabel: 'Đồng nghiệp xác nhận trước khi trình duyệt',
+      balanceLabel: '',
       iconBg: 'bg-indigo-100 text-indigo-800',
     },
     {
       id: 'correction' as RequestKind,
       title: 'Đơn giải trình / Bổ sung công',
-      desc: 'Giải trình quên quẹt thẻ, sự cố thiết bị nhận diện, bổ sung mốc giờ vào/ra thực tế theo phê duyệt.',
       tag: 'Bù công / Giải trình',
       tagColor: 'rose',
-      balanceLabel: 'So sánh: Giờ hiện tại vs Đề xuất',
+      balanceLabel: '',
       iconBg: 'bg-rose-100 text-rose-700',
     },
     {
       id: 'advance' as RequestKind,
       title: 'Đơn tạm ứng lương',
-      desc: 'Đề nghị tạm ứng một phần lương, hoàn trả bằng khấu trừ vào các kỳ lương tiếp theo.',
       tag: 'Khấu trừ vào lương',
       tagColor: 'amber',
-      balanceLabel: 'Chia tối đa 4 kỳ khấu trừ',
+      balanceLabel: '',
       iconBg: 'bg-emerald-100 text-emerald-800',
     },
     {
       id: 'profile_correction' as RequestKind,
       title: 'Đơn đính chính hồ sơ',
-      desc: 'Đề nghị đính chính họ tên, ngày sinh, CCCD, mã số thuế, BHXH. Nhân sự đối chiếu minh chứng rồi mới cập nhật vào hồ sơ.',
       tag: 'Cần minh chứng',
       tagColor: 'rose',
-      balanceLabel: 'Hồ sơ chỉ đổi sau khi được duyệt',
+      balanceLabel: '',
       iconBg: 'bg-slate-100 text-slate-700',
     },
   ];
@@ -251,12 +243,10 @@ export function requestCatalogOf(
             {
               id: 'custom' as RequestKind,
               title: type.name,
-              desc: type.description || 'Loại đơn do quản trị cấu hình.',
+              desc: type.description ?? '',
               tag: timeModeLabel(type.timeMode),
               tagColor: 'blue',
-              balanceLabel: type.requiresAttachment
-                ? 'Cần chứng từ đính kèm'
-                : 'Ghi nhận và gửi duyệt',
+              balanceLabel: type.requiresAttachment ? 'Cần chứng từ đính kèm' : '',
               iconBg: 'bg-slate-100 text-slate-700',
               customType: type,
             },
@@ -267,7 +257,7 @@ export function requestCatalogOf(
               {
                 ...base,
                 title: type.name,
-                desc: type.description || base.desc,
+                desc: type.description ?? '',
                 customType: null,
               },
             ]
@@ -275,7 +265,7 @@ export function requestCatalogOf(
       })
     : systemCatalog
         .filter((c) => !isHiddenRequestKind(c.id))
-        .map((c) => ({ ...c, customType: null }));
+        .map((c) => ({ ...c, desc: '', customType: null }));
 }
 
 /** 'YYYY-MM-DD' + 'HH:mm' -> 'YYYY-MM-DDTHH:mm' (rỗng khi chưa có ngày). */
@@ -2096,8 +2086,7 @@ export function CreateRequestForm({
           aria-label="Tạo đơn hộ"
           className={`${inline ? 'mb-3' : 'mx-6 mt-4'} rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900`}
         >
-          <strong>Bạn đang tạo đơn hộ {onBehalf.employeeName}.</strong> Đơn được gửi duyệt như đơn của nhân viên này và
-          ghi nhận bạn là người tạo. Lý do tạo hộ: {onBehalf.reason}
+          <strong>Bạn đang tạo đơn hộ {onBehalf.employeeName}.</strong> Lý do tạo hộ: {onBehalf.reason}
         </div>
       )}
 
@@ -2652,7 +2641,7 @@ export function CreateRequestForm({
                 loading={customFleet.loading}
                 error={customFleet.error}
                 disabled={isSubmitting}
-                note="Xe được giữ chỗ ngay khi gửi đơn và tự xác nhận khi đơn được duyệt; đơn bị từ chối hoặc huỷ thì xe được trả lại."
+                note="Xe được giữ chỗ khi gửi đơn; đơn bị từ chối hoặc huỷ thì xe được trả lại."
               />
             ) : null}
             <label className="block space-y-1 font-semibold">
@@ -2960,7 +2949,7 @@ export function CreateRequestForm({
               availability={tripFleet.availability}
               loading={tripFleet.loading}
               error={tripFleet.error}
-              note="Xe được giữ chỗ ngay khi gửi đơn và tự xác nhận khi đơn được duyệt; đơn bị từ chối hoặc huỷ thì xe được trả lại."
+              note="Xe được giữ chỗ khi gửi đơn; đơn bị từ chối hoặc huỷ thì xe được trả lại."
             />
 
             {/* Các thiết lập tuỳ chọn: Cho phép OT & Chấm công GPS */}
@@ -2989,8 +2978,7 @@ export function CreateRequestForm({
 
               {tripSurcharges.length === 0 ? (
                 <div className="text-center py-2.5 text-xs text-slate-400 bg-white rounded-lg border border-dashed border-slate-200">
-                  Chưa có phụ phí dự trù. Bấm &quot;Thêm phụ phí&quot; để
-                  khai báo vé xe, khách sạn, tiền ăn...
+                  Chưa có phụ phí dự trù.
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -3322,15 +3310,6 @@ export function CreateRequestForm({
         {/* FORM 7: ĐỀ NGHỊ ĐIỀU CHỈNH THÔNG TIN NHÂN SỰ (PROFILE CORRECTION - MULTI-FIELD) */}
         {selectedCatalogId === 'profile_correction' && (
           <>
-            <div className="bg-blue-50/70 p-3 rounded-lg border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
-              <Info className="size-4 shrink-0 text-blue-700 mt-0.5" />
-              <span>
-                Bạn có thể chỉnh sửa trực tiếp một hoặc nhiều trường bên
-                dưới. Hệ thống sẽ tự động so sánh đối chiếu và tổng hợp các
-                mục thay đổi gửi tới phòng Nhân sự phê duyệt.
-              </span>
-            </div>
-
             <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
               {/* Họ và tên & Ngày sinh */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3488,10 +3467,6 @@ export function CreateRequestForm({
                   placeholder="VD: Đã gửi bản scan 2 mặt CCCD gắn chip qua email hr@svn.vn"
                   className="text-xs"
                 />
-                <span className="text-[12px] text-slate-500 italic block mt-0.5">
-                  * Ban Nhân sự sẽ căn cứ vào bản scan hoặc bản sao có chứng
-                  thực để phê duyệt cập nhật vào Core.
-                </span>
               </div>
             </div>
           </>

@@ -106,7 +106,7 @@
 
   > [aria-label='Kiểu xem'] button {
     min-height: ui.$control-h - 4px;
-    font-size: ui.$fs-control;
+    font-size: ui.$fs-body;
   }
 }
 
@@ -130,7 +130,7 @@
     background: transparent;
     color: ui.$muted;
     font: inherit;
-    font-size: ui.$fs-small;
+    font-size: ui.$fs-body;
     font-weight: 500;
     cursor: pointer;
 
@@ -666,12 +666,17 @@
   font-size: ui.$fs-control;
 }
 
+// Tên bước dài: tối đa 2 dòng (đủ tên ở gợi ý và trên thẻ khi mở), không cắt giữa chừng một dòng.
 .flowRowName {
   min-width: 0;
+  display: -webkit-box;
   overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .flowItemUpcoming .flowRowName {
@@ -715,14 +720,19 @@
   min-width: 0;
 }
 
+// Dòng gọn: ý kiến và phiếu tối đa 2 dòng; bấm dòng mở thẻ, ý kiến hiện đủ (xem `.flowNoteFull`).
 .flowNote,
 .flowVoucher {
+  display: -webkit-box;
   overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
   color: #374151;
   font-size: ui.$fs-small;
   line-height: 18px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 // Phiếu của bước Tài chính (mã, trạng thái, số tiền).
@@ -807,13 +817,12 @@
   white-space: nowrap;
 }
 
+// Người của vai: dài thì xuống dòng, không cắt.
 .stageWho {
   min-width: 0;
-  overflow: hidden;
   color: ui.$ink;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .stageDelegated {
@@ -837,11 +846,48 @@
   font-variant-numeric: tabular-nums;
 }
 
+// Ý kiến của từng người: dòng gọn tối đa 2 dòng; thẻ đã mở (và khung "Việc cần làm") hiện đủ, giữ xuống dòng, nằm
+// hàng riêng dưới người xử lý.
 .stageNote {
   min-width: 0;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.stageNoteFull {
+  display: block;
+  grid-column: 2 / -1;
+  overflow: visible;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  white-space: pre-wrap;
+}
+
+// Ý kiến chốt bước khi mở thẻ bước đã qua (bước một vai): đủ chữ, giữ xuống dòng.
+.flowNoteFull {
+  display: grid;
+  gap: 2px;
+  margin: 2px 0 ui.$space-1 36px;
+  font-size: ui.$fs-small;
+}
+
+.flowNoteFullHead {
+  color: ui.$muted;
+  overflow-wrap: anywhere;
+}
+
+.flowNoteFullText {
+  margin: 0;
+  color: ui.$ink;
+  font-size: ui.$fs-control;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 /* ---- Hàng nút thao tác ghim đáy cửa sổ hồ sơ ---- */
@@ -1208,8 +1254,13 @@
     border-radius: 0;
   }
 
-  .stageList {
+  .stageList,
+  .flowNoteFull {
     margin-left: 0;
+  }
+
+  .stageNoteFull {
+    flex-basis: 100%;
   }
 
   .stageLine {

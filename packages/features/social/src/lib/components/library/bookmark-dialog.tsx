@@ -245,7 +245,7 @@ export function FolderSelect({
           </ul>
         )}
         {folders.length === 0 ? (
-          <p className={styles.hint}>Chưa có thư mục. Nhập tên để tạo nhanh.</p>
+          <p className={styles.hint}>Chưa có thư mục.</p>
         ) : null}
         <hr className={styles.divider} />
         <div className={styles.add}>

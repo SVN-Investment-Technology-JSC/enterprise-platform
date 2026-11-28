@@ -285,9 +285,6 @@ export default function PersonnelDecisionsScreen() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">Quyết định nhân sự</h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Các quyết định bổ nhiệm, điều chuyển, miễn nhiệm, đổi quản lý trực tiếp kèm điều chỉnh lương của nhân sự công ty, xếp theo phòng ban.
-          </p>
         </div>
         <Button
           permission="hrm.appointment.manage"
@@ -375,7 +372,7 @@ export default function PersonnelDecisionsScreen() {
           />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div role="tablist" aria-label="Cách xem" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs font-semibold">
+          <div role="tablist" aria-label="Cách xem" className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
             {(
               [
                 ['unit', 'Theo phòng ban'],
@@ -389,7 +386,7 @@ export default function PersonnelDecisionsScreen() {
                 aria-selected={view === id}
                 onClick={() => setView(id)}
                 className={`rounded-md px-3 py-1.5 transition ${
-                  view === id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                  view === id ? 'bg-white font-semibold text-slate-900 shadow-xs' : 'font-medium text-slate-500 hover:text-slate-800'
                 }`}
               >
                 {label}

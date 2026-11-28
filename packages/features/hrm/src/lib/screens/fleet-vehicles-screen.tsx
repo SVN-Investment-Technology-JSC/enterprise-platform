@@ -6,7 +6,7 @@ import type { HrmFleetVehicle } from '@enterprise-platform/contracts-hrm';
 import { Popconfirm } from '@enterprise-platform/shared-ui';
 import { hrmFetch } from '../hrm-api';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { PageTitle } from '../ui/page-title';
 import { EmptyPanel, InfoNote, SettingsField, StatusPill } from '../ui/settings-kit';
@@ -122,7 +122,6 @@ export default function FleetVehiclesScreen() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Danh mục xe"
-        description="Xe công ty có thể được chọn khi làm đơn công tác, công việc, lịch họp và phiếu sự cố."
         withTabs
         actions={
           <Button permission="hrm.fleet.manage" className="h-9 gap-1.5 px-4 text-xs font-semibold" onClick={openCreate}>
@@ -227,7 +226,6 @@ export default function FleetVehiclesScreen() {
         <DialogContent className="max-h-[90dvh] max-w-lg gap-0 bg-white p-0" aria-label={editing ? 'Cập nhật xe' : 'Thêm xe'}>
           <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 pr-12">
             <DialogTitle>{editing ? `Cập nhật xe: ${editing.plateNo}` : 'Thêm xe mới'}</DialogTitle>
-            <DialogDescription>Biển số không được trùng với xe khác trong danh mục.</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
             {formError ? (

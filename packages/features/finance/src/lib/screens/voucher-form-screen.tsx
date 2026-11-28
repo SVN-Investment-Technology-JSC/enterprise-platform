@@ -520,10 +520,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
           {source ? (
             <p role="note" className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
               Phiếu tạo từ hồ sơ {source.instanceCode}
-              {source.definitionName ? ` (${source.definitionName})` : ''}.{' '}
-              {lockedSource
-                ? 'Các trường có biểu tượng khoá lấy từ hồ sơ; muốn sửa thì trả hồ sơ về.'
-                : 'Các trường điền sẵn từ hồ sơ vẫn sửa được, kể cả số tiền; chi một phần thì ghi sổ phiếu này rồi dùng Nhân bản để lập phiếu cho phần còn lại (cùng dự án hạch toán).'}
+              {source.definitionName ? ` (${source.definitionName})` : ''}.
             </p>
           ) : null}
 
@@ -578,12 +575,7 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
                     required={projectRequired}
                     locked={fromSource('allocation')}
                     missing={missingError('allocation')}
-                    hint={
-                      workspaceHint ??
-                      (projectRequired
-                        ? 'Bắt buộc chọn dự án: khoản thu chi hiện ở sổ chứng từ của dự án.'
-                        : 'Gắn khoản thu chi vào một dự án để hiện ở sổ chứng từ của dự án (không bắt buộc).')
-                    }
+                    hint={workspaceHint}
                   >
                     {(fieldId) => (
                       <SearchableSelect
@@ -730,13 +722,10 @@ export default function VoucherFormScreen({ kind, id }: { kind: FinanceVoucherKi
 
           <FormSection title="Ghi chú">
             <NoteEditor value={form.note} onChange={(html) => set('note', html)} voucherId={savedId} disabled={saving} onProblem={setError} onPasteImages={addPastedImages} />
-            <p className="mt-1.5 text-xs text-slate-500">Dán hoặc thả ảnh vào ghi chú sẽ tự chuyển sang mục Đính kèm.</p>
           </FormSection>
 
           <FormSection title="Đối tượng liên quan" defaultOpen={form.relatedProjectIds.length > 0}>
-            <p className="mb-2 text-xs text-slate-500">
-              Dự án có liên quan tới phiếu này. Phiếu hiện ở tab Thu chi của các dự án đó nhưng không cộng vào tổng thu chi của dự án; chỉ phần Hạch toán nội bộ mới được cộng.
-            </p>
+            <p className="mb-2 text-xs text-slate-500">Không cộng vào tổng thu chi của dự án; chỉ phần Hạch toán nội bộ được cộng.</p>
             <Field label="Thêm dự án liên quan" hint={workspaceHint}>
               {(fieldId) => (
                 <SearchableSelect

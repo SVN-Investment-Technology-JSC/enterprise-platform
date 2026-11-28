@@ -29,7 +29,7 @@ export function Panel({
   id: string;
   icon: LucideIcon;
   title: ReactNode;
-  hint: string;
+  hint?: string;
   /**
    * Thanh thao tác nằm giữa tiêu đề và `actions` (ví dụ thao tác hàng loạt khi đang chọn). Nằm ngay trong thanh tiêu đề nên hiện
    * hay ẩn không làm trang nhảy; thanh tự co khi hẹp (nhãn nút nên ẩn bằng `max-xl:sr-only`).
@@ -67,7 +67,7 @@ export function Panel({
           <h2 className="text-sm font-semibold text-slate-900" id={id}>
             {title}
           </h2>
-          <p className={cn('truncate text-xs text-slate-500', toolbar && 'max-xl:hidden')}>{hint}</p>
+          {hint ? <p className={cn('truncate text-xs text-slate-500', toolbar && 'max-xl:hidden')}>{hint}</p> : null}
         </div>
         {toolbar ? <div className="flex min-w-0 flex-1 items-center justify-end gap-1">{toolbar}</div> : null}
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}

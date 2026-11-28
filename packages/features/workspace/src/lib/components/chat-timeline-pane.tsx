@@ -342,7 +342,7 @@ export function ChatTimelinePane({
         style={{ '--timeline-left': `${leftPct}%` } as CSSProperties}
       >
         <TimelineColumn
-          title="Tổng hợp trao đổi của những công việc thuộc dự án"
+          title="Trao đổi của các công việc"
           loading={!ready && timeline.isFetching}
           rows={workRows}
           emptyText={ready ? (filtering ? 'Không có tin nào khớp bộ lọc.' : 'Các công việc chưa có trao đổi nào.') : undefined}

@@ -226,7 +226,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
             ) : (
               <span className={styles.finFootLabel}>Nhập giá trị hợp đồng để theo dõi tiến độ thu tiền.</span>
             )}
-            <Tooltip content="Gồm phiếu chờ duyệt và phiếu từ hồ sơ Quy trình đã duyệt đang chờ kế toán ghi sổ. Chưa ghi sổ nên chưa tính vào số liệu trên">
+            <Tooltip content="Chưa ghi sổ nên chưa tính vào số liệu trên">
               <span className={styles.finPending}>
                 Nháp (chưa ghi sổ): thu <b>{formatVnd(data.totals.pendingReceived)}</b> · chi <b>{formatVnd(data.totals.pendingPaid)}</b>
               </span>
@@ -235,7 +235,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
         ) : null}
         {finance.actualCost > 0 ? (
           <p className={styles.finLegacy}>
-            Dự án còn {formatVnd(finance.actualCost)} chi phí ghi tay theo cách cũ ở Workspace. Khoản này không tính vào số liệu trên; chi phí thực tế nay lấy từ phiếu chi đã duyệt ở module Tài chính.
+            Dự án còn {formatVnd(finance.actualCost)} chi phí ghi tay theo cách cũ, không tính vào số liệu trên.
           </p>
         ) : null}
       </section>
@@ -406,7 +406,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
                   {data.items.length === 0 ? (
                     <tr>
                       <td colSpan={10} className={styles.muted}>
-                        Dự án chưa có phiếu thu chi nào. Phiếu hạch toán cho dự án này ở module Tài chính sẽ hiện ở đây.
+                        Dự án chưa có phiếu thu chi nào.
                       </td>
                     </tr>
                   ) : visibleVouchers.length === 0 ? (
@@ -487,7 +487,7 @@ export function TabFinance({ projectId, initial, onChanged }: TabFinanceProps) {
           <footer className={styles.ledgerFoot}>
             {data.truncated
               ? 'Chỉ hiển thị 200 phiếu gần nhất; tổng tiền và dòng tiền ở trên vẫn tính đủ mọi phiếu hạch toán.'
-              : 'Dòng tiền luỹ kế chỉ tính phiếu đã ghi sổ hạch toán cho dự án, theo ngày hạch toán. Phiếu chờ duyệt/ghi sổ và phiếu chỉ liên quan (mục "Đối tượng liên quan") hiện mờ để tra cứu, không cộng vào tổng.'}
+              : 'Phiếu chưa ghi sổ hoặc chỉ liên quan hiện mờ, không cộng vào tổng.'}
           </footer>
         </section>
       ) : null}
@@ -549,14 +549,13 @@ function ContractDialog({
     <Dialog
       open={open}
       title="Giá trị hợp đồng"
-      subtitle="Đơn vị VND, chưa gồm VAT. Gõ 25.500.000.000 hoặc 25500000000 đều được."
       submitLabel="Lưu"
       submitting={submitting}
       error={error}
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Giá trị hợp đồng (trước VAT)" hint="Để trống nếu chưa ký hợp đồng.">
+      <Field label="Giá trị hợp đồng (VND, trước VAT)">
         <input inputMode="decimal" value={contract} onChange={(event) => setContract(event.target.value)} />
       </Field>
     </Dialog>

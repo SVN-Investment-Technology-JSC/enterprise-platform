@@ -145,14 +145,14 @@ export function CompOffConversionPanel({
       ) : null}
       {preview && preview.enabled && preview.locked && rows.length > 0 && convertible.length === 0 ? (
         <Notice tone="info">
-          Không còn nhân viên nào chờ chuyển đổi trong tháng này (đã chuyển đổi hoặc không có giờ dư), nên không có dòng nào để chọn.
+          Không còn nhân viên nào chờ chuyển đổi trong tháng này.
         </Notice>
       ) : null}
       {preview && preview.enabled && !interactive ? (
         <Notice tone="info">
           {preview.locked
             ? 'Tháng đã chốt công: số liệu dưới đây chỉ để xem. Cần sửa quỹ thì dùng "Điều chỉnh quỹ" ở mục Số dư.'
-            : 'Xem trước quỹ nghỉ bù của tháng. Việc chuyển đổi được xác nhận khi chốt bảng công tháng này.'}
+            : 'Chuyển đổi được xác nhận khi chốt bảng công tháng này.'}
         </Notice>
       ) : null}
       <TableShell label="Chuyển đổi giờ dư thành nghỉ bù">
@@ -173,7 +173,7 @@ export function CompOffConversionPanel({
             <th className={thRight}>Tính lương (giờ)</th>
             <th className={thRight}>Giờ dư</th>
             <th className={thRight}>Ngày nghỉ bù</th>
-            <th className={th} title="Ngày số ngày nghỉ bù được cộng vào quỹ của nhân viên, và ngày hết hạn sử dụng của số ngày đó.">
+            <th className={th}>
               Ngày cộng / hạn dùng
             </th>
             <th className={th}>Trạng thái</th>
@@ -234,7 +234,7 @@ export function CompOffConversionPanel({
         </tbody>
       </TableShell>
       <p className="max-w-[90ch] text-[11px] text-slate-500">
-        Cộng quỹ: ngày số ngày nghỉ bù vào quỹ của nhân viên, theo chính sách (thường là đầu tháng sau). Hạn dùng: sau ngày này số ngày nghỉ bù chưa dùng sẽ hết hiệu lực; &quot;Không hạn&quot; nghĩa là chính sách không giới hạn thời gian dùng.
+        Hạn dùng: sau ngày này số ngày nghỉ bù chưa dùng hết hiệu lực.
       </p>
     </div>
   );

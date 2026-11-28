@@ -200,7 +200,7 @@ function PersonDrawer({
               <SheetTitle>{person.employeeName}</SheetTitle>
               <SheetDescription>
                 {person.departmentName ? `${person.departmentName} · ` : ''}
-                {person.days} ngày công · bấm một ngày để xem lượt quẹt gốc
+                {person.days} ngày công
               </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto p-4 text-xs">
@@ -387,7 +387,6 @@ export default function AttendanceDataScreen() {
       <PageTitle
         withTabs
         title="Dữ liệu chấm công"
-        description="Kết quả chấm công theo ngày, tối đa 93 ngày mỗi lần xem."
       />
       <form
         onSubmit={submit}
@@ -441,7 +440,7 @@ export default function AttendanceDataScreen() {
           variant="outline"
           disabled={exporting || total === 0}
           onClick={() => void exportCsv()}
-          title={`Xuất toàn bộ kết quả đã lọc (tối đa ${ATTENDANCE_EXPORT_MAX_ROWS.toLocaleString('vi-VN')} dòng), không chỉ trang đang xem`}
+          title={`Tối đa ${ATTENDANCE_EXPORT_MAX_ROWS.toLocaleString('vi-VN')} dòng`}
         >
           {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
           <span>Xuất Excel kết quả đã lọc</span>

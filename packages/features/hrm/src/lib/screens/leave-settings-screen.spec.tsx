@@ -213,7 +213,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       screen.getByRole('heading', { name: 'Chính sách phép năm', level: 1 }),
     ).toBeTruthy();
     await openPolicyForm();
-    for (const name of ['Cách tính phép', 'Phép thâm niên', 'Hiệu lực', 'Tóm tắt chính sách', 'Lưu ý khi thay đổi'])
+    for (const name of ['Cách tính phép', 'Phép thâm niên', 'Hiệu lực', 'Tóm tắt chính sách'])
       expect(screen.getByRole('heading', { name })).toBeTruthy();
     expect(screen.getByTestId('policy-status').textContent).toBe('Đang áp dụng');
     expect(field(/Số ngày phép mỗi năm/).value).toBe('12');
@@ -224,7 +224,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
     expect(screen.queryByRole('button', { name: 'Thêm mốc thâm niên' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Xóa mốc/ })).toBeNull();
     expect(screen.queryByLabelText(/Số ngày chuyển tối đa/)).toBeNull();
-    expect(screen.getByText(/Phép năm không chuyển sang năm sau/)).toBeTruthy();
+    expect(screen.getByText("Không chuyển sang năm sau")).toBeTruthy();
     expect(
       screen.getByRole('switch', { name: 'Cho ứng phép' }).getAttribute('aria-checked'),
     ).toBe('true');
@@ -332,7 +332,7 @@ describe('LeaveSettingsScreen: chính sách phép năm', () => {
       screen.getByRole('heading', { name: 'Chọn lý do nghỉ dùng làm phép năm' }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Chưa có chính sách phép năm\. Nhập biểu mẫu và lưu/),
+      screen.getByText(/Chưa có chính sách phép năm\./),
     ).toBeTruthy();
     // Chưa chọn lý do: báo lỗi, không gọi PUT.
     fireEvent.change(field(/Số ngày phép mỗi năm/), { target: { value: '13' } });

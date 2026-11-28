@@ -37,12 +37,12 @@ const ACCESS_MODE_OPTIONS = [
   {
     value: 'proxy',
     label: SHARED_STORAGE_ACCESS_MODE_LABELS.proxy,
-    description: 'Kho chỉ cần máy chủ ERP thấy được (mạng nội bộ, VPN, Tailscale). Máy chủ chuyển tiếp tệp, không lưu lại.',
+    description: 'Chỉ cần máy chủ ERP thấy được kho (LAN, VPN, Tailscale).',
   },
   {
     value: 'direct',
     label: SHARED_STORAGE_ACCESS_MODE_LABELS.direct,
-    description: 'Kho có địa chỉ công khai https và mở CORS cho tên miền ERP. Tệp không đi qua máy chủ ERP.',
+    description: 'Kho cần https công khai và mở CORS cho tên miền ERP.',
   },
 ];
 
@@ -198,7 +198,6 @@ export function ExternalStoragePanel({ onChanged }: { readonly onChanged?: () =>
         <h3>Kho lưu trữ ngoài</h3>
         <span className={`${styles.badge} ${status.tone}`}>{status.label}</span>
       </div>
-      <p className={styles.muted}>Tệp của Tài liệu công ty và Văn thư lưu vào kho S3 riêng (MinIO trên NAS, Amazon S3…).</p>
       <dl className={styles.facts}>
         <div>
           <dt>Trên máy chủ ERP</dt>

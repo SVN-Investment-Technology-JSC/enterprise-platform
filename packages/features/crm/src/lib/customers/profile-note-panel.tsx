@@ -46,7 +46,7 @@ export function ProfileNotePanel({
   return (
     <div>
       <h4 className={styles.sectionTitle}>Chân dung khách hàng</h4>
-      <p style={{ whiteSpace: 'pre-wrap' }}>{customer.profileNote ?? 'Chưa có ghi chú. Ghi đặc điểm, thói quen mua, người quyết định, lưu ý khi chăm sóc.'}</p>
+      <p style={{ whiteSpace: 'pre-wrap' }}>{customer.profileNote ?? 'Chưa có ghi chú.'}</p>
       {canEdit ? (
         <div className={styles.toolbar}>
           <button type="button" className={styles.buttonGhost} onClick={open}>

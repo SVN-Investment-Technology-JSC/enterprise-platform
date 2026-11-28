@@ -177,7 +177,6 @@ export function AddPriceItemsDialog({
       open
       extraWide
       title="Thêm dòng giá"
-      subtitle="Chọn một hoặc nhiều mặt hàng từ danh mục Kho, rồi nhập đơn giá và thuế suất cho từng mặt hàng."
       submitLabel={rows.length ? `Lưu ${rows.length} dòng giá` : 'Lưu'}
       submitting={saving}
       error={error ?? catalog.error}
@@ -267,7 +266,7 @@ export function EditPriceItemDialog({
     <CrmDialog
       open
       title="Sửa dòng giá"
-      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit}). Mặt hàng lấy từ Kho nên chỉ đổi được đơn giá và thuế suất.`}
+      subtitle={`${item.materialCode} · ${item.materialName} (${item.unit})`}
       submitting={submitting}
       error={error}
       onClose={onClose}
@@ -277,7 +276,7 @@ export function EditPriceItemDialog({
         <Field label="Đơn giá (VND)" required>
           <input className={styles.input} inputMode="decimal" value={price} autoFocus onChange={(event) => setPrice(event.target.value)} />
         </Field>
-        <Field label="Thuế suất (%)" required hint="Từ 0 đến 100, cho phép số thập phân">
+        <Field label="Thuế suất (%)" required hint="Từ 0 đến 100">
           <input className={styles.input} inputMode="decimal" value={vat} onChange={(event) => setVat(event.target.value)} />
         </Field>
       </div>
@@ -388,7 +387,7 @@ export function VatRateDialog({
       onSubmit={() => void submit()}
     >
       <div className={styles.fieldGrid}>
-        <Field label="Thuế suất (%)" required error={fieldError} hint="Từ 0 đến 100, tối đa 2 chữ số thập phân; giữ nguyên khi đồng bộ Kho">
+        <Field label="Thuế suất (%)" required error={fieldError} hint="Giữ nguyên khi đồng bộ Kho">
           <input
             className={styles.input}
             inputMode="decimal"

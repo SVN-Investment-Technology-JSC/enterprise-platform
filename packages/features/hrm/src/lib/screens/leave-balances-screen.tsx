@@ -96,7 +96,8 @@ function StockCell({ value }: { value: number }) {
 type BalanceState = {
   readonly label: string;
   readonly className: string;
-  readonly title: string;
+  /** Chỉ có khi trạng thái cần giải thích thêm (ngày hưởng, ứng phép...). */
+  readonly title?: string;
 };
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -107,13 +108,12 @@ function getBalanceState(row: Row): BalanceState {
     return {
       label: 'Chưa có quỹ',
       className: 'border-slate-200 bg-slate-50 text-slate-600',
-      title: 'Chưa có dòng quỹ phép cho năm này.',
     };
   if (row.signDate === null)
     return {
       label: 'Chưa có HĐLĐ',
       className: 'border-amber-200 bg-amber-50 text-amber-700',
-      title: 'Chưa có HĐLĐ chính thức đã ký nên chưa phát sinh phép năm.',
+      title: 'Chưa phát sinh phép năm.',
     };
   if (row.eligibleFrom && row.eligibleFrom > todayIso())
     return {
@@ -125,13 +125,12 @@ function getBalanceState(row: Row): BalanceState {
     return {
       label: 'Vượt quỹ',
       className: 'border-red-200 bg-red-50 text-red-700',
-      title: 'Số ngày đã dùng và đang chờ duyệt vượt quá quỹ có thể dùng.',
+      title: 'Đã dùng và chờ duyệt vượt quỹ.',
     };
   if (row.remaining === 0)
     return {
       label: 'Đã hết phép',
       className: 'border-amber-200 bg-amber-50 text-amber-700',
-      title: 'Không còn ngày phép có thể dùng.',
     };
 
   const accrued = row.entitledToDate ?? row.accrued;
@@ -141,8 +140,7 @@ function getBalanceState(row: Row): BalanceState {
     return {
       label: 'Đang ứng phép',
       className: 'border-blue-200 bg-blue-50 text-blue-700',
-      title:
-        'Đã dùng vượt mức tích luỹ thực tế, đang sử dụng phần phép ứng trước của các tháng sau.',
+      title: 'Đang dùng phép ứng trước của các tháng sau.',
     };
   }
 
@@ -150,20 +148,24 @@ function getBalanceState(row: Row): BalanceState {
     return {
       label: 'Còn phép',
       className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      title:
-        'Còn phép tích luỹ bình thường và được quyền ứng trước ngày phép của các tháng tới.',
+      title: 'Được ứng trước phép của các tháng tới.',
     };
   }
 
   return {
     label: 'Còn phép',
     className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    title: 'Còn ngày phép có thể dùng theo chính sách hiện hành.',
   };
 }
 
 function BalanceStateCell({ row }: { row: Row }) {
   const state = getBalanceState(row);
+  if (!state.title)
+    return (
+      <Badge variant="outline" className={state.className}>
+        {state.label}
+      </Badge>
+    );
   return (
     <Tooltip>
       <TooltipTrigger
@@ -171,7 +173,6 @@ function BalanceStateCell({ row }: { row: Row }) {
           <Badge
             variant="outline"
             className={cn('cursor-help', state.className)}
-            // title={state.title}
           />
         }
       >
@@ -193,7 +194,7 @@ function SignDateNote({ row }: { row: Row }) {
     return (
       <span
         className="block truncate text-[12px] font-normal text-amber-600"
-        title="Chưa có HĐLĐ chính thức đã ký nên chưa phát sinh phép năm"
+        title="Chưa phát sinh phép năm"
       >
         Chưa có HĐLĐ
       </span>
@@ -444,7 +445,6 @@ export default function LeaveBalancesScreen() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <PageTitle
           title="Phép năm"
-          description="Theo dõi số ngày phép năm của nhân viên. Số liệu được tổng hợp theo cấu hình hiện hành."
         />
         {canRead && (
           <div className="flex items-center gap-2">
@@ -478,11 +478,6 @@ export default function LeaveBalancesScreen() {
               size="lg"
               className="border-slate-200 text-xs font-semibold text-slate-700"
               disabled={filtered.length === 0}
-              title={
-                selectedInView > 0
-                  ? `Xuất ${selectedInView} nhân viên đã chọn`
-                  : 'Xuất danh sách đang lọc'
-              }
               onClick={handleExport}
             >
               <Download className="size-3.5" />

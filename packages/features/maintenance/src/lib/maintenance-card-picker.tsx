@@ -76,7 +76,6 @@ export function MaintenanceCardPicker<TData>({
               />
               <span className="flex min-w-0 flex-1 flex-col">
                 <strong className="text-sm font-semibold text-slate-900">{card.title}</strong>
-                <small className="text-[0.8125rem] text-muted-foreground">{card.description}</small>
               </span>
               {on ? (
                 <span className="flex shrink-0 gap-1">

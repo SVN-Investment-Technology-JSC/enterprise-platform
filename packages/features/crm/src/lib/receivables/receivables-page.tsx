@@ -406,10 +406,10 @@ function ReceivableSettingsPanel() {
         <Field label="Ghi nhận nợ" hint="Hợp đồng có đợt thanh toán thì ghi nợ theo đợt">
           <input className={styles.input} value="Khi chứng từ xuất giao hàng được ghi sổ" disabled readOnly />
         </Field>
-        <Field label="Vượt hạn mức công nợ khi xác nhận đơn" hint="Cách duyệt (trực tiếp hay qua Quy trình) chọn ở Cấu hình, Duyệt báo giá, loại hạn mức công nợ">
+        <Field label="Vượt hạn mức công nợ khi xác nhận đơn">
           <SearchableSelect options={labelOptions(CREDIT_LIMIT_MODE_LABELS)} value={mode} onChange={(value) => setMode((value || 'APPROVAL') as CreditLimitMode)} />
         </Field>
-        <Field label="Người nhận thêm cảnh báo quá hạn, vượt hạn mức" hint="Ngoài người phụ trách khách hàng và đơn, ví dụ kế toán công nợ" wide>
+        <Field label="Người nhận thêm cảnh báo quá hạn, vượt hạn mức" hint="Ngoài người phụ trách khách hàng và đơn" wide>
           <SearchableSelect
             options={peopleOptions(people).filter((option) => !userIds.includes(option.value))}
             value=""

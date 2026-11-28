@@ -53,7 +53,7 @@ export function CareSuggestionDialog({
     <CrmDialog
       open
       title="Tạo lịch chăm sóc lại"
-      subtitle={`Dự án "${opportunity.name}" đã chuyển sang Thua. Bạn có muốn hẹn lịch chăm sóc lại khách không?`}
+      subtitle={`Dự án "${opportunity.name}" đã chuyển sang Thua.`}
       submitLabel="Tạo lịch"
       cancelLabel="Bỏ qua"
       submitting={submitting}

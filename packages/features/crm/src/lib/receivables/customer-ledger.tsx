@@ -393,7 +393,7 @@ function ReceiptDialog({ ledger, onClose, onSaved }: { ledger: Ledger; onClose: 
       open
       wide
       title="Ghi nhận thu tiền"
-      subtitle={`${ledger.customerCode} - ${ledger.customerName}. Phân bổ có hiệu lực khi kế toán ghi sổ phiếu thu bên Tài chính.`}
+      subtitle={`${ledger.customerCode} - ${ledger.customerName} · có hiệu lực khi Tài chính ghi sổ`}
       submitLabel="Ghi nhận"
       submitting={saving}
       error={error}
@@ -631,7 +631,7 @@ function AdjustmentDialog({ ledger, onClose, onSaved }: { ledger: Ledger; onClos
     <CrmDialog
       open
       title="Điều chỉnh công nợ"
-      subtitle="Giảm trừ do trả hàng, chiết khấu thanh toán; người khác người lập duyệt rồi mới vào sổ."
+      subtitle="Cần người khác người lập duyệt rồi mới vào sổ."
       submitLabel="Lập điều chỉnh"
       submitting={saving}
       error={error}

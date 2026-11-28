@@ -106,7 +106,6 @@ export function dashboardCards(dashboard: SalesDashboard, capabilities: CrmCapab
       value: formatVndCompact(kpis.revenue.value),
       title: fullMoney(kpis.revenue.value),
       delta: formatDelta(kpis.revenue.changePercent, '%'),
-      hint: 'Sau chiết khấu, chưa VAT, theo ngày giao',
       view: salesView,
     },
     {
@@ -127,7 +126,6 @@ export function dashboardCards(dashboard: SalesDashboard, capabilities: CrmCapab
       label: 'Đơn bán mới',
       value: formatCount(kpis.newOrders.value),
       delta: formatDelta(kpis.newOrders.changePercent, '%'),
-      hint: 'Tạo trong kỳ, trừ đơn nháp và đã huỷ',
       view: 'orders',
     },
     {

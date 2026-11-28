@@ -437,7 +437,7 @@ export function MyDayPanel({
   if (!day) {
     return (
       <p className="p-4 text-xs text-slate-500">
-        Bấm một ngày trên lịch để xem chi tiết công và đơn từ của ngày đó.
+        Chọn một ngày trên lịch để xem chi tiết.
       </p>
     );
   }
@@ -578,10 +578,10 @@ export function MyTimesheetView({
   }
 
   const tabClass = (active: boolean) =>
-    `flex-1 border-b-2 px-3 py-3 text-sm font-semibold transition ${
+    `flex-1 border-b-2 px-3 py-2 text-sm transition ${
       active
-        ? 'border-blue-600 text-blue-700'
-        : 'border-transparent text-slate-500 hover:text-slate-800'
+        ? 'border-blue-600 font-semibold text-blue-700'
+        : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
     }`;
 
   return (

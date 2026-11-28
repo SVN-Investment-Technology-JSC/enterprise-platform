@@ -69,11 +69,7 @@ export function ProjectRoleSettings() {
   return (
     <div className={styles.roleSettings}>
       <div className={styles.roleSettingsHead}>
-        <p className={styles.muted}>
-          {canEdit
-            ? 'Gán vai cho thành viên ở hộp "Thành viên dự án" của từng dự án.'
-            : 'Chỉ quản trị viên được thêm hoặc sửa vai trò.'}
-        </p>
+        {canEdit ? <span /> : <p className={styles.muted}>Chỉ quản trị viên được thêm hoặc sửa vai trò.</p>}
         {canEdit ? (
           <Button type="button" onClick={() => setEditing(null)}>
             <Plus size={15} /> Thêm vai trò

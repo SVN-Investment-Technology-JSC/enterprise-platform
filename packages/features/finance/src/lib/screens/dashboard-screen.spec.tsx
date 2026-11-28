@@ -100,7 +100,7 @@ describe('Dashboard Tài chính', () => {
     expect(await screen.findByText('Phiếu chờ bạn duyệt')).toBeTruthy();
     expect(screen.queryByText('Thu trong tháng')).toBeNull();
     expect(screen.queryByText('Tổng số dư tài khoản')).toBeNull();
-    expect(screen.getByText('Không có phiếu nào đang chờ')).toBeTruthy();
+    expect(screen.queryByText(/^Tổng \d/)).toBeNull();
   });
 
   it('báo lỗi khi không tải được', async () => {

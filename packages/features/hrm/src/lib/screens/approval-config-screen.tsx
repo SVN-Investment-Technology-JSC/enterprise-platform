@@ -740,7 +740,6 @@ export default function ApprovalConfigScreen() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Quy trình duyệt"
-        description="Thiết lập quy trình phê duyệt đơn từ."
         badge={
           dirtyCount > 0 ? (
             <StatusPill tone="blue">{dirtyCount} thay đổi chưa lưu</StatusPill>
@@ -761,22 +760,7 @@ export default function ApprovalConfigScreen() {
       />
 
       <InfoNote tone="blue">
-        <p>
-          <strong className="font-semibold text-slate-800">
-            Quản lý trực tiếp (mặc định):
-          </strong>{' '}
-          đơn đi lên quản lý trực tiếp của người làm đơn. Người duyệt là quản lý
-          trực tiếp và người có quyền duyệt toàn bộ.
-        </p>
-        <p className="mt-1">
-          <strong className="font-semibold text-slate-800">Theo quy trình:</strong>{' '}
-          đơn chạy một quy trình của Procedure Engine. Người duyệt do quy trình
-          chỉ định theo từng bước. Cấu hình mới chỉ áp dụng cho đơn gửi sau; đơn
-          đã gửi giữ nguyên.
-        </p>
-        <p className="mt-1">
-          Lý do không có cấu hình riêng thì theo cấu hình chung của loại đơn.
-        </p>
+        Cấu hình mới chỉ áp dụng cho đơn gửi sau. Lý do không có cấu hình riêng thì theo cấu hình chung của loại đơn.
       </InfoNote>
 
       {procedureAvailable === false && (
@@ -917,7 +901,6 @@ export default function ApprovalConfigScreen() {
         <ConfigHistoryDrawer
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          description="Các lần đổi cách duyệt đơn và chính sách tự duyệt, mới nhất ở trên."
           actionPrefixes={['PROCEDURE_BINDING_CONFIGURED', 'APPROVAL_POLICY_CHANGED']}
         />
       )}

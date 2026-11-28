@@ -474,7 +474,7 @@ export function GroupDetailView({ groupId }: { readonly groupId: string }) {
         onClose={() => setRequesting(false)}
       >
         <p className={CONFIRM_TEXT}>
-          Quản trị viên của "{group.name}" sẽ nhận được yêu cầu của bạn. Bạn có thể kèm lời nhắn.
+          Quản trị viên của "{group.name}" sẽ nhận được yêu cầu của bạn.
         </p>
         <Field label="Lời nhắn" hint={`${requestMessage.length}/${SOCIAL_GROUP_JOIN_MESSAGE_MAX}`}>
           <Textarea

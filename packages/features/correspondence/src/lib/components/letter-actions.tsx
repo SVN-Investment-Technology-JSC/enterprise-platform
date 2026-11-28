@@ -225,7 +225,7 @@ function NextStepFields({
         <p className={styles.plan}>
           <span>Theo bút phê{directive.byName ? ` của ${directive.byName}` : ''}:</span>{' '}
           {directive.units.map((unit) => `${unit.unitName} (${ASSIGNMENT_ROLE_LABELS[unit.role].toLowerCase()})`).join(', ')}
-          {directive.dueOn ? `; hạn ${formatDay(directive.dueOn)}` : ''}. Phân phối đúng theo bút phê hoặc điều chỉnh bên dưới.
+          {directive.dueOn ? `; hạn ${formatDay(directive.dueOn)}` : ''}.
         </p>
       ) : null}
       {next.needsUnits ? (
@@ -327,7 +327,7 @@ function CancelButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'onDone'>
         open={open}
         letter={letter}
         title="Huỷ công văn"
-        subtitle={`Công văn ${letter.displayNo} dừng xử lý, mọi người liên quan được báo. Số đã cấp vẫn giữ trong sổ.`}
+        subtitle={`Công văn ${letter.displayNo} dừng xử lý; số đã cấp vẫn giữ trong sổ.`}
         reasonLabel="Lý do huỷ"
         placeholder="Ví dụ: cơ quan gửi đã thu hồi, vào sổ trùng"
         submitLabel="Huỷ công văn"
@@ -367,7 +367,6 @@ function ReturnControl({
         open={open}
         letter={letter}
         title={dialogTitle ?? label}
-        subtitle="Công văn quay về nơi được chọn kèm lý do; người nhận được báo ngay."
         reasonLabel="Lý do"
         placeholder="Nêu rõ cần sửa, bổ sung gì"
         submitLabel="Xác nhận trả lại"
@@ -409,7 +408,7 @@ function ReasonDialog({
   readonly open: boolean;
   readonly letter: LetterDetail;
   readonly title: string;
-  readonly subtitle: string;
+  readonly subtitle?: string;
   readonly reasonLabel: string;
   readonly placeholder: string;
   readonly submitLabel: string;
@@ -657,10 +656,6 @@ function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
     return (
       <Panel title="Thư riêng gửi bạn">
         <div className={styles.form}>
-          <p className={styles.sectionNote}>
-            Văn thư chuyển nguyên bì, không bóc. Nhận thư rồi bấm Đã nhận. Nếu là việc chung của cơ quan, trả văn thư để vào sổ xử lý
-            theo quy trình.
-          </p>
           <ErrorLine error={error} />
           <div className={styles.formActions}>
             <ReturnControl letter={letter} onDone={onDone} label="Trả văn thư (việc chung)" dialogTitle="Trả văn thư xử lý như công văn" />
@@ -675,10 +670,7 @@ function CompleteForm({ letter, config, onDone, onDirtyChange }: ActionProps) {
   return (
     <Panel title={letter.flow.at(-1)?.label ?? 'Văn thư hoàn tất, lưu trữ'}>
       <div className={styles.form}>
-        <p className={styles.sectionNote}>
-          Công văn đã qua đủ các bước của quy trình. Kiểm kết quả ở mục Phòng ban xử lý (nếu có)
-          {archivesAtEnd(letter, config) ? '; hoàn tất để cấp số hồ sơ, ghi lên thư mục hồ sơ trong kho lưu trữ.' : '; hoàn tất để đóng công văn.'}
-        </p>
+        {archivesAtEnd(letter, config) ? <p className={styles.sectionNote}>Hoàn tất sẽ cấp số hồ sơ và lưu trữ.</p> : null}
         <Field label="Ghi chú hoàn tất">
           <textarea value={note} maxLength={4000} rows={2} placeholder="Ví dụ: đã gửi văn bản trả lời số …" onChange={(event) => setNote(event.target.value)} />
         </Field>
@@ -909,7 +901,6 @@ function PublishForm({ letter, config, directory, onDone, onDirtyChange }: Actio
               ))}
             </div>
           ) : null}
-          <span className={styles.hint}>Phòng được chọn xem được văn bản đã ban hành và nhận thông báo.</span>
         </SelectField>
         <ErrorLine error={error} />
         <div className={styles.formActions}>
@@ -1054,7 +1045,7 @@ function RevokeRequestButton({ letter, onDone }: Pick<ActionProps, 'letter' | 'o
         title="Đề nghị huỷ công văn"
         subtitle={
           approver
-            ? `Công văn ${letter.displayNo} đã ${letter.direction === 'outgoing' ? 'ban hành' : 'hoàn tất'}. Đề nghị chuyển tới người có thẩm quyền của bước "${approver.name}" xác nhận; chưa xác nhận thì công văn vẫn giữ nguyên.`
+            ? `Cần người có thẩm quyền của bước "${approver.name}" xác nhận; chưa xác nhận thì công văn giữ nguyên.`
             : `Công văn ${letter.displayNo} không qua bước duyệt nào nên huỷ ngay khi gửi.`
         }
         submitLabel={approver ? 'Gửi đề nghị' : 'Huỷ công văn'}
@@ -1178,7 +1169,7 @@ function RevokingPanel({ letter, onDone, onDirtyChange }: ActionProps) {
         </div>
       ) : (
         <>
-          <p className={styles.sectionNote}>Đang chờ người có thẩm quyền xác nhận. Công văn vẫn giữ nguyên cho tới khi được đồng ý huỷ.</p>
+          <p className={styles.sectionNote}>Đang chờ người có thẩm quyền xác nhận.</p>
           <ErrorLine error={error} />
           {actions.withdrawRevoke ? (
             <div className={styles.formActions}>

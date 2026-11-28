@@ -57,14 +57,9 @@ export const DynamicAttributeForm: React.FC<DynamicAttributeFormProps> = ({
 
   return (
     <div className="space-y-3 pt-2 border-t border-slate-200">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-bold text-slate-700 uppercase tracking-wider">
-          Thông tin bổ trợ quy trình (Cấu hình động Node S)
-        </span>
-        <span className="text-[12px] text-slate-500 font-medium">
-          Dùng cho điều kiện xét duyệt & rẽ nhánh
-        </span>
-      </div>
+      <span className="block text-[12px] font-bold text-slate-700 uppercase tracking-wider">
+        Thông tin bổ trợ quy trình (Cấu hình động Node S)
+      </span>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {visibleAttributes.map((attr) => {

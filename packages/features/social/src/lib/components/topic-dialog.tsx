@@ -223,8 +223,7 @@ export function TopicDialog({
   return (
     <Dialog open title="Quản lý chuyên mục" error={error} onClose={onClose}>
       <p className={styles.muted} style={{ fontSize: 14 }}>
-        Bật hoặc tắt bằng công tắc bên phải. Chuyên mục đang tắt không hiện khi
-        đăng bài mới.
+        Chuyên mục đang tắt không hiện khi đăng bài mới.
       </p>
       <div className="flex gap-3">
         <Input

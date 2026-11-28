@@ -229,11 +229,6 @@ export default function AttendanceMonitorScreen() {
     <div className="space-y-4" data-testid="attendance-monitor">
       <PageTitle
         title={isToday ? 'Giám sát chấm công hôm nay' : 'Giám sát chấm công theo ngày'}
-        description={
-          data?.scope === 'TEAM'
-            ? 'Theo dõi tình hình vào ca, đi trễ, về sớm của nhân viên cấp dưới trong ngày.'
-            : 'Theo dõi tình hình vào ca, đi trễ, về sớm và các trường hợp cần xử lý trong ngày.'
-        }
         actions={
           <>
             <div className="w-[190px]">
@@ -348,9 +343,6 @@ export default function AttendanceMonitorScreen() {
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <h2 className="text-base font-bold text-slate-900">Danh sách cần theo dõi ({attention.length})</h2>
-              <p className="text-xs text-slate-500">
-                Các nhân viên chưa vào ca, đi trễ, về sớm hoặc thiếu lượt chấm công.
-              </p>
             </div>
             <Button variant="outline" onClick={exportCsv} disabled={!attention.length} className="gap-1.5">
               <Download className="size-4" />
@@ -403,7 +395,7 @@ export default function AttendanceMonitorScreen() {
                   type="button"
                   aria-selected={active}
                   onClick={() => patch({ tab: tab.id })}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${active ? `${TONE[tab.tone]} ring-1 ring-current/20` : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${active ? `${TONE[tab.tone]} font-semibold ring-1 ring-current/20` : 'border-slate-200 bg-white font-medium text-slate-500 hover:bg-slate-50'
                     }`}
                 >
                   {tab.label} ({counts[tab.id]})

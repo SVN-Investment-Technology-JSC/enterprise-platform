@@ -221,9 +221,13 @@ export function CaseFlow(props: CaseFlowProps) {
                     <ChevronUp size={13} aria-hidden /> Thu gọn bước {step.order}
                   </button>
                 )}
-                {/* Bước đang làm: tiến độ từng người nằm trong khung "Việc cần làm" (do màn truyền vào). */}
+                {/* Bước đang làm: tiến độ từng người nằm trong khung "Việc cần làm" (do màn truyền vào). Thẻ mở: ý kiến
+                    hiện đủ, giữ xuống dòng; bước một vai thì ý kiến chốt bước (dòng gọn chỉ hiện 2 dòng) đứng ở đây. */}
                 {state === 'current' ? null : (
-                  <StepPeopleProgress instance={instance} step={step} resolveSubject={props.resolveSubject} />
+                  <StepPeopleProgress instance={instance} step={step} resolveSubject={props.resolveSubject} full />
+                )}
+                {state === 'current' || hasStageProgress(instance, step, props.resolveSubject) ? null : (
+                  <DecisionNote instance={instance} step={step} />
                 )}
                 <ol className={`${boardStyles.timeline} ${styles.flowCard}`}>{renderEntry(entry)}</ol>
               </li>
@@ -304,7 +308,6 @@ function DoneRow({
       type="button"
       className={`${styles.flowGrid} ${styles.flowRow}`}
       aria-expanded={false}
-      title="Bấm để xem đầy đủ bước này"
       onClick={onOpen}
     >
       <span className={`${styles.flowNode} ${styles[`flowNode_${state}`] ?? ''}`} aria-hidden>
@@ -324,8 +327,9 @@ function DoneRow({
         {decisionText ? <span className={`${styles.decision} ${tone ? (styles[tone] ?? '') : ''}`}>{decisionText}</span> : null}
       </span>
       <span className={styles.flowNoteCell}>
+        {/* Dòng gọn: ý kiến tối đa 2 dòng; bấm dòng để mở thẻ, ý kiến hiện đủ. */}
         {note ? (
-          <span className={styles.flowNote} title={note}>
+          <span className={styles.flowNote} title={note} data-clamp="2">
             {note}
           </span>
         ) : null}
@@ -344,6 +348,31 @@ function DoneRow({
       </span>
     </button>
   );
+}
+
+/**
+ * Ý kiến chốt bước (cùng ý kiến ở dòng gọn) hiện đủ khi mở thẻ bước đã qua: giữ xuống dòng, không cắt. Bước nhiều vai thì
+ * ý kiến từng người đã nằm ở dòng tiến độ từng người, không lặp ở đây.
+ */
+function DecisionNote({ instance, step }: { instance: ProcedureInstance; step: ProcedureInstanceStep }) {
+  const decision = [...stepDetail(instance, step).activity].reverse().find((entry) => DECISION_ACTIONS.has(entry.action));
+  const note = decision?.comment?.trim();
+  if (!decision || !note) return null;
+  const label = DECISION_LABEL[decision.action];
+  return (
+    <div className={styles.flowNoteFull} data-decision-note="">
+      <span className={styles.flowNoteFullHead}>
+        Ý kiến · {decision.actorName}
+        {label ? ` · ${label}` : ''}
+      </span>
+      <p className={styles.flowNoteFullText}>{note}</p>
+    </div>
+  );
+}
+
+/** Bước có dòng tiến độ từng người (cùng điều kiện với `StepPeopleProgress`). */
+function hasStageProgress(instance: ProcedureInstance, step: ProcedureInstanceStep, resolveSubject?: SubjectResolver) {
+  return !step.integration && stepStageProgress(instance, step, resolveSubject).length >= 2;
 }
 
 const STAGE_TONE: Record<StageProgressStatus, string | undefined> = {
@@ -381,11 +410,14 @@ export function StepPeopleProgress({
   step,
   resolveSubject,
   className,
+  full = false,
 }: {
   instance: ProcedureInstance;
   step: ProcedureInstanceStep;
   resolveSubject?: SubjectResolver;
   className?: string;
+  /** Thẻ bước đã mở: ý kiến hiện đủ, giữ xuống dòng; vắng là dòng gọn, ý kiến tối đa 2 dòng. */
+  full?: boolean;
 }) {
   if (step.integration) return null;
   const items = stepStageProgress(instance, step, resolveSubject);
@@ -417,7 +449,11 @@ export function StepPeopleProgress({
               ) : null}
             </span>
             {item.comment ? (
-              <span className={styles.stageNote} title={item.comment}>
+              <span
+                className={full ? `${styles.stageNote} ${styles.stageNoteFull}` : styles.stageNote}
+                title={full ? undefined : item.comment}
+                data-clamp={full ? undefined : '2'}
+              >
                 {item.comment}
               </span>
             ) : null}

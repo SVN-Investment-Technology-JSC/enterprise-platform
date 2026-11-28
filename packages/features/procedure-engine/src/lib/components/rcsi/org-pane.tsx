@@ -108,7 +108,7 @@ export function OrgPane({
                       type="button"
                       className={active ? styles.positionOn : styles.position}
                       style={{ paddingLeft: `${1.6 + depth * 0.9}rem` }}
-                      title={`Lọc ma trận về chức danh này để gán vai${people.length ? `\nNgười giữ: ${people.join(', ')}` : ''}`}
+                      title={people.length ? `Người giữ: ${people.join(', ')}` : undefined}
                       onClick={() => onPickPosition(position.name)}
                     >
                       <span className={styles.positionName}>

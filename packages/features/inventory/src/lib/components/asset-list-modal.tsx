@@ -221,9 +221,6 @@ export function AssetListModal({
         <DialogHeader>
           <div>
             <DialogTitle>Danh mục Thiết bị (Bảng liệt kê đồng cấp)</DialogTitle>
-            <p className="mt-1 mb-0 text-sm text-slate-500">
-              Danh sách liệt kê toàn bộ {assets.length} thiết bị/vị trí đồng cấp trên hệ thống. Bấm vào một dòng để chọn và xem chi tiết.
-            </p>
           </div>
           <DialogCloseButton title="Đóng hộp thoại (Esc)" onClick={onClose} />
         </DialogHeader>
@@ -373,42 +370,36 @@ export function AssetListModal({
                 <TableHeaderCell
                   className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'code' && 'text-blue-600')}
                   onClick={() => handleSort('code')}
-                  title="Bấm để sắp xếp theo mã thiết bị"
                 >
                   Mã thiết bị {sortField === 'code' ? (sortAsc ? '▲' : '▼') : ''}
                 </TableHeaderCell>
                 <TableHeaderCell
                   className={cn(sortHeadClass, sortField === 'name' && 'text-blue-600')}
                   onClick={() => handleSort('name')}
-                  title="Bấm để sắp xếp theo tên thiết bị"
                 >
                   Tên thiết bị {sortField === 'name' ? (sortAsc ? '▲' : '▼') : ''}
                 </TableHeaderCell>
                 <TableHeaderCell
                   className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'type' && 'text-blue-600')}
                   onClick={() => handleSort('type')}
-                  title="Bấm để sắp xếp theo phân loại"
                 >
                   Phân loại {sortField === 'type' ? (sortAsc ? '▲' : '▼') : ''}
                 </TableHeaderCell>
                 <TableHeaderCell
                   className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'parent' && 'text-blue-600')}
                   onClick={() => handleSort('parent')}
-                  title="Bấm để sắp xếp theo vị trí/thiết bị cha"
                 >
                   Vị trí / Thiết bị cha {sortField === 'parent' ? (sortAsc ? '▲' : '▼') : ''}
                 </TableHeaderCell>
                 <TableHeaderCell
                   className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'status' && 'text-blue-600')}
                   onClick={() => handleSort('status')}
-                  title="Bấm để sắp xếp theo tình trạng"
                 >
                   Tình trạng {sortField === 'status' ? (sortAsc ? '▲' : '▼') : ''}
                 </TableHeaderCell>
                 <TableHeaderCell
                   className={cn(sortHeadClass, 'whitespace-nowrap', sortField === 'criticality' && 'text-blue-600')}
                   onClick={() => handleSort('criticality')}
-                  title="Bấm để sắp xếp theo mức độ quan trọng"
                 >
                   Độ quan trọng {sortField === 'criticality' ? (sortAsc ? '▲' : '▼') : ''}
                 </TableHeaderCell>
@@ -490,7 +481,6 @@ export function AssetListModal({
                       {parent ? (
                         <span
                           className="text-[13px] text-slate-700"
-                          title={`Thuộc ${parent.name} (${parent.code})`}
                         >
                           ↳ <strong>{parent.name}</strong> <code className="text-xs text-slate-500">({parent.code})</code>
                         </span>
@@ -550,7 +540,6 @@ export function AssetListModal({
                         size="sm"
                         className="text-xs"
                         onClick={() => handleSelectAndClose(asset.id)}
-                        title={`Xem chi tiết thiết bị ${asset.name}`}
                       >
                         {isSelected ? (
                           <>

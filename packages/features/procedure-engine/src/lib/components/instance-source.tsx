@@ -78,14 +78,14 @@ export function InstanceProjectValue({ project }: { project: InstanceWorkspacePr
       <a
         className="text-blue-600 underline"
         href={workspaceProjectHref({ projectId: project.projectId })}
-        title={`Mã dự án ${project.projectCode} · bấm để mở dự án trong Workspace`}
+        title={`Mã dự án ${project.projectCode}`}
       >
         {label}
       </a>
       {project.workItemId ? (
         <>
           {' · '}
-          <a className="text-blue-600 underline" href={workspaceProjectHref(project)} title="Mở công việc trong Workspace">
+          <a className="text-blue-600 underline" href={workspaceProjectHref(project)}>
             {project.workItemCode ? `Công việc ${project.workItemCode}` : 'Công việc'}
           </a>
         </>

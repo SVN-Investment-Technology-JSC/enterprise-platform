@@ -289,32 +289,25 @@ type Tone = keyof typeof TONE;
 function CardHeader({
   icon,
   title,
-  description,
   id,
   tone = 'blue',
 }: {
   icon: ReactNode;
   title: string;
-  description?: string;
   id?: string;
   tone?: Tone;
 }) {
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex items-center gap-3">
       <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${TONE[tone]}`}>
         {icon}
       </div>
-      <div className="min-w-0">
-        <h2
-          id={id}
-          className="text-base font-bold tracking-tight text-slate-900"
-        >
-          {title}
-        </h2>
-        {description ? (
-          <p className="mt-0.5 text-xs text-slate-500">{description}</p>
-        ) : null}
-      </div>
+      <h2
+        id={id}
+        className="min-w-0 text-base font-bold tracking-tight text-slate-900"
+      >
+        {title}
+      </h2>
     </div>
   );
 }
@@ -419,10 +412,8 @@ export function AnnualLeavePolicyCard({
                     Chọn lý do nghỉ dùng làm phép năm
                   </h3>
                   <p className="mt-1 text-xs text-slate-600">
-                    Hệ thống chưa có phép năm. Chọn một lý do nghỉ đang dùng;
-                    khi lưu, lý do này trở thành phép năm duy nhất (luôn có
-                    lương và trừ quỹ phép). Lý do nghỉ khác không bao giờ trừ
-                    quỹ phép.
+                    Lý do được chọn sẽ thành phép năm duy nhất: luôn có lương
+                    và trừ quỹ phép.
                   </p>
                 </div>
                 {candidates.length === 0 ? (
@@ -460,13 +451,11 @@ export function AnnualLeavePolicyCard({
                 id={`${uid}-calc`}
                 icon={<Calculator className="size-5" />}
                 title="Cách tính phép"
-                description="Chọn mốc thời gian và số ngày phép năm cơ bản cho toàn bộ nhân viên."
               />
               <div className="grid grid-cols-1 gap-4 @2xl:grid-cols-3">
                 <LeaveField
                   label="Căn cứ tính phép"
                   required
-                  hint="Mốc thời gian để bắt đầu tính và tích lũy phép năm."
                 >
                   <SearchableSelect
                     height={36}
@@ -494,11 +483,11 @@ export function AnnualLeavePolicyCard({
                   label="Số ngày phép mỗi năm"
                   required
                   htmlFor={`${uid}-annual-days`}
-                  hint={`Cộng mỗi tháng ${
+                  hint={`Cộng ${
                     Number.isFinite(monthlyDays)
                       ? Math.round((monthlyDays / 12) * 100) / 100
                       : 0
-                  } ngày (số ngày một năm chia 12).`}
+                  } ngày mỗi tháng.`}
                 >
                   <Input
                     id={`${uid}-annual-days`}
@@ -516,7 +505,7 @@ export function AnnualLeavePolicyCard({
                   label="Bắt đầu cộng sau (tháng)"
                   required
                   htmlFor={`${uid}-offset`}
-                  hint="Số tháng kể từ mốc trên để bắt đầu cộng (0 là cộng ngay từ tháng căn cứ)."
+                  hint="0 = cộng ngay từ tháng căn cứ."
                 >
                   <Input
                     id={`${uid}-offset`}
@@ -572,7 +561,6 @@ export function AnnualLeavePolicyCard({
                 icon={<Layers className="size-5" />}
                 tone="amber"
                 title="Phép thâm niên"
-                description="Cộng thêm số ngày phép theo thâm niên làm việc."
               />
               <div className="overflow-hidden rounded-lg border border-slate-200">
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
@@ -635,10 +623,8 @@ export function AnnualLeavePolicyCard({
               >
                 <Info className="mt-0.5 size-3.5 shrink-0 text-slate-500" />
                 <span>
-                  Cứ đủ mỗi chu kỳ N năm kể từ ngày căn cứ thì được cộng thêm M
-                  ngày phép mỗi năm, lặp lại theo chu kỳ (ví dụ 5 năm +1: đủ 5
-                  năm +1, đủ 10 năm +2, đủ 15 năm +3). Để trống cả hai ô nếu
-                  không áp dụng phép thâm niên.
+                  Lặp theo chu kỳ, ví dụ 5 năm +1: đủ 5 năm +1, đủ 10 năm +2.
+                  Để trống nếu không áp dụng.
                 </span>
               </p>
             </section>
@@ -650,12 +636,11 @@ export function AnnualLeavePolicyCard({
                   icon={<FileText className="size-5" />}
                   tone="violet"
                   title="Hiệu lực"
-                  description="Thiết lập thời gian áp dụng chính sách."
                 />
                 <div className="grid grid-cols-1 gap-4">
                   <LeaveField
                     label="Áp dụng từ năm"
-                    hint="Chính sách luôn có hiệu lực từ ngày 01/01. Để trống thì áp dụng từ 01/01 năm nay. Khi lưu, quỹ phép đã ghi sổ của năm áp dụng được tính lại theo chính sách mới."
+                    hint="Hiệu lực từ 01/01, để trống là năm nay. Khi lưu, quỹ phép của năm áp dụng được tính lại."
                   >
                     <SearchableSelect
                       height={36}
@@ -719,7 +704,6 @@ export function AnnualLeavePolicyCard({
                 icon={<BookOpen className="size-5" />}
                 title="Tóm tắt chính sách"
                 tone="amber"
-                description="Thông tin tóm tắt quy tắc phép năm hiện tại."
               />
               <div className="space-y-2">
                 <SummaryItem
@@ -747,55 +731,24 @@ export function AnnualLeavePolicyCard({
                 />
               </div>
               <div className="space-y-1.5 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs text-slate-600">
-                <p className="flex items-start gap-2">
-                  <Info className="mt-0.5 size-3.5 shrink-0 text-blue-600" />
-                  <span>
-                    Chính sách này áp dụng cho toàn bộ nhân viên trong công ty.
-                    Phép năm không chuyển sang năm sau: phần còn lại cuối năm
-                    được reset về 0.
-                  </span>
-                </p>
                 {data.leaveType ? (
-                  <p className="pl-5.5 text-slate-500">
+                  <p className="text-slate-500">
                     Áp dụng cho lý do nghỉ {data.leaveType.name} (
                     {data.leaveType.code}); chỉ lý do này trừ quỹ phép năm.
                   </p>
                 ) : null}
-                <p className="pl-5.5 text-slate-500">
+                <p className="text-slate-500">
                   {policy
                     ? `${
                         status === 'scheduled'
                           ? 'Sẽ áp dụng từ'
                           : 'Đang áp dụng từ'
                       } ngày ${formatDate(policy.effectiveFrom)} (cập nhật lúc ${formatDateTime(policy.updatedAt)}).`
-                    : 'Chưa có chính sách phép năm. Nhập biểu mẫu và lưu để áp dụng.'}
+                    : 'Chưa có chính sách phép năm.'}
                 </p>
               </div>
             </section>
 
-            <section
-              aria-labelledby={`${uid}-warning`}
-              className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-xs"
-            >
-              <div className="flex items-start gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
-                  <AlertTriangle className="size-5" />
-                </div>
-                <div>
-                  <h2
-                    id={`${uid}-warning`}
-                    className="text-sm font-bold text-slate-900"
-                  >
-                    Lưu ý khi thay đổi
-                  </h2>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    Việc thay đổi cấu hình có thể ảnh hưởng đến số phép tích lũy
-                    và cách tính phép của nhân viên trong tương lai. Vui lòng
-                    kiểm tra kỹ trước khi lưu thay đổi.
-                  </p>
-                </div>
-              </div>
-            </section>
           </aside>
         </div>
       ) : null}

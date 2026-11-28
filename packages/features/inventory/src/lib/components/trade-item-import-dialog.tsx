@@ -212,7 +212,6 @@ export function TradeItemImportDialog({
 
         <DialogBody className="flex max-h-[70vh] flex-col gap-4">
           <p className="m-0 text-sm text-slate-600">
-            Chọn tệp Excel bất kỳ, kể cả tệp xuất từ hệ cũ: hệ thống tự đoán cột theo tiêu đề và bạn chỉnh lại được.
             Bắt buộc có Mã, Tên và Đơn vị.{' '}
             <Button type="button" variant="outline" onClick={() => downloadTradeTemplate(catalog)}>
               Tải tệp mẫu
@@ -294,7 +293,7 @@ export function TradeItemImportDialog({
                 <section aria-label="Người tạo">
                   <h3 className="m-0 mb-1 text-[15px]">Người tạo ở hệ cũ</h3>
                   <p className="m-0 mb-2 text-[13px] text-slate-600">
-                    Giữ nguyên tên người tạo trong tệp. Đánh dấu những người đã nghỉ việc để để trống, xử lý sau.
+                    Đánh dấu người đã nghỉ việc để để trống.
                   </p>
                   <div className="grid max-h-[160px] gap-1 overflow-y-auto">
                     {values.authors.map((name) => (
@@ -332,7 +331,6 @@ export function TradeItemImportDialog({
                   {conflictPolicy === 'UPDATE' ? (
                     <p className="m-0 mt-2 text-[13px] text-slate-600">
                       Chỉ ghi các ô có giá trị trong tệp; ô trống không xoá dữ liệu đang có. Mã đã ngừng dùng được bỏ qua.
-                      Người tạo, ngày tạo chỉ điền cho mã chưa có người tạo.
                     </p>
                   ) : null}
                 </section>
@@ -382,7 +380,6 @@ export function TradeItemImportDialog({
             <Button
               type="button"
               onClick={() => downloadUnimported(sheet, retryLines, fileName)}
-              title="Tệp giữ nguyên cấu trúc cũ, chỉ gồm các dòng chưa nhập được, không gồm dòng trùng mã"
             >
               Tải {retryLines.length} dòng chưa nhập được
             </Button>

@@ -1,69 +1,56 @@
 'use client';
 
-import { AppIcon, authFetch, useBrandSlot } from '@enterprise-platform/shared-ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppIcon, authFetch } from '@enterprise-platform/shared-ui';
+import { useEffect, useRef, useState } from 'react';
 import { isLauncherOnlyModule } from './launcher-only-modules';
-import { EmptyFallback, ModuleGridFallback } from './shell-icons';
+import { ModuleLauncherPanel, type LauncherModule } from './module-launcher';
+import { ModuleGridFallback } from './shell-icons';
 import styles from './module-shell-light.module.scss';
 
-type ModuleSlotId = Parameters<typeof useBrandSlot>[0];
+/**
+ * Danh mục phân hệ dùng chung cho mọi nút chuyển trên trang và nhớ trong phiên (sessionStorage): mở menu là có ngay danh
+ * sách cũ, đồng thời tải lại ngầm nếu bản nhớ đã quá `CATALOG_FRESH_MS`. Danh mục ít khi đổi (bật/tắt phân hệ).
+ * Giữ cả phân hệ chưa kích hoạt (menu hiện mờ), chỉ bỏ phân hệ chỉ mở từ nút riêng (trợ lý, chat).
+ */
+const CATALOG_KEY = 'module-switcher.catalog.v2';
+const CATALOG_FRESH_MS = 5 * 60_000;
+let catalogRequest: Promise<readonly LauncherModule[]> | undefined;
 
-const MODULE_SLOT_MAP: Partial<Record<string, ModuleSlotId>> = {
-  workspace: 'module.workspace',
-  hrm: 'module.hrm',
-  inventory: 'module.inventory',
-  maintenance: 'module.maintenance',
-  finance: 'module.finance',
-  'procedure-engine': 'module.procedure',
-  procedure: 'module.procedure',
-  crm: 'module.crm',
-  shared: 'module.shared',
-  social: 'module.social',
-  assistant: 'module.assistant',
-  chat: 'module.chat',
-  correspondence: 'module.correspondence',
-};
-
-function SlotBadge({
-  slot,
-  fallbackText,
-}: {
-  readonly slot: ModuleSlotId;
-  readonly fallbackText: string;
-}) {
-  const { hasCustom } = useBrandSlot(slot);
-  const renderFallback = useCallback(() => <>{fallbackText}</>, [fallbackText]);
-
-  // Có icon thương hiệu thì icon lấp đầy cả ô, không viền, không nền bọc ngoài.
-  if (!hasCustom) {
-    return (
-      <span className={styles.switcherBadge} aria-hidden>
-        {fallbackText}
-      </span>
-    );
+function readCachedCatalog(): { readonly at: number; readonly modules: readonly LauncherModule[] } | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(CATALOG_KEY);
+    const parsed = raw ? (JSON.parse(raw) as { at?: unknown; modules?: unknown }) : undefined;
+    return parsed && typeof parsed.at === 'number' && Array.isArray(parsed.modules)
+      ? { at: parsed.at, modules: parsed.modules as LauncherModule[] }
+      : undefined;
+  } catch {
+    return undefined;
   }
-
-  return (
-    <span className={`${styles.switcherBadge} ${styles.switcherBadgeFilled}`} aria-hidden>
-      <AppIcon slot={slot} fallback={renderFallback} size={30} />
-    </span>
-  );
 }
 
-/**
- * Phần của danh mục phân hệ mà ô chuyển cần.
- *
- * Cùng dạng với `TenantModuleCatalogItem` của contracts-tenancy, khai báo lại
- * ở đây cho khung khỏi phụ thuộc cả gói hợp đồng tenancy chỉ vì vài trường.
- */
-interface CatalogModule {
-  readonly key: string;
-  readonly name: string;
-  readonly description: string;
-  readonly launchUrl: string;
-  /** Mã ngắn hiện trong ô vuông, như "WS", "IV". */
-  readonly icon: string | null;
-  readonly entitlementStatus: string;
+function loadCatalog(): Promise<readonly LauncherModule[]> {
+  catalogRequest ??= authFetch('/api/platform/v1/modules/catalog', { cache: 'no-store' })
+    .then(async (response) => {
+      if (!response.ok) throw new Error(String(response.status));
+      const payload = (await response.json()) as { modules: LauncherModule[] };
+      const modules = payload.modules.filter((m) => !isLauncherOnlyModule(m.key));
+      try {
+        window.sessionStorage.setItem(CATALOG_KEY, JSON.stringify({ at: Date.now(), modules }));
+      } catch {
+        /* bộ nhớ trình duyệt bị chặn: chỉ giữ trong trang này */
+      }
+      return modules;
+    })
+    .finally(() => {
+      catalogRequest = undefined;
+    });
+  return catalogRequest;
+}
+
+/** Đang gõ trong ô nhập (hoặc vùng soạn thảo) thì phím G là chữ, không phải phím tắt. */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
 
 export interface ModuleSwitcherProps {
@@ -71,33 +58,68 @@ export interface ModuleSwitcherProps {
   readonly moduleKey: string;
   /** Trang danh sách ứng dụng của tenant, cho dòng "Tất cả ứng dụng". */
   readonly homeHref: string;
+  /** Trang chủ (Bảng điều khiển), luôn là ô đầu tiên của menu để người dùng biết đường quay về. */
+  readonly dashboardHref?: string;
 }
 
 /**
- * Nút lưới trên thanh bên: bấm mở danh sách các phân hệ tenant đang dùng để
- * nhảy thẳng sang, không phải quay về trang Ứng dụng rồi chọn lại.
+ * Nút lưới trên thanh bên (hoặc phím G): mở menu toàn bộ phân hệ để nhảy thẳng sang, không phải quay về trang Ứng dụng.
  *
- * Danh mục chỉ tải khi mở lần đầu. Tải hỏng thì vẫn còn dòng "Tất cả ứng
- * dụng", nên nút không bao giờ thành ngõ cụt.
+ * Danh mục được tải ngầm ngay sau khi trang mở (và nhớ trong phiên) nên bấm mở là có danh sách ngay. Tải hỏng thì
+ * vẫn còn ô Trang chủ và dòng "Tất cả ứng dụng", nên nút không bao giờ thành ngõ cụt.
  */
-export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
+export function ModuleSwitcher({ moduleKey, homeHref, dashboardHref = '/dashboard' }: ModuleSwitcherProps) {
   const [open, setOpen] = useState(false);
-  const [modules, setModules] = useState<readonly CatalogModule[]>();
+  const [modules, setModules] = useState<readonly LauncherModule[]>();
   const [failed, setFailed] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Phím tắt G mở menu từ bất kỳ đâu, trừ khi đang gõ chữ hoặc đang mở một hộp thoại.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'g' && event.key !== 'G') return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.repeat || isTyping(event.target)) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      setOpen(true);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Có bản nhớ trong phiên thì dùng ngay; tải (lại) ngầm khi chưa có hoặc đã cũ — không chờ người dùng bấm mở.
+  useEffect(() => {
+    let active = true;
+    const cached = readCachedCatalog();
+    if (cached) setModules(cached.modules);
+    if (cached && Date.now() - cached.at < CATALOG_FRESH_MS) return;
+    const run = () =>
+      loadCatalog()
+        .then((list) => {
+          if (active) {
+            setModules(list);
+            setFailed(false);
+          }
+        })
+        .catch(() => {
+          if (active && !cached) setFailed(true);
+        });
+    // Chờ trang mở xong rồi mới tải, để không giành mạng với dữ liệu chính của phân hệ.
+    const timer = window.setTimeout(run, cached ? 0 : 800);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  // Bấm mở trước khi kịp tải ngầm (hoặc lần trước hỏng): tải ngay.
   useEffect(() => {
     if (!open || modules) return;
     let active = true;
-    authFetch('/api/platform/v1/modules/catalog', { cache: 'no-store' })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(String(response.status));
-        const payload = (await response.json()) as { modules: CatalogModule[] };
-        if (active) {
-          setModules(
-            payload.modules.filter((m) => m.entitlementStatus === 'active' && !isLauncherOnlyModule(m.key)),
-          );
-        }
+    setFailed(false);
+    loadCatalog()
+      .then((list) => {
+        if (active) setModules(list);
       })
       .catch(() => {
         if (active) setFailed(true);
@@ -109,18 +131,11 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
 
   useEffect(() => {
     if (!open) return;
-    const onPointer = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
     };
-    document.addEventListener('pointerdown', onPointer);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', onPointer);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
   return (
@@ -128,9 +143,9 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
       <button
         type="button"
         className={styles.squareButton}
-        title="Chuyển phân hệ"
+        title="Chuyển phân hệ (G)"
         aria-label="Chuyển phân hệ"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
@@ -138,53 +153,14 @@ export function ModuleSwitcher({ moduleKey, homeHref }: ModuleSwitcherProps) {
       </button>
 
       {open ? (
-        <div className={styles.switcherMenu} role="menu" aria-label="Chuyển phân hệ">
-          <span className={styles.switcherHead}>Chuyển phân hệ</span>
-          {!modules && !failed ? <span className={styles.switcherNote}>Đang tải…</span> : null}
-          {failed ? (
-            <span className={styles.switcherNote}>Không tải được danh sách phân hệ.</span>
-          ) : null}
-          {modules?.map((module) => {
-            const current = module.key === moduleKey;
-            const slot = MODULE_SLOT_MAP[module.key];
-            const fallbackText = module.icon || module.name.trim().charAt(0).toUpperCase();
-            return (
-              <a
-                key={module.key}
-                role="menuitem"
-                href={module.launchUrl}
-                aria-current={current ? 'page' : undefined}
-                className={
-                  current ? `${styles.switcherItem} ${styles.switcherCurrent}` : styles.switcherItem
-                }
-                onClick={(event) => {
-                  if (current) {
-                    event.preventDefault();
-                    setOpen(false);
-                  }
-                }}
-              >
-                {slot ? (
-                  <SlotBadge slot={slot} fallbackText={fallbackText} />
-                ) : (
-                  <span className={styles.switcherBadge} aria-hidden>
-                    {fallbackText}
-                  </span>
-                )}
-                <span className={styles.switcherText}>
-                  <span className={styles.switcherName}>{module.name}</span>
-                  <span className={styles.switcherDesc}>{module.description}</span>
-                </span>
-              </a>
-            );
-          })}
-          <a role="menuitem" href={homeHref} className={styles.switcherAll}>
-            <span style={{ display: 'inline-flex', marginRight: 6, verticalAlign: 'text-bottom' }}>
-              <AppIcon slot="nav.applications" fallback={EmptyFallback} size={16} />
-            </span>
-            Tất cả ứng dụng
-          </a>
-        </div>
+        <ModuleLauncherPanel
+          modules={modules}
+          failed={failed}
+          moduleKey={moduleKey}
+          homeHref={homeHref}
+          dashboardHref={dashboardHref}
+          onClose={() => setOpen(false)}
+        />
       ) : null}
     </div>
   );

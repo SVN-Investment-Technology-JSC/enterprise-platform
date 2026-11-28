@@ -344,7 +344,6 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
       );
   }, [target, onOpen]);
 
-  const [isTenantAdmin, setIsTenantAdmin] = useState(false);
   const [error, setError] = useState<string>();
   const [responding, setResponding] = useState<string>();
   const [panelOpen, setPanelOpen] = useState(false);
@@ -427,9 +426,8 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
     saveSide(true, SIDE_DEFAULT_PX);
   };
   // Thẻ bảng chiếm đúng phần cao còn lại và cuộn bên trong, nên trang không bị cuộn thêm dù có 600 việc.
-  // Phần phía trên khung (dải lịch, thông báo quản trị, báo lỗi) hiện hoặc ẩn muộn thì phải đo lại, nếu không đáy khung tràn.
+  // Phần phía trên khung (dải lịch, báo lỗi) hiện hoặc ẩn muộn thì phải đo lại, nếu không đáy khung tràn.
   const aboveKey = [
-    isTenantAdmin,
     Boolean(error),
     (overview?.todayEvents.length ?? 0) + (overview?.pendingInvitations.length ?? 0) > 0,
   ].join(':');
@@ -456,7 +454,6 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
   const [parentOptions, setParentOptions] = useState<{ id: string; label: string; done: boolean }[]>([]);
 
   useEffect(() => {
-    void api.loadIsTenantAdmin().then(setIsTenantAdmin);
     void api.loadCurrentUserId().then((userId) => {
       setMe(userId);
       // Bộ nhớ đệm là của một người dùng: đổi tài khoản trong cùng phiên thì bỏ hết, kẻo thấy dữ liệu của người trước.
@@ -697,14 +694,6 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
 
   return (
     <div className={styles.tabBody}>
-      {isTenantAdmin ? (
-        <p className={styles.notice}>
-          Bạn là quản trị viên tenant, nhưng màn hình này{' '}
-          <strong>luôn chỉ hiện việc của chính bạn</strong>. Muốn xem toàn bộ dự án, hãy dùng trang
-          Dự án hoặc Báo cáo.
-        </p>
-      ) : null}
-
       <ErrorToast message={error} />
 
       <div className={styles.myWorkHead}>
@@ -741,7 +730,7 @@ function MyWorkBody({ onOpen, onOpenTask, target }: MyWorkViewProps) {
         </div>
         <div className={styles.pageHeadEnd}>
           {overviewQuery.isFetching ? <span className={styles.muted}>Đang tải…</span> : null}
-          <Tooltip content={sideOpen ? 'Ẩn nhắc tên và việc từ module khác' : 'Xem ai nhắc tên bạn và việc từ module khác'}>
+          <Tooltip content={sideOpen ? 'Ẩn nhắc tên và việc từ module khác' : 'Nhắc tên và việc từ module khác'}>
             <button
               type="button"
               className={sideOpen ? styles.timelineToggleOn : styles.timelineToggle}

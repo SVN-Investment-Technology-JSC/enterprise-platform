@@ -82,7 +82,6 @@ export function FinanceVoucherCard({
         <button
           type="button"
           className={styles.open}
-          title="Xem và thao tác phiếu ngay tại đây"
           onClick={() => setPopupOpen(true)}
         >
           <PanelTopOpen size={14} aria-hidden="true" />
@@ -90,7 +89,7 @@ export function FinanceVoucherCard({
         </button>
       ) : null}
       {href ? (
-        <a className={styles.open} href={href} title="Mở phiếu ở module Tài chính">
+        <a className={styles.open} href={href}>
           <ExternalLink size={14} aria-hidden="true" />
           Mở phiếu
         </a>
@@ -118,20 +117,8 @@ export function FinanceVoucherCard({
 
 /**
  * Ghi chú dưới thẻ phiếu ở khung thao tác của bước Tài chính đang chạy: bước này không có nút hoàn tất ở đây, việc xử lý
- * nằm trên phiếu. Chỉ chỉ người dùng tới "Mở nhanh" / "Mở phiếu" khi hai nút đó đang hiện (có phiếu và người dùng
- * dùng được Tài chính); không thì chỉ nói rằng ở đây chỉ gửi trao đổi.
+ * nằm trên phiếu.
  */
-export function FinanceWaitingNote({ step }: { step: ProcedureInstanceStep }) {
-  const hasVoucher = step.integration?.module === 'finance' && Boolean(step.financeVoucher?.voucherId);
-  const access = useFinanceAccess(hasVoucher);
-  const actionsShown = hasVoucher && access === 'allowed';
-  return (
-    <p className={styles.waitingNote}>
-      Bước này đóng khi kế toán ghi sổ phiếu ở phân hệ Tài chính; kế toán trả hồ sơ thì hồ sơ tự quay về bước đã cấu
-      hình.{' '}
-      {actionsShown
-        ? 'Người phụ trách xử lý phiếu bằng "Mở nhanh" hoặc "Mở phiếu" ở trên; ở đây chỉ gửi trao đổi.'
-        : 'Ở đây chỉ gửi trao đổi.'}
-    </p>
-  );
+export function FinanceWaitingNote() {
+  return <p className={styles.waitingNote}>Bước này đóng khi kế toán ghi sổ phiếu ở phân hệ Tài chính.</p>;
 }

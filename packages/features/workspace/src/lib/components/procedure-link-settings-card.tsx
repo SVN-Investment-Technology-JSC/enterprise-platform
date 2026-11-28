@@ -175,13 +175,7 @@ export function ProcedureLinkSettingsCard({ link, saved, locked, onChange }: Car
   return (
     <section className={styles.gsCard} aria-label="Công việc gắn quy trình">
       <header className={`${styles.gsHead} ${styles.plHead}`}>
-        <div>
-          <h3>Công việc gắn quy trình</h3>
-          <p>
-            Công việc dự án và việc cá nhân có thể gắn hồ sơ Quy trình. Các lựa chọn dưới đây quyết định hai bên ảnh hưởng nhau
-            thế nào.
-          </p>
-        </div>
+        <h3>Công việc gắn quy trình</h3>
         <Button
           type="button"
           variant="outline"

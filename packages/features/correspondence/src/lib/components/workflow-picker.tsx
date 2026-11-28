@@ -96,9 +96,6 @@ export function WorkflowPicker({
           clearable
           onChange={(next) => onChange(next ?? '')}
         />
-        <span className={styles.hint}>
-          {chosen ? 'Công văn này chạy đúng quy trình đã chọn.' : 'Để trống: theo quy trình cấu hình cho loại văn bản (hay quy trình mặc định).'}
-        </span>
       </SelectField>
       {workflow ? (
         <ol className={styles.workflowPreview} aria-label={`Xem trước quy trình ${workflow.name}`}>

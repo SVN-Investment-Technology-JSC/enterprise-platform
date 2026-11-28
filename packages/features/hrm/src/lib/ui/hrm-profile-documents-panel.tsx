@@ -18,7 +18,7 @@ import { Button } from './button';
 import { DatePickerInput } from './date-picker-input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './dialog';
 import { Input } from './input';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './sheet';
 import { STAGED_NOTICE, type HrmStageChange } from './hrm-staged-change';
 import { toast } from './toast';
 import { useCloseGuard } from './use-close-guard';
@@ -660,7 +660,6 @@ export function HrmProfileDocumentsPanel({
           <SheetContent className="flex h-full max-h-screen w-full flex-col overflow-hidden bg-white p-0 sm:max-w-[880px]">
             <SheetHeader className="shrink-0 border-b border-slate-200 bg-slate-50/70">
               <SheetTitle>Quản lý giấy tờ</SheetTitle>
-              <SheetDescription>Ảnh thẻ, CCCD, bằng cấp, chứng chỉ và các giấy tờ khác của hồ sơ.</SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto p-4">
               <HrmProfileDocumentsPanel employeeId={employeeId} mode={mode} readOnly={readOnly} identityCardNumber={identityCardNumber} onStage={onStage} />
@@ -673,13 +672,7 @@ export function HrmProfileDocumentsPanel({
 
   return (
     <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
-      <div>
-        <h3 className="text-[15px] font-semibold">Ảnh và giấy tờ</h3>
-        <p className="text-[14px] text-slate-500">
-          CCCD là bắt buộc. Bằng cấp, chứng chỉ, hộ chiếu, giấy phép lao động là
-          tùy chọn.
-        </p>
-      </div>
+      <h3 className="text-[15px] font-semibold">Ảnh và giấy tờ</h3>
       {error && <p className="text-[14px] text-red-600">{error}</p>}
       {docs && (docs.missingRequired?.length ?? 0) > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[14px] text-amber-900">

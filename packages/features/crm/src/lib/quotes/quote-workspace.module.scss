@@ -73,14 +73,15 @@
   background: transparent;
   color: var(--ep-text-sub, #4b5563);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 }
 
 .tabActive {
   background: var(--ep-accent-soft, rgb(255 201 10 / 12%));
   color: var(--ep-accent-text, #8a6400);
+  font-weight: 600;
 }
 
 // --- Thanh nút hành động -----------------------------------------------------

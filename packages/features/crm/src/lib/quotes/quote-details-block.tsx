@@ -19,7 +19,6 @@ import { activeFields, type QuoteDetailsState } from './quote-form-edit.model';
 export const QUOTE_DETAILS_TITLE = 'Cập nhật thông tin báo giá';
 /** Neo của ô chiết khấu tổng đơn (nút "Sửa % chiết khấu" cuộn tới đây). */
 export const ORDER_DISCOUNT_ANCHOR = 'quote-order-discount';
-const NOTE_HINT = 'In vào mục "Ghi chú" của báo giá (trên các điều khoản)';
 
 export function QuoteDetailsBlock({
   open,
@@ -51,15 +50,12 @@ export function QuoteDetailsBlock({
       <button type="button" className={styles.detailsToggle} aria-expanded={open} onClick={onToggle}>
         {open ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
         <span>{QUOTE_DETAILS_TITLE}</span>
-        {open ? null : (
-          <span className={styles.muted}>Ngày tính giá, vận chuyển, chiết khấu và thuế tổng đơn, phí, ghi chú, trường tuỳ biến</span>
-        )}
       </button>
       {!open ? null : editable ? (
         <div className={styles.detailsBody}>
           <h4 className={styles.sectionTitle}>Nội dung báo giá</h4>
           <div className={styles.fieldGrid}>
-            <Field label="Ngày tính giá" hint="Bỏ trống: tính theo ngày hôm nay">
+            <Field label="Ngày tính giá">
               <DatePickerInput value={value.priceDate || undefined} onChange={(next) => set({ priceDate: next })} height={38} placeholder="Hôm nay" aria-label="Ngày tính giá" />
             </Field>
             <Field label="Phí vận chuyển thu khách (VND)">
@@ -68,7 +64,7 @@ export function QuoteDetailsBlock({
             <Field label="Thuế suất vận chuyển (%)">
               <input className={styles.input} inputMode="decimal" value={value.shippingVat} onChange={(event) => set({ shippingVat: event.target.value })} />
             </Field>
-            <Field label="Chi phí vận chuyển bên bán chịu (VND)" hint="Trừ vào lợi nhuận; bỏ trống là bằng phí thu khách">
+            <Field label="Chi phí vận chuyển bên bán chịu (VND)" hint="Bỏ trống: bằng phí thu khách">
               <input className={styles.input} inputMode="decimal" value={value.shippingCost} onChange={(event) => set({ shippingCost: event.target.value })} />
             </Field>
           </div>
@@ -77,7 +73,7 @@ export function QuoteDetailsBlock({
               label="Chiết khấu"
               value={value.discount}
               allowed={modes.discount === 'ORDER'}
-              lineHint="mẫu báo giá này tính chiết khấu theo dòng (chính sách và ghi đè trên từng dòng hàng). Chọn mẫu tính theo tổng đơn để nhập một lần cho cả báo giá."
+              lineHint="mẫu báo giá này tính chiết khấu theo dòng."
               onChange={(discount) => set({ discount })}
             />
           </div>
@@ -85,16 +81,16 @@ export function QuoteDetailsBlock({
             label="Thuế"
             value={value.tax}
             allowed={modes.tax === 'ORDER'}
-            lineHint="mẫu báo giá này tính thuế theo dòng (VAT của từng mặt hàng). Chọn mẫu tính theo tổng đơn để nhập một lần cho cả báo giá."
+            lineHint="mẫu báo giá này tính thuế theo dòng."
             onChange={(tax) => set({ tax })}
           />
           <FeesEditor rows={value.fees} onChange={(fees) => set({ fees })} />
-          <Field label="Ghi chú" hint={NOTE_HINT} wide>
+          <Field label="Ghi chú" wide>
             <textarea className={styles.textarea} rows={3} maxLength={4000} value={value.note} onChange={(event) => set({ note: event.target.value })} />
           </Field>
           <h4 className={styles.sectionTitle}>Trường tuỳ biến</h4>
           <CustomFieldsEditor definitions={fields} texts={value.custom} missing={[...missing]} onChange={(custom) => set({ custom })} />
-          <p className={styles.muted}>Bấm Lưu ở thanh dưới để lưu cùng các thay đổi khác.</p>
+          <p className={styles.muted}>Bấm Lưu ở thanh dưới để lưu.</p>
         </div>
       ) : (
         <div className={styles.detailsBody}>

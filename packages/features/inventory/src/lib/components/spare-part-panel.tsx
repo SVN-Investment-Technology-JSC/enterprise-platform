@@ -211,9 +211,6 @@ export function SparePartPanel({
       <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="m-0 text-base font-bold text-slate-900">Vật tư trọng yếu (Phụ tùng BOM)</h3>
-          <p className="mt-0.5 mb-0 text-xs text-slate-500">
-            Hiển thị theo các node con trong sơ đồ cây. Chỉ các node con đã lắp trên cây mới có thể gán cờ “Trọng yếu”.
-          </p>
         </div>
         {!isEditing ? (
           <Button
@@ -237,9 +234,6 @@ export function SparePartPanel({
         <div className="flex flex-col gap-[0.85rem] rounded-lg border-[1.5px] border-blue-300 bg-slate-50 p-4 shadow-sm">
           <div className="flex flex-col gap-1 border-b border-dashed border-slate-300 pb-2">
             <span className="inline-flex items-center gap-[0.35rem] text-sm font-bold text-blue-700">Chế độ chỉnh sửa phụ tùng BOM</span>
-            <p className="m-0 text-[13px] leading-snug text-slate-500">
-              Khai báo các vật tư thay thế, định mức sử dụng và tính chất trọng yếu. Chỉ node con thuộc sơ đồ cây mới được bật tính năng <strong>Trọng yếu</strong>. Nhấn <strong>Lưu phụ tùng (BOM)</strong> để áp dụng.
-            </p>
           </div>
 
           <TableWrap className="rounded-md border border-slate-200 bg-white">
@@ -312,9 +306,7 @@ export function SparePartPanel({
                             inTree ? 'cursor-pointer' : 'cursor-not-allowed opacity-45',
                           )}
                           title={
-                            inTree
-                              ? 'Gán là vật tư phụ tùng trọng yếu'
-                              : 'Chỉ có thể gán trọng yếu cho các node con có trong sơ đồ cây'
+                            inTree ? undefined : 'Chỉ có thể gán trọng yếu cho các node con có trong sơ đồ cây'
                           }
                         >
                           <input
@@ -361,7 +353,7 @@ export function SparePartPanel({
                 })}
                 {draftLines.length === 0 ? (
                   <TableEmpty colSpan={5}>
-                    Chưa có phụ tùng nào trong danh sách. Thêm vật tư ở form bên dưới.
+                    Chưa có phụ tùng nào trong danh sách.
                   </TableEmpty>
                 ) : null}
               </TableBody>
@@ -524,8 +516,7 @@ export function SparePartPanel({
 
           {options.length === 0 && (lines ?? []).length === 0 ? (
             <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
-              Chưa có vật tư con nào đang lắp trên {assetCode}. Dùng nút “+” trên sơ đồ cây để lắp vật tư từ
-              kho vào đây trước, rồi mới chọn vật tư nào là trọng yếu.
+              Chưa có vật tư con nào lắp trên {assetCode}; lắp từ sơ đồ cây trước.
             </p>
           ) : null}
         </>

@@ -52,7 +52,6 @@ const PAGES: readonly TenantPage[] = [
 interface CatalogModule {
   readonly key: string;
   readonly name: string;
-  readonly description: string;
   readonly launchUrl: string;
   readonly icon: string | null;
   readonly entitlementStatus: string;
@@ -145,7 +144,6 @@ export function TenantShell({
     items: modules.map((module) => ({
       id: module.key,
       label: module.name,
-      title: module.description || module.name,
       leading: <ModuleBadge module={module} />,
       onSelect: () => openModule(module),
     })),
@@ -164,7 +162,6 @@ export function TenantShell({
       id: `module:${module.key}`,
       group: 'Ứng dụng',
       label: module.name,
-      hint: module.description || undefined,
       onSelect: () => openModule(module),
     })),
   ];

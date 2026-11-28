@@ -103,10 +103,6 @@ export function LeaveReasonDialog({
           <DialogTitle className="text-base font-bold text-slate-900">
             {row ? `Sửa lý do nghỉ ${row.code}` : 'Thêm lý do nghỉ'}
           </DialogTitle>
-          <p className="mt-1 text-xs text-slate-500">
-            Lý do nghỉ là danh mục do quản trị cấu hình. Người làm đơn chọn một
-            lý do rồi nhập thêm Mô tả (văn bản tự do) nếu cần.
-          </p>
         </DialogHeader>
         <form
           onSubmit={submit}
@@ -121,9 +117,8 @@ export function LeaveReasonDialog({
               >
                 <Info className="mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  Đây là lý do mặc định Phép năm: luôn có lương, trừ quỹ phép năm. Có
-                  thể ngừng sử dụng nhưng không xóa được. Cách cộng phép cấu hình ở
-                  Chính sách phép năm.
+                  Lý do mặc định Phép năm: không xóa được, chỉ ngừng sử dụng.
+                  Cách cộng phép cấu hình ở Chính sách phép năm.
                 </span>
               </p>
             ) : null}
@@ -134,11 +129,7 @@ export function LeaveReasonDialog({
               >
                 <Info className="mt-0.5 size-3.5 shrink-0" />
                 <span>
-                  Đây là lý do mặc định Nghỉ bù: luôn có lương, không trừ phép năm. Có
-                  thể ngừng sử dụng nhưng không xóa được.{' '}
-                  {row?.compOffManaged === false
-                    ? 'Quy tắc nghỉ bù đang tắt: quỹ do doanh nghiệp tự quản lý ngoài hệ thống, hệ thống không tính và không chặn, người duyệt quyết định.'
-                    : 'Quỹ do hệ thống tính (giữ chỗ, trừ khi duyệt); cách tính cấu hình ở Chính sách phép, mục Quỹ nghỉ bù.'}
+                  Lý do mặc định Nghỉ bù: không xóa được, chỉ ngừng sử dụng.
                 </span>
               </p>
             ) : null}
@@ -154,7 +145,7 @@ export function LeaveReasonDialog({
                   label="Mã lý do nghỉ"
                   required
                   htmlFor={`${uid}-code`}
-                  hint="Ví dụ: NGHI_OM. Không đổi được sau khi tạo."
+                  hint="Không đổi được sau khi tạo."
                 >
                   <Input
                     id={`${uid}-code`}
@@ -193,9 +184,6 @@ export function LeaveReasonDialog({
               <div>
                 <p className="text-xs font-medium text-slate-700">Có lương</p>
                 <p className="text-[12px] leading-snug text-slate-500">
-                  {alwaysPaid || paid
-                    ? 'Ngày nghỉ được tính là ngày công có lương trong bảng công.'
-                    : 'Không lương: ngày nghỉ không được tính công.'}{' '}
                   {alwaysPaid
                     ? annual
                       ? 'Phép năm luôn có lương.'
@@ -211,14 +199,9 @@ export function LeaveReasonDialog({
                 disabled={busy}
                 onChange={setRequiresAttachment}
               />
-              <div>
-                <p className="text-xs font-medium text-slate-700">
-                  Cần chứng từ
-                </p>
-                <p className="text-[12px] leading-snug text-slate-500">
-                  Người làm đơn phải đính kèm chứng từ (ví dụ giấy khám bệnh).
-                </p>
-              </div>
+              <p className="text-xs font-medium text-slate-700">
+                Cần chứng từ
+              </p>
             </div>
             <p className="text-[12px] leading-snug text-slate-500">
               {annual
@@ -227,7 +210,7 @@ export function LeaveReasonDialog({
                   ? row?.compOffManaged === false
                     ? 'Trừ quỹ: Không. Quỹ nghỉ bù đang do doanh nghiệp tự quản lý.'
                     : 'Trừ quỹ phép năm: Không. Lý do này trừ quỹ nghỉ bù.'
-                  : 'Trừ quỹ: Không. Chỉ lý do mặc định Phép năm và Nghỉ bù mới trừ quỹ riêng, dù có lương hay không lương.'}
+                  : 'Trừ quỹ: Không.'}
             </p>
 
             {row ? (
@@ -235,7 +218,6 @@ export function LeaveReasonDialog({
                 label="Ghi chú thay đổi"
                 required
                 htmlFor={`${uid}-reason`}
-                hint="Ghi vào nhật ký kiểm toán. Đây là ghi chú của quản trị, không phải Mô tả ở đơn nghỉ."
               >
                 <Input
                   id={`${uid}-reason`}

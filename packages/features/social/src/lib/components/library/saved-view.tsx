@@ -23,9 +23,9 @@ import styles from './saved-view.module.scss';
 /** Kiểu viên thuốc cho hàng thư mục (ghi đè kiểu thanh phân đoạn mặc định của `ui/tabs`). */
 const FOLDER_LIST = 'h-auto max-w-full flex-wrap justify-start gap-2 bg-transparent p-0';
 const FOLDER_TAB =
-  'h-8 gap-1.5 rounded-[8px] border-slate-200 bg-white px-3 data-[drop-over=true]:border-blue-500 data-[drop-over=true]:bg-blue-50 data-[drop-over=true]:ring-2 data-[drop-over=true]:ring-blue-200 text-[13px] text-slate-600 hover:border-slate-300 data-active:border-amber-400 data-active:bg-amber-100 data-active:text-slate-900 data-active:shadow-none';
+  'h-8 gap-1.5 rounded-[8px] border-slate-200 bg-white px-3 data-[drop-over=true]:border-blue-500 data-[drop-over=true]:bg-blue-50 data-[drop-over=true]:ring-2 data-[drop-over=true]:ring-blue-200 text-sm text-slate-600 hover:border-slate-300 data-active:border-amber-400 data-active:bg-amber-100 data-active:text-slate-900 data-active:shadow-none';
 const FOLDER_COUNT =
-  'rounded-[5px] bg-slate-100 px-1.5 text-[11px] font-semibold text-slate-500 tabular-nums ';
+  'rounded-[5px] bg-slate-100 px-1.5 text-xs font-semibold text-slate-500 tabular-nums ';
 
 /** Giá trị tab: tất cả, chưa phân loại, hoặc mã thư mục. */
 const ALL = 'all';
@@ -140,7 +140,6 @@ export function SavedView() {
                 </span>
               ) : null}
             </h2>
-            <p>Những bài bạn đánh dấu để xem lại sau. Chỉ mình bạn thấy danh sách này.</p>
           </div>
           {folders ? (
             <Button
@@ -165,18 +164,18 @@ export function SavedView() {
             >
               <TabsList aria-label="Lọc theo thư mục" className={FOLDER_LIST}>
                 <TabsTrigger value={ALL} className={FOLDER_TAB}>
-                  <Layers className="size-3.5" aria-hidden="true" />
+                  <Layers className="size-4" aria-hidden="true" />
                   Tất cả
                   <span className={FOLDER_COUNT}>{folders.total}</span>
                 </TabsTrigger>
                 <TabsTrigger value={NONE} className={FOLDER_TAB} {...dropProps(NONE, UNFILED_LABEL)}>
-                  <Inbox className="size-3.5" aria-hidden="true" />
+                  <Inbox className="size-4" aria-hidden="true" />
                   {UNFILED_LABEL}
                   <span className={FOLDER_COUNT}>{folders.unfiledCount}</span>
                 </TabsTrigger>
                 {folders.items.map((folder) => (
                   <TabsTrigger key={folder.id} value={folder.id} className={FOLDER_TAB} {...dropProps(folder.id, folder.name)}>
-                    <Folder className="size-3.5" aria-hidden="true" />
+                    <Folder className="size-4" aria-hidden="true" />
                     <span className="max-w-[160px] truncate">{folder.name}</span>
                     <span className={FOLDER_COUNT}>{folder.count}</span>
                   </TabsTrigger>
@@ -271,7 +270,6 @@ export function SavedView() {
         bookmarkFolders
         onBookmarkChanged={refreshFolders}
         emptyTitle="Chưa có bài nào được lưu"
-        emptyHint="Bấm Lưu bài ở cuối mỗi bài viết để giữ lại tại đây."
       />
     </section>
   );

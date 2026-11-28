@@ -30,7 +30,7 @@ export function GroupCatalogEditor({ value, usedCodes, disabled, onChange }: {
   return (
     <section className={styles.catalog} aria-label="Danh mục nhóm quy trình">
       <div className={styles.toolbar}>
-        <label className={styles.autoAssign}><input type="checkbox" checked={value.autoAssignEnabled} disabled={disabled} onChange={(event) => onChange({ ...value, autoAssignEnabled: event.target.checked })} /><span><strong>Tự gán nhóm cho quy trình mới</strong><small>Gợi ý nhóm phù hợp khi khởi tạo quy trình.</small></span></label>
+        <label className={styles.autoAssign}><input type="checkbox" checked={value.autoAssignEnabled} disabled={disabled} onChange={(event) => onChange({ ...value, autoAssignEnabled: event.target.checked })} /><span>Tự gán nhóm cho quy trình mới</span></label>
         <button type="button" className={styles.addButton} disabled={disabled} onClick={() => setCreateOpen(true)}>+ Thêm nhóm</button>
       </div>
       <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Nhóm quy trình</th><th>Mã</th><th>Trạng thái</th><th aria-label="Thao tác" /></tr></thead><tbody>

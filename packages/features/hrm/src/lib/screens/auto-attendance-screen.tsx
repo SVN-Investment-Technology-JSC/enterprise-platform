@@ -96,14 +96,9 @@ export default function AutoAttendanceScreen() {
     <div className="space-y-4" data-testid="auto-attendance">
       <PageTitle
         title="Chấm công tự động"
-        description="Bật hoặc tắt chấm công tự động cho cả đơn vị mà không cần phân ca lại."
       />
 
-      <InfoNote>
-        Với những ngày làm việc có ca nằm trong các thứ được chọn, hệ thống ghi ngay giờ vào và giờ ra đúng giờ bắt đầu,
-        kết thúc ca cho nhân viên, không chờ ca kết thúc. Đơn nghỉ hoặc công tác được duyệt sau đó sẽ chèn lên phần chấm
-        công tự động khi tính công. Không áp dụng cho ngày không có lịch phân ca và kỳ công đã khóa. Cấu hình chỉ có hiệu lực từ ngày bật trở đi, không đổi dữ liệu đã qua.
-      </InfoNote>
+      <InfoNote>Chỉ áp dụng ngày có ca, từ ngày bật trở đi, trừ kỳ công đã khóa; đơn nghỉ, công tác được duyệt sẽ ghi đè.</InfoNote>
 
       {error ? (
         <InfoNote tone="red" role="alert">

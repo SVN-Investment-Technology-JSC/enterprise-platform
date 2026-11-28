@@ -375,7 +375,6 @@ export default function WorkScheduleScreen() {
   const header = (
     <PageTitle
       title="Phân ca"
-      description="Phân công hoặc nhả ca làm việc cho nhân viên."
       actions={
         <>
           <RowMenu
@@ -473,8 +472,8 @@ export default function WorkScheduleScreen() {
                       setPage(1);
                     }}
                     className={cn(
-                      'cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
-                      view === item.key ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900',
+                      'cursor-pointer whitespace-nowrap rounded-md px-3 py-1.5 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500',
+                      view === item.key ? 'bg-white font-semibold text-blue-700 shadow-xs' : 'font-medium text-slate-600 hover:text-slate-900',
                     )}
                   >
                     {item.label}
@@ -717,9 +716,6 @@ export default function WorkScheduleScreen() {
         open={auditOpen !== null}
         onOpenChange={(open) => !open && setAuditOpen(null)}
         employeeId={auditOpen?.employeeId}
-        subtitle={
-          auditOpen?.employeeId ? 'Lịch sử thay đổi phân ca của nhân viên đã chọn.' : undefined
-        }
       />
     </div>
   );

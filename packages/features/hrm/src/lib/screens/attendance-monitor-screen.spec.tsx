@@ -184,6 +184,5 @@ describe('AttendanceMonitorScreen', () => {
     );
     render(<AttendanceMonitorScreen />);
     expect(await screen.findByText('Không có nhân viên trong phạm vi giám sát của bạn.')).toBeTruthy();
-    expect(screen.getByText(/nhân viên cấp dưới/)).toBeTruthy();
   });
 });

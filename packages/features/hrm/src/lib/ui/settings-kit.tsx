@@ -212,8 +212,10 @@ export function SectionTabs({
             tabIndex={selected ? 0 : -1}
             disabled={tab.disabled}
             onClick={() => onChange(tab.id)}
-            className={`-mb-px flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-              selected ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'
+            className={`-mb-px flex shrink-0 cursor-pointer items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              selected
+                ? 'border-blue-600 font-semibold text-blue-700'
+                : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
             }`}
           >
             {Icon ? <Icon aria-hidden="true" className="size-4" /> : null}
@@ -277,8 +279,10 @@ export function SegmentedTabs({
             tabIndex={selected ? 0 : -1}
             disabled={tab.disabled}
             onClick={() => onChange(tab.id)}
-            className={`flex min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-              selected ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+            className={`flex min-w-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              selected
+                ? 'bg-blue-600 font-semibold text-white shadow-xs'
+                : 'font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900'
             }`}
           >
             {Icon ? <Icon aria-hidden="true" className="size-4 shrink-0" /> : null}

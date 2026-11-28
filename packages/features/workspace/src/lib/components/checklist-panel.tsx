@@ -559,10 +559,8 @@ export function ChecklistPanel({
             <p className="m-0 flex items-start gap-1.5 text-[12.5px] leading-snug text-muted-foreground">
               <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
               {switchNotice
-                ? 'Thêm đầu việc đầu tiên để chuyển sang tính tiến độ theo checklist: làm tới đâu tích tới đó.'
-                : state.canAdd
-                  ? 'Chưa có đầu việc nào. Tiến độ sẽ tự tính theo số đầu việc đã tích.'
-                  : 'Chưa có đầu việc nào.'}
+                ? 'Thêm đầu việc đầu tiên để tính tiến độ theo checklist.'
+                : 'Chưa có đầu việc nào.'}
             </p>
           )}
           {state.reason ? (
@@ -577,7 +575,6 @@ export function ChecklistPanel({
       <Dialog
         open={manageOpen && state.canAdd}
         title="Quản lý checklist"
-        subtitle="Thêm, sửa tên hoặc xoá đầu việc. Bấm Cập nhật để áp dụng cho công việc."
         submitLabel="Cập nhật"
         cancelLabel="Huỷ"
         submitDisabled={!hasChanges}

@@ -350,9 +350,7 @@ export function EventForm({
             ? `Dự án ${projectLabel}`
           : occurrence?.isRecurring
             ? 'Sự kiện này lặp lại. Hãy chọn phạm vi tác động bên dưới.'
-            : memberUserIds
-              ? 'Mời được thành viên dự án. Trùng lịch người chỉ là cảnh báo.'
-              : 'Mời được bất kỳ ai trong tổ chức. Trùng lịch người chỉ là cảnh báo.'
+            : undefined
       }
       submitLabel={!canEdit ? 'Đóng' : occurrence ? 'Lưu thay đổi' : 'Tạo sự kiện'}
       // "Huỷ" đứng cạnh nút đỏ "Huỷ buổi này" dễ bấm nhầm: với sự kiện đã có,
@@ -459,13 +457,7 @@ export function EventForm({
 
       <Field
         label="Người tham dự"
-        hint={
-          canEdit
-            ? memberUserIds
-              ? 'Chỉ mời được thành viên dự án. Cần mời người khác thì thêm họ vào dự án trước.'
-              : 'Tìm và chọn người trong cả tổ chức.'
-            : undefined
-        }
+        hint={canEdit && memberUserIds ? 'Chỉ mời được thành viên dự án.' : undefined}
       >
         <PeoplePicker
           people={invitable}
@@ -517,7 +509,7 @@ export function EventForm({
                   onChange={(value) => set({ freq: value as RecurrenceFrequency })}
                 />
               </Field>
-              <Field label="Mỗi" hint="Ví dụ 2 với hằng tuần là hai tuần một lần.">
+              <Field label="Mỗi">
                 <input
                   type="number"
                   min={1}
@@ -526,7 +518,7 @@ export function EventForm({
                   onChange={(event) => set({ interval: event.target.value })}
                 />
               </Field>
-              <Field label="Số lần" hint="Bắt buộc có điểm dừng, tối đa 365 lần.">
+              <Field label="Số lần">
                 <input
                   type="number"
                   min={1}
@@ -537,7 +529,7 @@ export function EventForm({
               </Field>
             </div>
             {form.freq === 'WEEKLY' ? (
-              <Field label="Lặp vào thứ" hint="Mặc định là thứ của ngày bắt đầu. Bấm để thêm hoặc bỏ thứ, ví dụ chỉ T6 để họp báo cáo mỗi thứ Sáu.">
+              <Field label="Lặp vào thứ" hint="Mặc định là thứ của ngày bắt đầu.">
                 <div className={styles.weekdayRow} role="group" aria-label="Lặp vào thứ">
                   {WEEKDAYS.map((label, day) => {
                     const on = (form.byDay.length ? form.byDay : [weekdayOf(form.date)]).includes(day);

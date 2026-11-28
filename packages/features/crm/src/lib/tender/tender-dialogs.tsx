@@ -106,7 +106,7 @@ export function TenderFormDialog({
           <input type="checkbox" checked={draft.hasJointVenture} disabled={hasPartners} onChange={(event) => set({ hasJointVenture: event.target.checked })} /> Có liên danh
         </label>
       </Field>
-      <Field label="Kịch bản chọn" wide hint="Nội dung phương án chào thầu đưa đi duyệt.">
+      <Field label="Kịch bản chọn" wide>
         <textarea className={styles.textarea} rows={4} value={draft.scenario} maxLength={4000} onChange={(event) => set({ scenario: event.target.value })} />
       </Field>
     </CrmDialog>

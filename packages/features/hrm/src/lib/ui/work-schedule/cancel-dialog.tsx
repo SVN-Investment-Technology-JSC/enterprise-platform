@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import type { HrmOrgUnitOption } from '@enterprise-platform/contracts-hrm';
 import type { SearchableSelectOption } from '@enterprise-platform/shared-ui';
 import { Button } from '../button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { useCloseGuard } from '../use-close-guard';
 import {
   ReleaseConfirmButton,
@@ -63,9 +63,6 @@ export function CancelScheduleDialog({
       <DialogContent className="@container h-[min(88dvh,720px)] max-w-3xl" aria-label="Nhả ca">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 pr-12 @lg:px-6">
           <DialogTitle className="text-lg">Nhả ca</DialogTitle>
-          <DialogDescription>
-            Gỡ lịch đã phân (hủy lịch) trong khoảng ngày. Hệ thống luôn cho xem phạm vi ảnh hưởng trước khi nhả ca.
-          </DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 @lg:px-6">
           <ReleaseFields

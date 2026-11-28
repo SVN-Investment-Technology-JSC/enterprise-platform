@@ -101,7 +101,7 @@ function CaseProjectValue({ project, pending }: { project: InstanceWorkspaceProj
       <a
         className={`text-blue-600 underline ${pending && !project.projectName ? styles.infoPending : ''}`}
         href={workspaceProjectHref({ projectId: project.projectId })}
-        title={`${name}\nMã dự án ${project.projectCode} · bấm để mở dự án trong Workspace`}
+        title={`${name}\nMã dự án ${project.projectCode}`}
         aria-busy={pending && !project.projectName ? true : undefined}
       >
         {name}
@@ -109,7 +109,7 @@ function CaseProjectValue({ project, pending }: { project: InstanceWorkspaceProj
       {project.workItemId ? (
         <>
           {' · '}
-          <a className="text-blue-600 underline" href={workspaceProjectHref(project)} title="Mở công việc trong Workspace">
+          <a className="text-blue-600 underline" href={workspaceProjectHref(project)}>
             {project.workItemCode ? `Công việc ${project.workItemCode}` : 'Công việc'}
           </a>
         </>

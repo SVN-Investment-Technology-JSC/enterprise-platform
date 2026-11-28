@@ -131,7 +131,7 @@ function BubbleImpl(props: BubbleProps) {
           ]
             .filter(Boolean)
             .join(' ')}
-          title={canReact ? `${clockTime(message.createdAt)} · Bấm đúp để thả tim` : clockTime(message.createdAt)}
+          title={clockTime(message.createdAt)}
           onDoubleClick={(event) => {
             if (!canReact) return;
             event.preventDefault();

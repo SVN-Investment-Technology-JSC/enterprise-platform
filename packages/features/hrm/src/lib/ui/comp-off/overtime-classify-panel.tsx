@@ -185,7 +185,7 @@ export function OvertimeClassifyPanel() {
         <SummaryTable rows={summary?.rows ?? []} selectedId={selectedId} onSelect={setSelectedId} />
       </section>
       {canClassify && !selectedId ? (
-        <p className="text-xs text-slate-500">Bấm vào một nhân viên ở bảng trên để xem và sửa phân loại từng ca làm thêm của người đó.</p>
+        <p className="text-xs text-slate-500">Chọn một nhân viên ở bảng trên để xem chi tiết.</p>
       ) : null}
       {canClassify && selectedId ? (
         <section className="space-y-2">

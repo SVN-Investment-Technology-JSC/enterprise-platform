@@ -77,9 +77,6 @@ export function MaterialRequisitionsCard({
             <h2 className="m-0 text-[16px] font-bold text-slate-900">
               Nhu cầu cấp phát vật tư từ Quy trình (Bảng kê CSV)
             </h2>
-            <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
-              Quy trình con &amp; lệnh bảo trì tự động kết xuất bảng kê CSV để thủ kho chủ động lập phiếu xuất/giữ chỗ.
-            </p>
           </div>
         </div>
 
@@ -103,7 +100,7 @@ export function MaterialRequisitionsCard({
           className="py-6 px-4 text-center bg-slate-50 rounded-lg border border-dashed border-slate-300 mt-2 mx-0 mb-1"
         >
           <p className="m-0 text-[14px] text-slate-500">
-            Hiện chưa có hồ sơ quy trình nào gửi yêu cầu vật tư hoặc bảng kê CSV chờ xử lý.
+            Chưa có yêu cầu vật tư chờ xử lý.
           </p>
         </div>
       ) : (
@@ -282,7 +279,6 @@ export function MaterialRequisitionsCard({
  size="sm"
  className="h-8 gap-[5px] px-3 text-[13px] font-semibold"
                             onClick={() => onCheckStock(req.lines[0]?.materialCode || '')}
-                            title="Kiểm tra mức độ tồn kho và khả dụng của các vật tư trong bảng kê"
                           >
                             <PackageCheck size={13} className="text-emerald-600" />
                             <span>Kiểm tra tồn kho</span>
@@ -295,7 +291,6 @@ export function MaterialRequisitionsCard({
                           className="h-8 gap-1.5 px-3.5 text-[13px] font-semibold"
                           onClick={() => onOpenIssueFromRequisition(req)}
                           disabled={!canWriteTransactions || !approved}
-                          title={`Xử lý cấp phát toàn bộ ${req.lines.length} vật tư theo bảng kê`}
                         >
                           <ArrowUpRight size={14} />
                           <span>
@@ -309,7 +304,7 @@ export function MaterialRequisitionsCard({
 
                     {req.lines.length === 0 ? (
                       <p className="m-0 text-[13px] text-slate-400 italic">
-                        Chưa có dòng vật tư chi tiết. Bấm "Xử lý phiếu yêu cầu" để nạp trực tiếp vào phiếu.
+                        Chưa có dòng vật tư chi tiết.
                       </p>
                     ) : (
                       <Table
@@ -429,7 +424,6 @@ export function MaterialRequisitionsCard({
                                         size="xs"
                                         className="gap-[3px] bg-slate-50 text-[12px] font-semibold text-slate-600"
                                         onClick={() => onCheckStock(line.materialCode)}
-                                        title={`Kiểm tra vị trí và lượng tồn kho của ${line.materialCode}`}
                                       >
                                         <Eye size={11} />
                                         Soi kho
@@ -444,7 +438,6 @@ export function MaterialRequisitionsCard({
                                         size="xs"
                                         className="gap-[3px] border-amber-300 bg-amber-50 text-[12px] font-semibold text-amber-700 hover:bg-amber-100"
                                         onClick={() => onOpenTransfer(line.materialCode)}
-                                        title={`Tạo phiếu điều chuyển nội bộ để gom mã ${line.materialCode} về một kho trước khi xuất`}
                                       >
                                         <ArrowLeftRight size={11} />
                                         Chuyển kho ⇄

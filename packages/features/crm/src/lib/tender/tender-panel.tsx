@@ -303,7 +303,7 @@ export function TenderPanel({
           ) : null}
         </dl>
       ) : (
-        <p className={styles.muted}>Chưa có kết quả. Ghi Trúng hoặc Trượt sẽ chuyển dự án sang giai đoạn tương ứng; Trúng cần phương án đã duyệt.</p>
+        <p className={styles.muted}>Chưa có kết quả. Trúng cần phương án đã duyệt.</p>
       )}
       {can('result') ? (
         <div className={styles.toolbar}>

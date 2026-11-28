@@ -181,7 +181,6 @@ export default function PayrollSettingsScreen() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Lương & OT"
-        description="Cấu hình công thức lương, OT, phụ cấp và các khoản chi trả."
         badge={
           readOnly ? (
             <Badge variant="outline" className="h-7 border-slate-200 bg-slate-100 px-3 text-xs text-slate-600">
@@ -259,7 +258,6 @@ export default function PayrollSettingsScreen() {
           open={historyOpen}
           onOpenChange={setHistoryOpen}
           title="Lịch sử thay đổi cấu hình lương"
-          description="Phiên bản công thức/OT, tham số nhân viên, ngạch bậc, công tác phí và tách nhiệm vụ (tối đa 100 bản ghi, mới nhất ở trên)."
           actionPrefixes={HISTORY_PREFIXES}
         />
       ) : null}

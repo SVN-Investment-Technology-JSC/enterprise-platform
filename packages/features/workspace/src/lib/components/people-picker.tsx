@@ -139,9 +139,7 @@ export function PeoplePicker({
         <p className={styles.muted}>Không đọc được danh bạ tổ chức lúc này. Thử lại sau ít phút.</p>
       ) : loaded && people.length === 0 ? (
         <p className={styles.muted} role="status">
-          Danh bạ tổ chức đang trống. Quản trị viên tenant cần dựng cơ cấu tổ chức (đơn vị, chức
-          danh) và bổ nhiệm người vào chức danh ở Tenant Portal trước, sau đó mới chọn được người
-          ở đây.
+          Danh bạ tổ chức đang trống. Quản trị viên tenant cần bổ nhiệm người vào chức danh ở Tenant Portal trước.
         </p>
       ) : (
         <>

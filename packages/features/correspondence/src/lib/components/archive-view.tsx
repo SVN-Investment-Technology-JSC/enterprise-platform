@@ -166,7 +166,7 @@ export function ArchiveView({ refreshKey, onOpenLetter }: { readonly refreshKey:
           ) : (
             <div className={styles.archiveEmpty}>
               <FolderOpen size={20} aria-hidden />
-              <p>Chọn một hồ sơ bên trái để xem tệp. Tệp lưu tại kho tài liệu của Hệ dùng chung, thư mục Văn thư.</p>
+              <p>Chọn một hồ sơ bên trái để xem tệp.</p>
             </div>
           )}
         </section>

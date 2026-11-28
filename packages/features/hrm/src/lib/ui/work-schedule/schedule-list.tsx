@@ -41,8 +41,7 @@ export function ScheduleListView({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
       <p className="shrink-0 border-b border-slate-100 bg-slate-50 px-3.5 py-1.5 text-[12px] text-slate-500">
-        Danh sách này chỉ gồm lịch gán theo khoảng ngày cố định. Lịch định kỳ (không có ngày kết thúc) xem trong
-        Lịch định kỳ và trên Lịch tháng, Lịch tuần.
+        Chỉ gồm lịch theo khoảng ngày; lịch định kỳ xem ở Lịch định kỳ.
       </p>
       <div className="min-h-0 flex-1 overflow-auto">
         {error ? (

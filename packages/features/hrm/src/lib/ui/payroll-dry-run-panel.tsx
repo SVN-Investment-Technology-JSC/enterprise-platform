@@ -102,7 +102,7 @@ export function PayrollDryRunPanel({
         <div className="min-w-0">
           <h3 className="text-sm font-bold text-slate-900">Tính thử (không ghi dữ liệu)</h3>
           <p className="text-[12px] leading-snug text-slate-500">
-            Áp công thức đang soạn lên kỳ lương đã tính để kiểm tra kết quả của tối đa 3 nhân viên.
+            Tối đa 3 nhân viên.
           </p>
         </div>
       </div>

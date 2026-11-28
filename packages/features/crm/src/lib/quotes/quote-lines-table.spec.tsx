@@ -205,7 +205,7 @@ describe('QuoteLinesTable (P3C4-04)', () => {
     expect(screen.getByText('Mẫu báo giá này tính chiết khấu theo dòng.')).toBeTruthy();
     unmount();
 
-    setup({ discount: { enabled: true, hint: 'Nhập chiết khấu một lần cho cả báo giá.', onOpen } });
+    setup({ discount: { enabled: true, onOpen } });
     fireEvent.click(screen.getByRole('button', { name: 'Sửa % chiết khấu' }));
     expect(onOpen).toHaveBeenCalled();
   });

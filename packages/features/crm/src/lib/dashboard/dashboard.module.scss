@@ -29,7 +29,8 @@
     background: var(--ep-surface, #ffffff);
     color: var(--ep-text, #18181b);
     font: inherit;
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 500;
     cursor: pointer;
 
     &:last-child {

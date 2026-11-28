@@ -28,7 +28,7 @@ export interface ModuleNavItem<TViewId extends string = string> {
 export interface ModuleSidebarItem {
   readonly id: string;
   readonly label: string;
-  /** Chú thích khi rê chuột; mặc định là `label`. */
+  /** Chú thích khi rê chuột. Bỏ trống thì không có, trừ khi tên bị cắt (rê chuột hiện đủ tên). */
   readonly title?: string;
   /** Biểu tượng hoặc ô viết tắt bên trái. */
   readonly leading?: ReactNode;

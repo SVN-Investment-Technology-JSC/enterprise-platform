@@ -161,9 +161,6 @@ export function QuotePreviewPanel() {
     <div className={styles.page}>
       <section className={styles.panel} aria-label="Thử tính giá">
         <h2 className={styles.title}>Thử tính giá</h2>
-        <p className={styles.muted}>
-          Tính giá đúng như khi lập báo giá, theo bảng giá và chính sách đang lưu. Chỉ để thử, không tạo báo giá.
-        </p>
         <div className={styles.fieldGrid}>
           <label className={local.inlineField}>
             Khách hàng
@@ -371,7 +368,7 @@ function PreviewResult({ result }: { result: PricingResult }) {
   return (
     <section className={styles.tableCard} aria-label="Kết quả tính giá">
       <h2 className={styles.title}>Kết quả ngày {result.date.split('-').reverse().join('/')}</h2>
-      <p className={styles.muted}>Trần tổng chiết khấu: {formatPercent(result.discountCapPercent)}. Tiền làm tròn đến đồng theo từng dòng.</p>
+      <p className={styles.muted}>Trần tổng chiết khấu: {formatPercent(result.discountCapPercent)}.</p>
       <Table<PricedLine> size="small" rowKey="index" columns={columns} dataSource={[...result.lines]} pagination={false} scroll={{ x: 1200 }} />
       <dl className={local.totals}>
         <dt>Tiền hàng theo giá gốc</dt>

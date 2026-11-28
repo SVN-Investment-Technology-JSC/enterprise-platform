@@ -170,7 +170,6 @@ export function PlatformShell({
           router.push(page.href as never);
         }
       }}
-      subtitle="Quản trị nền tảng SVNDTS"
       title="Platform Superadmin"
       view={view}
     >

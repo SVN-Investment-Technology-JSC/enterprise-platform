@@ -281,7 +281,6 @@ function SalesTab({ filters, nameOf, today }: { filters: Filters; nameOf: (userI
           placeholder="Nhóm theo"
           onChange={(value) => value && setGroupBy(value as SalesReportDimension)}
         />
-        <span className={styles.muted}>Doanh thu sau chiết khấu, chưa VAT, theo ngày giao; lợi nhuận dùng giá vốn thực tế khi xuất kho.</span>
         <ExportButton disabled={!data} onExport={() => downloadWorkbook(exportFileName('bao-cao-doanh-thu', today), [salesSheet(data as SalesReport, nameOf)])} />
       </div>
       {error ? <p className={styles.alert}>{error}</p> : null}
@@ -341,9 +340,6 @@ function ConversionTab({ filters, nameOf, today }: { filters: Filters; nameOf: (
   return (
     <section className={styles.tableCard} aria-label="Tỷ lệ chuyển đổi">
       <div className={styles.toolbar}>
-        <span className={styles.muted}>
-          Đếm dự án bán hàng, báo giá, hợp đồng, đơn bán tạo trong kỳ (trừ hợp đồng, đơn đã huỷ); tỷ lệ so với bước trước.
-        </span>
         <ExportButton disabled={!data} onExport={() => downloadWorkbook(exportFileName('ty-le-chuyen-doi', today), [conversionSheet(data as ConversionReport, nameOf)])} />
       </div>
       {error ? <p className={styles.alert}>{error}</p> : null}
@@ -515,9 +511,7 @@ function ReceivablesTab({
   return (
     <section className={styles.tableCard} aria-label="Công nợ phải thu">
       <div className={styles.toolbar}>
-        <span className={styles.muted}>
-          Đến ngày {day(data?.asOf ?? today)}. Doanh thu chưa thu = doanh thu ghi nợ − tiền thu đã phân bổ vào khoản nợ.
-        </span>
+        <span className={styles.muted}>Đến ngày {day(data?.asOf ?? today)}</span>
         <ExportButton disabled={!data} onExport={() => downloadWorkbook(exportFileName('cong-no-phai-thu', today), receivableSheets(data as ReceivableReport, nameOf))} />
       </div>
       {error ? <p className={styles.alert}>{error}</p> : null}

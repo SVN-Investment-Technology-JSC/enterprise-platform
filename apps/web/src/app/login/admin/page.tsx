@@ -6,7 +6,6 @@ export default function PlatformLoginPage() {
       portal="platform"
       eyebrow="Đăng nhập"
       title="Cổng quản trị hệ thống"
-      description="Chỉ dành cho người vận hành hệ thống."
     />
   );
 }

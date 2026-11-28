@@ -9,7 +9,7 @@ import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { DatePickerInput } from '../date-picker-input';
 import { Button } from '../button';
 import { Input } from '../input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { InfoNote, SettingsField } from '../settings-kit';
 import { useCloseGuard } from '../use-close-guard';
 import { PayrollDryRunPanel } from '../payroll-dry-run-panel';
@@ -116,9 +116,6 @@ export function FormulaEditorDialog({
       <DialogContent className="@container flex max-h-[90dvh] w-[calc(100%-2rem)] flex-col overflow-hidden bg-white p-0 sm:max-w-[1180px]">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-4 py-4 pr-12 @xl:px-5">
           <DialogTitle className="text-base font-bold text-slate-900">{title}</DialogTitle>
-          <DialogDescription className="text-xs text-slate-500">
-            Cấu hình chu kỳ hiệu lực, các khoản thu nhập / khấu trừ và công thức tính lương động
-          </DialogDescription>
         </DialogHeader>
         <form
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -224,10 +221,10 @@ export function FormulaEditorDialog({
                   )}
                   <p className="text-[12px] leading-snug text-slate-500">
                     {standardMode === 'FIXED'
-                      ? 'Lương theo công = lương tháng x công được trả / công chuẩn cố định, dù tháng có bao nhiêu ngày nghỉ. Công thức mẫu tính đơn giá tăng ca cũng chia theo công chuẩn này (biến STANDARD_PERIOD_MINUTES).'
+                      ? 'Lương theo công = lương tháng x công được trả / công chuẩn cố định.'
                       : standardMode === 'MINUTES'
-                        ? 'Cấu hình cũ theo số phút. Nên chuyển sang công chuẩn động hoặc cố định theo ngày công.'
-                        : 'Công chuẩn bằng số ngày công thực tế của tháng theo phân ca (đã trừ ngày nghỉ hằng tuần). Người vào hoặc nghỉ việc giữa kỳ được trả theo công chuẩn của kỳ.'}
+                        ? 'Cấu hình cũ theo số phút; nên chuyển sang theo ngày công.'
+                        : 'Công chuẩn = số ngày công thực tế của tháng theo phân ca.'}
                   </p>
                 </div>
 
@@ -267,9 +264,6 @@ export function FormulaEditorDialog({
                       </Button>
                     </div>
                   </div>
-                  <p className="text-[12px] text-slate-500">
-                    Mẫu gồm lương theo công, OT, phụ cấp, BHXH/BHYT/BHTN, giảm trừ gia cảnh, thuế TNCN, tạm ứng, thực lĩnh.
-                  </p>
                   {templateNote.length > 0 && (
                     <InfoNote tone="amber" role="status">
                       <div className="font-semibold">
