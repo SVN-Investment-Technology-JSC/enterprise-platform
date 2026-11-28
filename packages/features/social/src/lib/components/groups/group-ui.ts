@@ -26,8 +26,8 @@ export const SIDE_TITLE = 'm-0 text-[13.5px] font-bold text-slate-900';
 export const CONTROL = 'h-[38px] rounded-md px-3 text-[13.5px]!';
 /** Chip lọc dạng viên thuốc, dùng cho cả liên kết và nút (`data-active`). */
 export const FILTER_CHIP =
-  'inline-flex h-[26px] cursor-pointer items-center gap-1 rounded-full border border-slate-200 bg-white px-[11px] text-[12.5px] font-semibold text-slate-600 no-underline transition-colors hover:border-amber-400 data-[active=true]:border-amber-400 data-[active=true]:bg-amber-300 data-[active=true]:text-zinc-900';
+  'inline-flex h-8 cursor-pointer items-center gap-1 rounded-full border border-slate-200 bg-white px-[11px] text-sm font-medium text-slate-600 no-underline transition-colors hover:border-amber-400 data-[active=true]:border-amber-400 data-[active=true]:font-semibold data-[active=true]:bg-amber-300 data-[active=true]:text-zinc-900';
 /** Huy hiệu số nhỏ (số yêu cầu chờ duyệt…). */
-export const BADGE = 'rounded-full bg-amber-300 px-1.5 text-[10.5px] leading-4 font-bold text-zinc-900';
+export const BADGE = 'rounded-full bg-amber-300 px-1.5 text-xs leading-4 font-semibold text-zinc-900';
 export const ROLE_ADMIN = 'inline-flex items-center rounded-full bg-amber-100 px-[7px] py-px text-[11px] font-bold whitespace-nowrap text-amber-800';
 export const ROLE_MEMBER = 'inline-flex items-center rounded-full bg-gray-100 px-[7px] py-px text-[11px] font-bold whitespace-nowrap text-slate-600';

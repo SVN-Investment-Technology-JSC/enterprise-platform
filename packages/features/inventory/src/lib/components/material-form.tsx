@@ -11,7 +11,7 @@ import type {
 } from '@enterprise-platform/contracts-inventory';
 import { resolveTrackingMode, suggestTrackingMode } from '@enterprise-platform/contracts-inventory';
 import { SearchableSelect, VnNumberInput, CloseGuard } from '@enterprise-platform/shared-ui';
-import { Info, Layers, Package, QrCode } from 'lucide-react';
+import { Layers, Package, QrCode } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { MATERIAL_CATEGORY_LABEL, currencyLabel } from '../inventory-labels';
 import { categoriesOf, withCurrent } from '../trade-items.model';
@@ -20,7 +20,7 @@ import { Button } from '../ui/button';
 import { cn } from '../ui/cn';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
 
 /** Nhãn bọc một ô nhập: chữ nhỏ đậm phía trên, ô nhập chữ thường bên dưới. */
 const FIELD_CLASS = 'flex flex-col gap-[0.28rem] text-xs font-bold text-slate-500 [&_input]:font-normal';
@@ -33,7 +33,6 @@ const TRACKING_CARDS: readonly {
   mode: MaterialTrackingMode;
   Icon: typeof QrCode;
   title: string;
-  description: string;
   active: string;
   icon: string;
   titleActive: string;
@@ -42,7 +41,6 @@ const TRACKING_CARDS: readonly {
     mode: 'SERIAL',
     Icon: QrCode,
     title: 'Theo Sê-ri (SN)',
-    description: 'Mỗi chiếc có số SN riêng biệt (thiết bị, rơ-le, máy biến áp, motor...).',
     active: 'border-2 border-blue-600 bg-blue-50',
     icon: 'text-blue-600',
     titleActive: 'text-blue-700',
@@ -51,7 +49,6 @@ const TRACKING_CARDS: readonly {
     mode: 'LOT',
     Icon: Layers,
     title: 'Theo Lô (Lot/Batch)',
-    description: 'Quản lý mẻ/kiện, hạn dùng FEFO, kiểm định (dầu, cáp, hoá chất...).',
     active: 'border-2 border-green-600 bg-green-50',
     icon: 'text-green-600',
     titleActive: 'text-green-700',
@@ -60,7 +57,6 @@ const TRACKING_CARDS: readonly {
     mode: 'NONE',
     Icon: Package,
     title: 'Thông thường',
-    description: 'Quản lý tồn thuần túy theo số lượng, không cần định danh chi tiết.',
     active: 'border-2 border-slate-600 bg-slate-50',
     icon: 'text-slate-900',
     titleActive: 'text-slate-900',
@@ -219,9 +215,6 @@ export function MaterialForm({
           <DialogHeader>
             <div>
               <DialogTitle>{editing ? `Sửa vật tư ${editing.code}` : 'Thêm vật tư mới'}</DialogTitle>
-              <DialogDescription>
-                Khai báo mã SKU, định mức tồn và phương thức quản lý định danh (Sê-ri hoặc Lô).
-              </DialogDescription>
             </div>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
               <DialogCloseButton />
@@ -407,7 +400,7 @@ export function MaterialForm({
                   onChange={setPurchasePrice}
                 />
                 {editing?.purchasePrice !== undefined ? (
-                  <small className="text-xs font-normal text-slate-500">Đổi sang giá khác được; để trống thì giữ giá hiện tại.</small>
+                  <small className="text-xs font-normal text-slate-500">Để trống thì giữ giá hiện tại.</small>
                 ) : null}
               </Label>
             </div>
@@ -426,7 +419,7 @@ export function MaterialForm({
                 </p>
               ) : (
               <div className={cn('grid gap-2.5', visibleCards.length === 2 ? 'grid-cols-2' : 'grid-cols-3')}>
-                {visibleCards.map(({ mode, Icon, title, description, active, icon, titleActive }) => {
+                {visibleCards.map(({ mode, Icon, title, active, icon, titleActive }) => {
                   const selected = trackingMode === mode;
                   return (
                     <label
@@ -453,7 +446,6 @@ export function MaterialForm({
                           {title}
                         </span>
                       </div>
-                      <span className="text-xs leading-[1.4] text-slate-500">{description}</span>
                     </label>
                   );
                 })}
@@ -468,30 +460,6 @@ export function MaterialForm({
 
             ) : null}
 
-            {/* Thông báo chuẩn nghiệp vụ kho */}
-            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
-              <Info size={18} className="mt-0.5 shrink-0 text-slate-500" />
-              <div className="text-[13px] leading-normal text-slate-600">
-                {trackingMode === 'SERIAL' && (
-                  <span>
-                    Các số Sê-ri (SN) cụ thể của từng cá thể sẽ được ghi nhận và quét mã khi thực hiện{' '}
-                    <strong>Phiếu Nhập kho</strong> hoặc cập nhật trong chi tiết vật tư sau này.
-                  </span>
-                )}
-                {trackingMode === 'LOT' && (
-                  <span>
-                    Chi tiết từng lô hàng (Số lô, Hạn sử dụng, CO/CQ, Nhà cung cấp...) sẽ được khai báo
-                    chính xác khi lập <strong>Phiếu Nhập kho</strong> vào kho thực tế.
-                  </span>
-                )}
-                {trackingMode === 'NONE' && (
-                  <span>
-                    Số lượng nhập, kho lưu trữ và giá trị sẽ được ghi nhận qua các{' '}
-                    <strong>Phiếu Nhập kho</strong> thông thường.
-                  </span>
-                )}
-              </div>
-            </div>
             <FormError error={error} />
           </DialogBody>
 

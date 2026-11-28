@@ -239,7 +239,7 @@ export default function ReportsScreen() {
                 type="button"
                 aria-selected={tab === item.id}
                 onClick={() => setTab(item.id)}
-                className={cn('rounded-lg px-3 py-1 text-sm', tab === item.id ? 'bg-accent-soft font-semibold text-accent-text' : 'text-slate-600 hover:bg-slate-100')}
+                className={cn('rounded-lg px-3 py-1.5 text-sm', tab === item.id ? 'bg-accent-soft font-semibold text-accent-text' : 'font-medium text-slate-600 hover:bg-slate-100')}
               >
                 {item.label}
               </button>

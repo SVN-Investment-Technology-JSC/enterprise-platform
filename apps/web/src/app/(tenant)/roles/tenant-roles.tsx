@@ -18,7 +18,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -26,7 +25,6 @@ import {
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
@@ -151,7 +149,6 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-slate-900">{roles.length}</div>
-            <p className="text-xs text-slate-500 mt-1">Được định nghĩa trong tổ chức</p>
           </CardContent>
         </Card>
 
@@ -166,7 +163,6 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
             <div className="text-2xl font-bold text-slate-900">
               {roles.filter((r) => r.isSystem).length}
             </div>
-            <p className="text-xs text-slate-500 mt-1">Chuẩn bảo mật, không thể xoá</p>
           </CardContent>
         </Card>
 
@@ -181,7 +177,6 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
             <div className="text-2xl font-bold text-slate-900">
               {roles.filter((r) => !r.isSystem).length}
             </div>
-            <p className="text-xs text-slate-500 mt-1">Phân quyền theo vị trí thực tế</p>
           </CardContent>
         </Card>
       </div>
@@ -293,9 +288,6 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
             <DialogTitle className="text-lg font-bold text-slate-900">
               Tạo mới vai trò người dùng (Role)
             </DialogTitle>
-            <DialogDescription className="text-slate-500 text-sm">
-              Thiết lập mã vai trò, phân hệ được phép truy cập và ma trận quyền hạn tương ứng.
-            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleCreateRole} className="space-y-4 pt-2">
@@ -367,9 +359,7 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
                   Quyền chi tiết
                 </h4>
                 <p className="text-xs text-slate-500">
-                  Hành động HRM (hrm.*) và các hành động khác không chọn ở đây. Hãy tạo Permission chứa
-                  hành động hrm.* tại <a className="text-blue-600 underline" href="/authorization">Phân quyền</a>,
-                  sau đó gắn vào vai trò. Có thể dùng nút &quot;Tạo vai trò mẫu HRM&quot; ở Danh mục quyền HRM.
+                  Quyền HRM (hrm.*) gắn tại <a className="text-blue-600 underline" href="/authorization">Phân quyền</a>.
                 </p>
                 <div className="space-y-2 border border-slate-200 p-3 rounded-md bg-slate-50 max-h-36 overflow-y-auto">
                   {[
@@ -422,9 +412,6 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
             <SheetTitle className="text-lg font-bold text-slate-900">
               Phân bổ người dùng cho: {selectedRole?.name}
             </SheetTitle>
-            <SheetDescription className="text-slate-500 text-sm">
-              Xem danh sách nhân sự đang được gán vai trò này và điều chỉnh phân quyền nhanh.
-            </SheetDescription>
           </SheetHeader>
 
           <div className="mt-6 space-y-4">
@@ -437,9 +424,6 @@ export function TenantRoles({ initialRoles }: TenantRolesProps) {
             <div className="border border-slate-200 rounded-lg p-4 bg-white text-center py-8">
               <UserCheck className="h-8 w-8 text-slate-300 mx-auto mb-2" />
               <p className="text-sm font-medium text-slate-700">Danh sách nhân sự trực thuộc</p>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
-                Nhân sự được gán tự động thừa hưởng quyền truy cập vào các phân hệ đã chọn theo hợp đồng phân quyền kép.
-              </p>
             </div>
           </div>
         </SheetContent>

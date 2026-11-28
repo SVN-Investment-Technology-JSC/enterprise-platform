@@ -191,7 +191,7 @@ export function PipelineSettings() {
               <StageList pipeline={pipeline} busy={busy} selectedStageId={stage?.id} onSelect={setStageId} apply={apply} onDeleted={(id) => id === stageId && setStageId(undefined)} />
             </section>
             {stage ? <StageEditor key={`${pipeline.id}:${stage.id}`} pipeline={pipeline} stage={stage} documentTypes={documentTypes} busy={busy} apply={apply} /> : (
-              <p className={styles.muted}>Chọn "Cấu hình" ở một giai đoạn để sửa chi tiết, bước chuyển và điều kiện chuyển.</p>
+              <p className={styles.muted}>Chọn một giai đoạn để cấu hình.</p>
             )}
           </>
         ) : null}
@@ -445,7 +445,7 @@ function StageForm({ pipeline, stage, busy, apply }: { pipeline: AdminPipeline; 
         <Field label="Tên giai đoạn" required>
           <input className={styles.input} value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
         </Field>
-        <Field label="Nghĩa của giai đoạn" hint={stage.used ? STAGE_LOCK_HINT : 'Báo cáo gom theo nghĩa'}>
+        <Field label="Nghĩa của giai đoạn" hint={stage.used ? STAGE_LOCK_HINT : undefined}>
           <SearchableSelect options={semanticOptions} value={semantic} disabled={stage.used} onChange={(value) => setSemantic(value as StageSemantic)} />
         </Field>
         <Field label="Xác suất mặc định (%)">
@@ -472,7 +472,7 @@ function StageForm({ pipeline, stage, busy, apply }: { pipeline: AdminPipeline; 
           </Field>
         ) : null}
         {rule === 'POSITION' ? (
-          <Field label="Mã chức danh" required hint="Nhập mã (id) chức danh trong sơ đồ tổ chức; người đang giữ chức danh được gán">
+          <Field label="Mã chức danh" required hint="Mã (id) chức danh trong sơ đồ tổ chức">
             <input className={styles.input} value={param} maxLength={64} onChange={(event) => setParam(event.target.value)} />
           </Field>
         ) : null}

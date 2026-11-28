@@ -10,295 +10,78 @@ import type {
 import { isLauncherOnlyModule, openAssistant } from '@enterprise-platform/feature-module-shell';
 import {
   Check,
-  CheckCircle2,
   ExternalLink,
   Loader2,
   Package,
   PackageOpen,
   Search,
-  ShieldCheck,
   Sparkles,
   X,
-  Zap,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { toast } from '@/components/ui/sonner';
 import { cn } from '@/lib/utils';
 import { CollapsibleGroup } from '../collapsible-group';
 
 interface ModuleExtraInfo {
   category: string;
-  tagline: string;
-  accentColor: {
-    bg: string;
-    border: string;
-    text: string;
-    iconBg: string;
-  };
-  features: string[];
-  targetRoles: string[];
-  businessValue: string;
+  /** Màu ô chữ viết tắt khi phân hệ chưa có icon thương hiệu. */
+  iconBg: string;
 }
 
 const moduleCatalogMetadata: Record<string, ModuleExtraInfo> = {
   assistant: {
     category: 'Ứng dụng mở rộng',
-    tagline: 'Hỏi cách dùng bất kỳ trang nào và tra số liệu trong phạm vi quyền của người hỏi.',
-    accentColor: {
-      bg: 'bg-yellow-50/70',
-      border: 'border-yellow-200/80',
-      text: 'text-yellow-800',
-      iconBg: 'bg-yellow-100 text-yellow-800',
-    },
-    features: [
-      'Hướng dẫn thao tác theo Hướng dẫn sử dụng, kèm link mở thẳng trang ERP',
-      'Biết trang đang mở để trả lời câu hỏi "trang này dùng thế nào"',
-      'Đọc tồn kho, phiếu bảo trì, đơn từ, phép năm, công việc và hồ sơ quy trình bằng quyền của người hỏi',
-      'Mở từ nút Trợ lý ở mọi phân hệ, dùng chung phiên đăng nhập ERP',
-    ],
-    targetRoles: ['Toàn thể nhân sự'],
-    businessValue:
-      'Người dùng tự tra cách làm và số liệu của mình ngay trên ERP, giảm câu hỏi lặp lại gửi tới quản trị viên.',
+    iconBg: 'bg-yellow-100 text-yellow-800',
   },
   shared: {
     category: 'Nền tảng dùng chung',
-    tagline: 'Kho tài liệu công ty có phiên bản, thông tin hợp đồng và hạn hiệu lực, dùng chung cho mọi phòng ban.',
-    accentColor: {
-      bg: 'bg-stone-50/70',
-      border: 'border-stone-200/80',
-      text: 'text-stone-800',
-      iconBg: 'bg-stone-100 text-stone-800',
-    },
-    features: [
-      'Cây thư mục nhiều cấp theo phòng ban, năm, loại hồ sơ',
-      'Số hiệu, đối tác, ngày ký và hạn hiệu lực cho cả thư mục hợp đồng lẫn từng tài liệu',
-      'Giữ mọi phiên bản, khoá khi đang sửa, nhật ký xem và tải xuống',
-      'Độ mật Nội bộ, Hạn chế, Mật',
-      'Một hạn mức dung lượng chung cho tệp của mọi phân hệ',
-    ],
-    targetRoles: ['Văn thư, Hành chính', 'Kinh doanh', 'Ban Tổng giám đốc'],
-    businessValue:
-      'Hợp đồng, quyết định và văn bản của công ty nằm một chỗ, tìm được theo số hiệu, đối tác và hạn hiệu lực.',
+    iconBg: 'bg-stone-100 text-stone-800',
   },
   social: {
     category: 'Nền tảng dùng chung',
-    tagline: 'Mạng nội bộ của công ty: bảng tin, thông báo và trao đổi giữa các phòng ban.',
-    accentColor: {
-      bg: 'bg-rose-50/70',
-      border: 'border-rose-200/80',
-      text: 'text-rose-700',
-      iconBg: 'bg-rose-100 text-rose-700',
-    },
-    features: [
-      'Bảng tin công ty với bài viết, thông báo và chuyên mục',
-      'Ghim bài quan trọng, đính kèm ảnh và tệp',
-      'Phản ứng, bình luận lồng hai cấp và nhắc tên đồng nghiệp',
-      'Kiểm duyệt bài viết và bình luận theo quyền',
-    ],
-    targetRoles: ['Toàn thể nhân sự', 'Truyền thông nội bộ', 'Ban Tổng giám đốc'],
-    businessValue:
-      'Tin tức và thông báo của công ty đến đúng người ngay trên ERP, thay cho tin nhắn rời rạc qua nhiều kênh.',
+    iconBg: 'bg-rose-100 text-rose-700',
   },
   correspondence: {
     category: 'Vận hành & Quy trình',
-    tagline: 'Sổ công văn đến, đi: tiếp nhận, trình lãnh đạo, giao phòng ban xử lý, phát hành và lưu trữ hồ sơ.',
-    accentColor: {
-      bg: 'bg-indigo-50/70',
-      border: 'border-indigo-200/80',
-      text: 'text-indigo-700',
-      iconBg: 'bg-indigo-100 text-indigo-700',
-    },
-    features: [
-      'Vào sổ công văn đến, cấp số tự động theo năm',
-      'Trình lãnh đạo chỉ đạo, giao nhiều phòng ban xử lý song song',
-      'Phòng ban gửi văn bản phản hồi, lãnh đạo duyệt hoặc yêu cầu sửa',
-      'Cấp số đi, phát hành và lưu trữ hồ sơ có số lưu trữ',
-      'Tệp lưu trong kho tài liệu của Hệ dùng chung, thông báo và nhắc hạn theo từng bước',
-    ],
-    targetRoles: ['Văn thư, Hành chính', 'Ban Tổng giám đốc', 'Trưởng phòng ban'],
-    businessValue:
-      'Biết ngay công văn đang nằm ở bước nào, ai đang giữ, còn bao lâu tới hạn; hồ sơ đóng xong tra được theo số lưu trữ.',
+    iconBg: 'bg-indigo-100 text-indigo-700',
   },
   crm: {
     category: 'Kinh doanh & Bán hàng',
-    tagline: 'Theo dõi khách hàng từ cơ hội, báo giá, hợp đồng đến đơn bán, công nợ và bảo hành trên một luồng.',
-    accentColor: {
-      bg: 'bg-orange-50/70',
-      border: 'border-orange-200/80',
-      text: 'text-orange-700',
-      iconBg: 'bg-orange-100 text-orange-700',
-    },
-    features: [
-      'Hồ sơ khách hàng, người liên hệ, lead và cơ hội theo giai đoạn',
-      'Báo giá theo bảng giá, chiết khấu và duyệt báo giá',
-      'Hợp đồng, đơn bán liên thông xuất kho và theo dõi giao hàng',
-      'Công nợ phải thu, hạn mức tín dụng và thu tiền',
-      'Bảo hành, đổi trả và báo cáo doanh số',
-    ],
-    targetRoles: ['Nhân viên kinh doanh', 'Trưởng phòng kinh doanh', 'Kế toán công nợ', 'Ban Tổng giám đốc'],
-    businessValue:
-      'Mọi giao dịch với khách hàng nằm trên một luồng, biết ngay đơn nào đang chờ, khoản nào sắp đến hạn và ai đang phụ trách.',
+    iconBg: 'bg-orange-100 text-orange-700',
   },
   'procedure-engine': {
     category: 'Vận hành & Quy trình',
-    tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',
-    accentColor: {
-      bg: 'bg-violet-50/70',
-      border: 'border-violet-200/80',
-      text: 'text-violet-700',
-      iconBg: 'bg-violet-100 text-violet-700',
-    },
-    features: [
-      'Thiết kế sơ đồ quy trình trực quan (BPMN Canvas)',
-      'Phân quyền phê duyệt đa cấp theo ma trận thẩm quyền',
-      'Theo dõi tiến độ, cảnh báo SLA và trễ hạn tự động',
-      'Ký số nội bộ và xác thực bảo mật chuẩn doanh nghiệp',
-    ],
-    targetRoles: ['Ban Giám đốc', 'Trưởng phòng ban', 'Chuyên viên xử lý hồ sơ'],
-    businessValue:
-      'Giúp cắt giảm 70% thời gian xử lý thủ tục hành chính, loại bỏ hoàn toàn tình trạng thất lạc giấy tờ và đảm bảo tính minh bạch trong toàn tổ chức.',
+    iconBg: 'bg-violet-100 text-violet-700',
   },
   workflow: {
     category: 'Vận hành & Quy trình',
-    tagline: 'Thiết kế, ban hành và tự động hóa luồng phê duyệt văn bản, tờ trình đa cấp.',
-    accentColor: {
-      bg: 'bg-violet-50/70',
-      border: 'border-violet-200/80',
-      text: 'text-violet-700',
-      iconBg: 'bg-violet-100 text-violet-700',
-    },
-    features: [
-      'Thiết kế sơ đồ quy trình trực quan (BPMN Canvas)',
-      'Phân quyền phê duyệt đa cấp theo ma trận thẩm quyền',
-      'Theo dõi tiến độ, cảnh báo SLA và trễ hạn tự động',
-      'Ký số nội bộ và xác thực bảo mật chuẩn doanh nghiệp',
-    ],
-    targetRoles: ['Ban Giám đốc', 'Trưởng phòng ban', 'Chuyên viên xử lý hồ sơ'],
-    businessValue:
-      'Giúp cắt giảm 70% thời gian xử lý thủ tục hành chính và tăng tốc độ ra quyết định liên phòng ban.',
+    iconBg: 'bg-violet-100 text-violet-700',
   },
   maintenance: {
     category: 'Tài sản & Kỹ thuật',
-    tagline: 'Quản lý lý lịch thiết bị, lịch bảo trì phòng ngừa và tiếp nhận sự cố kỹ thuật.',
-    accentColor: {
-      bg: 'bg-amber-50/70',
-      border: 'border-amber-200/80',
-      text: 'text-amber-700',
-      iconBg: 'bg-amber-100 text-amber-700',
-    },
-    features: [
-      'Hồ sơ lý lịch máy móc, công cụ và tài sản cố định',
-      'Lập lịch bảo trì định kỳ (PM) và kiểm định an toàn tự động',
-      'Tiếp nhận phiếu báo hỏng, phân công kỹ thuật viên tức thì',
-      'Phân tích chỉ số độ tin cậy MTTR, MTBF và chi phí bảo dưỡng',
-    ],
-    targetRoles: ['Trưởng bộ phận kỹ thuật', 'Kỹ sư bảo trì', 'Nhân viên vận hành máy'],
-    businessValue:
-      'Kéo dài tuổi thọ tài sản thiết bị lên tới 35%, hạn chế tối đa thời gian chết (downtime) của dây chuyền và tiết kiệm chi phí sửa chữa đột xuất.',
+    iconBg: 'bg-amber-100 text-amber-700',
   },
   inventory: {
     category: 'Kho & Chuỗi cung ứng',
-    tagline: 'Kiểm soát tồn kho thời gian thực, quản lý đa kho, truy xuất lô và định mức vật tư.',
-    accentColor: {
-      bg: 'bg-blue-50/70',
-      border: 'border-blue-200/80',
-      text: 'text-blue-700',
-      iconBg: 'bg-blue-100 text-blue-700',
-    },
-    features: [
-      'Quản lý danh mục hàng hóa, số lô, hạn sử dụng và vị trí kệ kho',
-      'Quy trình nhập, xuất, luân chuyển và kiểm kê định kỳ',
-      'Cảnh báo chạm ngưỡng tồn kho an toàn & đề xuất đặt hàng',
-      'Tích hợp quét mã vạch Barcode / QR Code trên thiết bị cầm tay',
-    ],
-    targetRoles: ['Thủ kho', 'Quản lý chuỗi cung ứng', 'Bộ phận kế toán kho'],
-    businessValue:
-      'Đảm bảo dữ liệu tồn kho chuẩn xác 99.8%, hạn chế thất thoát và tối ưu hóa vòng quay vốn lưu động cho doanh nghiệp.',
+    iconBg: 'bg-blue-100 text-blue-700',
   },
   finance: {
     category: 'Tài chính & Quản trị',
-    tagline: 'Lập và duyệt phiếu thu, phiếu chi, lệnh chuyển tiền; theo dõi tài khoản và dòng tiền.',
-    accentColor: {
-      bg: 'bg-emerald-50/70',
-      border: 'border-emerald-200/80',
-      text: 'text-emerald-700',
-      iconBg: 'bg-emerald-100 text-emerald-700',
-    },
-    features: [
-      'Phiếu thu, phiếu chi và lệnh chuyển tiền duyệt qua quy trình, ghi sổ tài khoản khi duyệt',
-      'Danh sách tài khoản ngân hàng và quỹ tiền mặt với số dư theo sổ cái',
-      'Khoá sổ kỳ kế toán và tách người lập, người duyệt để kiểm soát chi',
-      'Báo cáo thu chi, dòng tiền theo kỳ, theo lý do và theo đơn vị',
-    ],
-    targetRoles: ['Kế toán trưởng', 'Kế toán viên', 'Giám đốc Tài chính (CFO)'],
-    businessValue:
-      'Kiểm soát dòng tiền công ty trên một nơi: mọi khoản thu chi có người lập, người duyệt và dấu vết kiểm toán.',
+    iconBg: 'bg-emerald-100 text-emerald-700',
   },
   accounting: {
     category: 'Tài chính & Quản trị',
-    tagline: 'Hạch toán kế toán tổng hợp, theo dõi dòng tiền, công nợ và báo cáo tài chính.',
-    accentColor: {
-      bg: 'bg-emerald-50/70',
-      border: 'border-emerald-200/80',
-      text: 'text-emerald-700',
-      iconBg: 'bg-emerald-100 text-emerald-700',
-    },
-    features: [
-      'Sổ cái kế toán, chứng từ thu - chi và đối soát ngân hàng',
-      'Quản lý công nợ khách hàng, nhà cung cấp theo kỳ hạn',
-      'Tự động hạch toán liên thông từ kho và quy trình mua sắm',
-      'Lập báo cáo tài chính và báo cáo thuế theo chuẩn mực VAS/IFRS',
-    ],
-    targetRoles: ['Kế toán trưởng', 'Kế toán viên', 'Giám đốc Tài chính (CFO)'],
-    businessValue:
-      'Cung cấp bức tranh tài chính chuẩn xác theo thời gian thực, giúp lãnh đạo kiểm soát dòng tiền và tuân thủ tuyệt đối quy định thuế.',
+    iconBg: 'bg-emerald-100 text-emerald-700',
   },
   dms: {
     category: 'Vận hành & Quy trình',
-    tagline: 'Số hóa kho tài liệu, lưu trữ tập trung bảo mật cao và phân quyền truy cập thông minh.',
-    accentColor: {
-      bg: 'bg-indigo-50/70',
-      border: 'border-indigo-200/80',
-      text: 'text-indigo-700',
-      iconBg: 'bg-indigo-100 text-indigo-700',
-    },
-    features: [
-      'Lưu trữ hồ sơ tài liệu tập trung có mã hóa đầu cuối',
-      'Kiểm soát phiên bản (Version Control) và lịch sử chỉnh sửa',
-      'Phân quyền đọc, sửa, chia sẻ chi tiết theo vai trò',
-      'Tìm kiếm toàn văn (Full-Text Search) với công nghệ OCR',
-    ],
-    targetRoles: ['Văn thư lưu trữ', 'Phòng Pháp chế', 'Toàn thể nhân sự'],
-    businessValue:
-      'Xóa bỏ không gian lưu trữ vật lý cồng kềnh, tìm kiếm tài liệu chỉ trong 3 giây và đảm bảo an toàn tuyệt đối cho bí mật kinh doanh.',
+    iconBg: 'bg-indigo-100 text-indigo-700',
   },
   hrm: {
     category: 'Tài chính & Quản trị',
-    tagline: 'Quản lý cơ cấu nhân sự, hồ sơ lao động, tính công lương và đánh giá hiệu suất.',
-    accentColor: {
-      bg: 'bg-cyan-50/70',
-      border: 'border-cyan-200/80',
-      text: 'text-cyan-700',
-      iconBg: 'bg-cyan-100 text-cyan-700',
-    },
-    features: [
-      'Hồ sơ nhân viên điện tử đồng bộ với Sơ đồ tổ chức',
-      'Chấm công tự động, tính lương và bảo hiểm xã hội',
-      'Quản lý hợp đồng lao động, chế độ phúc lợi và ngày nghỉ',
-      'Đánh giá hiệu suất làm việc định kỳ theo KPI / OKR',
-    ],
-    targetRoles: ['Giám đốc Nhân sự', 'Chuyên viên C&B', 'Quản lý phòng ban'],
-    businessValue:
-      'Gia tăng mức độ gắn kết của nhân viên, tự động hóa quy trình nhân sự và tối ưu hóa hiệu suất nguồn nhân lực.',
+    iconBg: 'bg-cyan-100 text-cyan-700',
   },
-};
-
-const statusLabel: Record<TenantEntitlementStatus, string> = {
-  active: 'Đang hoạt động',
-  disabled: 'Đã tạm dừng',
-  failed: 'Kích hoạt lỗi',
-  'not-entitled': 'Khả dụng',
-  provisioning: 'Đang khởi tạo',
 };
 
 function csrfToken(): string {
@@ -316,27 +99,13 @@ function apiError(payload: { message?: string | string[] }): string {
   return payload.message ?? 'Không thể gửi yêu cầu kích hoạt.';
 }
 
-function getModuleInfo(key: string, fallbackName: string, fallbackDesc: string): ModuleExtraInfo {
-  const meta = moduleCatalogMetadata[key.toLowerCase()];
-  if (meta) return meta;
-  return {
-    category: 'Ứng dụng mở rộng',
-    tagline: fallbackDesc || 'Giải pháp chuyển đổi số chuyên sâu cho doanh nghiệp.',
-    accentColor: {
-      bg: 'bg-slate-50/70',
-      border: 'border-slate-200/80',
-      text: 'text-slate-700',
+function getModuleInfo(key: string): ModuleExtraInfo {
+  return (
+    moduleCatalogMetadata[key.toLowerCase()] ?? {
+      category: 'Ứng dụng mở rộng',
       iconBg: 'bg-slate-100 text-slate-700',
-    },
-    features: [
-      `Tích hợp đồng bộ trong hệ sinh thái ${fallbackName}`,
-      'Phân quyền bảo mật đa cấp theo vai trò doanh nghiệp',
-      'Quản lý dữ liệu tập trung và truy xuất thời gian thực',
-      'Khả năng mở rộng linh hoạt theo quy mô hoạt động',
-    ],
-    targetRoles: ['Quản trị viên', 'Người dùng chuyên môn'],
-    businessValue: `Hỗ trợ doanh nghiệp số hóa và tối ưu năng suất vận hành với phân hệ ${fallbackName}.`,
-  };
+    }
+  );
 }
 
 export function EnterpriseApplications({
@@ -369,7 +138,7 @@ export function EnterpriseApplications({
   const availableCategories = useMemo(() => {
     const cats = new Set<string>();
     for (const m of initialModules) {
-      const info = getModuleInfo(m.key, m.name, m.description);
+      const info = getModuleInfo(m.key);
       cats.add(info.category);
     }
     return Array.from(cats);
@@ -379,7 +148,7 @@ export function EnterpriseApplications({
   const filteredModules = useMemo(() => {
     const normQuery = query.trim().toLocaleLowerCase('vi');
     return initialModules.filter((module) => {
-      const info = getModuleInfo(module.key, module.name, module.description);
+      const info = getModuleInfo(module.key);
 
       // Lọc trạng thái
       if (selectedStatus === 'active' && module.entitlementStatus !== 'active') return false;
@@ -393,9 +162,8 @@ export function EnterpriseApplications({
         const matchesBasic = [module.name, module.description, module.key].some((val) =>
           val.toLocaleLowerCase('vi').includes(normQuery),
         );
-        const matchesFeatures = info.features.some((f) => f.toLocaleLowerCase('vi').includes(normQuery));
         const matchesCategory = info.category.toLocaleLowerCase('vi').includes(normQuery);
-        if (!matchesBasic && !matchesFeatures && !matchesCategory) return false;
+        if (!matchesBasic && !matchesCategory) return false;
       }
 
       return true;
@@ -479,9 +247,6 @@ export function EnterpriseApplications({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-[1_1_420px]">
           <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Ứng dụng Doanh nghiệp</h1>
-          <p className="mt-1 text-[14px] text-slate-600">
-            Khám phá, quản trị và khởi tạo các module phân hệ nghiệp vụ vận hành cho tổ chức của bạn.
-          </p>
         </div>
         <span className="flex items-center gap-1.5 rounded-full border border-[#ffc90a]/45 bg-[#fffbeb] px-3 py-1.5 text-[13px] font-semibold text-[#8a6400]">
           <Sparkles className="size-3.5" aria-hidden />
@@ -507,7 +272,7 @@ export function EnterpriseApplications({
                 aria-label="Tìm ứng dụng"
                 className="min-w-0 flex-1 bg-transparent text-[14px] text-[#18181b] outline-none placeholder:text-slate-400"
                 onChange={(event) => setQuery(event.currentTarget.value)}
-                placeholder="Tìm kiếm theo tên, chức năng, danh mục..."
+                placeholder="Tìm theo tên, danh mục..."
                 type="search"
                 value={query}
               />
@@ -530,9 +295,9 @@ export function EnterpriseApplications({
                   <button
                     aria-pressed={pressed}
                     className={cn(
-                      'h-8 cursor-pointer whitespace-nowrap rounded-[7px] px-3 text-[13px] font-semibold',
+                      'h-8 cursor-pointer whitespace-nowrap rounded-[7px] px-3 text-sm font-medium',
                       pressed
-                        ? cn('bg-white shadow-[0_1px_2px_rgba(0,0,0,.08)]', value === 'active' ? 'text-emerald-700' : 'text-[#18181b]')
+                        ? cn('bg-white font-semibold shadow-[0_1px_2px_rgba(0,0,0,.08)]', value === 'active' ? 'text-emerald-700' : 'text-[#18181b]')
                         : 'text-slate-500 hover:text-[#18181b]',
                     )}
                     key={value}
@@ -604,9 +369,6 @@ export function EnterpriseApplications({
               <h3 className="text-sm font-semibold text-slate-800">
                 Không tìm thấy ứng dụng nào phù hợp
               </h3>
-              <p className="mt-1 max-w-sm text-xs text-slate-500">
-                Thử thay đổi từ khóa tìm kiếm hoặc đặt lại các bộ lọc danh mục và trạng thái.
-              </p>
               <button
                 className="mt-4 h-8 cursor-pointer rounded-lg border border-[#eef0f3] bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-[#f4f6f9]"
                 onClick={resetFilters}
@@ -646,7 +408,7 @@ const STATUS_STYLES: Record<
 };
 
 function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; className: string }) {
-  const info = getModuleInfo(module.key, module.name, module.description);
+  const info = getModuleInfo(module.key);
   const slot = moduleSlotId(module.key);
   const { hasCustom } = useBrandSlot(slot ?? 'brand.logo');
   const filled = Boolean(slot && hasCustom);
@@ -656,7 +418,7 @@ function ModuleTile({ module, className }: { module: TenantModuleCatalogItem; cl
       aria-hidden
       className={cn(
         'grid shrink-0 place-items-center font-extrabold',
-        filled ? 'overflow-hidden' : info.accentColor.iconBg,
+        filled ? 'overflow-hidden' : info.iconBg,
         className,
       )}
     >
@@ -786,7 +548,7 @@ function ApplicationRow({
   onRequest: () => void;
   onViewDetails: () => void;
 }) {
-  const info = getModuleInfo(module.key, module.name, module.description);
+  const info = getModuleInfo(module.key);
   return (
     <div
       className={cn(
@@ -796,17 +558,12 @@ function ApplicationRow({
       )}
     >
       <ModuleTile className="size-10 rounded-[10px] text-xs" module={module} />
-      <div className="flex min-w-0 flex-col">
-        <span className="flex min-w-0 items-center gap-2">
-          <b className="max-w-full shrink-0 truncate font-semibold">{module.name}</b>
-          <span className="min-w-0 truncate whitespace-nowrap rounded-[5px] bg-[#f1f3f6] px-[7px] text-[12px] font-semibold text-slate-600">
-            {info.category}
-          </span>
+      <span className="flex min-w-0 items-center gap-2">
+        <b className="max-w-full shrink-0 truncate font-semibold">{module.name}</b>
+        <span className="min-w-0 truncate whitespace-nowrap rounded-[5px] bg-[#f1f3f6] px-[7px] text-[12px] font-semibold text-slate-600">
+          {info.category}
         </span>
-        <span className="truncate text-[13px] text-slate-500">
-          {module.description || info.tagline}
-        </span>
-      </div>
+      </span>
       <span className="hidden justify-self-start rounded-md bg-[#f1f3f6] px-[7px] py-px font-mono text-[12px] text-slate-700 sm:block">
         v{module.version}
       </span>
@@ -835,15 +592,6 @@ function ApplicationRow({
   );
 }
 
-function PanelHeading({ children }: { children: ReactNode }) {
-  return (
-    <span className="flex items-center gap-2 text-[12px] font-semibold tracking-[0.6px] text-slate-500">
-      <span aria-hidden className="h-3.5 w-[3px] rounded-sm bg-[#ffc90a]" />
-      {children}
-    </span>
-  );
-}
-
 function ModuleDetailPanel({
   canRequestActivation,
   isRequested,
@@ -861,7 +609,7 @@ function ModuleDetailPanel({
   onRequest: () => void;
   panelRef: RefObject<HTMLElement | null>;
 }) {
-  const info = getModuleInfo(module.key, module.name, module.description);
+  const info = getModuleInfo(module.key);
   return (
     <aside
       aria-label="Chi tiết ứng dụng"
@@ -896,52 +644,12 @@ function ModuleDetailPanel({
             Mã module: <code className="font-mono text-slate-700">{module.key}</code>
           </span>
         </div>
-        <p className="m-0 text-[14px] text-slate-600">{info.tagline}</p>
       </div>
 
       <div className="flex flex-col gap-[18px] px-5 py-[18px]">
-        <div className="flex flex-col gap-1.5 rounded-[10px] border border-[#ffc90a]/35 bg-[#fffbeb] px-3.5 py-3">
-          <span className="flex items-center gap-1.5 text-[14px] font-bold text-[#8a6400]">
-            <Zap className="size-3.5" aria-hidden />
-            Giá trị mang lại cho doanh nghiệp
-          </span>
-          <p className="m-0 text-[14px] text-slate-700">{info.businessValue}</p>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <PanelHeading>CÁC PHÂN HỆ &amp; TÍNH NĂNG CỐT LÕI</PanelHeading>
-          {info.features.map((feature) => (
-            <div
-              className="flex items-start gap-2 rounded-[9px] border border-[#f1f3f6] px-3 py-[9px] text-[14px]"
-              key={feature}
-            >
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
-              <span>{feature}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <PanelHeading>ĐỐI TƯỢNG &amp; VAI TRÒ ÁP DỤNG</PanelHeading>
-          <div className="flex flex-wrap gap-1.5">
-            {info.targetRoles.map((role) => (
-              <span className="rounded-full bg-[#f1f3f6] px-2.5 py-[3px] text-[13px] text-slate-700" key={role}>
-                {role}
-              </span>
-            ))}
-          </div>
-        </div>
-
         <dl className="m-0 grid grid-cols-[112px_1fr] gap-x-3 gap-y-2 rounded-[10px] border border-[#f1f3f6] bg-[#fafbfc] px-3.5 py-3 text-[13px]">
           <dt className="text-slate-500">Đường dẫn khởi chạy</dt>
           <dd className="m-0 break-all font-mono text-slate-700">{module.launchUrl}</dd>
-          <dt className="text-slate-500">Tiêu chuẩn bảo mật</dt>
-          <dd className="m-0 flex items-center gap-1.5 text-slate-700">
-            <ShieldCheck className="size-3.5 shrink-0 text-emerald-700" aria-hidden />
-            CSRF Protected • Multi-tenant Isolation
-          </dd>
-          <dt className="text-slate-500">Trạng thái phân bổ</dt>
-          <dd className="m-0 font-semibold text-slate-700">{statusLabel[module.entitlementStatus]}</dd>
         </dl>
       </div>
 

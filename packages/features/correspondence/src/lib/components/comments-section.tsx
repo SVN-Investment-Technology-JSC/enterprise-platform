@@ -115,7 +115,7 @@ export function CommentsSection({
         </ol>
       ) : (
         <p className={styles.sectionNote}>
-          Chưa có trao đổi nào. Trao đổi ở đây gắn với bước đang xử lý.
+          Chưa có trao đổi nào.
         </p>
       )}
       {letter.actions.comment ? (

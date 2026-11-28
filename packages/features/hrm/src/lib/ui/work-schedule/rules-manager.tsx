@@ -204,10 +204,7 @@ export function RulesManager({
       <DialogContent className="@container h-[min(88dvh,760px)] max-w-6xl" aria-label="Lịch định kỳ">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{ending ? 'Kết thúc lịch định kỳ' : 'Lịch định kỳ'}</DialogTitle>
-          <DialogDescription>
-            Lịch gán một lần, không có ngày kết thúc, tự chạy đến khi bạn kết thúc hoặc hủy. Ngoại lệ, ngày lễ và lịch cố
-            định theo khoảng ngày luôn ưu tiên hơn.
-          </DialogDescription>
+          <DialogDescription>Ngoại lệ, ngày lễ và lịch theo khoảng ngày luôn ưu tiên hơn.</DialogDescription>
         </DialogHeader>
         {ending ? (
           <EndRuleForm
@@ -306,11 +303,7 @@ export function RulesManager({
                 </table>
               ) : null}
             </div>
-            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3">
-              <span className="text-[12px] text-slate-500">
-                Gợi ý: để bắt đầu một lịch định kỳ mới, dùng Phân ca mới hoặc Phân ca hàng loạt và giữ tùy chọn Không có
-                ngày kết thúc.
-              </span>
+            <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-3">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Đóng
               </Button>

@@ -604,12 +604,7 @@ export function CreateStocktakeDialog({
             <div className="flex size-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600">
               <ClipboardCheck size={20} />
             </div>
-            <div>
-              <h3 className="m-0 text-base font-bold text-slate-900">Khởi tạo Đợt Kiểm kê Kho</h3>
-              <p className="mb-0 mt-0.5 text-[13px] text-slate-500">
-                Thiết lập thông tin đợt kiểm đếm và chốt số liệu tồn sổ sách (snapshot) để tiến hành đếm thực tế.
-              </p>
-            </div>
+            <h3 className="m-0 text-base font-bold text-slate-900">Khởi tạo Đợt Kiểm kê Kho</h3>
           </div>
           <Button type="button" variant="ghost" size="icon" onClick={onClose} className="text-slate-500" title="Đóng">
             <X size={18} />
@@ -688,9 +683,6 @@ export function CreateStocktakeDialog({
                   <Layers size={15} className={scopeType === 'ALL' ? 'text-blue-600' : 'text-slate-500'} />
                   <span>Toàn bộ kho</span>
                 </div>
-                <span className="mt-[3px] block text-xs font-normal text-slate-500">
-                  Đối soát tất cả mặt hàng có tồn
-                </span>
               </button>
 
               <button
@@ -714,9 +706,6 @@ export function CreateStocktakeDialog({
                     </span>
                   ) : null}
                 </div>
-                <span className="mt-[3px] block text-xs font-normal text-slate-500">
-                  Chọn một hoặc nhiều phân loại
-                </span>
               </button>
 
               <button
@@ -748,9 +737,6 @@ export function CreateStocktakeDialog({
                     </span>
                   ) : null}
                 </div>
-                <span className="mt-[3px] block text-xs font-normal text-slate-500">
-                  Chọn danh mục mặt hàng tuỳ ý
-                </span>
               </button>
             </div>
           </div>
@@ -936,7 +922,7 @@ export function CreateStocktakeDialog({
 
                     {selectedItems.length === 0 ? (
                       <TableEmpty colSpan={5}>
-                        Chưa có vật tư nào được chọn. Hãy tìm kiếm và thêm ở ô phía trên.
+                        Chưa có vật tư nào được chọn.
                       </TableEmpty>
                     ) : null}
                   </TableBody>
@@ -1000,7 +986,6 @@ export function CreateStocktakeDialog({
               type="submit"
               disabled={busy}
               className="font-bold"
-              title="Chốt tồn sổ sách (snapshot) và chuyển sang bảng kiểm đếm thực tế ngay"
             >
               <Play size={15} />
               <span>{busy ? 'Đang khởi tạo...' : 'Bắt đầu kiểm đếm'}</span>

@@ -403,12 +403,6 @@ export function MonthlyAttendanceMatrixTable({
             <h2 className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
               <span>{formattedMonthRangeTitle}</span>
             </h2>
-            <div className="flex items-center gap-2 text-xs text-slate-500 font-medium mt-0.5">
-              <span>Dữ liệu chấm công đã ghi nhận.</span>
-              <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.2 rounded border border-emerald-200">
-                Công hưởng lương được đối soát tại Bảng công tổng hợp
-              </span>
-            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -444,24 +438,24 @@ export function MonthlyAttendanceMatrixTable({
         <div className="flex items-center gap-6">
           <button
             onClick={() => setMatrixViewTab('SUMMARY_CODES')}
-            className={`pb-2.5 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-2.5 text-sm transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
               matrixViewTab === 'SUMMARY_CODES'
-                ? 'border-red-600 text-red-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-red-600 font-semibold text-red-600'
+                : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
             }`}
           >
-            <Calendar className="size-3.5" />
+            <Calendar className="size-4" />
             <span>Bảng chấm công</span>
           </button>
           <button
             onClick={() => setMatrixViewTab('DETAILED_HOURS')}
-            className={`pb-2.5 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
+            className={`pb-2.5 text-sm transition-all border-b-2 cursor-pointer flex items-center gap-1.5 ${
               matrixViewTab === 'DETAILED_HOURS'
-                ? 'border-red-600 text-red-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-red-600 font-semibold text-red-600'
+                : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
             }`}
           >
-            <FileSpreadsheet className="size-3.5" />
+            <FileSpreadsheet className="size-4" />
             <span>Chi tiết bảng chấm công</span>
           </button>
         </div>

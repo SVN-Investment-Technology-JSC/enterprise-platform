@@ -99,9 +99,6 @@ function TenantUsersView({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 flex-[1_1_360px]">
           <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Người dùng</h1>
-          <p className="mt-1 text-[14px] text-slate-600">
-            Quản lý tài khoản và vai trò trong doanh nghiệp.
-          </p>
         </div>
         {canCreate && (
           <button

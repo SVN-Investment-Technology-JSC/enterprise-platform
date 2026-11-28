@@ -523,8 +523,7 @@ export function StockDocumentForm({
           </div>
           {approval ? (
             <p className="my-[0.35rem] text-[13px] text-slate-500">
-              Loại này phải được người có quyền duyệt chứng từ duyệt trước khi
-              ghi sổ; người lập không tự duyệt.
+              Cần người có quyền duyệt chứng từ duyệt trước khi ghi sổ; người lập không tự duyệt.
             </p>
           ) : null}
 

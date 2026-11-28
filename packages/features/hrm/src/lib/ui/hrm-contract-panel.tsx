@@ -303,15 +303,10 @@ export function HrmContractPanel({
   return (
     <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-        <div>
-          <h3 className="text-[14px] font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
-            <FileText className="size-3.5 text-blue-600" />
-            <span>Hợp đồng & Phụ lục lao động</span>
-          </h3>
-          <p className="text-[14px] text-slate-500 mt-0.5">
-            Quản lý ngày ký, thời hạn hiệu lực và các văn bản điều chỉnh hợp đồng lao động.
-          </p>
-        </div>
+        <h3 className="text-[14px] font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+          <FileText className="size-3.5 text-blue-600" />
+          <span>Hợp đồng & Phụ lục lao động</span>
+        </h3>
 
         {!readOnly && (
           <Button

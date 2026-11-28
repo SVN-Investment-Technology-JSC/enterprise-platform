@@ -277,7 +277,7 @@ export function TabOverview({
     const dependencyCount = dependencies.filter((edge) => edge.successorId === selected.id).length;
     const countBadge = (count: number | undefined) =>
       count === undefined ? null : (
-        <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-[11px]">
+        <Badge variant="secondary" className="h-5 min-w-5 px-1.5 text-xs font-semibold">
           {count}
         </Badge>
       );

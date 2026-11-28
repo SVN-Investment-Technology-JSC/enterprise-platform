@@ -294,7 +294,7 @@ export function GatewayEditor({
     <MinimalPopupForm
       isOpen
       title="Cấu hình điểm rẽ nhánh"
-      subtitle={`Đặt sau bước “${stepName(gateway.afterStepId)}”. Hệ thống xét các nhánh từ trên xuống và đi nhánh đầu tiên khớp điều kiện.`}
+      subtitle={`Sau bước “${stepName(gateway.afterStepId)}”`}
       maxWidth="880px"
       onClose={onClose}
     >
@@ -306,8 +306,7 @@ export function GatewayEditor({
 
         {choices.length === 0 ? (
           <p className={styles.warning}>
-            Chưa có thuộc tính nào dùng được làm điều kiện. Hãy khai báo thuộc tính cho quy trình hoặc cho một bước đứng
-            trước điểm rẽ nhánh (nút “Thuộc tính” trên hàng bước).
+            Chưa có thuộc tính dùng được làm điều kiện — khai báo thuộc tính cho quy trình hoặc bước đứng trước.
           </p>
         ) : null}
 
@@ -468,11 +467,6 @@ export function GatewayEditor({
             })}
           </ul>
         ) : null}
-
-        <p className={styles.hint}>
-          Thêm bước cho từng nhánh bằng nút “+ Bước” trên hàng nhánh của ma trận. Mọi nhánh hợp về bước trục chính
-          kế tiếp.
-        </p>
 
         <footer className={styles.footer}>
           <Popconfirm

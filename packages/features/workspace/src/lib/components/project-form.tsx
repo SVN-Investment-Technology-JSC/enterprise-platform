@@ -787,7 +787,7 @@ export function ProjectForm({
           chính — server cũng chỉ nhận lệnh ghi từ chủ nhiệm và quản lý.
         */}
         {financeEnabled ? (
-          <Field label="Giá trị hợp đồng (VND, trước VAT)" hint="Chưa gồm thuế GTGT.">
+          <Field label="Giá trị hợp đồng (VND, trước VAT)">
             <input
               inputMode="decimal"
               value={form.contractValue}
@@ -800,7 +800,7 @@ export function ProjectForm({
         ) : null}
         {/* Nhóm báo cáo chỉ hiện khi tenant đã lập danh mục (Cài đặt > Nhóm báo cáo). */}
         {reportGroups.length > 0 ? (
-          <Field label="Nhóm báo cáo" hint="Lĩnh vực khi xuất báo cáo doanh thu; không bắt buộc.">
+          <Field label="Nhóm báo cáo">
             <Choice
               label="Nhóm báo cáo"
               value={reportGroups.some((group) => group.id === form.reportGroupId) ? form.reportGroupId : ''}

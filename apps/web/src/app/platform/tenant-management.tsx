@@ -203,9 +203,6 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">
             Quản lý Tenant
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Quản lý doanh nghiệp, subscription, module và Dedicated Database.
-          </p>
         </div>
         <Button
           className="bg-[#091426] hover:bg-[#1e293b]"
@@ -441,7 +438,7 @@ export function TenantManagement({ initialTenants, canDelete = false }: TenantMa
           <SheetHeader>
             <SheetTitle>Liên kết đặt lại mật khẩu</SheetTitle>
             <SheetDescription>
-              Liên kết này chỉ hiển thị một lần, có hiệu lực trong 1 giờ và sẽ vô hiệu hóa các liên kết trước đó.
+              Liên kết chỉ hiện một lần và vô hiệu hóa các liên kết trước đó.
             </SheetDescription>
           </SheetHeader>
           {resetLink ? (

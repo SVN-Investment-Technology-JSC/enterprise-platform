@@ -953,22 +953,17 @@ export function MaintenanceMatrixBoard({
       <header className={styles.head}>
         <div>
           <h2>Ma trận bảo trì thiết bị</h2>
-          <p>
-            Tick các tần suất cần bảo trì. Một thiết bị có thể có nhiều chu kỳ cùng lúc. Bỏ tick sẽ
-            tạm dừng lịch chứ không xoá, để các phiếu đã sinh không bị mồ côi.
-          </p>
+          <p>Bỏ tick sẽ tạm dừng lịch chứ không xoá.</p>
         </div>
         <div className={styles.headerActions}>
-          <Tip content="Tải tệp Excel mẫu để chuẩn bị dữ liệu nhập ma trận">
-            <Button
-              type="button"
-              variant="outline"
-              className={CONTROL_36}
-              onClick={downloadImportTemplate}
-            >
-              <Download size={15} strokeWidth={2} /> Tải mẫu Excel
-            </Button>
-          </Tip>
+          <Button
+            type="button"
+            variant="outline"
+            className={CONTROL_36}
+            onClick={downloadImportTemplate}
+          >
+            <Download size={15} strokeWidth={2} /> Tải mẫu Excel
+          </Button>
           {canManage ? (
             <>
               <input
@@ -978,19 +973,15 @@ export function MaintenanceMatrixBoard({
                 className="hidden"
                 onChange={importMatrix}
               />
-              <Tip content="Nhập dữ liệu ma trận bảo trì từ tệp Excel">
-                <span className="inline-flex">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={CONTROL_36}
-                    onClick={() => importInputRef.current?.click()}
-                    disabled={busy}
-                  >
-                    <Upload size={15} strokeWidth={2} /> Nhập Excel
-                  </Button>
-                </span>
-              </Tip>
+              <Button
+                type="button"
+                variant="outline"
+                className={CONTROL_36}
+                onClick={() => importInputRef.current?.click()}
+                disabled={busy}
+              >
+                <Upload size={15} strokeWidth={2} /> Nhập Excel
+              </Button>
               <Tip content={dirty ? undefined : 'Chưa có thay đổi nào để lưu.'}>
                 <span className="inline-flex">
                   <Button
@@ -1034,10 +1025,6 @@ export function MaintenanceMatrixBoard({
           onClose={() => setImportReview(null)}
         >
           <div className={styles.importReview}>
-            <p className={styles.importNotice}>
-              Vui lòng rà soát lại các dòng dữ liệu bên dưới. Nếu có ô thông tin trống hoặc bị lỗi, bạn có thể chọn trực tiếp từ danh sách chọn (Select box) trước khi xác nhận nạp vào ma trận.
-            </p>
-
             <div className={styles.importTableWrap}>
               <table className={styles.importTable}>
                 <thead>
@@ -1277,7 +1264,7 @@ export function MaintenanceMatrixBoard({
                 content={
                   selectedRows.length === 0
                     ? 'Tick chọn thiết bị trong bảng trước.'
-                    : 'Tạo phiếu bảo trì ngay cho các thiết bị đã chọn, không chờ tới hạn'
+                    : undefined
                 }
               >
                 <span className="inline-flex">
@@ -1296,7 +1283,7 @@ export function MaintenanceMatrixBoard({
                 content={
                   selectedRows.length === 0
                     ? 'Tick chọn thiết bị trong bảng trước.'
-                    : 'Gỡ các thiết bị đã chọn khỏi ma trận và xoá mọi lịch của chúng'
+                    : undefined
                 }
               >
                 <span className="inline-flex">
@@ -1384,7 +1371,7 @@ export function MaintenanceMatrixBoard({
                     </td>
                     {/* Cột 1: Tên thiết bị - Click để mở Drawer chi tiết */}
                     <td>
-                      <Tip content="Nhấn để xem chi tiết Đầu việc (Kho) và Lịch sử bảo trì">
+                      <Tip content={row.asset.name}>
                         <button
                           type="button"
                           className="group block w-full cursor-pointer rounded-sm border-0 bg-transparent p-0 text-left"
@@ -1624,7 +1611,7 @@ export function MaintenanceMatrixBoard({
                 className={`${styles.drawerTabBtn} ${activeDrawer.tab === 'tasks' ? styles.drawerTabBtnActive : ''}`}
                 onClick={() => setActiveDrawer({ ...activeDrawer, tab: 'tasks' })}
               >
-                <FileText size={14} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
+                <FileText size={16} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
                 1. Đầu việc (Kho){' '}
                 {drawerTasks.list ? `(${drawerTasks.list.tasks.length})` : ''}
               </button>
@@ -1633,7 +1620,7 @@ export function MaintenanceMatrixBoard({
                 className={`${styles.drawerTabBtn} ${activeDrawer.tab === 'history' ? styles.drawerTabBtnActive : ''}`}
                 onClick={() => setActiveDrawer({ ...activeDrawer, tab: 'history' })}
               >
-                <History size={14} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
+                <History size={16} strokeWidth={2} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }} />
                 2. Lịch sử bảo trì{' '}
                 {drawerHistory.page ? `(${drawerHistory.page.items.length})` : ''}
               </button>

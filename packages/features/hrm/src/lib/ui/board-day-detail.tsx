@@ -10,7 +10,7 @@ import { Button } from './button';
 import { DayRequestList } from './day-request-list';
 import { HrmActionDialog, type HrmAction } from './hrm-action-dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
-import { BOX_TONE_CLASS, DAY_TONE_DOT, REQUEST_BOX_CLASS, dayTone, isLateOrEarly } from './my-timesheet-format';
+import { BOX_TONE_CLASS, DAY_TONE_DOT, REQUEST_BOX_CLASS, dayTone } from './my-timesheet-format';
 import { EmployeeAvatar } from './employee-list-parts';
 import { employeeInitials } from '../hrm-employee-view';
 import { todayIso } from '../hrm-work-schedule-model';
@@ -71,7 +71,6 @@ export function AttendanceSourceChip({ source }: { source?: 'AUTO' | 'MANUAL' | 
       <span
         data-testid="attendance-source-auto"
         className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[11px] font-semibold text-sky-700 shadow-2xs"
-        title="Chấm công tự động theo ca làm việc"
       >
         <Bot className="size-3" />
         Tự động
@@ -82,7 +81,6 @@ export function AttendanceSourceChip({ source }: { source?: 'AUTO' | 'MANUAL' | 
     <span
       data-testid="attendance-source-manual"
       className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 shadow-2xs"
-      title="Nhân viên tự chấm công qua thiết bị hoặc ứng dụng"
     >
       <Fingerprint className="size-3" />
       Tự chấm
@@ -238,11 +236,6 @@ export function DayBands({ day }: { day: HrmBoardDay }) {
         <p className={`${band} bg-indigo-50 font-semibold text-indigo-800`}>
           <SymbolBox text="CT" className={BOX_TONE_CLASS.trip} />
           <span className="flex-1">Có đơn công tác được duyệt: tính công theo đơn, không cần chấm công.</span>
-        </p>
-      )}
-      {isLateOrEarly(day) && day.tripId == null && day.otMinutes === 0 && (
-        <p className="mt-2 text-[11px] text-slate-500">
-          Trễ và sớm tính theo giờ ca sau khi trừ dung sai của ca.
         </p>
       )}
     </>
@@ -405,7 +398,7 @@ function DayPanelBody({ employee, day, canViewAll = false, month, adjustable = f
     setAdjusting({
       title: `Điều chỉnh công ngày ${formatDateVn(day.date)}`,
       description:
-        'Chỉ điều chỉnh khi đơn từ và chấm công chưa phản ánh đúng thực tế. Căn cứ được ghi nhật ký; dòng đã chỉnh được giữ khi tính lại và bị đánh dấu rà soát nếu dữ liệu nguồn đổi.',
+        'Dòng đã chỉnh được giữ khi tính lại và bị đánh dấu rà soát nếu dữ liệu nguồn đổi.',
       columns: 1,
       fields: [
         {

@@ -575,8 +575,7 @@ export function CustomersView({
                 </div>
                 {customerDocs.length === 0 ? (
                   <p className={styles.emptyRow}>
-                    Dự án này chưa có tài liệu khách hàng nào. Bấm chuột phải một tài liệu trong tab
-                    Tài liệu để đổi sang khách hàng.
+                    Dự án này chưa có tài liệu khách hàng nào.
                   </p>
                 ) : (
                   <ul className={styles.customerDocList}>
@@ -712,11 +711,12 @@ function CustomerFormDialog({
       onSubmit={() => void submit()}
     >
       {customer ? null : (
-        <Field label="Mã khách hàng" required hint="Tự đặt, tối đa 32 ký tự. Ví dụ: KH-001.">
+        <Field label="Mã khách hàng" required>
           <input
             value={form.code}
             required
             maxLength={32}
+            placeholder="Ví dụ: KH-001"
             onChange={(event) => set({ code: event.target.value })}
           />
         </Field>
@@ -874,11 +874,12 @@ function ContractFormDialog({
       onSubmit={() => void submit()}
     >
       {contract ? null : (
-        <Field label="Mã hợp đồng" required hint="Tự đặt, tối đa 32 ký tự. Ví dụ: HD-2026-001.">
+        <Field label="Mã hợp đồng" required>
           <input
             value={form.code}
             required
             maxLength={32}
+            placeholder="Ví dụ: HD-2026-001"
             onChange={(event) => set({ code: event.target.value })}
           />
         </Field>
@@ -904,7 +905,7 @@ function ContractFormDialog({
             onChange={(value) => set({ status: value as ContractStatus })}
           />
         </Field>
-        <Field label="Giá trị (VND)" hint="Bỏ trống nếu chưa có.">
+        <Field label="Giá trị (VND)">
           <input
             inputMode="decimal"
             value={form.value}
@@ -922,7 +923,7 @@ function ContractFormDialog({
             onChange={(value) => set({ signedDate: value })}
           />
         </Field>
-        <Field label="Dự án" hint="Bỏ trống nếu chưa gắn.">
+        <Field label="Dự án">
           <SearchableSelect
             clearable
             placeholder="Chọn dự án"

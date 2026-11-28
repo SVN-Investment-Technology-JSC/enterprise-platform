@@ -304,17 +304,12 @@ const typeMenu = async (item: string) => {
 };
 
 describe('RequestReasonsScreen: danh sách loại đơn và lý do của từng loại', () => {
-  it('đầu trang theo mẫu, giải thích lý do là danh mục cấu hình khác với Mô tả, chọn loại đầu tiên', async () => {
+  it('đầu trang theo mẫu, ghi chú OT không lương, chọn loại đầu tiên', async () => {
     render(<RequestReasonsScreen />);
     expect(screen.getByRole('heading', { name: 'Loại đơn & lý do' })).toBeTruthy();
-    expect(
-      screen.getByText('Quản lý loại đơn và danh mục lý do được nhân viên lựa chọn khi tạo đơn.'),
-    ).toBeTruthy();
     expect(await screen.findByText('Theo yêu cầu công việc')).toBeTruthy();
     const note = screen.getAllByRole('note').map((n) => n.textContent ?? '').join(' ');
-    expect(note).toContain(
-      'Lý do là danh mục do quản trị cấu hình; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả. Mô tả là văn bản tự do, không phải lý do.',
-    );
+    expect(note).toContain('OT không lương được ghi nhận nhưng không tính tiền OT.');
     expect(screen.getByTestId('type-OVERTIME').getAttribute('aria-current')).toBe('true');
     expect(screen.getByRole('heading', { name: 'Lý do của làm thêm giờ' })).toBeTruthy();
   });
@@ -678,7 +673,7 @@ describe('RequestReasonsScreen: lý do của Đơn xin nghỉ (loại nghỉ)', 
     const stopped = rowOf('Nghỉ cũ');
     expect(within(stopped).getByText('Đã ngừng')).toBeTruthy();
     expect(
-      screen.getByText(/Chỉ lý do Phép năm trừ quỹ phép; các lý do khác không làm thay đổi số dư phép/),
+      screen.getByText(/Chỉ lý do Phép năm trừ quỹ phép/),
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Chính sách phép năm' }).getAttribute('href')).toBe('/settings?view=leave');
   });
@@ -848,7 +843,7 @@ describe('RequestReasonsScreen: loại đơn', () => {
     render(<RequestReasonsScreen />);
     await screen.findByTestId('type-ADVANCE');
     selectType('ADVANCE');
-    expect(screen.getByText(/Loại đơn này không có danh mục lý do/)).toBeTruthy();
+    expect(screen.getByText('Người làm đơn không phải chọn lý do.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Thêm lý do' })).toBeNull();
     expect(screen.queryByLabelText('Tìm lý do')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Thiết lập loại đơn' }));

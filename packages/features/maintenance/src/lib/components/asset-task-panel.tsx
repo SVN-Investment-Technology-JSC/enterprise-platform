@@ -75,14 +75,13 @@ export function AssetTaskPanel({ assetCode, onClose }: { assetCode: string; onCl
         <p className={styles.hint}>Đang đọc từ Kho…</p>
       ) : data.tasks.length === 0 ? (
         <p className={styles.hint}>
-          Thiết bị này chưa khai báo đầu việc nào. Khai báo trong hồ sơ thiết bị bên Kho.
+          Thiết bị này chưa khai báo đầu việc nào.
         </p>
       ) : (
         <>
           <p className={styles.hint}>
             {data.tasks.length} đầu việc
-            {total > 0 ? ` · khoảng ${total} phút` : ''}. Đây cũng là danh sách vai trò E nhận được
-            khi quy trình công bố.
+            {total > 0 ? ` · khoảng ${total} phút` : ''}
           </p>
           <ol className={styles.list}>
             {data.tasks.map((entry, index) => (

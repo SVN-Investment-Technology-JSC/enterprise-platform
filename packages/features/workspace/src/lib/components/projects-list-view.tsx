@@ -681,7 +681,7 @@ export function ProjectsListView({
             <Tooltip
               content={
                 selected.size === 0
-                  ? 'Tích chọn dự án trong bảng, hoặc chuột phải trên một dự án, để chuyển nhóm.'
+                  ? 'Chọn dự án trong bảng để chuyển nhóm.'
                   : undefined
               }
             >
@@ -835,23 +835,15 @@ export function ProjectsListView({
               ) : null}
             </div>
             <ProjectFilterButton filter={projectFilter} onChange={setProjectFilter} />
-            <Tooltip
-              content={
-                wrapCells
-                  ? 'Chữ dài đang xuống dòng để hiện đủ. Bấm để gọn mỗi dự án một dòng (rê chuột xem đủ chữ).'
-                  : 'Đang gọn một dòng, chữ dài bị cắt. Bấm để chữ xuống dòng, hiện đủ tên.'
-              }
+            <button
+              type="button"
+              className={wrapCells ? styles.timelineToggleOn : styles.timelineToggle}
+              aria-pressed={wrapCells}
+              onClick={() => setCellWrap(wrapCells ? 'compact' : 'wrap')}
             >
-              <button
-                type="button"
-                className={wrapCells ? styles.timelineToggleOn : styles.timelineToggle}
-                aria-pressed={wrapCells}
-                onClick={() => setCellWrap(wrapCells ? 'compact' : 'wrap')}
-              >
-                <TextWrap size={13} aria-hidden />
-                {wrapCells ? 'Xuống dòng' : 'Gọn một dòng'}
-              </button>
-            </Tooltip>
+              <TextWrap size={13} aria-hidden />
+              {wrapCells ? 'Xuống dòng' : 'Gọn một dòng'}
+            </button>
             <ResetColumnLayoutButton order={columnOrder} sizing={sizing} />
             <span className={styles.reqCount}>
               {!loaded ? 'Đang tải…' : `${visible.length} dự án`}
@@ -954,7 +946,7 @@ export function ProjectsListView({
               {projects.length > 0
                 ? 'Không có dự án nào khớp bộ lọc.'
                 : scope === 'archived'
-                  ? 'Chưa có dự án nào trong lưu trữ. Dự án hoàn thành sẽ tự vào đây.'
+                  ? 'Chưa có dự án nào trong lưu trữ.'
                   : 'Chưa có dự án nào.'}
             </p>
           ) : null}
@@ -1049,17 +1041,9 @@ export function ProjectsListView({
             </button>
           ))}
         </div>
-        {exportMode === 'report' ? (
+        {exportMode === 'report' && !showContract ? (
           <div className={styles.exportReportNote}>
-            <p>
-              Theo mẫu &quot;Chi tiết doanh thu dự án&quot;: mỗi dự án một dòng, giá trị hợp đồng (trước VAT) nằm ở cột
-              tổng và ở đúng cột lĩnh vực theo nhóm báo cáo của dự án; dòng tổng dùng công thức SUBTOTAL nên lọc trong
-              Excel vẫn ra tổng đúng.
-            </p>
-            <p>Dự án chưa gán nhóm báo cáo (hay gán nhóm đã xoá) vào cột &quot;Chưa phân nhóm&quot;.</p>
-            {showContract ? null : (
-              <p className={styles.exportReportHint}>Bạn không xem được giá trị hợp đồng nên các cột số sẽ trống.</p>
-            )}
+            <p className={styles.exportReportHint}>Bạn không xem được giá trị hợp đồng nên các cột số sẽ trống.</p>
           </div>
         ) : null}
         {exportMode === 'fields' ? (
@@ -1673,7 +1657,7 @@ function MoveGroupDialog({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Nhóm đích" hint="Thêm hoặc sửa nhóm ở Cài đặt > Nhóm dự án.">
+      <Field label="Nhóm đích">
         <Choice
           label="Nhóm đích"
           value={target}
@@ -1731,7 +1715,7 @@ function ProjectTagsDialog({
       subtitle={
         single
           ? `${single.code} · ${single.name}`
-          : `Thêm nhãn cho ${projects.length} dự án đang chọn; nhãn sẵn có của từng dự án được giữ.`
+          : `${projects.length} dự án đang chọn · nhãn sẵn có được giữ`
       }
       submitLabel="Lưu"
       submitting={submitting}
@@ -1739,7 +1723,7 @@ function ProjectTagsDialog({
       onClose={onClose}
       onSubmit={() => void submit()}
     >
-      <Field label="Nhãn" hint="Gõ để tìm, hoặc gõ tên mới rồi Enter để tạo nhãn.">
+      <Field label="Nhãn" hint="Gõ tên mới rồi Enter để tạo nhãn.">
         <TagPicker selected={chosen} onChange={setChosen} />
       </Field>
     </Dialog>

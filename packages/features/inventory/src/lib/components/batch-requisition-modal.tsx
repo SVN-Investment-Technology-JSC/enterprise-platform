@@ -270,7 +270,6 @@ export function BatchRequisitionModal({
                 clearable={false}
                 options={workspace.warehouses.map((w) => ({ value: w.code, label: `${w.code} — ${w.name}` }))}
               />
-              <span className="text-[12px] text-slate-500">Một yêu cầu ghi một chứng từ xuất từ một kho.</span>
             </div>
 
             {/* BANNER 3 MÀU TỔNG QUAN TÌNH TRẠNG ĐÁP ỨNG CỦA PHIẾU YÊU CẦU */}
@@ -292,9 +291,6 @@ export function BatchRequisitionModal({
                     {stockSummary.allReady
                       ? 'Kho đã có đủ hàng sẵn sàng xuất cho toàn bộ danh sách!'
                       : 'Tình trạng đáp ứng tồn kho của Phiếu yêu cầu:'}
-                  </div>
-                  <div className="text-[13px] text-slate-500 mt-0.5">
-                    Thủ kho kiểm tra kho xuất và xác nhận cấp phát cho quy trình bảo dưỡng.
                   </div>
                 </div>
               </div>

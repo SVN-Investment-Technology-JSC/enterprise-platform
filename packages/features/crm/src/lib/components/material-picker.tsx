@@ -100,7 +100,7 @@ export function MaterialPickerDialog({
   }
 
   return (
-    <CrmDialog open wide title={title} subtitle="Mặt hàng lấy từ danh mục Kho" submitLabel="Thêm dòng" submitting={saving} error={error ?? catalog.error} onClose={onClose} onSubmit={() => void save()}>
+    <CrmDialog open wide title={title} submitLabel="Thêm dòng" submitting={saving} error={error ?? catalog.error} onClose={onClose} onSubmit={() => void save()}>
       <CatalogSearchBar catalog={catalog} />
       <Table<CrmCatalogMaterial>
         size="small"
@@ -119,7 +119,7 @@ export function MaterialPickerDialog({
         <Field
           label="Số lượng"
           required={!quantityOptional}
-          hint={quantityOptional ? 'Bỏ trống với hợp đồng khung, nguyên tắc (chỉ chốt giá)' : selected?.unit ? `Đơn vị: ${selected.unit}` : undefined}
+          hint={quantityOptional ? 'Bỏ trống với hợp đồng khung (chỉ chốt giá)' : selected?.unit ? `Đơn vị: ${selected.unit}` : undefined}
         >
           <input className={styles.input} inputMode="decimal" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
         </Field>
@@ -134,7 +134,7 @@ export function MaterialPickerDialog({
           </>
         ) : null}
         {withOverridePrice ? (
-          <Field label="Đơn giá ghi đè (VND)" hint="Bỏ trống: theo giá hợp đồng hoặc bảng giá. Mặt hàng chưa nhập giá ở Kho cần nhập ô này.">
+          <Field label="Đơn giá ghi đè (VND)" hint="Bỏ trống: theo giá hợp đồng hoặc bảng giá">
             <input
               className={styles.input}
               inputMode="decimal"
@@ -145,7 +145,7 @@ export function MaterialPickerDialog({
           </Field>
         ) : null}
         {withOverridePrice ? (
-          <Field label="Thuế suất (%)" hint="Bỏ trống: theo bảng giá hoặc hợp đồng. Từ 0 đến 100, tối đa 2 chữ số thập phân.">
+          <Field label="Thuế suất (%)" hint="Bỏ trống: theo bảng giá hoặc hợp đồng">
             <input
               className={styles.input}
               inputMode="decimal"

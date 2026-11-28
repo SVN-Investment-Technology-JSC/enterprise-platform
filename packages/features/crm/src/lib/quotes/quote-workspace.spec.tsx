@@ -1192,9 +1192,10 @@ describe('Bảng giá trên báo giá (C4)', () => {
     await screen.findByText('Thông tin chung');
     fireEvent.click(button('Thêm dòng hàng'));
     const dialog = await screen.findByRole('dialog', { name: 'Thêm dòng báo giá' });
-    expect(dialog.textContent).toContain(TAX_BY_ORDER_HINT);
     fireEvent.click(await within(dialog).findByText('VT-04'));
-    expect((within(dialog).getByLabelText('Thuế suất VT-04') as HTMLInputElement).disabled).toBe(true);
+    const vat = within(dialog).getByLabelText('Thuế suất VT-04') as HTMLInputElement;
+    expect(vat.disabled).toBe(true);
+    expect(vat.title).toBe(TAX_BY_ORDER_HINT);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Thêm 1 dòng' }));
     await waitFor(() => expect(mockApi.addQuoteLines).toHaveBeenCalledWith('q1', 1, expect.objectContaining({ lines: [{ materialId: 'm4', quantity: 1 }] })));
   });

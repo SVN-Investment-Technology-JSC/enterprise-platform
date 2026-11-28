@@ -70,11 +70,39 @@ import { ReadConfirmationBlock } from './read-confirmation';
 import {
   ConfirmDialog,
   Dialog,
+  useAvatarUrl,
   userSubtitle,
 } from './ui';
 
 /** Chiều cao tối đa của nội dung khi chưa bấm "Xem thêm" (px). */
 const CLAMP_HEIGHT = 168;
+
+/**
+ * Ảnh lớn của bài "đã cập nhật ảnh đại diện" (kiểu Facebook): ảnh tròn to giữa dải nền, bấm mở ảnh gốc ở thẻ mới.
+ * Ảnh lấy theo danh bạ (ảnh đại diện hiện tại); người đã gỡ ảnh hoặc ảnh lỗi thì không vẽ gì.
+ */
+function ActivityAvatarPreview({ user }: { readonly user: SocialUserRef }) {
+  const url = useAvatarUrl(user);
+  const [broken, setBroken] = useState(false);
+  if (!url || broken) return null;
+  return (
+    <a
+      className={extras.activityCover}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Xem ảnh đại diện của ${user.name}`}
+    >
+      <img
+        className={extras.activityPreview}
+        src={url}
+        alt={`Ảnh đại diện của ${user.name}`}
+        loading="lazy"
+        onError={() => setBroken(true)}
+      />
+    </a>
+  );
+}
 
 /* ------------------------------------------------------------ nội dung HTML */
 
@@ -506,8 +534,7 @@ export function PostCard({
       ) : null}
       {post.status === 'pending' ? (
         <p className={extras.stateNote}>
-          Bài đang chờ kiểm duyệt viên xem xét. Sau khi được duyệt, bài sẽ hiện
-          trên bảng tin.
+          Bài đang chờ duyệt, chỉ hiện trên bảng tin sau khi được duyệt.
         </p>
       ) : null}
       {activity ? (
@@ -518,12 +545,8 @@ export function PostCard({
               {SOCIAL_ACTIVITY_LABELS[activity.type] ?? 'có hoạt động mới'}
             </span>
           </span>
-          {activity.type === 'avatar.updated' && post.author.avatarUrl ? (
-            <img
-              className={extras.activityPreview}
-              src={post.author.avatarUrl}
-              alt=""
-            />
+          {activity.type === 'avatar.updated' ? (
+            <ActivityAvatarPreview user={post.author} />
           ) : null}
         </div>
       ) : (

@@ -183,7 +183,7 @@ describe('công chuẩn trong phiên bản công thức lương', () => {
       return input as HTMLInputElement;
     });
     fireEvent.change(days, { target: { value: '26' } });
-    expect(screen.getByTestId('standard-work-config').textContent).toContain('dù tháng có bao nhiêu ngày nghỉ');
+    expect(screen.getByTestId('standard-work-config').textContent).toContain('công chuẩn cố định');
     expect((days as HTMLInputElement).value).toBe('26');
   });
 });

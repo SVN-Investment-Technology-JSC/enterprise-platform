@@ -130,7 +130,6 @@ export function PayrollInputsPanel({
       icon={UserCog}
       tone="violet"
       title="Tham số lương theo nhân viên"
-      description="Chỉ số riêng từng nhân viên (số người phụ thuộc, mức đóng BHXH theo thỏa thuận...)."
       bodyClassName="space-y-3"
     >
       <div className="flex flex-wrap items-center gap-2">
@@ -164,7 +163,6 @@ export function PayrollInputsPanel({
           <EmptyPanel
             icon={UserCog}
             title={employee ? 'Nhân viên chưa có bộ tham số riêng' : 'Chọn nhân viên để xem tham số'}
-            description={employee ? 'Bấm Thêm tham số để tạo bộ tham số đầu tiên.' : undefined}
           />
         }
       />

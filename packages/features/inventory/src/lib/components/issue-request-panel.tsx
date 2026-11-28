@@ -208,7 +208,7 @@ export function IssueRequestPanel({
             }}
           />
         ) : (
-          <p className="m-0 py-8 text-center text-slate-500">Chọn một yêu cầu xuất ở danh sách bên trái để chọn lô, serial và ghi sổ.</p>
+          <p className="m-0 py-8 text-center text-slate-500">Chọn một yêu cầu xuất ở danh sách bên trái.</p>
         )}
       </section>
     </div>

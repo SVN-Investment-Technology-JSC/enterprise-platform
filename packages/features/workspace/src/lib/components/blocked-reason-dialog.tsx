@@ -108,7 +108,7 @@ function BlockedReasonForm({
       }}
       onSubmit={() => void submit()}
     >
-      <Field label="Lý do vướng mắc" required hint={counter ?? 'Nhấn Ctrl+Enter để gửi.'}>
+      <Field label="Lý do vướng mắc" required hint={counter}>
         <textarea
           rows={5}
           autoFocus

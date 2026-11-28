@@ -290,8 +290,7 @@ export function TradeItemDrawer({
               role="status"
               className="m-0 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2.5 text-[13px] leading-normal text-rose-800"
             >
-              Mặt hàng đã ngừng dùng: không hiện ở các ô chọn và không sửa được. Lịch sử giao dịch và tồn kho vẫn
-              được giữ. Bấm Dùng lại để sửa hoặc dùng tiếp.
+              Mặt hàng đã ngừng dùng: không hiện ở các ô chọn và không sửa được.
             </p>
           ) : null}
           <DrawerSection title="Thông tin chung">

@@ -92,7 +92,6 @@ export function LedgerTable({
             size="lg"
             className="gap-1.5"
             onClick={handleExport}
-            title="Xuất nhật ký giao dịch ra tệp Excel"
           >
             <Download size={15} />
             <span>Xuất Excel</span>

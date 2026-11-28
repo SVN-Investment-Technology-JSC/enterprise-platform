@@ -95,7 +95,7 @@ export function ProjectReportGroupChip({ reportGroupId, canEdit = false, onChang
   return (
     <li ref={box} className={styles.anchor}>
       {editable ? (
-        <Tooltip content="Đổi nhóm báo cáo (dùng khi xuất báo cáo doanh thu theo lĩnh vực)">
+        <Tooltip content="Đổi nhóm báo cáo">
           <button
             type="button"
             className={`${styles.chip} ${styles.chipButton}`}
@@ -113,7 +113,7 @@ export function ProjectReportGroupChip({ reportGroupId, canEdit = false, onChang
           </button>
         </Tooltip>
       ) : (
-        <Tooltip content="Nhóm báo cáo (dùng khi xuất báo cáo doanh thu theo lĩnh vực)">
+        <Tooltip content="Nhóm báo cáo">
           <span className={styles.chip}>{content}</span>
         </Tooltip>
       )}
@@ -132,7 +132,7 @@ export function ProjectReportGroupChip({ reportGroupId, canEdit = false, onChang
           {groups.length === 0 ? (
             <p className={styles.hint}>
               Chưa có nhóm nào. Quản trị viên tạo danh mục ở{' '}
-              <a href="#settings/project-report-groups">Cài đặt &gt; Nhóm báo cáo</a> (ví dụ Dịch vụ, Thí nghiệm, Bán hàng, O&amp;M).
+              <a href="#settings/project-report-groups">Cài đặt &gt; Nhóm báo cáo</a>.
             </p>
           ) : null}
           {error ? (

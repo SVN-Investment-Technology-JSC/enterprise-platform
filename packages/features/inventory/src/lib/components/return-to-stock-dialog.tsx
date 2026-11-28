@@ -225,7 +225,6 @@ export function ReturnToStockDialog({
                       variant="secondary"
                       className="h-9 whitespace-nowrap px-2.5 text-[13px] font-semibold"
                       onClick={() => setQuantity(String(maxQuantity))}
-                      title="Dỡ toàn bộ số lượng đang lắp đặt"
                     >
                       Dỡ hết ({maxQuantity})
                     </Button>
@@ -262,9 +261,6 @@ export function ReturnToStockDialog({
               clearable
               style={{ width: '100%' }}
             />
-            <span className="text-[13px] text-slate-500">
-              Tự động khởi tạo Work Order bên module Quy trình khi hoàn tất lệnh tháo dỡ / hoàn kho.
-            </span>
           </div>
 
           {/* Ghi chú */}

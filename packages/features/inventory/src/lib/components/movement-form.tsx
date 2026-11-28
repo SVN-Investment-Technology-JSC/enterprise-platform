@@ -21,7 +21,6 @@ import {
   Trash2,
   AlertTriangle,
   CheckCircle2,
-  FileText,
   Barcode,
   Layers,
   Info,
@@ -443,7 +442,6 @@ export function MovementForm({
   initialWarehouseCode,
   initialItems,
   title,
-  description,
   procedures = [],
   units = [],
   types = [],
@@ -464,7 +462,6 @@ export function MovementForm({
   initialWarehouseCode?: string;
   initialItems?: readonly MovementLineItem[];
   title?: string;
-  description?: string;
   /** Quy trình đã công bố, để mở work order kèm lệnh kho. */
   procedures?: readonly ProcedureOption[];
   /** Danh mục đơn vị tính, cho ô tạo mã mới. */
@@ -1147,14 +1144,6 @@ export function MovementForm({
         ? 'Lệnh Điều Chuyển Kho Nội Bộ'
         : 'Phiếu Xuất Kho Sử Dụng');
 
-  const resolvedDescription =
-    description ??
-    (kind === 'receipt'
-      ? 'Ghi nhận lô hàng mới, thiết bị mua sắm hoặc hoàn kho đa vật tư kèm đơn giá và danh sách sê-ri.'
-      : kind === 'transfer'
-        ? 'Điều chuyển nhiều mã vật tư, thiết bị dự phòng giữa các kho trực thuộc trong hệ thống.'
-        : 'Xuất kho đa vật tư phục vụ sửa chữa, bảo dưỡng hoặc thay thế cho phòng ban / tài sản thiết bị.');
-
   const lotBaseItem = lotModalIndex !== null ? items[lotModalIndex] : undefined;
   const lotDirty =
     lotBaseItem !== undefined &&
@@ -1196,10 +1185,7 @@ export function MovementForm({
       {/* Header Form / Dialog */}
       {isDialog ? (
         <DialogHeader>
-          <div>
-            <DialogTitle>{resolvedTitle}</DialogTitle>
-            <p className="mt-1 text-xs text-slate-500">{resolvedDescription}</p>
-          </div>
+          <DialogTitle>{resolvedTitle}</DialogTitle>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
             <DialogCloseButton />
           </CloseGuard>
@@ -1210,9 +1196,6 @@ export function MovementForm({
             <h2 className="m-0 text-[20px] font-bold text-slate-900">
               {resolvedTitle}
             </h2>
-            <p className="mt-1 mx-0 mb-0 text-[14px] text-slate-500">
-              {resolvedDescription}
-            </p>
           </div>
         </div>
       )}
@@ -1229,8 +1212,8 @@ export function MovementForm({
               variant="ghost"
               size="sm"
               className={cn(
-                'h-auto rounded-md px-3.5 py-1.5 text-[13px] font-semibold',
-                kind === 'receipt' ? 'bg-white text-green-800 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
+                'h-auto rounded-md px-3.5 py-1.5 text-sm font-medium',
+                kind === 'receipt' ? 'bg-white font-semibold text-green-800 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
               )}
               onClick={() => setKind('receipt')}
             >
@@ -1241,8 +1224,8 @@ export function MovementForm({
               variant="ghost"
               size="sm"
               className={cn(
-                'h-auto rounded-md px-3.5 py-1.5 text-[13px] font-semibold',
-                kind === 'issue' ? 'bg-white text-blue-700 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
+                'h-auto rounded-md px-3.5 py-1.5 text-sm font-medium',
+                kind === 'issue' ? 'bg-white font-semibold text-blue-700 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
               )}
               onClick={() => setKind('issue')}
             >
@@ -1253,18 +1236,13 @@ export function MovementForm({
               variant="ghost"
               size="sm"
               className={cn(
-                'h-auto rounded-md px-3.5 py-1.5 text-[13px] font-semibold',
-                kind === 'transfer' ? 'bg-white text-orange-900 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
+                'h-auto rounded-md px-3.5 py-1.5 text-sm font-medium',
+                kind === 'transfer' ? 'bg-white font-semibold text-orange-900 shadow-sm hover:bg-white' : 'bg-transparent text-slate-500',
               )}
               onClick={() => setKind('transfer')}
             >
               Điều chuyển kho
             </Button>
-          </div>
-
-          <div className="flex items-center gap-2 text-[13px] text-slate-500">
-            <FileText size={14} />
-            <span>Mẫu phiếu đa đối tượng chuẩn ISO / ERP</span>
           </div>
         </div>
 
@@ -1504,7 +1482,6 @@ export function MovementForm({
               className="h-9 shrink-0 gap-1.5 border-green-200 bg-green-50 px-3.5 text-[13px] font-semibold text-green-700 hover:border-green-300 hover:bg-green-100 hover:text-green-800"
 
               onClick={() => setShowExcelImport(true)}
-              title="Import danh sách vật tư từ file Excel"
             >
               <FileSpreadsheet size={15} />
               <span>Thêm từ Excel</span>
@@ -1516,7 +1493,6 @@ export function MovementForm({
               className="h-9 shrink-0 gap-1.5 border-blue-200 bg-blue-50 px-3.5 text-[13px] font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-100 hover:text-blue-800"
 
               onClick={() => setShowNewMaterialModal(true)}
-              title="Tạo nhanh mã vật tư mới vào danh mục"
             >
               <Plus size={15} />
               <span>Thêm vật tư mới</span>
@@ -1751,9 +1727,6 @@ export function MovementForm({
                     >
                       <Layers size={28} color="#94a3b8" className="mb-1.5 inline-block" />
                       <div>Chưa có vật tư nào trên phiếu.</div>
-                      <div className="text-[13px] text-slate-400 mt-0.5">
-                        Sử dụng thanh tìm kiếm phía trên để thêm các mặt hàng cần tác nghiệp vào phiếu.
-                      </div>
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -1985,12 +1958,7 @@ export function MovementForm({
         <Dialog onEscape={() => setShowNewMaterialModal(false)}>
           <DialogContent className="z-1100 max-w-140" backdropClassName="z-1100" aria-label="Khai báo vật tư mới vào danh mục">
             <DialogHeader>
-              <div>
-                <DialogTitle>Khai báo vật tư mới vào danh mục</DialogTitle>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Vật tư này sẽ được tạo trong danh mục và tự động thêm vào phiếu hiện tại.
-                </p>
-              </div>
+              <DialogTitle>Khai báo vật tư mới vào danh mục</DialogTitle>
               <DialogCloseButton onClick={() => setShowNewMaterialModal(false)} />
             </DialogHeader>
 

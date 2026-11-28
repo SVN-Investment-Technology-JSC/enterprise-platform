@@ -547,7 +547,7 @@ function ResolveDialog({
           <SearchableSelect options={remedies.map((value) => ({ value, label: WARRANTY_REMEDY_LABELS[value] }))} value={remedy} onChange={setRemedy} />
         </Field>
         {remedy === 'REPLACE' ? (
-          <Field label="Kho xuất hàng thay thế" required hint="Thủ kho chọn serial thay thế; serial mới kế thừa hạn còn lại">
+          <Field label="Kho xuất hàng thay thế" required hint="Serial mới kế thừa hạn còn lại">
             <input className={styles.input} maxLength={50} value={warehouse} onChange={(event) => setWarehouse(event.target.value.toUpperCase())} />
           </Field>
         ) : null}

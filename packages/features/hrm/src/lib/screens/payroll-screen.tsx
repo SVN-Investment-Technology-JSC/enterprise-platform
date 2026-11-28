@@ -446,7 +446,6 @@ export default function PayrollScreen() {
       <PageTitle
         withTabs
         title="Lương và chi trả"
-        description="Quản lý kỳ lương, tính lương, phát hành phiếu lương và theo dõi lịch sử chi trả."
         badge={
           <div className="flex flex-wrap items-center gap-2">
             {mayConfigure && (

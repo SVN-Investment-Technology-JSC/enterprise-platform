@@ -6,8 +6,9 @@
 .icon { flex: none; color: #475569; }
 .body { display: grid; flex: 1; gap: .1rem; min-width: 0; }
 .kind { color: #64748b; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
-.title { overflow: hidden; color: #1e293b; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
-.detail { color: #8a5b00; font-size: .78rem; }
+/* Mã phiếu, trạng thái, số tiền: dài thì xuống dòng, không cắt. */
+.title { color: #1e293b; font-size: .84rem; overflow-wrap: anywhere; }
+.detail { color: #8a5b00; font-size: .78rem; overflow-wrap: anywhere; white-space: pre-wrap; }
 .open { display: inline-flex; flex: none; gap: .3rem; align-items: center; padding: .3rem .6rem; border: 1px solid #cbd5e1; border-radius: .35rem; color: #2563eb; background: #fff; font-size: .78rem; font-weight: 700; text-decoration: none; }
 .open:hover { border-color: #2563eb; }
 .waitingNote { margin: 0 0 .5rem; padding: .5rem .7rem; border-radius: .45rem; color: #1e3a8a; background: #eff6ff; font-size: .8rem; line-height: 1.45; }

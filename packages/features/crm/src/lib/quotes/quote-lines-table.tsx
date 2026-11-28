@@ -137,7 +137,7 @@ function lineColumns(
       align: 'right',
       render: (_: unknown, row) =>
         row.overrideVatRate != null ? (
-          <span className={salesStyles.cellWithPill} title="Thuế suất sửa tay ở dòng này">
+          <span className={salesStyles.cellWithPill}>
             {`${formatMoney(row.vatAmount)} (${formatPercent(row.vatRate)})`}
             <StatusPill tone="info">{VAT_OVERRIDDEN_TAG}</StatusPill>
           </span>
@@ -283,7 +283,7 @@ export function QuoteLinesTable({
   /** Người xem không có quyền xem giá vốn (`version.costHidden`): ẩn cột giá vốn, biên. */
   costHidden?: boolean;
   /** Nút Chiết khấu tổng đơn; chỉ có khi sửa được. `enabled` theo chế độ chiết khấu của mẫu. */
-  discount?: { readonly enabled: boolean; readonly hint: string; readonly onOpen: () => void };
+  discount?: { readonly enabled: boolean; readonly hint?: string; readonly onOpen: () => void };
   /** Mở chọn mặt hàng, thêm cuối; `search` là chữ tìm sẵn (menu, nút + gửi chuỗi rỗng). */
   onAdd: (search: string) => void;
   /** Mở chọn mặt hàng, chèn ngay trên dòng này (`beforeLineNo`). */
@@ -399,8 +399,8 @@ export function QuoteLinesTable({
             type="button"
             className={salesStyles.buttonGhost}
             disabled={busy || !discount.enabled}
-            title={discount.hint}
-            aria-describedby="quote-discount-hint"
+            title={discount.enabled ? undefined : discount.hint}
+            aria-describedby={discount.enabled ? undefined : 'quote-discount-hint'}
             onClick={discount.onOpen}
           >
             Sửa % chiết khấu
@@ -413,7 +413,7 @@ export function QuoteLinesTable({
           {addBlockedText}
         </p>
       ) : null}
-      {discount && editable && !discount.enabled ? (
+      {discount && editable && !discount.enabled && discount.hint ? (
         <p id="quote-discount-hint" className={salesStyles.muted}>
           {discount.hint}
         </p>

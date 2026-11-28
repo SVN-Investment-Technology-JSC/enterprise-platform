@@ -50,10 +50,6 @@ export default async function TenantEntitlementsPage({
         <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">
           Modules của {overview.tenant.name}
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Quản lý module và entitlement được cấp cho tenant. Provisioning
-          chỉ chạy migration thuộc schema của module được chọn.
-        </p>
       </div>
 
       <TenantEntitlements initialOverview={overview} />

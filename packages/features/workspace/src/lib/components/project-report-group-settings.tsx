@@ -106,11 +106,7 @@ export function ProjectReportGroupSettings() {
   return (
     <div className={styles.roleSettings}>
       <div className={styles.roleSettingsHead}>
-        <p className={styles.muted}>
-          {canEdit
-            ? 'Gán nhóm cho dự án ở chip "Nhóm báo cáo" trong trang dự án hoặc trong hộp sửa dự án.'
-            : 'Chỉ quản trị viên được thêm hoặc sửa nhóm báo cáo.'}
-        </p>
+        {canEdit ? <span /> : <p className={styles.muted}>Chỉ quản trị viên được thêm hoặc sửa nhóm báo cáo.</p>}
         {canEdit ? (
           <span className={styles.roleActions}>
             <Button type="button" variant="outline" onClick={add} disabled={rows.length >= MAX_GROUPS}>

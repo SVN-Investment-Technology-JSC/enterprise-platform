@@ -248,7 +248,6 @@ export function SitesPanel({
         <EmptyPanel
           icon={MapPin}
           title="Chưa có địa điểm chấm công"
-          description="Thêm địa điểm (GPS, kèm IP nếu cần) và gán cho phòng ban để kiểm soát chấm công."
           action={
             <Button permission="hrm.time.configure" onClick={onAdd} className="h-9 gap-1.5 px-4 text-xs font-semibold">
               <Plus className="size-4" />
@@ -257,7 +256,7 @@ export function SitesPanel({
           }
         />
       ) : filtered.length === 0 ? (
-        <EmptyPanel icon={Search} title="Không có địa điểm nào khớp" description="Thử đổi từ khóa hoặc bộ lọc." />
+        <EmptyPanel icon={Search} title="Không có địa điểm nào khớp" />
       ) : (
         <>
           <ResponsiveList

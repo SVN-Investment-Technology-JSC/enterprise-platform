@@ -41,8 +41,7 @@ export function HrmCorrectionPunches({
     >
       <h3 className="text-sm font-semibold">Giờ chấm công cần bổ sung</h3>
       <p className="text-xs text-slate-500">
-        Chọn đây là giờ vào hay giờ ra rồi nhập giờ (gợi ý theo ca được gán). Mỗi đơn chỉ khai báo một mốc; quên chấm cả hai chiều
-        thì tạo hai đơn. Giờ cùng loại đã chấm trong ngày sẽ được thay bằng giờ này, loại còn lại giữ nguyên.
+        Mỗi đơn một mốc; giờ cùng loại đã chấm trong ngày sẽ bị thay bằng giờ này.
       </p>
       <div
         data-testid="correction-punch-1"

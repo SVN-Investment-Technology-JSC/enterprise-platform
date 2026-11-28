@@ -90,13 +90,9 @@ export default function RequestQuotaScreen() {
     <div className="space-y-4" data-testid="request-quota">
       <PageTitle
         title="Hạn mức đơn"
-        description="Giới hạn số đơn được duyệt mỗi tháng của một nhân viên, đặt riêng cho từng loại đơn."
       />
 
-      <InfoNote>
-        Chỉ tính đơn đã được duyệt, theo tháng tạo đơn. Khi đã đủ hạn mức, nhân viên không tạo thêm đơn loại đó trong tháng
-        và các đơn cũ đang chờ duyệt của tháng đó sẽ không duyệt được nữa. Loại đơn để trống hạn mức là không giới hạn.
-      </InfoNote>
+      <InfoNote>Chỉ tính đơn đã duyệt, theo tháng tạo đơn; đủ hạn mức thì không tạo hay duyệt thêm đơn loại đó trong tháng. Để trống là không giới hạn.</InfoNote>
 
       {error ? (
         <InfoNote tone="red" role="alert">

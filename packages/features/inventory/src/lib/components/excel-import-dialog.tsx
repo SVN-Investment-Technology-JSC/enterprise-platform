@@ -699,9 +699,6 @@ export function ExcelImportDialog({
     ? `Thêm vật tư hàng loạt cho phiếu ${movementLabel} từ tệp Excel`
     : 'Nhập dữ liệu vật tư & tồn kho hàng loạt từ tệp Excel (Hỗ trợ mọi phần mềm)';
 
-  const dialogSubtitle = isDirectMovement
-    ? 'Tự động nhận diện cấu trúc tệp của mọi phần mềm và hỗ trợ liên kết cột thông minh.'
-    : 'Bổ sung tồn kho đa kho và tự động tạo danh mục cho các ứng dụng KiotViet, MISA, Odoo, SAP, Fast...';
 
   // Trạng thái Wizard: 1: Tải file -> 2: Khớp cột thông minh -> 3: Xem trước & Xác nhận
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -1401,12 +1398,7 @@ export function ExcelImportDialog({
               <div className="w-[36px] h-[36px] rounded-[8px] bg-[#dcfce7] text-[#15803d] flex items-center justify-center">
                 <FileSpreadsheet size={20} />
               </div>
-              <div>
-                <DialogTitle>{dialogTitle}</DialogTitle>
-                <p className="m-[2px_0_0] text-[13px] text-[#64748b]">
-                  {dialogSubtitle}
-                </p>
-              </div>
+              <DialogTitle>{dialogTitle}</DialogTitle>
             </div>
           </div>
           <CloseGuard dirty={isDirty} onClose={onCancel}>
@@ -1635,10 +1627,6 @@ export function ExcelImportDialog({
                           handleChangeHeaderRow(Number(e.target.value) - 1)
                         }
                       />
-                      <span className="text-[13px] text-[#64748b]">
-                        (Bỏ qua các dòng tên công ty / tiêu đề hóa đơn ở các
-                        dòng trên)
-                      </span>
                     </div>
                   </div>
 
@@ -1722,7 +1710,6 @@ export function ExcelImportDialog({
                       setConfidences(result.confidences);
                       setSelectedPresetId('auto');
                     }}
-                    title="Tự động quét lại và phân tích tên cột bằng AI"
                   >
                     <Sparkles size={13} color="#2563eb" />
                     <span>Quét lại thông minh</span>
@@ -2088,11 +2075,6 @@ export function ExcelImportDialog({
                 />
               </DialogHeader>
               <DialogBody>
-                <p className="m-[0_0_14px] text-[13px] text-[#64748b]">
-                  Đặt tên cho mẫu để sử dụng lại cho các file có cấu trúc tương
-                  tự (ví dụ: &ldquo;File KiotViet chi nhánh&rdquo;, &ldquo;File
-                  MISA Kho Tổng&rdquo;).
-                </p>
                 <Input
                   className="h-8 text-[13px]"
                   type="text"

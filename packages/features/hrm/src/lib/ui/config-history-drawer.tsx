@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, History } from 'lucide-react';
 import { hrmFetch } from '../hrm-api';
 import { AuditDetailList, auditStamp, type AuditRow } from './hrm-audit-trail';
 import { Button } from './button';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from './sheet';
 import { EmptyPanel, InfoNote, StatusPill } from './settings-kit';
 
 interface AuditPage {
@@ -25,13 +25,11 @@ export function ConfigHistoryDrawer({
   open,
   onOpenChange,
   title = 'Lịch sử thay đổi',
-  description,
   actionPrefixes,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title?: string;
-  description?: string;
   actionPrefixes: readonly string[];
 }) {
   const [rows, setRows] = useState<AuditRow[] | null>(null);
@@ -84,7 +82,6 @@ export function ConfigHistoryDrawer({
             <History aria-hidden="true" className="size-4 text-slate-500" />
             {title}
           </SheetTitle>
-          <SheetDescription>{description ?? 'Các thay đổi gần đây (tối đa 100 bản ghi), mới nhất ở trên.'}</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 p-4">
           {error ? (

@@ -12,7 +12,6 @@ import {
 } from '@enterprise-platform/shared-ui';
 import { cn } from '../../utils';
 import {
-  OPEN_ENDED_HINT,
   allowedScopeTypes,
   emptyAssignDraft,
   summarizePattern,
@@ -22,7 +21,7 @@ import {
 } from '../../hrm-work-schedule-model';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { useCloseGuard } from '../use-close-guard';
 import { AssignPreviewSection, AssignResultSection, useAssignFlow } from './assign-flow';
 import { Checkbox, Field, Notice, SectionTitle, textareaClass } from './common';
@@ -132,10 +131,6 @@ export function AssignDialog({
 
   const title =
     mode === 'exception' ? 'Thiết lập ngoại lệ' : mode === 'bulk' ? 'Phân ca hàng loạt' : 'Phân ca mới';
-  const description =
-    mode === 'exception'
-      ? 'Đặt ca hoặc ngày nghỉ riêng cho từng ngày hoặc khoảng ngày, ưu tiên hơn lịch tuần.'
-      : 'Gán ca làm việc theo lịch tuần cho nhân viên trong một khoảng thời gian. Ca lấy từ danh mục ca hiện có.';
 
   return (
     <Dialog
@@ -146,7 +141,6 @@ export function AssignDialog({
       <DialogContent className="@container h-[min(88dvh,780px)] max-w-4xl" aria-label={title}>
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-4 pr-12 @lg:px-6">
           <DialogTitle className="text-lg">{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
           {!result ? (
             <ol className="mt-2 flex flex-wrap items-center gap-2 text-[12px]" aria-label="Các bước">
               {STEP_TITLES.map((label, index) => {
@@ -294,7 +288,6 @@ export function AssignDialog({
                     }
                     label="Không có ngày kết thúc (lịch định kỳ)"
                   />
-                  {draft.openEnded ? <Notice tone="info">{OPEN_ENDED_HINT}</Notice> : null}
                 </div>
               ) : null}
               <div className="grid max-w-xl grid-cols-1 gap-4 @lg:grid-cols-2">

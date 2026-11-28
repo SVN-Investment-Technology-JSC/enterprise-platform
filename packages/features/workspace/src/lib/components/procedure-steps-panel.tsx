@@ -433,7 +433,7 @@ export function ProcedureStepsPanel({
           className={view === 'flow' ? styles.procedureStepsViewOn : undefined}
           onClick={() => setView('flow')}
         >
-          <Workflow size={13} aria-hidden /> Sơ đồ
+          <Workflow size={16} aria-hidden /> Sơ đồ
         </button>
         <button
           type="button"
@@ -441,7 +441,7 @@ export function ProcedureStepsPanel({
           className={view === 'list' ? styles.procedureStepsViewOn : undefined}
           onClick={() => setView('list')}
         >
-          <ListOrdered size={13} aria-hidden /> Danh sách
+          <ListOrdered size={16} aria-hidden /> Danh sách
         </button>
       </div>
 

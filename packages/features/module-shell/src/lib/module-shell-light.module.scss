@@ -113,7 +113,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 14px 12px;
+  // Mép trái 16px như icon các mục menu: logo, ảnh người dùng, icon tìm và icon menu thẳng một cột.
+  padding: 14px 14px 12px 16px;
   border-bottom: 1px solid var(--ep-border);
 }
 
@@ -130,12 +131,6 @@
   flex: 1;
   flex-direction: column;
   min-width: 0;
-}
-
-.brandOrg {
-  color: var(--ep-text-muted);
-  font-size: 12px;
-  letter-spacing: 0.4px;
 }
 
 .brandTitle {
@@ -180,7 +175,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 14px 10px;
+  padding: 14px 14px 10px 16px;
 }
 
 .userLink {
@@ -296,136 +291,32 @@
   flex-shrink: 0;
 }
 
-.switcherMenu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  width: 280px;
-  padding: 6px;
-  border: 1px solid var(--ep-border-strong);
-  border-radius: var(--ep-radius-lg);
-  background: var(--ep-surface);
-  box-shadow: 0 10px 30px rgb(0 0 0 / 14%);
-}
 
-.switcherHead {
-  padding: 6px 8px 4px;
-  color: var(--ep-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-}
 
-.switcherNote {
-  padding: 8px;
-  color: var(--ep-text-muted);
-  font-size: 13px;
-}
 
-.switcherItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 7px 8px;
-  border-radius: var(--ep-radius);
-  color: var(--ep-text);
-  text-decoration: none;
 
-  &:hover,
-  &:focus-visible {
-    background: var(--ep-hover);
-    outline: none;
-  }
-}
 
-.switcherCurrent {
-  background: var(--ep-accent-soft);
 
-  .switcherBadge {
-    background: var(--ep-accent);
-    color: #18181b;
-  }
-}
 
-.switcherBadge {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--ep-radius);
-  background: var(--ep-surface-soft);
-  border: 1px solid var(--ep-border-strong);
-  color: var(--ep-text-sub);
-  font-size: 12px;
-  font-weight: 700;
-}
 
-// Ô chứa icon thương hiệu: icon tự mang nền và bo góc nên bỏ viền/nền của ô, kể cả khi dòng đang chọn.
-.switcherBadge.switcherBadgeFilled {
-  overflow: hidden;
-  border: 0;
-  background: transparent;
-  border-radius: var(--ep-radius);
 
-  svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-}
 
-.switcherText {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
 
-.switcherName {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.switcherDesc {
-  overflow: hidden;
-  color: var(--ep-text-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.switcherAll {
-  margin-top: 4px;
-  padding: 8px;
-  border-top: 1px solid var(--ep-border);
-  color: var(--ep-text-sub);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-
-  &:hover {
-    color: var(--ep-accent-text);
-  }
-}
 
 .searchWrap {
   display: flex;
   justify-content: center;
-  padding: 0 14px 12px;
+  // Ô tìm rộng gần hết thanh, icon bên trong thẳng cột với icon các mục menu (cách mép 16px) và chữ thẳng cột với tên mục.
+  padding: 0 8px 12px;
 }
 
 .search {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  height: 38px;
-  padding: 0 10px 0 12px;
+  height: 40px;
+  padding: 0 10px 0 7px;
   border: 1px solid var(--ep-border);
   border-radius: 999px;
   background: var(--ep-surface-soft);
@@ -439,6 +330,12 @@
     border-color: var(--ep-accent-strong);
     outline: none;
   }
+}
+
+// Icon tìm cùng cỡ icon các mục menu (24px), kể cả icon thương hiệu.
+.search > svg {
+  width: 24px;
+  height: 24px;
 }
 
 .searchLabel {
@@ -527,8 +424,7 @@
 
 .navChild {
   min-height: 36px;
-  padding-left: 46px;
-  font-size: 13.5px;
+  padding-left: 50px;
 }
 
 .navChild .navIcon {
@@ -553,8 +449,8 @@
 
 .navIcon {
   display: inline-flex;
-  /* Nhãn module có thể dài đến 3 chữ (HRM): ô rộng ra theo nhãn, tối thiểu 20px như các biểu tượng khác. */
-  min-width: 20px;
+  /* Ô icon tối thiểu 24px (cỡ chung của mọi icon menu); nhãn chữ dài như "HRM" thì ô rộng ra theo nhãn. */
+  min-width: 24px;
   flex-shrink: 0;
   justify-content: center;
   color: var(--ep-text-sub);
@@ -678,15 +574,27 @@
 
 .crumbHome {
   display: inline-flex;
-  color: var(--ep-text-muted);
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  border: 1px solid var(--ep-border-strong);
+  border-radius: 999px;
+  background: var(--ep-surface);
+  color: var(--ep-text-sub, var(--ep-text));
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
 
   .icon {
     width: 15px;
     height: 15px;
   }
 
-  &:hover {
+  &:hover,
+  &:focus-visible {
+    border-color: var(--ep-accent, #2563eb);
     color: var(--ep-text);
+    outline: none;
   }
 }
 

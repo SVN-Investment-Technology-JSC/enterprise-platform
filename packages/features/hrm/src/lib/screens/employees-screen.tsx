@@ -381,9 +381,6 @@ export default function EmployeesManagementPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">Nhân sự</h1>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Quản lý danh sách nhân viên, xem và cập nhật hồ sơ theo phân quyền. Ngạch bậc và hồ sơ lương được quản lý ở trang Lương.
-          </p>
           <p
             data-testid="core-owned-note"
             className="mt-0.5 text-[12px] text-slate-400"
@@ -423,11 +420,6 @@ export default function EmployeesManagementPage() {
                 size="sm"
                 variant="outline"
                 disabled={filteredEmployees.length === 0}
-                title={
-                  selectedIds.size > 0
-                    ? `Xuất ${selectedIds.size} nhân viên đã chọn`
-                    : 'Xuất danh sách đang lọc'
-                }
                 className="h-9 gap-1.5 border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
                 onClick={handleExportCsv}
               >
@@ -440,7 +432,6 @@ export default function EmployeesManagementPage() {
                 size="sm"
                 variant="outline"
                 disabled={refreshingCore}
-                title="Đồng bộ họ tên và email của nhân sự có tài khoản theo Core"
                 className="h-9 gap-1.5 border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
                 onClick={handleRefreshFromCore}
               >
@@ -458,7 +449,6 @@ export default function EmployeesManagementPage() {
                   <ListChecks className="size-3.5" />
                   <span>Nạp nhân sự từ Core</span>
                   <span
-                    title="Số người ở Core chưa có hồ sơ HRM"
                     className="ml-1 rounded-full bg-slate-900/10 px-1.5 py-0.5 text-[12px] font-bold"
                   >
                     {pendingCoreCount} chờ
@@ -631,7 +621,6 @@ export default function EmployeesManagementPage() {
                                 setIsEmployeeDrawerOpen(true);
                               }}
                               className="group flex items-center gap-2.5 text-left cursor-pointer transition-colors"
-                              title="Bấm để xem chi tiết hồ sơ nhân sự"
                             >
                               <EmployeeAvatar initials={employeeInitials(emp)} seed={emp.employeeCode} />
                               <span className="min-w-0">

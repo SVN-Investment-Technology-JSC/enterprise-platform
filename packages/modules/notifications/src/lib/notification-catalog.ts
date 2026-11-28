@@ -16,6 +16,21 @@ function workspaceTargetLink(payload: Payload, kind: 'work-item' | 'calendar', k
   return `/modules/workspace${query.size ? `?${query}` : ''}#projects/${kind}/${encodeURIComponent(id(payload, key))}`;
 }
 
+/**
+ * Tên hồ sơ quy trình để mở đầu nội dung thông báo: tên hồ sơ (người dùng nhận ra ngay), không có thì mới dùng mã.
+ * Mã hồ sơ (PR-…) không hiện trên giao diện nên không đưa vào thông báo khi đã có tên.
+ */
+const procedureCase = (payload: Payload): string =>
+  text(payload, 'title', text(payload, 'instanceCode', 'Hồ sơ'));
+
+/** Tiêu đề thông báo "hồ sơ kết thúc" theo trạng thái cuối (`ProcedureInstanceStatus`). */
+const PROCEDURE_END_TITLE: Readonly<Record<string, string>> = {
+  completed: 'Hồ sơ đã hoàn tất',
+  rejected: 'Hồ sơ bị từ chối',
+  cancelled: 'Hồ sơ đã bị huỷ',
+  reversed: 'Hồ sơ đã bị huỷ hiệu lực',
+};
+
 /** Tên trạng thái dự án trong thông báo; khoá là giá trị `ProjectStatus`. */
 const PROJECT_STATUS_TEXT: Readonly<Record<string, string>> = {
   planning: 'Lập kế hoạch',
@@ -118,7 +133,7 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     },
     actorField: 'actorUserId',
     template: ({ payload, event }) => ({
-      title: 'Đến lượt bạn xử lý quy trình',
+      title: 'Đến lượt bạn xử lý',
       body: text(payload, 'title', 'Một bước quy trình đang chờ bạn xử lý.'),
       deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
       sourceType: 'procedure_instance',
@@ -134,8 +149,9 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     priority: 'informational',
     recipients: { kind: 'payload', fields: ['recipientUserIds'] },
     actorField: 'actorUserId',
+    // Tiêu đề ngắn (vừa một dòng ở khung thông báo); nội dung mở đầu bằng tên hồ sơ rồi tới việc vừa xảy ra.
     template: ({ payload, event }) => {
-      const code = text(payload, 'instanceCode', '');
+      const subject = procedureCase(payload);
       const actor = text(payload, 'actorName', 'Một người xử lý');
       const step = text(payload, 'stepName', 'Bước');
       const current = text(payload, 'currentStepName', '');
@@ -143,22 +159,22 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       const copy =
         kind === 'step'
           ? {
-              title: 'Hồ sơ của bạn vừa qua một bước',
-              body: `${code} · ${actor} đã hoàn thành “${step}”${current ? `, chuyển sang “${current}”` : ''}.`,
+              title: 'Hồ sơ đã qua bước',
+              body: `${subject}: ${actor} đã xong “${step}”${current ? `, chuyển sang “${current}”` : ''}.`,
             }
           : kind === 'return'
             ? {
-                title: 'Hồ sơ của bạn bị trả lại',
-                body: `${code} · ${actor} đã trả hồ sơ${current ? ` về “${current}”` : ''}.`,
+                title: 'Hồ sơ bị trả lại',
+                body: `${subject}: ${actor} đã trả hồ sơ${current ? ` về “${current}”` : ''}.`,
               }
             : kind === 'withdraw'
               ? {
-                  title: 'Hồ sơ của bạn được hoàn duyệt',
-                  body: `${code} · ${actor} đã hoàn duyệt, quay lại xử lý “${step}”.`,
+                  title: 'Hồ sơ được hoàn duyệt',
+                  body: `${subject}: ${actor} đã hoàn duyệt, quay lại “${step}”.`,
                 }
               : {
-                  title: 'Hồ sơ của bạn vừa được xử lý',
-                  body: `${code} · ${actor} đã xử lý “${step}”, đang chờ ${text(payload, 'waiting', 'xử lý tiếp')}.`,
+                  title: 'Hồ sơ đã được xử lý',
+                  body: `${subject}: ${actor} đã xử lý “${step}”, chờ ${text(payload, 'waiting', 'xử lý tiếp')}.`,
                 };
       return {
         ...copy,
@@ -176,8 +192,8 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
     recipients: { kind: 'payload', fields: ['requesterUserId', 'recipientUserIds'] },
     actorField: 'actorId',
     template: ({ payload }) => ({
-      title: 'Quy trình đã kết thúc',
-      body: `Hồ sơ ${text(payload, 'instanceCode', '')} có trạng thái ${text(payload, 'status', 'hoàn tất')}.`,
+      title: PROCEDURE_END_TITLE[text(payload, 'status', '')] ?? 'Hồ sơ đã kết thúc',
+      body: `${procedureCase(payload)}.`,
       deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
       sourceType: 'procedure_instance',
       sourceId: id(payload, 'instanceId'),
@@ -196,8 +212,8 @@ export const DEFAULT_NOTIFICATION_POLICIES: readonly NotificationPolicy[] = [
       const project = text(payload, 'projectName', text(payload, 'projectCode', 'dự án khác'));
       const item = text(payload, 'workItemCode', '');
       return {
-        title: 'Hồ sơ của bạn được đổi dự án',
-        body: `${text(payload, 'instanceCode', 'Hồ sơ')} · ${text(payload, 'actorName', 'Một người xử lý')} đã chuyển hồ sơ sang dự án ${project}${item ? `, công việc ${item}` : ''}.`,
+        title: 'Hồ sơ được đổi dự án',
+        body: `${procedureCase(payload)}: ${text(payload, 'actorName', 'Một người xử lý')} đã chuyển sang dự án ${project}${item ? `, công việc ${item}` : ''}.`,
         deepLink: `/procedures/instances/${id(payload, 'instanceId')}`,
         sourceType: 'procedure_instance',
         sourceId: `${id(payload, 'instanceId')}:relinked:${event.id}`,

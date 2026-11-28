@@ -235,15 +235,10 @@ describe('LeaveBalancesScreen', () => {
     ).toHaveLength(2);
   });
 
-  it('hiển thị tiêu đề, mô tả và bảng quỹ phép năm đủ các cột, không còn phân trang', async () => {
+  it('hiển thị tiêu đề và bảng quỹ phép năm đủ các cột, không còn phân trang', async () => {
     mockActions.add('hrm.leave.read');
     render(<LeaveBalancesScreen />);
     expect(screen.getByRole('heading', { name: 'Phép năm' })).toBeTruthy();
-    expect(
-      screen.getByText(
-        'Theo dõi số ngày phép năm của nhân viên. Số liệu được tổng hợp theo cấu hình hiện hành.',
-      ),
-    ).toBeTruthy();
     expect(await screen.findByText('Nguyễn Văn An')).toBeTruthy();
     const headers = screen
       .getAllByRole('columnheader')

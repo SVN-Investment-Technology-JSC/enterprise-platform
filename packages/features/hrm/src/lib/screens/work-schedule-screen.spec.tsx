@@ -402,13 +402,12 @@ const rulePreview = {
 const ruleResult = { batchId: 'batch-rule-1', ruleCount: 1, changedRules: 1, skippedTargets: 0, employeeCount: 1 };
 
 describe('WorkScheduleScreen open-ended recurring schedules', () => {
-  it('turns the no-end-date switch on by default, hides Đến ngày and explains it', async () => {
+  it('turns the no-end-date switch on by default and hides Đến ngày', async () => {
     render(<WorkScheduleScreen />);
     await pickOption(/Tìm theo mã hoặc tên nhân viên/, /NV001/);
     const toggle = (await screen.findByRole('checkbox', { name: /Không có ngày kết thúc/ })) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
     expect(screen.queryByLabelText('Đến ngày')).toBeNull();
-    expect(screen.getByText(/tự chạy đến khi bạn kết thúc; không cần gán lại theo tháng/)).toBeTruthy();
     fireEvent.click(toggle);
     expect(screen.getByLabelText('Đến ngày')).toBeTruthy();
   });
@@ -598,13 +597,6 @@ describe('WorkScheduleScreen open-ended recurring schedules', () => {
     expect(cell.className).toContain('sky');
     expect(cell.textContent).toContain('HC');
     expect(within(screen.getByRole('list', { name: 'Chú giải màu' })).getByText('Ca định kỳ (không kết thúc)')).toBeTruthy();
-  });
-
-  it('hints on the list tab that recurring schedules are elsewhere', async () => {
-    renderCalendar();
-    await screen.findByText('NV001');
-    fireEvent.click(screen.getByRole('tab', { name: 'Danh sách phân ca' }));
-    expect(await screen.findByText(/Lịch định kỳ \(không có ngày kết thúc\) xem trong/)).toBeTruthy();
   });
 
   it('keeps month navigation open to the future', async () => {

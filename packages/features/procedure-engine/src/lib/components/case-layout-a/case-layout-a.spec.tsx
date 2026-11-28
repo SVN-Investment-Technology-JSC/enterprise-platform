@@ -558,7 +558,7 @@ describe('Giao diện mới - cửa sổ hồ sơ', () => {
     expect(screen.getByText('Trang 2 / 2')).toBeTruthy();
   });
 
-  it('cửa sổ chỉ giữ nhãn, giá trị và cảnh báo ngắn: bỏ chữ hướng dẫn dài của khung xử lý (giao diện cũ vẫn có)', () => {
+  it('cửa sổ chỉ giữ nhãn, giá trị và cảnh báo ngắn: bỏ chữ hướng dẫn dài của khung xử lý', () => {
     const { unmount } = render(<WorkspaceBoard {...baseProps} instances={[makeInstance()]} />);
     openRow('Thanh toán mua thùng dây mạng');
     // Cửa sổ: nút "Đính kèm tệp" mở thẳng hộp chọn tệp, không có khung thả tệp kèm chữ hướng dẫn.
@@ -571,7 +571,8 @@ describe('Giao diện mới - cửa sổ hồ sơ', () => {
     window.localStorage.setItem(CASE_LAYOUT_STORAGE_KEY, 'legacy');
     render(<WorkspaceBoard {...baseProps} instances={[makeInstance()]} />);
     fireEvent.click(screen.getByRole('button', { name: /Đính kèm tài liệu/ }));
-    expect(screen.getByText('Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Chọn tệp từ máy tính' })).toBeTruthy();
+    expect(screen.queryByText('Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt')).toBeNull();
   });
 
   it('mở thẳng qua đường dẫn (#workspace/<id>) thì mở cửa sổ hồ sơ đó', async () => {

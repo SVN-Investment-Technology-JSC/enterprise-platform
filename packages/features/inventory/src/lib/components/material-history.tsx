@@ -142,9 +142,6 @@ export function MaterialHistory(props: {
       <div className="flex flex-col items-center justify-center gap-[0.6rem] rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-9 text-center">
         <Layers size={36} strokeWidth={1.5} color="#94a3b8" />
         <span className="font-semibold text-slate-600">Chưa có phát sinh giao dịch</span>
-        <span className="text-[13px] text-slate-400">
-          Vật tư này chưa từng được nhập, xuất hoặc điều chỉnh kiểm kê nào trong hệ thống.
-        </span>
       </div>
     );
   }
@@ -240,7 +237,6 @@ export function MaterialHistory(props: {
                 setFilterWarehouse('ALL');
                 setSearchQuery('');
               }}
-              title="Đặt lại bộ lọc"
             >
               <RotateCcw size={12} />
               <span>Xóa lọc</span>
@@ -318,11 +314,7 @@ export function MaterialHistory(props: {
                   <div className="rounded-r border-l-[2.5px] border-primary bg-slate-50 px-[0.65rem] py-[0.35rem]">
                     <p className="m-0 text-[13px] leading-[1.45] text-slate-800 [word-break:break-word]">{formatNoteDates(entry.note)}</p>
                   </div>
-                ) : (
-                  <div className="text-xs italic text-slate-400">
-                    <small className="text-xs font-medium text-slate-500">Không có ghi chú diễn giải</small>
-                  </div>
-                )}
+                ) : null}
 
                 {/* Phụ lục: Sê-ri hoặc Tham chiếu */}
                 {entry.serialNumber || entry.referenceId ? (

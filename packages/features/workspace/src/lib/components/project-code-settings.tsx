@@ -113,11 +113,7 @@ export function ProjectCodeSettings() {
 
   return (
     <div className={styles.roleSettings}>
-      <p className={styles.muted}>
-        Mã dự án do hệ thống cấp khi tạo dự án theo quy tắc dưới đây; người tạo không sửa được. Số thứ tự đếm riêng
-        theo phần đứng trước nó: mỗi nhóm một dãy khi quy tắc có {'{NHOM}'}, mỗi năm một dãy khi có {'{NAM}'}.
-        {canEdit ? '' : ' Chỉ quản trị viên được đổi quy tắc.'}
-      </p>
+      {canEdit ? null : <p className={styles.muted}>Chỉ quản trị viên được đổi quy tắc.</p>}
 
       <Field label="Quy tắc mã dự án" hint={settings.isDefault ? 'Đang dùng quy tắc mặc định.' : undefined}>
         <Input

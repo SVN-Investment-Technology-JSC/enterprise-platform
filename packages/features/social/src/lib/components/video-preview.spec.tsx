@@ -168,7 +168,7 @@ describe('ô video trong ô soạn: xem trước', () => {
 
   it('đã tải xong và sẵn sàng: bấm hình mở xem trước bằng bản đã xử lý', () => {
     render(tile());
-    expect(container.textContent).toContain('Bấm vào hình để xem trước.');
+    expect(container.textContent).toContain('Video đã sẵn sàng');
     act(() => thumbButton()?.click());
     expect(previewVideo()?.getAttribute('src')).toBe('https://files.test/video.mp4?sig=1');
     act(() => {

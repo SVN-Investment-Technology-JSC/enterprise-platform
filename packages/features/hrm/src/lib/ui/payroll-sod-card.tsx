@@ -16,19 +16,9 @@ export interface PayrollSodSettings {
 
 type SodKey = 'separateCalcFinalize' | 'separateFinalizePublish';
 
-const SWITCHES: { key: SodKey; label: string; description: string }[] = [
-  {
-    key: 'separateCalcFinalize',
-    label: 'Người chốt lương phải khác người tính lương',
-    description:
-      'Khi bật, người đã bấm tính lương cho một kỳ không được tự chốt chính kỳ đó. Cần một người khác có quyền chốt lương xác nhận.',
-  },
-  {
-    key: 'separateFinalizePublish',
-    label: 'Người phát hành và chi trả phải khác người chốt lương',
-    description:
-      'Khi bật, người đã chốt lương không được tự phát hành phiếu lương hoặc tự ghi nhận chi trả cho kỳ đó. Cần một người khác thực hiện.',
-  },
+const SWITCHES: { key: SodKey; label: string }[] = [
+  { key: 'separateCalcFinalize', label: 'Người chốt lương phải khác người tính lương' },
+  { key: 'separateFinalizePublish', label: 'Người phát hành và chi trả phải khác người chốt lương' },
 ];
 
 function FlowStep({ title, note }: { title: string; note: string }) {
@@ -117,7 +107,6 @@ export function PayrollSodCard() {
       icon={ShieldCheck}
       tone="green"
       title="Tách nhiệm vụ trong quy trình lương"
-      description="Giảm rủi ro một người tự tính, tự chốt và tự chi trả lương. Áp dụng cho toàn bộ kỳ lương của đơn vị."
       actions={
         <>
           <Button
@@ -194,10 +183,7 @@ export function PayrollSodCard() {
                     setDraft((d) => ({ ...d, [item.key]: next }));
                   }}
                 />
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-slate-900">{item.label}</div>
-                  <p className="mt-0.5 text-xs leading-snug text-slate-500">{item.description}</p>
-                </div>
+                <div className="min-w-0 text-sm font-semibold text-slate-900">{item.label}</div>
               </div>
             ))}
           </div>

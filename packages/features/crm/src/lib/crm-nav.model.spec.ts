@@ -47,11 +47,10 @@ describe('menu Bán hàng', () => {
     expect(crmCapabilityLabels({ ...CRM_NO_CAPABILITIES, canWriteQuote: true })).toEqual(['Lập báo giá']);
   });
 
-  it('thẻ Tổng quan có mô tả thật, không còn nhãn giai đoạn hay chữ giữ chỗ', () => {
+  it('trang không mang mô tả, nhãn giai đoạn hay chữ giữ chỗ', () => {
     for (const page of CRM_PAGES) {
-      expect(page.summary.length).toBeGreaterThan(20);
+      expect(page).not.toHaveProperty('summary');
       expect(page).not.toHaveProperty('phase');
-      expect(page.summary).not.toMatch(/giai đoạn \d|đang được xây dựng/i);
     }
   });
 
@@ -201,7 +200,7 @@ describe('nhãn "Dự án bán hàng" (TC-NAV-07, giả định Q-P2-8)', () => 
     const page = CRM_PAGES.find((entry) => entry.id === 'opportunities');
     expect(page?.label).toBe('Dự án bán hàng');
     for (const entry of CRM_PAGES) {
-      expect(`${entry.label} ${entry.summary} ${entry.group}`).not.toMatch(/cơ hội/i);
+      expect(`${entry.label} ${entry.group}`).not.toMatch(/cơ hội/i);
     }
     expect(CRM_VIEWS).toContain('opportunities');
     expect(readFileSync(join(__dirname, 'crm-api.ts'), 'utf8')).toContain('/opportunities');

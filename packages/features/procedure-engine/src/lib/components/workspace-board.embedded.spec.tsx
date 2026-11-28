@@ -174,12 +174,12 @@ describe('WorkspaceBoard ở chế độ embedded (drawer ngoài module)', () =>
     // Đầu hồ sơ, dòng bước vừa xong, khung xử lý của bước hiện tại.
     const buttons = screen.getAllByRole('button', { name: 'Hoàn duyệt' });
     expect(buttons).toHaveLength(3);
-    expect(screen.getByText(/Bạn vừa xử lý xong bước này/)).toBeTruthy();
-    expect(screen.getByText(/Bạn vừa xử lý xong bước “Kế toán trưởng duyệt”/)).toBeTruthy();
+    expect(screen.getByText(/Bạn còn hoàn duyệt được bước này/)).toBeTruthy();
+    expect(screen.getByText(/Bạn còn hoàn duyệt được bước “Kế toán trưởng duyệt”/)).toBeTruthy();
 
     // Nút trên dòng bước vừa xong gửi thẳng withdraw, không mở popup xem lại bước.
     const timelineButton = screen
-      .getByText(/Bạn vừa xử lý xong bước này/)
+      .getByText(/Bạn còn hoàn duyệt được bước này/)
       .parentElement?.querySelector('button') as HTMLElement;
     fireEvent.click(timelineButton);
     expect(onAction).toHaveBeenCalledWith('inst-1', 'withdraw', undefined, undefined, undefined);
@@ -190,7 +190,7 @@ describe('WorkspaceBoard ở chế độ embedded (drawer ngoài module)', () =>
     const onAction = jest.fn(async () => undefined);
     render(<WorkspaceBoard {...baseProps} onAction={onAction} instances={[movedOn]} embedded />);
     const panelButton = screen
-      .getByText(/Bạn vừa xử lý xong bước “Kế toán trưởng duyệt”/)
+      .getByText(/Bạn còn hoàn duyệt được bước “Kế toán trưởng duyệt”/)
       .parentElement?.querySelector('button') as HTMLElement;
     fireEvent.click(panelButton);
     expect(onAction).toHaveBeenCalledWith('inst-1', 'withdraw', undefined, undefined, undefined);

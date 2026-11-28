@@ -773,8 +773,8 @@
   background: transparent;
   color: var(--ep-text-sub);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 
   &:hover {
@@ -788,6 +788,7 @@
   /* Gạch chân nhấn cho thẻ đang chọn. */
   &[aria-selected='true'] {
     color: var(--ep-text);
+    font-weight: 600;
     background: var(--ep-accent-soft);
 
     &::after {
@@ -804,6 +805,8 @@
 }
 
 .reactorTabCount {
+  font-size: 12px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 

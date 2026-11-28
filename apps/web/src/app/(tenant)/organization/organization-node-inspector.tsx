@@ -158,12 +158,7 @@ export function OrganizationNodeInspector({
         <div className="grid size-12 place-items-center rounded-full bg-slate-100 text-slate-400">
           <SlidersHorizontal className="size-6" />
         </div>
-        <h4 className="mt-3 text-xs font-bold text-slate-800 uppercase tracking-wider">
-          Thuộc tính Chi tiết
-        </h4>
-        <p className="mt-1 text-xs text-slate-500 max-w-[220px]">
-          Chọn một node bất kỳ trên cây sơ đồ hoặc canvas để xem và cập nhật thông tin.
-        </p>
+        <p className="mt-3 text-xs text-slate-500">Chọn một node để xem chi tiết.</p>
       </div>
     );
   }
@@ -493,14 +488,10 @@ export function OrganizationNodeInspector({
                 <div className="flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[12px] text-amber-800 leading-snug">
                   <AlertTriangle className="size-3.5 shrink-0 text-amber-600 mt-0.5" />
                   <span>
-                    Chức danh này đang có {nodeAssignees.length} nhân sự nhưng chưa có ai được đặt làm &ldquo;Vị trí chính&rdquo;. Hãy chọn 1 người làm vị trí chính để đại diện quản lý đơn vị.
+                    Chưa có ai trong {nodeAssignees.length} nhân sự được đặt làm &ldquo;Vị trí chính&rdquo;.
                   </span>
                 </div>
               ) : null}
-
-              <p className="text-[12px] leading-snug text-slate-500">
-                Một chức danh có thể có nhiều người giữ vị trí chính, nhưng mỗi người chỉ giữ vị trí chính ở một chức danh.
-              </p>
 
               {/* Danh sách nhân sự hiện tại */}
               {nodeAssignees.length > 0 ? (

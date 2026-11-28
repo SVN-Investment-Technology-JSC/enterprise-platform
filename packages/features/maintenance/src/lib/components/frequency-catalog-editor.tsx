@@ -293,13 +293,11 @@ export function FrequencyCatalogEditor({
                       </Tip>
                     </td>
                     <td className={TD}>
-                      <Tip content="Mã định danh duy nhất tham chiếu trong lịch">
-                        <span
-                          className="inline-block rounded border border-blue-100 bg-blue-50 px-2 py-0.5 font-mono text-[0.8125rem] font-bold text-blue-800"
-                        >
-                          {option.code}
-                        </span>
-                      </Tip>
+                      <span
+                        className="inline-block rounded border border-blue-100 bg-blue-50 px-2 py-0.5 font-mono text-[0.8125rem] font-bold text-blue-800"
+                      >
+                        {option.code}
+                      </span>
                     </td>
                     <td className={TD}>
                       <Input
@@ -351,23 +349,19 @@ export function FrequencyCatalogEditor({
                     </td>
                     <td className={TD}>
                       {inUse ? (
-                        <Tip content="Đang có lịch bảo trì sử dụng tần suất này">
-                          <span
-                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700"
-                          >
-                            <span className="size-1.5 rounded-full bg-emerald-500" />
-                            <span>Đang dùng</span>
-                          </span>
-                        </Tip>
+                        <span
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700"
+                        >
+                          <span className="size-1.5 rounded-full bg-emerald-500" />
+                          <span>Đang dùng</span>
+                        </span>
                       ) : (
-                        <Tip content="Chưa có lịch bảo trì nào liên kết với tần suất này">
-                          <span
-                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
-                          >
-                            <span className="size-1.5 rounded-full bg-slate-400" />
-                            <span>Chưa gán</span>
-                          </span>
-                        </Tip>
+                        <span
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground"
+                        >
+                          <span className="size-1.5 rounded-full bg-slate-400" />
+                          <span>Chưa gán</span>
+                        </span>
                       )}
                     </td>
                     <td className={cn(TD, 'text-center')}>
@@ -468,7 +462,6 @@ export function FrequencyCatalogEditor({
       <MinimalPopupForm
         isOpen={isAddOpen}
         title="Thêm tần suất bảo trì mới"
-        subtitle="Định nghĩa chu kỳ và khoảng thời gian tính hạn lặp lại cho lịch bảo trì."
         onClose={() => setIsAddOpen(false)}
       >
         <div className="flex flex-col gap-4 pb-1 pt-2">

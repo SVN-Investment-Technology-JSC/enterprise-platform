@@ -79,11 +79,6 @@ export function ArchivedDrawer({
             <X size={16} aria-hidden="true" />
           </button>
         </header>
-        <p className={styles.hint}>
-          Quy trình đã lưu trữ không hiện trên ma trận. Bấm “Tái kích hoạt” để đưa quy trình về bản
-          nháp và tiếp tục thiết kế, hoặc “Xoá” để ẩn hẳn quy trình (hồ sơ cũ vẫn giữ nguyên).
-        </p>
-
         <label className={styles.search}>
           <Search size={14} aria-hidden="true" />
           <input
@@ -136,7 +131,6 @@ export function ArchivedDrawer({
                           type="button"
                           className={styles.reactivate}
                           disabled={busy}
-                          title="Tái kích hoạt quy trình (chuyển về bản nháp để chỉnh sửa và công bố lại)"
                           onClick={() => onReactivate(definition.id)}
                         >
                           Tái kích hoạt

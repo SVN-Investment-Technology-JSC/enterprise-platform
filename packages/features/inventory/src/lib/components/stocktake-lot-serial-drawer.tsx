@@ -157,8 +157,8 @@ export function StocktakeLotSerialDrawer({
               type="button"
               onClick={() => setTab('lots')}
               className={cn(
-                'cursor-pointer border-0 border-b-2 bg-transparent px-[14px] py-[10px] text-sm font-semibold',
-                tab === 'lots' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500',
+                'cursor-pointer border-0 border-b-2 bg-transparent px-[14px] py-2 text-sm font-medium',
+                tab === 'lots' ? 'border-blue-600 font-semibold text-blue-600' : 'border-transparent text-slate-500',
               )}
             >
               Kiểm đếm theo Lô ({lots.length})
@@ -167,8 +167,8 @@ export function StocktakeLotSerialDrawer({
               type="button"
               onClick={() => setTab('serials')}
               className={cn(
-                'cursor-pointer border-0 border-b-2 bg-transparent px-[14px] py-[10px] text-sm font-semibold',
-                tab === 'serials' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500',
+                'cursor-pointer border-0 border-b-2 bg-transparent px-[14px] py-2 text-sm font-medium',
+                tab === 'serials' ? 'border-blue-600 font-semibold text-blue-600' : 'border-transparent text-slate-500',
               )}
             >
               Quét mã Sê-ri ({serials.length})

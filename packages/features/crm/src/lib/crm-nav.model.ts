@@ -23,8 +23,6 @@ export interface CrmPage {
   readonly id: CrmView;
   readonly label: string;
   readonly group: string;
-  /** Câu mô tả ngắn trên thẻ của trang Tổng quan. */
-  readonly summary: string;
   /** Ai thấy trang này; không khai thì mọi người có `crm.read`. */
   readonly visible?: (capabilities: CrmCapabilities) => boolean;
 }
@@ -79,80 +77,67 @@ export const CRM_PAGES: readonly CrmPage[] = [
     id: 'customers',
     label: 'Khách hàng',
     group: 'Quản lý khách hàng',
-    summary: 'Hồ sơ khách hàng, người liên hệ, nhóm khách và người phụ trách.',
   },
   {
     id: 'leads',
     label: 'Lead',
     group: 'Quản lý khách hàng',
-    summary: 'Đầu mối tiềm năng; chuyển thành khách hàng và dự án bán hàng bằng một thao tác.',
   },
   {
     id: 'activities',
     label: 'Hoạt động chăm sóc',
     group: 'Quản lý khách hàng',
-    summary: 'Gọi điện, email, gặp mặt, công việc; nhắc trước hạn và khi quá hạn.',
   },
   {
     id: 'overview',
     label: 'Tổng quan',
     group: 'Bán hàng',
-    summary: 'Doanh thu, lợi nhuận, dự án bán hàng, công nợ so với kỳ trước và các việc cần chú ý trong phạm vi của bạn.',
   },
   {
     id: 'tasks',
     label: 'Việc cần xử lý',
     group: 'Bán hàng',
-    summary: 'Báo giá, phương án kinh doanh đang chờ bạn duyệt và việc của báo giá bạn phụ trách.',
   },
   {
     id: 'opportunities',
     label: 'Dự án bán hàng',
     group: 'Bán hàng',
-    summary: 'Dự án bán hàng theo giai đoạn: kanban kéo thả, dạng bảng, lịch sử chuyển giai đoạn.',
   },
   {
     id: 'quotes',
     label: 'Báo giá',
     group: 'Bán hàng',
-    summary: 'Bảng giá, chính sách chiết khấu, báo giá theo phiên bản và duyệt báo giá.',
   },
   {
     id: 'contracts',
     label: 'Hợp đồng',
     group: 'Giao dịch',
-    summary: 'Hợp đồng mua bán, hợp đồng khung, điều khoản thanh toán và hiệu lực.',
   },
   {
     id: 'orders',
     label: 'Đơn bán',
     group: 'Giao dịch',
-    summary: 'Đơn bán, giữ hàng ở Kho, kế hoạch giao và xuất kho.',
   },
   {
     id: 'receivables',
     label: 'Công nợ',
     group: 'Giao dịch',
-    summary: 'Sổ công nợ khách hàng, thu tiền qua phiếu thu Tài chính, hạn mức tín dụng.',
   },
   {
     id: 'warranty',
     label: 'Bảo hành',
     group: 'Sau bán',
-    summary: 'Yêu cầu bảo hành, đổi trả theo serial và nhập trả về Kho.',
   },
   {
     id: 'reports',
     label: 'Báo cáo',
     group: 'Sau bán',
-    summary: 'Doanh thu, sản lượng, lợi nhuận theo nhân viên, khách hàng, sản phẩm, khu vực.',
     visible: (capabilities) => capabilities.isTenantAdmin || capabilities.canReadReport,
   },
   {
     id: 'settings',
     label: 'Cấu hình',
     group: 'Quản trị',
-    summary: 'Nhóm khách, quy tắc mã khách hàng, nhắc hoạt động; bảng giá, chính sách chiết khấu, thử tính giá; ngưỡng và cách duyệt báo giá.',
     visible: (capabilities) => capabilities.isTenantAdmin || capabilities.canManage,
   },
 ];

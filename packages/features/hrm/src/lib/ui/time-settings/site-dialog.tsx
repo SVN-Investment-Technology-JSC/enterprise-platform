@@ -8,7 +8,7 @@ import { useId, useMemo, useState } from 'react';
 import { Tree } from 'antd';
 import { Search } from 'lucide-react';
 import { Button } from '../button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { Input } from '../input';
 import { SettingsField, SettingsSwitch } from '../settings-kit';
 import { useCloseGuard } from '../use-close-guard';
@@ -110,9 +110,6 @@ export function SiteDialog({
       <DialogContent className="max-h-[92dvh] gap-0 bg-white p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50/80 px-5 py-4 pr-12">
           <DialogTitle>{editing ? 'Cập nhật địa điểm chấm công' : 'Thêm địa điểm chấm công'}</DialogTitle>
-          <DialogDescription>
-            Nhân viên chấm công trong bán kính quanh tọa độ này được coi là hợp lệ; nếu khai báo IP thì phải đúng cả IP.
-          </DialogDescription>
         </DialogHeader>
         <form
           className="flex min-h-0 flex-1 flex-col"
@@ -132,7 +129,7 @@ export function SiteDialog({
                   onChange={(e) => setSite({ ...site, name: e.target.value })}
                 />
               </SettingsField>
-              <SettingsField label="Vĩ độ" required htmlFor={`${uid}-lat`} hint="Từ -90 đến 90.">
+              <SettingsField label="Vĩ độ" required htmlFor={`${uid}-lat`}>
                 <Input
                   id={`${uid}-lat`}
                   required
@@ -145,7 +142,7 @@ export function SiteDialog({
                   onChange={(e) => setSite({ ...site, latitude: Number(e.target.value) })}
                 />
               </SettingsField>
-              <SettingsField label="Kinh độ" required htmlFor={`${uid}-lng`} hint="Từ -180 đến 180.">
+              <SettingsField label="Kinh độ" required htmlFor={`${uid}-lng`}>
                 <Input
                   id={`${uid}-lng`}
                   required
@@ -179,7 +176,7 @@ export function SiteDialog({
               <SettingsField
                 label="IP được phép (tùy chọn)"
                 htmlFor={`${uid}-ips`}
-                hint="Mỗi dòng một IP hoặc dải CIDR, ví dụ 203.0.113.5 hoặc 203.0.113.0/24. Để trống là không kiểm IP; có khai báo thì phải đạt cả vị trí lẫn IP."
+                hint="Mỗi dòng một IP hoặc dải CIDR. Có khai báo thì phải đạt cả vị trí lẫn IP."
                 className="@sm:col-span-2"
               >
                 <textarea
@@ -197,7 +194,7 @@ export function SiteDialog({
                 <div>
                   <p className="text-sm font-bold text-slate-900">Phòng ban chấm công tại đây</p>
                   <p className="text-[12px] leading-snug text-slate-500">
-                    Tick một phòng ban để áp dụng cho cả các đơn vị con của nó. Có ngoại lệ thì bỏ tick đơn vị đó (bỏ tick cha thì cả nhánh không áp dụng).
+                    Tick phòng ban là áp dụng cả đơn vị con; bỏ tick đơn vị con để loại trừ.
                   </p>
                 </div>
                 <label className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-700">

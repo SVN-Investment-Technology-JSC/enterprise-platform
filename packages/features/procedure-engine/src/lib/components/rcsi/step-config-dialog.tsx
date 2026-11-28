@@ -124,7 +124,6 @@ export function StepConfigDialog({
     <MinimalPopupForm
       isOpen
       title={`Cấu hình bước “${step.name}”`}
-      subtitle="SLA, quy trình nối tiếp, nhánh chứa bước, thuộc tính người thực hiện nhập và bước Tài chính."
       maxWidth="720px"
       onClose={onClose}
     >
@@ -152,7 +151,6 @@ export function StepConfigDialog({
             disabled={readOnly}
             onChange={setLink}
           />
-          <small className={styles.hint}>Bước xong thì tự mở hồ sơ mới cho quy trình được chọn.</small>
         </div>
 
         {(definition.gateways ?? []).length ? (
@@ -165,11 +163,9 @@ export function StepConfigDialog({
               disabled={readOnly}
               onChange={(value) => setBranch(value || TRUNK)}
             />
-            <small className={styles.hint}>
-              {hasGatewayAfter
-                ? 'Bước này có điểm rẽ nhánh đứng sau nên phải ở trục chính (chưa hỗ trợ rẽ nhánh lồng nhau).'
-                : 'Bước được đặt vào cuối nhánh đã chọn. Về trục chính thì bước đứng ngay sau điểm hợp.'}
-            </small>
+            {hasGatewayAfter ? (
+              <small className={styles.hint}>Bước có điểm rẽ nhánh đứng sau nên phải ở trục chính.</small>
+            ) : null}
           </div>
         ) : null}
 
@@ -194,10 +190,7 @@ export function StepConfigDialog({
             <Landmark size={14} aria-hidden="true" />
             <span>Bước Tài chính</span>
           </label>
-          <small className={styles.hint}>
-            Khi hồ sơ tới bước này, module Tài chính tự tạo phiếu nháp từ thuộc tính của hồ sơ. Bước chỉ đóng khi kế toán ghi
-            sổ; kế toán trả hồ sơ thì hồ sơ quay về bước đã chọn bên dưới.
-          </small>
+          <small className={styles.hint}>Tự tạo phiếu nháp khi hồ sơ tới bước; bước chỉ đóng khi kế toán ghi sổ.</small>
 
           {finance ? (
             <>
@@ -253,10 +246,6 @@ export function StepConfigDialog({
                     );
                   })}
                 </div>
-                <small className={styles.hint}>
-                  Chỉ liệt kê thuộc tính cấp quy trình hoặc của bước chắc chắn đã đi qua trước bước này. Số tiền là bắt buộc;
-                  các trường khác bỏ trống thì kế toán tự nhập trên phiếu.
-                </small>
               </div>
 
               <div className={styles.fieldRow}>
@@ -278,9 +267,7 @@ export function StepConfigDialog({
                   {extraRoles.join(', ')}; hãy bỏ trước khi công bố.
                 </p>
               ) : (
-                <small className={styles.hint}>
-                  Giao vai R cho chức danh kế toán hoặc thủ quỹ. Người ghi sổ cần thêm quyền ghi sổ phiếu tương ứng bên Tài chính.
-                </small>
+                <small className={styles.hint}>Người giữ vai R cần quyền ghi sổ phiếu bên Tài chính.</small>
               )}
             </>
           ) : null}

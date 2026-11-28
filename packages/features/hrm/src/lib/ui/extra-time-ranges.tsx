@@ -174,10 +174,10 @@ export function ExtraTimeRanges({
         {ranges.length > 0 && (
           <span className="text-[12px] text-slate-500">
             {kind === 'leave'
-              ? `Gửi thành một đơn ${total} khoản, cùng lý do, mô tả và chứng từ; các khoản được duyệt hoặc từ chối cùng lúc.`
+              ? `Gửi thành một đơn ${total} khoản, duyệt hoặc từ chối cùng lúc.`
               : kind === 'ot'
-                ? `Gửi thành một đơn ${total} khoảng, cùng lý do, mô tả và chứng từ; các khoảng được duyệt hoặc từ chối cùng lúc.`
-                : `Gửi thành ${total} đơn ${noun}, cùng lý do, mô tả và chứng từ.`}
+                ? `Gửi thành một đơn ${total} khoảng, duyệt hoặc từ chối cùng lúc.`
+                : `Gửi thành ${total} đơn ${noun}.`}
           </span>
         )}
       </div>

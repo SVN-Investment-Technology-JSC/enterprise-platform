@@ -200,7 +200,7 @@ function MonthCloseDialog({
           </DialogTitle>
           <DialogDescription>
             {step === 'comp-off'
-              ? 'Đã chốt công. Kiểm tra số ngày nghỉ bù dự kiến của từng nhân viên rồi bấm chuyển đổi để cộng vào quỹ. Chưa xác nhận thì quỹ chưa được cộng; có thể làm sau ở tab Quỹ nghỉ bù.'
+              ? 'Chưa xác nhận thì quỹ chưa được cộng; có thể làm sau ở tab Quỹ nghỉ bù.'
               : text.description}
           </DialogDescription>
         </DialogHeader>
@@ -544,7 +544,6 @@ export default function TimesheetsScreen() {
         <PageTitle
           withTabs
           title="Bảng công"
-          description="Theo dõi và tổng hợp công, phép, tăng ca của nhân viên trong tháng."
           badge={
             board ? (
               <Badge
@@ -629,7 +628,6 @@ export default function TimesheetsScreen() {
             <Button
               permission="hrm.comp_off.view"
               variant="outline"
-              title="Xem trước số ngày nghỉ bù sẽ cộng vào quỹ của tháng này"
               onClick={() => setFundPreview(true)}
             >
               <PiggyBank className="size-3.5" />
@@ -639,7 +637,6 @@ export default function TimesheetsScreen() {
               permission="hrm.timesheet.export"
               variant="outline"
               disabled={!board?.employees.length || exporting}
-              title={selectedIds.size > 0 ? `Xuất ${selectedIds.size} nhân viên đã chọn` : 'Xuất cả danh sách đang lọc'}
               onClick={() => void exportExcel()}
             >
               <Download className="size-3.5" />
@@ -651,7 +648,7 @@ export default function TimesheetsScreen() {
           variant="outline"
           aria-pressed={fullscreen}
           aria-label={fullscreen ? 'Thoát toàn màn hình' : 'Xem toàn màn hình'}
-          title={fullscreen ? 'Thoát toàn màn hình (Esc)' : 'Xem bảng công toàn màn hình'}
+          title={fullscreen ? 'Thoát toàn màn hình (Esc)' : 'Xem toàn màn hình'}
           onClick={toggleFullscreen}
           className="ml-auto"
         >
@@ -719,7 +716,7 @@ export default function TimesheetsScreen() {
             <DialogHeader className="border-b border-slate-200 p-5">
               <DialogTitle>Xem trước quỹ nghỉ bù tháng {formatMonthVn(month)}</DialogTitle>
               <DialogDescription>
-                Số ngày nghỉ bù dự kiến cộng vào quỹ của từng nhân viên. Tháng chưa chốt công chỉ để xem; xác nhận cộng quỹ sau khi chốt công.
+                Tháng chưa chốt công chỉ để xem; xác nhận cộng quỹ sau khi chốt công.
               </DialogDescription>
             </DialogHeader>
             <div className="max-h-[60vh] overflow-y-auto p-5 text-xs">

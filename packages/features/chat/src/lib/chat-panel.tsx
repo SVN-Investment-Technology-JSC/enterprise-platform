@@ -71,7 +71,7 @@ function SettingsPopover({ onClose }: { onClose: () => void }) {
       <div className={styles.toggleRow}>
         <span>
           Thông báo Windows
-          <small>{permission === 'denied' ? 'Trình duyệt đang chặn thông báo của trang này.' : 'Hiện thông báo của hệ điều hành khi có tin mới.'}</small>
+          {permission === 'denied' ? <small>Trình duyệt đang chặn thông báo của trang này.</small> : null}
         </span>
         <button
           type="button"
@@ -90,7 +90,6 @@ function SettingsPopover({ onClose }: { onClose: () => void }) {
       <div className={styles.toggleRow}>
         <span>
           Âm báo
-          <small>Phát tiếng ngắn khi có tin mới.</small>
         </span>
         <button
           type="button"

@@ -143,9 +143,7 @@ export function QuickCreateRow({
               >
                 {item.title}
               </span>
-              <span className="block truncate text-[12px] text-slate-500">
-                {item.desc}
-              </span>
+              {item.desc ? <span className="block truncate text-[12px] text-slate-500">{item.desc}</span> : null}
             </span>
             <ChevronRight className="size-4 shrink-0 text-slate-400 transition group-hover:text-slate-700" />
           </button>
@@ -296,10 +294,10 @@ export function RequestListPanel({
             role="tab"
             aria-selected={status === tab.id}
             onClick={() => onStatusChange(tab.id)}
-            className={`-mb-px border-b-2 px-3 py-2 text-xs font-semibold transition ${
+            className={`-mb-px border-b-2 px-3 py-2 text-sm transition ${
               status === tab.id
-                ? 'border-[#ffc90a] text-slate-900'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-[#ffc90a] font-semibold text-slate-900'
+                : 'border-transparent font-medium text-slate-500 hover:text-slate-800'
             }`}
           >
             {tab.label} ({tab.count})
@@ -482,7 +480,7 @@ export function RequestDetailCard({
       </div>
       {!row ? (
         <p className="p-4 text-xs text-slate-500">
-          Chọn một đơn trong danh sách để xem chi tiết và tiến độ phê duyệt.
+          Chọn một đơn trong danh sách để xem chi tiết.
         </p>
       ) : (
         <>

@@ -84,12 +84,16 @@ export async function notifyApprovalRequested(db: Db, facts: VoucherNotification
 
 export type VoucherOutcome = 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'REVERSED';
 
-const OUTCOME_TEXT: Readonly<Record<VoucherOutcome, { title: string; verb: string }>> = {
-  APPROVED: { title: 'Phiếu đã được duyệt', verb: 'đã được duyệt và ghi sổ' },
-  REJECTED: { title: 'Phiếu bị từ chối', verb: 'bị từ chối' },
-  CANCELLED: { title: 'Phiếu đã bị huỷ', verb: 'đã bị huỷ' },
-  REVERSED: { title: 'Phiếu đã ghi sổ bị huỷ', verb: 'đã được huỷ và đảo bút toán' },
+/** `verb`: câu bị động khi không rõ người thao tác; `act`: câu chủ động "<người> <act> <phiếu>" (gọn và tự nhiên hơn). */
+const OUTCOME_TEXT: Readonly<Record<VoucherOutcome, { title: string; verb: string; act: string }>> = {
+  APPROVED: { title: 'Phiếu đã được duyệt', verb: 'đã được duyệt và ghi sổ', act: 'đã duyệt và ghi sổ' },
+  REJECTED: { title: 'Phiếu bị từ chối', verb: 'bị từ chối', act: 'đã từ chối' },
+  CANCELLED: { title: 'Phiếu đã bị huỷ', verb: 'đã bị huỷ', act: 'đã huỷ' },
+  REVERSED: { title: 'Phiếu đã ghi sổ bị huỷ', verb: 'đã được huỷ và đảo bút toán', act: 'đã huỷ và đảo bút toán' },
 };
+
+/** "Phiếu chi …" → "phiếu chi …" để đứng giữa câu. */
+const lowerFirst = (value: string): string => value.charAt(0).toLocaleLowerCase('vi') + value.slice(1);
 
 /**
  * Kết quả xử lý phiếu báo cho người lập. `deciderUserId` là người thao tác: chính sách loại họ ra, nên người lập tự huỷ phiếu
@@ -106,13 +110,16 @@ export async function notifyOutcome(
   extra: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
   const text = OUTCOME_TEXT[outcome];
-  const by = deciderName ? ` bởi ${deciderName}` : '';
   const reason = note?.trim() ? ` Ghi chú: ${note.trim()}` : '';
+  const decider = deciderName?.trim();
+  const sentence = decider
+    ? `${decider} ${text.act} ${lowerFirst(subjectOf(facts))}.`
+    : `${subjectOf(facts)} ${text.verb}.`;
   await emitter(db, facts, 'finance.voucher.status-changed', {
     status: outcome,
     requesterUserId: facts.requesterUserId,
     title: text.title,
-    summary: `${subjectOf(facts)} ${text.verb}${by}.${reason}`.slice(0, 500),
+    summary: `${sentence}${reason}`.slice(0, 500),
     actorUserId: deciderUserId,
     ...extra,
   });

@@ -65,14 +65,14 @@
 
 .tab {
   position: relative;
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 14px;
   border: 0;
   background: transparent;
   color: var(--ep-text-muted);
   font: inherit;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
 
   &:hover {
@@ -87,6 +87,7 @@
 
   &[aria-selected='true'] {
     color: var(--ep-text);
+    font-weight: 600;
 
     &::after {
       content: '';

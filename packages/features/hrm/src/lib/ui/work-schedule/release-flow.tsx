@@ -19,7 +19,7 @@ import {
 import { cancelSchedule, type CancelScheduleResult } from '../../hrm-work-schedule-api';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { Input } from '../input';
 import { InfoNote, SettingsSection } from '../settings-kit';
 import { toast } from '../toast';
@@ -309,7 +309,6 @@ export function ReleaseInlineForm({ catalog, onDone }: { catalog: ReleaseCatalog
         icon={UserMinus}
         tone="orange"
         title="Thông tin nhả ca"
-        description="Gỡ lịch đã phân (hủy lịch) cho nhân viên trong một khoảng ngày."
       >
         <div className="flex flex-col gap-4">
           <ScopeSelect
@@ -402,7 +401,6 @@ export function ReleaseInlineForm({ catalog, onDone }: { catalog: ReleaseCatalog
               <UserMinus className="size-5 text-orange-600" aria-hidden />
               Tổng quan nhả ca
             </DialogTitle>
-            <DialogDescription>Kiểm tra phạm vi ảnh hưởng trước khi gỡ lịch.</DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 @lg:px-6">
             <dl className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3" data-testid="release-overview">

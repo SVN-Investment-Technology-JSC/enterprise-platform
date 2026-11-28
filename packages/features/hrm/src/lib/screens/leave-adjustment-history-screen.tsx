@@ -204,7 +204,6 @@ export default function LeaveAdjustmentHistoryScreen() {
     <div className="mx-auto max-w-[1600px] space-y-3">
       <PageTitle
         title="Lịch sử điều chỉnh quỹ phép"
-        description="Mọi lần điều chỉnh, import và đảo điều chỉnh quỹ phép năm và quỹ nghỉ bù, kèm tài khoản đã thực hiện."
       />
       <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
         <div className="w-44">

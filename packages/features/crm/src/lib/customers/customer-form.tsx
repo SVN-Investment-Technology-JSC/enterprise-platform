@@ -179,7 +179,6 @@ export function CustomerFormDialog({
       open
       wide
       title={customer ? `Sửa khách hàng ${customer.code}` : 'Thêm khách hàng'}
-      subtitle={customer ? undefined : 'Để trống mã để hệ thống tự sinh theo quy tắc cấu hình.'}
       submitLabel={matches.length && confirmDuplicate ? 'Vẫn lưu' : 'Lưu'}
       submitting={submitting}
       error={error}

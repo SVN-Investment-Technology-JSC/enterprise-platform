@@ -13,7 +13,7 @@ export const LAYOUT_IMAGE_JPEG_QUALITIES: readonly number[] = [0.85, 0.75, 0.65,
 const SHRINK_FACTOR = 0.8;
 export const LAYOUT_IMAGE_MIN_WIDTH_PX = 320;
 /** Gợi ý ở ô tải ảnh. */
-export const LAYOUT_IMAGE_HINT = 'PNG hoặc JPEG; ảnh lớn được tự thu về rộng tối đa 1.600 px và nén JPEG dưới 300 KB.';
+export const LAYOUT_IMAGE_HINT = 'PNG hoặc JPEG';
 /** File gốc quá lớn thì từ chối ngay, không giải mã (tránh treo trang). */
 export const LAYOUT_IMAGE_MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 export const LAYOUT_IMAGE_TYPE_MESSAGE = 'Chỉ nhận ảnh PNG hoặc JPEG.';

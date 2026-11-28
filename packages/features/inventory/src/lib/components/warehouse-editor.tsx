@@ -298,7 +298,7 @@ export function WarehouseEditor({
         </div>
         {/* Mã là khoá nghiệp vụ: mọi bút toán trỏ vào kho qua nó, nên nói trước
             rằng đổi mã là không được, thay vì để người dùng phát hiện lúc bấm. */}
-        <p className="m-0 mb-1 text-[0.8125rem] leading-normal text-slate-500">Mã kho không sửa được sau khi tạo vì sổ cái tham chiếu theo mã.</p>
+        <p className="m-0 mb-1 text-[0.8125rem] leading-normal text-slate-500">Mã kho không sửa được sau khi tạo.</p>
       </div>
     </div>
   );

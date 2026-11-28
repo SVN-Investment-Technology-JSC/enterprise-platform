@@ -58,7 +58,6 @@ export function LastResortApproverCard(props: {
       icon={UserCheck}
       tone="blue"
       title="Người duyệt dự phòng cuối"
-      description="Chức danh duyệt đơn của nhân viên chưa có “Báo cáo cho”."
       actions={
         <StatusPill tone={current ? 'green' : 'slate'}>
           {settings ? (current ? 'Đang dùng' : 'Không dùng') : 'Đang tải'}

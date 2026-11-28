@@ -121,7 +121,7 @@ export function TripDayLinesPanel({ tripId }: { tripId: string }) {
         <div>
           <h4 className="text-[12px] font-bold uppercase tracking-wide text-slate-800">Giờ làm theo ngày</h4>
           <p className="text-[12px] text-slate-500">
-            Không khai thì tính theo ca của nhân viên. Giờ vượt ca là làm thêm; chỉ giờ thực tế đã xác nhận mới tính vào quỹ nghỉ bù.
+            Không khai thì tính theo ca. Chỉ giờ thực tế đã xác nhận mới tính vào quỹ nghỉ bù.
           </p>
         </div>
         {mode === null && editable ? (

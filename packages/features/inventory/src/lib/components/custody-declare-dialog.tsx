@@ -78,9 +78,6 @@ export function CustodyDeclareDialog({
           <DialogHeader>
             <div>
               <DialogTitle>Khai báo tài sản</DialogTitle>
-              <p className="mt-1 mb-0 text-sm text-slate-500">
-                Tài sản mới ở trạng thái tồn kho, chưa cấp cho ai.
-              </p>
             </div>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
               <DialogCloseButton />

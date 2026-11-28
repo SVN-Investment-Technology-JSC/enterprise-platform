@@ -49,7 +49,8 @@ export interface ServerReportPanelProps {
   readonly kind: HrmReportKind;
   /** Nhãn dùng đặt tên file và tên trang tính. */
   readonly label: string;
-  readonly description: string;
+  /** Một dòng ngắn về phạm vi dữ liệu khi không hiển nhiên. */
+  readonly description?: string;
   /** Có ô lọc trạng thái đơn. */
   readonly statusFilter?: boolean;
   /** Có ô lọc loại đơn (báo cáo tổng hợp). */
@@ -142,7 +143,7 @@ export function ServerReportPanel({
 
   return (
     <div className="space-y-3">
-      <p className="max-w-[90ch] text-xs text-slate-500">{description}</p>
+      {description ? <p className="max-w-[90ch] text-xs text-slate-500">{description}</p> : null}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
         <ReportScopeBar scope={scope} onChange={setScope} options={options} />
         {statusFilter ? <MultiPicker label="Trạng thái đơn" options={STATUS_OPTIONS} selected={statuses} onChange={setStatuses} width="w-44" /> : null}
@@ -205,7 +206,7 @@ export function ServerReportPanel({
       </TableShell>
       {result && result.rows.length > 0 ? (
         <p className="text-[11px] text-slate-500">
-          Xem trước {Math.min(PREVIEW_ROWS, result.rows.length)} / {result.total} dòng. File Excel gồm tất cả {result.rows.length} dòng đã tải và chỉ các cột đã chọn.
+          Xem trước {Math.min(PREVIEW_ROWS, result.rows.length)} / {result.total} dòng; file Excel gồm cả {result.rows.length} dòng.
         </p>
       ) : null}
     </div>

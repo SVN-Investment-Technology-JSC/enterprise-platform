@@ -13,8 +13,10 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 38px;
-  padding: 0 10px 0 12px;
+  min-height: 38px;
+  padding: 7px 10px 7px 12px;
+  box-sizing: border-box;
+  line-height: 20px;
   border: 1px solid #e0e0e0;
   border-radius: 6px;
   background: #ffffff;
@@ -41,12 +43,15 @@
   }
 }
 
+// Công việc đã chọn hiện tối đa 2 dòng (tên WBS thường dài).
 .triggerText {
+  display: -webkit-box;
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
 }
 
 .triggerIcon {
@@ -54,13 +59,9 @@
   color: #6b7280;
 }
 
-// Khung thả xuống: tìm + cây, nổi trên form bên dưới.
+// Khung mở ra: tìm + cây. Nằm ngay trong form (đẩy nội dung bên dưới xuống) chứ không nổi, vì form tự cuộn
+// (overflow) nên khung nổi sẽ bị cắt mất.
 .panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  left: 0;
-  z-index: 30;
   display: grid;
   gap: 6px;
   padding: 8px;
@@ -102,7 +103,7 @@
 }
 
 .tree {
-  max-height: 240px;
+  max-height: min(46vh, 420px);
   overflow-y: auto;
   padding: 4px 0;
   border: 1px solid #e0e0e0;
@@ -112,10 +113,14 @@
 
 .row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   min-height: 30px;
+  padding-top: 5px;
+  padding-bottom: 5px;
   padding-right: 8px;
+  box-sizing: border-box;
+  line-height: 20px;
   color: #1e293b;
   font-size: 14px;
   cursor: pointer;
@@ -151,7 +156,7 @@
   align-items: center;
   justify-content: center;
   width: 18px;
-  height: 18px;
+  height: 20px;
 }
 
 .toggle {
@@ -171,12 +176,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+// Tên công việc trong cây xuống dòng cho đủ chữ, không cắt "…".
 .title,
 .rootLabel {
-  overflow: hidden;
+  flex: 1;
   min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .rootLabel {

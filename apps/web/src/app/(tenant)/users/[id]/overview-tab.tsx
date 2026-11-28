@@ -202,10 +202,7 @@ export function OverviewTab({
         </UserCard>
         {canEdit ? (
           <UserCard aria-label="Đặt lại mật khẩu" className="p-4 sm:p-5">
-            <h2 className={`${TITLE} mb-1`}>Đặt lại mật khẩu</h2>
-            <p className="m-0 mb-3.5 text-[13px] text-slate-500">
-              Mật khẩu mới có hiệu lực ngay. Để trống nếu không muốn đổi.
-            </p>
+            <h2 className={`${TITLE} mb-3.5`}>Đặt lại mật khẩu</h2>
             <form onSubmit={resetPassword} className="flex flex-col gap-1">
               <label htmlFor={passwordId} className={LABEL}>
                 Mật khẩu mới

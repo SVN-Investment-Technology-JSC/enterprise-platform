@@ -281,7 +281,7 @@ export function RequestThread({
           <Loader2 className="size-3.5 animate-spin" /> Đang tải…
         </p>
       ) : comments.length === 0 ? (
-        <p className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">{closed ? 'Chưa có trao đổi nào.' : 'Chưa có trao đổi nào. Gõ @ để nhắc tên người cần xem đơn này.'}</p>
+        <p className="rounded-lg bg-slate-50 px-3 py-3 text-center text-xs text-slate-500">Chưa có trao đổi nào.</p>
       ) : (
         <ul ref={listRef} className="max-h-[280px] space-y-2.5 overflow-y-auto pr-1" data-testid="thread-list">
           {comments.map((c) => {

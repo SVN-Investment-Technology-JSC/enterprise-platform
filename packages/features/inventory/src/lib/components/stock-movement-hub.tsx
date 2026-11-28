@@ -67,8 +67,7 @@ function LegacyEntryDrawer({ entry, onClose }: { entry: StockMovementEntry; onCl
   return (
     <Drawer open onClose={onClose} size="min(560px, 96vw)" destroyOnHidden title={`Bút toán cũ ${entry.code}`}>
       <p className="my-[0.6rem] rounded-[0.55rem] border border-amber-200 bg-amber-50 px-[0.8rem] py-[0.6rem] text-[13px] text-amber-800">
-        Bút toán này được ghi trước khi Kho dùng chứng từ nên không có chứng từ kèm theo. Dữ liệu chỉ để tra cứu,
-        không sửa và không đảo được tại đây.
+        Bút toán cũ không có chứng từ kèm theo; chỉ để tra cứu, không sửa hay đảo được.
       </p>
       <div className="my-4 grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3 [&>div]:flex [&>div]:flex-col [&>div]:gap-[0.15rem] [&_span]:text-xs [&_span]:font-bold [&_span]:text-slate-500 [&_small]:break-all [&_small]:text-xs [&_small]:text-slate-500">
         <div>
@@ -462,9 +461,9 @@ export function StockMovementHub({
             role="tab"
             aria-selected={view === item.id}
             className={cn(
-              'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-semibold',
+              'cursor-pointer rounded-[0.65rem] border-0 px-[0.95rem] py-2 text-sm font-medium',
               view === item.id
-                ? 'bg-primary text-primary-foreground'
+                ? 'bg-primary font-semibold text-primary-foreground'
                 : 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900',
             )}
             onClick={() => setView(item.id)}

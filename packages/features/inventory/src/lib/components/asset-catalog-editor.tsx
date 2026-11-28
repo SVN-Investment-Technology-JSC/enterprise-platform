@@ -52,8 +52,7 @@ export function AssetCatalogEditor({
             là điểm khởi đầu: đơn vị nào cần "chờ nghiệm thu" hay "niêm cất" thì
             tự thêm, không phải chờ bản mới. */}
         <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
-          Ví dụ: đang vận hành, đang dừng, đang bảo trì, chờ nghiệm thu. Để trống thì dùng bốn
-          trạng thái dựng sẵn.
+          Để trống thì dùng bốn trạng thái dựng sẵn.
         </p>
         <UnitCatalogEditor
           units={value.enabledStatuses}
@@ -67,10 +66,6 @@ export function AssetCatalogEditor({
 
       <fieldset className="m-0 mt-1 flex min-w-0 flex-col gap-[0.65rem] rounded-xl border border-slate-200 bg-white px-5 py-[1.1rem] shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow-md [&>legend]:inline-flex [&>legend]:items-center [&>legend]:gap-1.5 [&>legend]:px-2 [&>legend]:text-sm [&>legend]:font-semibold [&>legend]:text-slate-800">
         <legend>Loại vật tư</legend>
-        <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
-          Phân loại nghiệp vụ của riêng đơn vị bạn. Để trống thì cột Loại bỏ trống — không có bộ
-          dựng sẵn nào đúng cho mọi ngành.
-        </p>
         <UnitCatalogEditor
           units={value.types}
           usedUnits={EMPTY}
@@ -87,8 +82,7 @@ export function AssetCatalogEditor({
             cho mượn. Danh sách do tenant tự khai vì mỗi đơn vị gọi tên các
             trạng thái này một khác — không có bộ dựng sẵn nào đúng cho tất cả. */}
         <p className="m-0 mb-1 text-[13px] leading-normal text-slate-500">
-          Ví dụ: đang vận hành, mượn thí nghiệm, gửi đi sửa, dự phòng. Để trống thì ô này không
-          hiện trong hồ sơ vật tư.
+          Để trống thì ô này không hiện trong hồ sơ vật tư.
         </p>
         <UnitCatalogEditor
           units={value.usageStates}

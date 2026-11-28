@@ -124,11 +124,6 @@ export function DiscountPoliciesPage() {
             <Plus size={14} /> Thêm chính sách
           </button>
         </div>
-        <p className={styles.muted}>
-          Chính sách độc quyền có ưu tiên cao nhất (số nhỏ nhất) loại mọi chính sách khác. Không có độc quyền thì cộng
-          các chính sách "Cộng dồn" với mức cao nhất trong các chính sách "Lấy mức cao nhất", tính trên giá gốc rồi cắt
-          theo trần.
-        </p>
         {error ? <p className={styles.alert}>{error}</p> : null}
         <Table<DiscountPolicy>
           size="small"
@@ -191,7 +186,7 @@ function DiscountCap() {
           void save();
         }}
       >
-        <Field label="Phần trăm tối đa trên giá gốc" hint="Tổng chiết khấu theo chính sách vượt mức này thì bị cắt">
+        <Field label="Phần trăm tối đa trên giá gốc">
           <input className={`${styles.input} ${local.capInput}`} inputMode="decimal" value={value} onChange={(event) => setValue(event.target.value)} />
         </Field>
         <button type="submit" className={styles.buttonPrimary} disabled={saving}>
@@ -362,7 +357,7 @@ function PolicyDialog({ policy, onClose, onSaved }: { policy?: DiscountPolicy; o
         <Field label="Trạng thái" required>
           <SearchableSelect options={labelOptions(PRICING_STATUS_LABELS)} value={status} onChange={(value) => setStatus(value || 'ACTIVE')} />
         </Field>
-        <Field label="Phần trăm chiết khấu" hint={hasTiers ? 'Lấy theo từng bậc số lượng bên dưới' : 'Ví dụ 3 hoặc 2,5'}>
+        <Field label="Phần trăm chiết khấu" hint={hasTiers ? 'Lấy theo bậc số lượng' : undefined}>
           <input className={styles.input} inputMode="decimal" value={hasTiers ? '' : percent} disabled={hasTiers} onChange={(event) => setPercent(event.target.value)} />
         </Field>
         <label className={styles.checkbox}>
@@ -385,10 +380,7 @@ function PolicyDialog({ policy, onClose, onSaved }: { policy?: DiscountPolicy; o
       </div>
 
       <h3 className={styles.sectionTitle}>Tiêu chí</h3>
-      <p className={styles.muted}>
-        Các loại tiêu chí khác nhau kết hợp với nhau (và); nhiều dòng cùng loại là một trong các giá trị (hoặc). Bậc số
-        lượng tính theo số lượng của từng dòng báo giá, các bậc không được chồng nhau.
-      </p>
+      <p className={styles.muted}>Khác loại: và; cùng loại: hoặc. Các bậc số lượng không được chồng nhau.</p>
       <div className={local.rules}>
         {rules.map((rule) => (
           <div key={rule.key} className={local.ruleRow}>

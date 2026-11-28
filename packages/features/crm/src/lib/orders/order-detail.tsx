@@ -251,12 +251,7 @@ export function OrderDetail({
       dataIndex: 'vatRate',
       width: 110,
       align: 'right',
-      render: (value: number, row) =>
-        row.overrideVatRate != null ? (
-          <span title="Thuế suất sửa tay ở dòng này">{`${formatPercent(value)} (sửa tay)`}</span>
-        ) : (
-          formatPercent(value)
-        ),
+      render: (value: number, row) => (row.overrideVatRate != null ? `${formatPercent(value)} (sửa tay)` : formatPercent(value)),
     },
     {
       title: 'Giữ hàng',
@@ -412,9 +407,6 @@ export function OrderDetail({
             </>
           ) : null}
         </dl>
-        {detail.status === 'DELIVERED' ? (
-          <p className={styles.muted}>Đơn tự hoàn tất khi còn phải thu bằng 0; quản lý kinh doanh có thể đóng tay kèm lý do (ví dụ đã xoá nợ bằng điều chỉnh).</p>
-        ) : null}
         <OrderInfoNote order={detail} canEdit={capabilities.isTenantAdmin || capabilities.canWriteOrder} onSaved={setDetail} />
         <OrderReceivablePanel detail={detail} busy={busy} run={run} onOpenReceivables={onOpenReceivables} />
         {actions.length ? (
@@ -481,7 +473,7 @@ export function OrderDetail({
                 priceListsLoaded && !priceListOptions(priceLists, priceDate, chosenPriceList).length
                   ? NO_PRICE_LISTS_TEXT
                   : detail.priceListId
-                    ? 'Giá hợp đồng ưu tiên; mặt hàng khác lấy giá theo bảng này'
+                    ? undefined
                     : PICK_PRICE_LIST_FIRST
               }
             >
@@ -795,7 +787,7 @@ function DeliveryDialog({
         <Field label="Ngày giao dự kiến" required>
           <DatePickerInput value={plannedDate || undefined} onChange={setPlannedDate} height={38} aria-label="Ngày giao dự kiến" />
         </Field>
-        <Field label="Kho xuất" hint={warehouseError ?? 'Bỏ trống: kho của đơn; khác kho giữ hàng thì xuất từ tồn khả dụng'}>
+        <Field label="Kho xuất" hint={warehouseError ?? 'Bỏ trống: kho của đơn'}>
           <SearchableSelect
             options={warehouseOptions(warehouses, warehouseCode || null)}
             value={warehouseCode}
@@ -868,7 +860,7 @@ function OrderHeaderDialog({
         </Field>
         <Field
           label="Kho giữ hàng mặc định"
-          hint={`Dòng không chọn kho riêng giữ hàng ở kho này.${warehouses.length ? ` Kho đang có hàng: ${warehouses.join(', ')}` : ''}`}
+          hint={warehouses.length ? `Kho đang có hàng: ${warehouses.join(', ')}` : undefined}
         >
           <WarehouseSelect value={warehouseCode} onChange={(code) => setWarehouseCode(code ?? '')} placeholder="Chọn kho mặc định" />
         </Field>

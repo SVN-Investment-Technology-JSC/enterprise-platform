@@ -280,9 +280,6 @@ export function OrganizationAssignmentTable({
         <div className="rounded-[14px] border border-dashed border-slate-200 bg-white py-12 text-center text-sm text-slate-500">
           <UserPlus className="mx-auto size-8 text-slate-300" />
           <p className="mt-2 font-medium">Không tìm thấy bản ghi bổ nhiệm nào.</p>
-          <p className="mt-0.5 text-xs text-slate-400">
-            Bấm &quot;Bổ nhiệm người dùng&quot; để tạo phân công nhân sự mới.
-          </p>
         </div>
       ) : null}
 

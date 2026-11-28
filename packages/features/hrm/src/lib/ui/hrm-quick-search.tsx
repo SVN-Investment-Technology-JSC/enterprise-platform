@@ -83,7 +83,8 @@ interface PageItem {
   readonly label: string;
   readonly href: string;
   readonly group: string;
-  readonly hint?: string;
+  /** Từ khoá phụ để tìm (không hiển thị). */
+  readonly keywords?: string;
   readonly icon: LucideIcon;
   readonly slot?: AppIconProps['slot'];
   readonly permissions?: readonly HrmAction[];
@@ -97,7 +98,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Bàn làm việc',
     href: '/',
     group: 'Trang',
-    hint: 'Trang chủ HRM',
+    keywords: 'Trang chủ HRM',
     icon: Home,
     permissions: ['hrm.self.read', 'hrm.dashboard.read'],
   },
@@ -107,7 +108,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Giám sát chấm công',
     href: '/attendance-monitor',
     group: 'Trang',
-    hint: 'Theo dõi vào/ra',
+    keywords: 'Theo dõi vào/ra',
     icon: Activity,
     permissions: ATTENDANCE_MONITOR_PERMISSIONS,
   },
@@ -117,7 +118,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Đơn từ cần xử lý',
     href: '/approvals',
     group: 'Trang',
-    hint: 'Phê duyệt đơn',
+    keywords: 'Phê duyệt đơn',
     icon: ClipboardCheck,
     permissions: [
       'hrm.request.approve',
@@ -133,7 +134,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Công của tôi',
     href: '/my-work',
     group: 'Trang',
-    hint: 'Bảng công cá nhân',
+    keywords: 'Bảng công cá nhân',
     icon: Clock,
     permissions: ['hrm.self.read'],
   },
@@ -143,7 +144,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Đơn từ của tôi',
     href: '/requests',
     group: 'Trang',
-    hint: 'Đơn xin nghỉ, OT...',
+    keywords: 'Đơn xin nghỉ, OT...',
     icon: FileText,
     permissions: ['hrm.self.read'],
   },
@@ -153,7 +154,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Hồ sơ cá nhân',
     href: '/profile',
     group: 'Trang',
-    hint: 'Thông tin nhân sự',
+    keywords: 'Thông tin nhân sự',
     icon: UserCircle,
     permissions: ['hrm.self.read'],
   },
@@ -163,7 +164,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Phiếu lương',
     href: '/profile?view=payslips',
     group: 'Trang',
-    hint: 'Bảng lương chi tiết',
+    keywords: 'Bảng lương chi tiết',
     icon: TrendingUp,
     permissions: ['hrm.self.payslip'],
   },
@@ -174,7 +175,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Danh sách nhân sự',
     href: '/employees',
     group: 'Trang',
-    hint: 'Quản lý nhân viên',
+    keywords: 'Quản lý nhân viên',
     icon: Users,
     permissions: ['hrm.employee.read'],
   },
@@ -183,7 +184,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Quyết định nhân sự',
     href: '/employees?view=decisions',
     group: 'Trang',
-    hint: 'Bổ nhiệm, điều chuyển',
+    keywords: 'Bổ nhiệm, điều chuyển',
     icon: FilePlus,
     permissions: ['hrm.appointment.read'],
   },
@@ -193,7 +194,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Bảng công tổng hợp',
     href: '/timekeeping',
     group: 'Trang',
-    hint: 'Bảng chấm công',
+    keywords: 'Bảng chấm công',
     icon: CalendarClock,
     permissions: ['hrm.timesheet.read'],
   },
@@ -202,7 +203,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Dữ liệu chấm công gốc',
     href: '/timekeeping?view=data',
     group: 'Trang',
-    hint: 'Máy chấm công, log vào/ra',
+    keywords: 'Máy chấm công, log vào/ra',
     icon: Activity,
     permissions: ['hrm.attendance.read'],
   },
@@ -212,7 +213,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Phép năm và nghỉ bù',
     href: '/leave',
     group: 'Trang',
-    hint: 'Quỹ phép nhân viên',
+    keywords: 'Quỹ phép nhân viên',
     icon: CalendarDays,
     permissions: ['hrm.leave.read'],
   },
@@ -222,7 +223,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Lịch sử điều chỉnh phép',
     href: '/leave?view=adjustments',
     group: 'Trang',
-    hint: 'Biến động ngày phép',
+    keywords: 'Biến động ngày phép',
     icon: CalendarDays,
     permissions: ['hrm.leave.read'],
   },
@@ -232,7 +233,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Lịch xe và điều xe',
     href: '/fleet',
     group: 'Trang',
-    hint: 'Lịch trình xe cơ quan',
+    keywords: 'Lịch trình xe cơ quan',
     icon: Car,
     permissions: ['hrm.fleet.read'],
   },
@@ -242,7 +243,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Danh mục phương tiện xe',
     href: '/fleet?view=vehicles',
     group: 'Trang',
-    hint: 'Quản lý xe',
+    keywords: 'Quản lý xe',
     icon: Car,
     permissions: ['hrm.fleet.manage'],
   },
@@ -252,7 +253,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Danh sách tài xế',
     href: '/fleet?view=drivers',
     group: 'Trang',
-    hint: 'Đội ngũ lái xe',
+    keywords: 'Đội ngũ lái xe',
     icon: Car,
     permissions: ['hrm.fleet.manage'],
   },
@@ -263,7 +264,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Cấu hình nhân sự',
     href: '/settings',
     group: 'Trang',
-    hint: 'Thiết lập HRM',
+    keywords: 'Thiết lập HRM',
     icon: Sliders,
     permissions: [
       'hrm.time.configure',
@@ -277,7 +278,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Cấu hình chính sách phép năm',
     href: '/settings?tab=leave',
     group: 'Trang',
-    hint: 'Quy chế nghỉ phép',
+    keywords: 'Quy chế nghỉ phép',
     icon: CalendarDays,
     permissions: ['hrm.leave.manage'],
   },
@@ -286,7 +287,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Cấu hình chấm công',
     href: '/settings?tab=time',
     group: 'Trang',
-    hint: 'Địa điểm, GPS, wifi',
+    keywords: 'Địa điểm, GPS, wifi',
     icon: Clock,
     permissions: ['hrm.time.configure'],
   },
@@ -295,7 +296,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Phân ca làm việc',
     href: '/settings?tab=schedules',
     group: 'Trang',
-    hint: 'Lịch phân ca',
+    keywords: 'Lịch phân ca',
     icon: CalendarClock,
     permissions: ['hrm.schedule.read'],
   },
@@ -304,7 +305,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Danh mục ca làm việc',
     href: '/settings?tab=shifts',
     group: 'Trang',
-    hint: 'Giờ vào, giờ ra',
+    keywords: 'Giờ vào, giờ ra',
     icon: Clock,
     permissions: ['hrm.shift.read', 'hrm.shift.manage'],
   },
@@ -313,7 +314,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Cấu hình chấm công tự động',
     href: '/settings?tab=auto-attendance',
     group: 'Trang',
-    hint: 'Tự động tính công',
+    keywords: 'Tự động tính công',
     icon: Activity,
     permissions: ['hrm.time.configure'],
   },
@@ -322,7 +323,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Cấu hình lương và ngạch bậc',
     href: '/settings?tab=payroll',
     group: 'Trang',
-    hint: 'Công thức & ngạch bậc',
+    keywords: 'Công thức & ngạch bậc',
     icon: TrendingUp,
     permissions: [
       'hrm.payroll.configure',
@@ -335,7 +336,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Loại đơn và lý do nghỉ',
     href: '/settings?tab=request-reasons',
     group: 'Trang',
-    hint: 'Danh mục đơn từ',
+    keywords: 'Danh mục đơn từ',
     icon: FileText,
     permissions: ['hrm.leave.manage'],
   },
@@ -344,7 +345,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Hạn mức đơn từ',
     href: '/settings?tab=request-quota',
     group: 'Trang',
-    hint: 'Số ngày tối đa',
+    keywords: 'Số ngày tối đa',
     icon: FileText,
     permissions: ['hrm.leave.manage'],
   },
@@ -353,7 +354,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Quy tắc thời gian đơn',
     href: '/settings?tab=request-time-rules',
     group: 'Trang',
-    hint: 'Thời hạn tạo đơn',
+    keywords: 'Thời hạn tạo đơn',
     icon: Clock,
     permissions: ['hrm.leave.manage'],
   },
@@ -362,7 +363,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Cấu hình quy trình duyệt đơn',
     href: '/settings?tab=approval',
     group: 'Trang',
-    hint: 'Luồng phê duyệt',
+    keywords: 'Luồng phê duyệt',
     icon: ClipboardCheck,
     permissions: ['hrm.automation.manage'],
   },
@@ -371,7 +372,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Vận hành và tích hợp',
     href: '/settings?tab=operations',
     group: 'Trang',
-    hint: 'Tích hợp & nhật ký',
+    keywords: 'Tích hợp & nhật ký',
     icon: Sliders,
     permissions: [
       'hrm.automation.manage',
@@ -384,7 +385,7 @@ const PAGES: readonly PageItem[] = [
     label: 'Phân quyền HRM',
     href: '/permissions',
     group: 'Trang',
-    hint: 'Vai trò & quyền hạn',
+    keywords: 'Vai trò & quyền hạn',
     icon: ShieldCheck,
     permissions: ['hrm.manage'],
   },
@@ -395,7 +396,6 @@ const QUICK_ACTIONS: readonly {
   readonly id: string;
   readonly label: string;
   readonly href: string;
-  readonly hint: string;
   readonly icon: LucideIcon;
   readonly keywords: string;
 }[] = [
@@ -403,7 +403,6 @@ const QUICK_ACTIONS: readonly {
     id: 'act_leave',
     label: 'Tạo đơn xin nghỉ phép',
     href: '/requests?create=LEAVE',
-    hint: 'Nghỉ phép năm, nghỉ ốm, việc riêng',
     icon: FilePlus,
     keywords: 'tao don xin nghi phep nam om viec rieng ngay phep',
   },
@@ -411,7 +410,6 @@ const QUICK_ACTIONS: readonly {
     id: 'act_ot',
     label: 'Tạo đơn làm thêm giờ (OT)',
     href: '/requests?create=OT',
-    hint: 'Tăng ca ngày thường, nghỉ lễ',
     icon: FilePlus,
     keywords: 'tao don lam them gio tang ca overtime ot ngay le cuoi tuan',
   },
@@ -419,7 +417,6 @@ const QUICK_ACTIONS: readonly {
     id: 'act_trip',
     label: 'Tạo đơn xin đi công tác',
     href: '/requests?create=BUSINESS_TRIP',
-    hint: 'Công tác nội bộ, ngoại tỉnh',
     icon: FilePlus,
     keywords: 'tao don xin di cong tac business trip cong tac phi',
   },
@@ -427,7 +424,6 @@ const QUICK_ACTIONS: readonly {
     id: 'act_shift_change',
     label: 'Tạo đơn xin đổi ca làm việc',
     href: '/requests?create=SHIFT_CHANGE',
-    hint: 'Đổi ca với đồng nghiệp',
     icon: FilePlus,
     keywords: 'tao don xin doi ca lam viec shift change ca truc',
   },
@@ -435,7 +431,6 @@ const QUICK_ACTIONS: readonly {
     id: 'act_correction',
     label: 'Tạo đơn giải trình chấm công',
     href: '/requests?create=ATTENDANCE_CORRECTION',
-    hint: 'Quên chấm công, bổ sung giờ vào/ra',
     icon: FilePlus,
     keywords: 'tao don giai trinh cham cong quen cham bo sung check in check out',
   },
@@ -443,7 +438,6 @@ const QUICK_ACTIONS: readonly {
     id: 'act_advance',
     label: 'Tạo đơn tạm ứng lương',
     href: '/requests?create=SALARY_ADVANCE',
-    hint: 'Tạm ứng thu nhập trong tháng',
     icon: FilePlus,
     keywords: 'tao don tam ung luong ung tien advance',
   },
@@ -586,7 +580,7 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
       (page) => !page.permissions || permissions.any(page.permissions),
     );
     const pageRows = allowedPages
-      .filter((page) => !needle || fold(page.label).includes(needle) || fold(page.hint || '').includes(needle))
+      .filter((page) => !needle || fold(page.label).includes(needle) || fold(page.keywords || '').includes(needle))
       .slice(0, needle ? PER_GROUP : 8)
       .map(
         (page): ResultRow => ({
@@ -598,7 +592,6 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
             <page.icon size={15} aria-hidden />
           ),
           label: page.label,
-          hint: page.hint,
           target: { kind: 'page', href: page.href },
         }),
       );
@@ -608,7 +601,6 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
       (act) =>
         !needle ||
         fold(act.label).includes(needle) ||
-        fold(act.hint).includes(needle) ||
         fold(act.keywords).includes(needle),
     )
       .slice(0, needle ? 4 : 4)
@@ -618,7 +610,6 @@ export function HrmQuickSearch({ open, onClose, onPick }: HrmQuickSearchProps) {
           group: 'Thao tác nhanh',
           icon: <act.icon size={15} aria-hidden />,
           label: act.label,
-          hint: act.hint,
           target: { kind: 'page', href: act.href },
         }),
       );

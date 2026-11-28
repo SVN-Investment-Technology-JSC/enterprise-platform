@@ -48,7 +48,7 @@ import { Check, ChevronLeft, ChevronRight, Download, FileText, Paperclip, Plus, 
 import type { AssetCatalogItem, MaterialCatalogItem } from '../procedure-api';
 import { AttachmentPanel } from './attachment-panel';
 import { DeleteInstanceDialog, RelinkWorkspaceDialog } from './instance-admin-dialogs';
-import { AttributeForm, attributeSlots, type AttributeDraft } from './attribute-form';
+import { AttributeForm, AttributeValues, attributeSlots, type AttributeDraft } from './attribute-form';
 import { useInstanceProjectLookup } from './use-instance-project';
 import { usePayeePicker } from './use-payee-picker';
 import {
@@ -70,7 +70,7 @@ import {
 import { LinkedPanel } from './linked-panel';
 import { SlaBadge } from './sla-badge';
 import { StartInstanceForm, type StartHandoff, type StartProcedureInput } from './start-instance-form';
-import { StepDetailDialog } from './step-detail-dialog';
+import { StepDetailDialog, stepDetail } from './step-detail-dialog';
 import { stepCommentPrompt } from './comment-prompt';
 import { SubtaskPanel } from './subtask-panel';
 import type { TimelineEntry } from './instance-flow-view';
@@ -628,7 +628,7 @@ export function WorkspaceBoard({
   // Xuất Excel và Tạo đơn: dùng ở cả hai giao diện (giao diện cũ thêm nút Thẻ / Bảng phía trước).
   const exportCreateActions = (
     <>
-      <button type="button" className={styles.ghost} onClick={exportExcel} title="Xuất file danh sách CSV">
+      <button type="button" className={styles.ghost} onClick={exportExcel}>
         <Download size={15} aria-hidden /> Xuất Excel
       </button>
       {published.length > 0 && canCreateInstances ? (
@@ -735,6 +735,7 @@ export function WorkspaceBoard({
               step={selectedCurrent}
               resolveSubject={resolveSubject}
               className={caseStyles.stageListPanel}
+              full
             />
             <FinanceVoucherCard step={selectedCurrent} onRefresh={() => onRefreshInstance?.(selected.id)} />
             <StepDocuments
@@ -1387,6 +1388,18 @@ export function WorkspaceBoard({
 
           <FinanceVoucherCard step={step} onRefresh={() => onRefreshInstance?.(selected.id)} />
 
+          {/* Bước đã qua: giá trị nhập ở bước này, cùng khối chỉ đọc với khung xử lý (giao diện mới, cũ và khung nhúng). */}
+          {!isCur && (isDone || isRejected || step.status === 'returned') ? (
+            <AttributeValues
+              instance={selected}
+              items={stepDetail(selected, step).values}
+              contextStepId={step.definitionStepId}
+              members={organization?.members}
+              attachments={(attachments ?? []).filter((file) => file.instanceId === selected.id)}
+              heading="Thông tin đã nhập"
+            />
+          ) : null}
+
           {/* QT-U1: tài liệu nộp ở chính bước này, để bước sau xem được bước trước up gì. */}
           <StepDocuments
             files={(attachments ?? []).filter(
@@ -1398,11 +1411,7 @@ export function WorkspaceBoard({
           {/* Bước vừa xong mà người này còn rút lại được: nút Hoàn duyệt nằm ngay trên bước đó. */}
           {withdrawStepId === step.id && !isCur ? (
             <WithdrawCallout
-              text={
-                layoutA
-                  ? 'Bạn còn hoàn duyệt được bước này.'
-                  : 'Bạn vừa xử lý xong bước này. Bước sau chưa ai xử lý nên bạn còn hoàn duyệt được để làm lại.'
-              }
+              text="Bạn còn hoàn duyệt được bước này."
               busy={busy === `withdraw:${selected.id}` || isSubmitting}
               onWithdraw={() => void handleActionWithAttach(selected.id, 'withdraw')}
             />
@@ -1483,6 +1492,8 @@ export function WorkspaceBoard({
               />
             </>
           }
+          members={organization?.members}
+          attachments={(attachments ?? []).filter((file) => file.instanceId === selected.id)}
           onClose={() => setDetailStepId(null)}
         />
       ) : null}
@@ -1922,7 +1933,6 @@ export function WorkspaceBoard({
           {visible.length === 0 ? (
             <div className={styles.empty}>
               <h2>Không có hồ sơ nào khớp bộ lọc</h2>
-              <p>Thử đổi điều kiện lọc hoặc tạo yêu cầu mới.</p>
             </div>
           ) : viewMode === 'table' ? (
             <div className={styles.listBody}>
@@ -2561,11 +2571,7 @@ function ActionPanel({
           {/* Người vừa duyệt xong bước trước đã rời bước đó: vẫn rút lại được ngay tại đây khi bước này chưa ai xử lý. */}
           {authorization?.canWithdraw ? (
             <WithdrawCallout
-              text={
-                concise
-                  ? `Bạn còn hoàn duyệt được bước “${authorization.withdrawStepName ?? 'trước'}”.`
-                  : `Bạn vừa xử lý xong bước “${authorization.withdrawStepName ?? 'trước'}”. Bước này chưa ai xử lý nên bạn còn hoàn duyệt được để làm lại.`
-              }
+              text={`Bạn còn hoàn duyệt được bước “${authorization.withdrawStepName ?? 'trước'}”.`}
               busy={Boolean(isActionBusy('withdraw'))}
               onWithdraw={() => onAction('withdraw')}
             />
@@ -2634,7 +2640,7 @@ function ActionPanel({
           {/* QT-U5: ô "trả lại về bước" + xác nhận nằm trong pop-up nền mờ (xem cuối panel). */}
 
           {!concise && current?.integration?.module === 'finance' && current.status === 'active' ? (
-            <FinanceWaitingNote step={current} />
+            <FinanceWaitingNote />
           ) : null}
 
           {/* Ý kiến và nút thao tác ghim ở đáy khung chi tiết: bước dài vẫn bấm được ngay. */}
@@ -2692,11 +2698,6 @@ function ActionPanel({
                     >
                       Chọn tệp từ máy tính
                     </button>
-                    {concise ? null : (
-                      <span className={styles.attachSubtext}>
-                        Tệp sẽ được tải lên tự động khi bạn bấm gửi phê duyệt
-                      </span>
-                    )}
                   </div>
                 </div>
               ) : null}
@@ -2727,11 +2728,6 @@ function ActionPanel({
                     >
                       {isActionBusy('withdraw') ? 'Đang xử lý…' : 'Hoàn duyệt'}
                     </button>
-                    {concise ? null : (
-                      <span className={styles.attachSubtext}>
-                        Rút lại lần xử lý vừa rồi để làm lại, khi người sau chưa xử lý.
-                      </span>
-                    )}
                   </div>
                 ) : null}
               </>
@@ -3004,7 +3000,7 @@ function MaterialStatus({
 
       {short ? (
         <p className={styles.materialAlert}>
-          Bước bị chặn hoàn tất cho tới khi bổ sung đủ hàng. Nhập kho xong thì bấm “Kiểm lại tồn kho”.
+          Bước bị chặn hoàn tất cho tới khi bổ sung đủ hàng.
         </p>
       ) : step.materialReservations?.length ? (
         <p className={styles.materialHeld}>
@@ -3012,7 +3008,7 @@ function MaterialStatus({
           {step.materialReservations.map((code) => (
             <code key={code} style={{ background: '#d1fae5', padding: '1px 5px', borderRadius: '4px', margin: '0 2px' }}>{code}</code>
           ))}
-          . Hàng được trả lại kho khi bước xong hoặc hồ sơ đóng.
+          .
         </p>
       ) : null}
 

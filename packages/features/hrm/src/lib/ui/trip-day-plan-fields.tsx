@@ -75,7 +75,7 @@ export function TripDayPlanFields({
         <div>
           <span className="text-xs font-bold text-slate-800">Giờ làm theo ngày (tùy chọn)</span>
           <p className="text-[12px] text-slate-500">
-            {declared ? `Đã sửa giờ ${declared}/${dates.length} ngày; ngày còn lại giữ mặc định.` : 'Mặc định giờ hành chính; chỉ sửa ngày làm khác giờ.'}
+            {declared ? `Đã sửa giờ ${declared}/${dates.length} ngày; ngày còn lại giữ mặc định.` : 'Mặc định giờ hành chính.'}
           </p>
         </div>
         <Button size="sm" variant="outline" disabled={disabled} onClick={() => setOpen((v) => !v)}>
@@ -128,7 +128,7 @@ export function TripDayPlanFields({
             })}
           </div>
           <p className="text-[12px] text-slate-500">
-            Giờ vượt ca là làm thêm. Sau chuyến đi, khai giờ thực tế ở chi tiết đơn để quản lý trực tiếp xác nhận.
+            Sau chuyến đi, khai giờ thực tế ở chi tiết đơn.
           </p>
         </div>
       ) : null}

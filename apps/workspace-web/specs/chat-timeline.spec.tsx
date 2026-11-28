@@ -162,7 +162,7 @@ describe('Trao đổi theo thời gian', () => {
     expect(within(projectColumn).getByText('Tin p1')).toBeTruthy();
     expect(within(projectColumn).queryByText('Tin m1')).toBeNull();
     expect(projectColumn.querySelector('[data-slot="node-chip"]')).toBeNull();
-    const workColumn = screen.getByRole('heading', { name: 'Tổng hợp trao đổi của những công việc thuộc dự án' }).parentElement as HTMLElement;
+    const workColumn = screen.getByRole('heading', { name: 'Trao đổi của các công việc' }).parentElement as HTMLElement;
     expect(within(workColumn).getByText('Tin m1')).toBeTruthy();
     expect(within(workColumn).queryByText('Tin p1')).toBeNull();
   });

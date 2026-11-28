@@ -32,7 +32,7 @@ import {
 import { cn } from '../../utils';
 import { Button } from '../button';
 import { DatePickerInput } from '../date-picker-input';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../dialog';
 import { useCloseGuard } from '../use-close-guard';
 import { Input } from '../input';
 import { toast } from '../toast';
@@ -208,8 +208,7 @@ function HolidayForm({
           </Field>
         </div>
         <Notice tone="info">
-          Ngày lễ trên lịch không đồng nghĩa nhân viên đã đi làm. Công thực tế vẫn dựa trên chấm công; lịch lễ chỉ xác
-          định ngày đó nghỉ lễ hay vẫn bố trí ca.
+          Ngày lễ trên lịch không đồng nghĩa nhân viên đã đi làm; công thực tế dựa trên chấm công.
         </Notice>
         {error ? <Notice tone="error">{error}</Notice> : null}
       </div>
@@ -303,9 +302,6 @@ export function HolidaysManager({
       <DialogContent className="@container h-[min(88dvh,760px)] max-w-5xl" aria-label="Lịch lễ và Tết">
         <DialogHeader className="shrink-0 border-b border-slate-200 bg-slate-50 px-6 py-4">
           <DialogTitle className="text-lg">{creating ? 'Tạo ngày lễ, Tết' : 'Lịch lễ và Tết'}</DialogTitle>
-          <DialogDescription>
-            Khai báo ngày lễ, Tết, nghỉ bù hoặc ngày đặc biệt theo công ty, đơn vị hoặc nhân viên chỉ định.
-          </DialogDescription>
         </DialogHeader>
         {creating ? (
           <HolidayForm

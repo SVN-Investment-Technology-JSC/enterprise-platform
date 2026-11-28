@@ -60,9 +60,6 @@ export default async function PlatformPlansPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Quản lý gói dịch vụ & Hạn mức
           </h1>
-          <p className="text-sm text-slate-500">
-            Thiết lập cấu hình phân hệ cấp phép, phiên bản gói và chính sách hạn mức tài nguyên (Quota Policy) cho toàn bộ hệ thống.
-          </p>
         </div>
         <PlansManagement initialPlans={plans} />
       </div>

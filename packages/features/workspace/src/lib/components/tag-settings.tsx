@@ -48,11 +48,7 @@ export function TagSettings() {
   return (
     <div className={styles.roleSettings}>
       <div className={styles.roleSettingsHead}>
-        <p className={styles.muted}>
-          {canEdit
-            ? 'Nhãn đã ẩn vẫn giữ trên nơi đã gắn nhưng không chọn thêm được.'
-            : 'Chỉ quản trị viên được sửa, ẩn hoặc xoá nhãn.'}
-        </p>
+        {canEdit ? <span /> : <p className={styles.muted}>Chỉ quản trị viên được sửa, ẩn hoặc xoá nhãn.</p>}
         {canEdit ? (
           <Button type="button" onClick={() => setEditing(null)}>
             <Plus aria-hidden /> Thêm nhãn
@@ -207,7 +203,6 @@ function TagFormDialog({
     <Dialog
       open={open}
       title={tag ? `Sửa nhãn "${tag.name}"` : 'Thêm nhãn'}
-      subtitle="Tên nhãn được lưu bằng chữ thường để không trùng kiểu hoa thường."
       submitLabel="Lưu"
       submitting={submitting}
       submitDisabled={!name.trim()}

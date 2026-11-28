@@ -171,10 +171,7 @@ export function QuotePromotionsPanel({
           ))}
         </ul>
       ) : opportunityId ? (
-        <p className={styles.muted}>
-          Phiên bản này không có khuyến mãi. Chỉ sửa được khi phiên bản ở trạng
-          thái Nháp.
-        </p>
+        <p className={styles.muted}>Phiên bản này không có khuyến mãi.</p>
       ) : null}
     </section>
   );

@@ -100,14 +100,7 @@ export function AssetForm({
       >
         <form onSubmit={submit} className="flex min-h-0 flex-col">
           <DialogHeader>
-            <div>
-              <DialogTitle>{isRootOnly ? 'Tạo Thiết bị / Cụm gốc' : 'Thêm vật tư lắp đặt'}</DialogTitle>
-              <p className="mt-1 mb-0 text-sm leading-snug text-slate-500">
-                {isRootOnly
-                  ? 'Thiết bị hoặc công trình cấp cao nhất (Root Node) trên cây tài sản 360.'
-                  : 'Khai báo thiết bị và phân bổ vào cây cấu trúc tài sản.'}
-              </p>
-            </div>
+            <DialogTitle>{isRootOnly ? 'Tạo Thiết bị / Cụm gốc' : 'Thêm vật tư lắp đặt'}</DialogTitle>
             <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
               <DialogCloseButton />
             </CloseGuard>
@@ -159,11 +152,6 @@ export function AssetForm({
                 onChange={(event) => setCode(event.target.value)}
               />
             )}
-            <span className="text-[13px] text-slate-500">
-              {materials.length > 0 && !isCustomCode
-                ? 'Chọn thiết bị/vật tư đã được khai báo trong danh mục vật tư kho.'
-                : 'Mã định danh viết hoa duy nhất dùng trong quản trị và vận hành.'}
-            </span>
           </div>
 
           {/* Tên thiết bị */}

@@ -170,7 +170,7 @@ export function RelinkWorkspaceDialog({
       title="Đổi dự án / công việc"
       subtitle={`${instance.code} · ${instance.title}`}
       onClose={onClose}
-      maxWidth={600}
+      maxWidth={860}
     >
       <form
         className={styles.createFormBody}

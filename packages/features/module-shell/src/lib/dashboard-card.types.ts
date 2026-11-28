@@ -12,8 +12,8 @@ export interface DashboardCardDefinition<TData> {
    */
   readonly id: string;
   readonly title: string;
-  /** Hiện trong màn chọn thẻ, để admin biết mình đang bật cái gì. */
-  readonly description: string;
+  /** Mô tả nội bộ của thẻ; màn chọn thẻ chỉ hiện `title`. */
+  readonly description?: string;
   readonly size: DashboardCardSize;
   /** Dùng cho tenant chưa từng mở màn cài đặt. */
   readonly defaultEnabled?: boolean;

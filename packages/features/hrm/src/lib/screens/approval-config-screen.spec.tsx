@@ -236,18 +236,10 @@ async function renderLoaded() {
 }
 
 describe('ApprovalConfigScreen', () => {
-  it('giải thích hai cách duyệt và nhóm các loại đơn đang dùng, chỉ mở sẵn lý do có cấu hình riêng', async () => {
+  it('ghi chú phạm vi áp dụng và nhóm các loại đơn đang dùng, chỉ mở sẵn lý do có cấu hình riêng', async () => {
     await renderLoaded();
     expect(screen.getByRole('heading', { name: 'Quy trình duyệt' })).toBeTruthy();
-    expect(screen.getByText('Thiết lập quy trình phê duyệt đơn từ.')).toBeTruthy();
-    expect(screen.getByText('Quản lý trực tiếp (mặc định):')).toBeTruthy();
-    expect(screen.getByText('Theo quy trình:')).toBeTruthy();
-    expect(
-      screen.getByText(/Người duyệt là quản lý trực tiếp và người có quyền duyệt toàn bộ/),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Người duyệt do quy trình chỉ định theo từng bước/),
-    ).toBeTruthy();
+    expect(screen.getByText(/Cấu hình mới chỉ áp dụng cho đơn gửi sau/)).toBeTruthy();
 
     for (const key of ['leave:', 'ot:', 'business_trip:', 'correction:'])
       expect(rowOf(key)).toBeTruthy();

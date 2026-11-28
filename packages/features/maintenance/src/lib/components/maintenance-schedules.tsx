@@ -171,14 +171,9 @@ export function MaintenanceSchedulesTable({
   return (
     <section className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="m-0 mb-1 text-xl font-bold tracking-tight text-foreground">
-            Lịch bảo trì
-          </h2>
-          <p className="m-0 text-sm leading-snug text-muted-foreground">
-            Danh sách lịch bảo trì định kỳ, tần suất và thời điểm đến hạn kế tiếp của từng thiết bị.
-          </p>
-        </div>
+        <h2 className="m-0 text-xl font-bold tracking-tight text-foreground">
+          Lịch bảo trì
+        </h2>
         {canManage ? (
           <Button size="lg" className="rounded-md px-3" onClick={onCreateSchedule} disabled={busy}>
             <Plus />
@@ -263,16 +258,14 @@ export function MaintenanceSchedulesTable({
           </Popover>
 
           {hasFilter ? (
-            <Tip content="Đặt lại toàn bộ bộ lọc">
-              <Button
-                variant="outline"
-                size="lg"
-                className="rounded-md px-3"
-                onClick={resetFilters}
-              >
-                Xoá bộ lọc
-              </Button>
-            </Tip>
+            <Button
+              variant="outline"
+              size="lg"
+              className="rounded-md px-3"
+              onClick={resetFilters}
+            >
+              Xoá bộ lọc
+            </Button>
           ) : null}
 
           {/* Thao tác hàng loạt: cùng hàng với bộ lọc nhưng dạt sang phải; chỉ dùng được khi đã tick lịch */}
@@ -282,9 +275,7 @@ export function MaintenanceSchedulesTable({
                 content={
                   selected.length === 0
                     ? 'Tick chọn lịch trong bảng trước.'
-                    : toggleMode === 'pause'
-                      ? 'Ngưng sinh phiếu mới từ các lịch đang chạy đã chọn'
-                      : 'Cho các lịch đang dừng đã chọn chạy lại'
+                    : undefined
                 }
               >
                 <span className="inline-flex">
@@ -305,7 +296,7 @@ export function MaintenanceSchedulesTable({
                 content={
                   selectedActive.length === 0
                     ? 'Tick chọn lịch đang chạy trong bảng trước.'
-                    : 'Đẩy hạn các lịch đã chọn sang chu kỳ kế, không sinh phiếu lần này'
+                    : undefined
                 }
               >
                 <span className="inline-flex">

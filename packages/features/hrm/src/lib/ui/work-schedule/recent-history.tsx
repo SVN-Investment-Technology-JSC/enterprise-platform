@@ -71,7 +71,6 @@ export function RecentScheduleHistory({
       icon={Clock}
       tone="blue"
       title="Lịch sử phân ca gần đây"
-      description="Hiển thị các lần phân ca gần nhất."
       actions={
         <Button variant="ghost" size="sm" className="text-blue-600 hover:text-blue-700" onClick={onViewAll}>
           Xem tất cả

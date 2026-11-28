@@ -200,7 +200,6 @@ export default function HrmPermissionsScreen() {
     <div className="@container mx-auto max-w-[1600px] space-y-4">
       <PageTitle
         title="Quyền và vai trò"
-        description="Quản trị tenant ghép hành động thành bộ quyền, gán bộ quyền vào vai trò và cấp module HRM cho vai trò người dùng."
         actions={
           <a
             className={cn(buttonVariants({ variant: 'outline' }), 'h-9 gap-1.5 px-3 text-xs font-semibold text-slate-700')}
@@ -217,7 +216,6 @@ export default function HrmPermissionsScreen() {
           icon={UsersRound}
           tone="violet"
           title="Vai trò mẫu HRM"
-          description="Bộ quyền và vai trò dựng sẵn cho module HRM (nhân viên, trưởng bộ phận, chấm công, nhân sự, lương...)."
           actions={
             <>
               <Popconfirm
@@ -263,10 +261,7 @@ export default function HrmPermissionsScreen() {
           }
           bodyClassName="space-y-3"
         >
-          <InfoNote tone="slate">
-            Tạo chỉ thêm vai trò chưa có. Đồng bộ cập nhật cả vai trò đã có theo bản mẫu hiện hành (thêm quyền mới, gỡ quyền không còn
-            trong mẫu) nên ảnh hưởng ngay tới người đang giữ vai trò.
-          </InfoNote>
+          <InfoNote tone="slate">Đồng bộ cập nhật cả vai trò đã có theo mẫu, ảnh hưởng ngay tới người đang giữ vai trò.</InfoNote>
           {seedMessage ? (
             <InfoNote tone={seedError ? 'red' : 'green'} role={seedError ? 'alert' : 'status'}>
               <div>{seedMessage}</div>
@@ -329,7 +324,7 @@ export default function HrmPermissionsScreen() {
           rowKey={(r) => r.key}
           pageSize={20}
           empty={
-            <EmptyPanel icon={KeyRound} title="Không có hành động nào khớp" description="Thử đổi từ khóa hoặc nhóm quyền." />
+            <EmptyPanel icon={KeyRound} title="Không có hành động nào khớp" />
           }
         />
       </SettingsSection>

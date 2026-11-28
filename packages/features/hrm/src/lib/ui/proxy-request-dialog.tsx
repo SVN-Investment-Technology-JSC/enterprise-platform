@@ -131,8 +131,7 @@ export function ProxyRequestDialog(props: ProxyRequestDialogProps) {
                 Tạo đơn hộ nhân viên
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-500">
-                Chỉ chọn được nhân viên trong phạm vi bạn được tạo hộ. Đơn được gửi duyệt như đơn của nhân viên và ghi nhận bạn
-                là người tạo.
+                Đơn được gửi duyệt như đơn của nhân viên và ghi nhận bạn là người tạo.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 p-6 text-xs">

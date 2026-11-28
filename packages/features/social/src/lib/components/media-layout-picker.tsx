@@ -136,7 +136,6 @@ export function MediaLayoutPicker({ value, onChange, disabled }: MediaLayoutPick
             role="radio"
             aria-checked={selected}
             aria-label={`${label}: ${LAYOUT_DESCRIPTIONS[layout]}`}
-            title={`${label}: ${LAYOUT_DESCRIPTIONS[layout]}`}
             tabIndex={layout === focusable ? 0 : -1}
             disabled={disabled}
             className={styles.option}

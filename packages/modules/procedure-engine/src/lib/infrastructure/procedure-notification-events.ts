@@ -154,7 +154,7 @@ const PROCESSING_ACTIONS: readonly string[] = ['complete', 'approve', 'return', 
  * - Thao tác làm hồ sơ kết thúc (bước cuối, từ chối, huỷ) đã có thông báo "Quy trình đã kết thúc" riêng: bỏ qua ở đây.
  * - Người tạo chính là người vừa thao tác thì không tự báo cho mình.
  * - Hồ sơ vừa đến lượt một vai mới (sang bước mới, hay sang pha kế trong cùng bước) mà người tạo là người giữ vai đó thì
- *   họ đã nhận "Đến lượt bạn xử lý quy trình": không báo trùng.
+ *   họ đã nhận "Đến lượt bạn xử lý": không báo trùng.
  */
 export function procedureStepProcessedEvents(
   prior: ProcedureInstance | undefined,

@@ -162,7 +162,7 @@ function ImagePicker({ label, value, onChange, onRemove }: { label: string; valu
     else setError(result.message);
   };
   return (
-    <FieldRow label={label} error={error} hint="PNG hoặc JPEG; ảnh lớn được tự thu về rộng tối đa 1.600 px và nén JPEG dưới 300 KB.">
+    <FieldRow label={label} error={error} hint="PNG hoặc JPEG">
       <div className={styles.imagePicker}>
         {value ? <img src={value} alt="" className={styles.imageThumb} /> : <span className={styles.imageEmpty}>Chưa có ảnh</span>}
         <div className={styles.imageActions}>
@@ -240,16 +240,14 @@ function CompanyHeaderEditor(ctx: EditorContext<QuoteLayoutCompanyHeaderBlock>) 
             />
           </div>
         ))}
-        <p className={styles.fieldHint}>Tối đa {LIMITS.maxCompanyLines} dòng: địa chỉ, mã số thuế, điện thoại...</p>
+        <p className={styles.fieldHint}>Tối đa {LIMITS.maxCompanyLines} dòng</p>
       </Section>
       <CheckField
         label="Logo theo tổ chức báo giá"
         checked={block.logoFromOrganization === true}
         onChange={(logoFromOrganization) => set({ logoFromOrganization })}
       />
-      <p className={styles.fieldHint}>
-        Bật thì in logo của tổ chức báo giá; tổ chức không có logo thì dùng ảnh bên dưới.
-      </p>
+      <p className={styles.fieldHint}>Tổ chức không có logo thì dùng ảnh bên dưới.</p>
       <ImagePicker
         label={block.logoFromOrganization ? 'Logo dự phòng' : 'Logo'}
         value={block.logo}
@@ -418,7 +416,6 @@ function TermsEditor(ctx: EditorContext<QuoteLayoutTermsBlock>) {
     <>
       <CheckField label="Đánh số thứ tự" checked={ctx.block.numbered} onChange={(numbered) => ctx.set({ numbered })} />
       <LabelValueList ctx={ctx} title="Điều khoản" addLabel="Thêm điều khoản" />
-      <p className={styles.fieldHint}>Điều khoản thanh toán, tiến độ giao hàng thường lấy từ trường tuỳ biến của báo giá (nhóm "Trường tuỳ biến").</p>
     </>
   );
 }
@@ -534,7 +531,7 @@ function TotalsEditor(ctx: EditorContext<QuoteLayoutTotalsBlock>) {
             {ORDER_TAX_TWICE_HINT}
           </p>
         ) : null}
-        <p className={styles.fieldHint}>Dòng có giá trị 0 vẫn in nếu đang bật. Chiết khấu tổng đơn và thuế tổng đơn chỉ có số khi mẫu tính theo tổng đơn.</p>
+        <p className={styles.fieldHint}>Dòng có giá trị 0 vẫn in nếu đang bật.</p>
       </Section>
       <CheckField label="In số tiền bằng chữ" checked={block.showAmountInWords} onChange={(showAmountInWords) => set({ showAmountInWords })} />
       <AlignField value={block.align} onChange={(align) => set({ align })} />

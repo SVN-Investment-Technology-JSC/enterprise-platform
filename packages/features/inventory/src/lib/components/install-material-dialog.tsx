@@ -182,13 +182,11 @@ export function InstallMaterialDialog({
         <DialogHeader>
           <div>
             <DialogTitle>{dialogTitle}</DialogTitle>
-            <DialogDescription>
-              {parent ? (
-                <>Xuất vật tư từ kho và lắp ráp trực tiếp vào cụm <strong>{parent.name}</strong> ({parent.code}).</>
-              ) : (
-                <>Xuất vật tư/thiết bị từ kho và đưa lên làm <strong>Thiết bị / Cụm gốc cấp cao nhất</strong> trên cây tài sản.</>
-              )}
-            </DialogDescription>
+            {parent ? (
+              <DialogDescription>
+                <strong>{parent.name}</strong> ({parent.code})
+              </DialogDescription>
+            ) : null}
           </div>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
             <DialogCloseButton />
@@ -402,10 +400,14 @@ export function InstallMaterialDialog({
                 <Button type="button" variant="outline" onClick={() => setPicker('lot')}>
                   Chọn lô
                 </Button>
-                <span className="text-[13px] text-slate-600">
-                  {lots.length > 0
-                    ? lots.map((lot) => `${lot.lotNo}: ${lot.quantity}`).join('; ')
-                    : 'Không chọn lô: nếu vật tư quản lý theo lô, hệ thống tự lấy lô hạn dùng gần nhất trước (FEFO).'}
+                <span className={cn('text-[13px]', serialsMissing ? 'text-red-700' : 'text-slate-600')}>
+                  {serialized
+                    ? serials.length > 0
+                      ? serials.join(', ')
+                      : `Vật tư theo dõi theo serial: chọn đủ ${amount} serial đang trong kho ${warehouseCode}.`
+                    : lots.length > 0
+                      ? lots.map((lot) => `${lot.lotNo}: ${lot.quantity}`).join('; ')
+                      : 'Không chọn lô: nếu vật tư quản lý theo lô, hệ thống tự lấy lô hạn dùng gần nhất trước (FEFO).'}
                 </span>
               </div>
             </div>

@@ -496,7 +496,6 @@ export default function OperationsScreen() {
         icon={CalendarClock}
         tone="green"
         title="Lịch tự động hàng ngày"
-        description="Cộng phép theo tháng và (khi bật) chốt phép cuối năm."
         actions={
           data.settings?.enabled ? <StatusPill tone="green">Đang bật</StatusPill> : <StatusPill tone="slate">Đang tắt</StatusPill>
         }
@@ -521,8 +520,7 @@ export default function OperationsScreen() {
           </InfoNote>
         ) : null}
         <p className="text-[12px] leading-relaxed text-slate-500">
-          Hằng ngày tác vụ cộng phép theo tháng và (khi bật) chốt phép cuối năm: phép năm không chuyển sang năm sau nên phần còn lại
-          được reset về 0. Chạy lại không ghi trùng.
+          Chốt phép cuối năm đưa phép năm còn lại về 0. Chạy lại không ghi trùng.
         </p>
         <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
           <Button
@@ -652,7 +650,7 @@ export default function OperationsScreen() {
           icon={History}
           tone="blue"
           title="Các lần chạy gần đây"
-          description={`${data.runs.length} lần chạy; bấm một dòng để xem chi tiết.`}
+          description={`${data.runs.length} lần chạy`}
         >
           <DataList
             label="Các lần chạy tác vụ"
@@ -667,7 +665,7 @@ export default function OperationsScreen() {
                 ))}
               </ul>
             )}
-            empty={<EmptyPanel icon={CalendarClock} title="Chưa có lần chạy nào" description="Các lần chạy tự động hoặc thủ công sẽ hiện ở đây." />}
+            empty={<EmptyPanel icon={CalendarClock} title="Chưa có lần chạy nào" />}
           />
         </SettingsSection>
       </div>
@@ -906,7 +904,7 @@ export default function OperationsScreen() {
         icon={GitBranch}
         tone="blue"
         title="Quy tắc chuyển tiếp Procedure"
-        description={`${data.rules.length} quy tắc gán loại đơn với quy trình duyệt.`}
+        description={`${data.rules.length} quy tắc`}
       >
         <DataList
           label="Quy tắc chuyển tiếp Procedure"
@@ -917,7 +915,6 @@ export default function OperationsScreen() {
             <EmptyPanel
               icon={GitBranch}
               title="Chưa có quy tắc nào"
-              description="Bấm Cấu hình quy trình mới để gán quy trình duyệt cho một loại đơn."
             />
           }
         />
@@ -927,7 +924,6 @@ export default function OperationsScreen() {
         icon={RefreshCw}
         tone="orange"
         title={`Trạng thái đồng bộ đơn (${data.workflows.length})`}
-        description="Tiến độ từng đơn đang duyệt qua Procedure; bấm mũi tên để xem chi tiết."
       >
         <DataList
           label="Trạng thái đồng bộ đơn"
@@ -978,7 +974,6 @@ export default function OperationsScreen() {
       icon={History}
       tone="slate"
       title="Nhật ký nghiệp vụ (Audit Trail)"
-      description="Mọi thay đổi quan trọng trong HRM: ai làm, làm gì, lúc nào, trên đối tượng nào."
     >
       <HrmAuditTrail />
     </SettingsSection>
@@ -994,7 +989,6 @@ export default function OperationsScreen() {
     <div className="@container mx-auto max-w-[1600px] space-y-4">
       <PageTitle
         title="Vận hành & tích hợp"
-        description="Giám sát tác vụ tự động tính phép, liên kết quy trình Procedure và nhật ký kiểm toán hệ thống."
         actions={
           <Button
             variant="outline"

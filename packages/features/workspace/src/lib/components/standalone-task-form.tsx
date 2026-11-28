@@ -219,8 +219,8 @@ export function StandaloneTaskForm({
           : adjustmentOf
             ? `Điều chỉnh cho ${adjustmentOf.code} · ${adjustmentOf.title} (đã huỷ hiệu lực).`
             : parent
-            ? `Việc con của ${parent.code} · ${parent.title}. Việc con không cần duyệt: người thực hiện tự hoàn thành.`
-            : 'Công việc không thuộc dự án nào.'
+            ? `Việc con của ${parent.code} · ${parent.title} · không cần duyệt`
+            : undefined
       }
       submitLabel={task ? 'Lưu' : adjustmentOf ? 'Lập việc điều chỉnh' : parent ? 'Thêm việc con' : 'Giao việc'}
       submitting={submitting}
@@ -306,7 +306,7 @@ export function StandaloneTaskForm({
                   ? 'Không tải được danh sách quy trình: module Quy trình đang không phản hồi. Thử lại sau ít phút.'
                   : procedures && procedures.length === 0
                     ? 'Bạn chưa có quy trình nào được phép khởi tạo (cần vai S trong quy trình).'
-                    : 'Hồ sơ mở dưới tên bạn; hồ sơ hoàn tất thì công việc tự chuyển sang Chờ duyệt.'
+                    : 'Hồ sơ hoàn tất thì công việc chuyển sang Chờ duyệt.'
               }
             >
               <Choice

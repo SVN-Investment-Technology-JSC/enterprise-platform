@@ -50,12 +50,7 @@ export function CompOffFundCard() {
           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600">
             <Calculator className="size-5" />
           </div>
-          <div className="min-w-0">
-            <h2 className="text-base font-bold tracking-tight text-slate-900">Quỹ nghỉ bù</h2>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Giờ làm thêm vượt trần được quy thành ngày nghỉ bù. Số dư lấy từ sổ quỹ nghỉ bù, không trừ vào quỹ phép năm.
-            </p>
-          </div>
+          <h2 className="min-w-0 self-center text-base font-bold tracking-tight text-slate-900">Quỹ nghỉ bù</h2>
         </div>
         <div className="flex items-center gap-2">
           {summary ? (
@@ -79,9 +74,7 @@ export function CompOffFundCard() {
         <>
           {!summary.enabled ? (
             <Notice tone="info">
-              Quy tắc làm thêm và nghỉ bù đang tắt: lý do Nghỉ bù vẫn dùng được nhưng quỹ do doanh nghiệp tự quản lý ngoài hệ thống. Hệ
-              thống không tính quỹ, không giữ chỗ, không chặn vượt số dư; người duyệt toàn quyền duyệt hoặc từ chối. Bật ở màn Làm thêm và
-              nghỉ bù nếu muốn hệ thống tính quỹ.
+              Quy tắc nghỉ bù đang tắt: hệ thống không tính quỹ và không chặn vượt số dư.
             </Notice>
           ) : null}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">

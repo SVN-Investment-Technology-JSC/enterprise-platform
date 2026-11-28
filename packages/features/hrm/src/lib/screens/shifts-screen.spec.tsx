@@ -61,13 +61,11 @@ beforeEach(() => {
 const patches = () => calls.filter((c) => c.init?.method === 'PATCH');
 
 describe('ShiftsScreen (danh mục ca làm việc)', () => {
-  it('lists the catalog and points assignment to the Phân ca làm việc screen', async () => {
+  it('lists the catalog without assignment actions', async () => {
     render(<ShiftsScreen />);
     expect(await screen.findByText('Hành chính')).toBeTruthy();
     expect(screen.getByText('Ca đêm')).toBeTruthy();
-    const link = screen.getByRole('link', { name: 'Phân ca làm việc' });
-    expect(link.getAttribute('href')).toBe('/settings?view=schedules');
-    expect(screen.getByText(/Phân ca cho nhân viên thực hiện tại/)).toBeTruthy();
+    expect(screen.getByText(/Ca đã được phân công thì không đổi khung giờ được/)).toBeTruthy();
     // Không còn thao tác phân ca ở màn danh mục.
     expect(screen.queryByText(/Bảng phân ca/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /Gán ca/ })).toBeNull();
@@ -78,7 +76,6 @@ describe('ShiftsScreen (danh mục ca làm việc)', () => {
     render(<ShiftsScreen />);
     await screen.findByText('Hành chính');
     expect(screen.getByRole('heading', { name: 'Danh mục ca' })).toBeTruthy();
-    expect(screen.getByText('Quản lý danh mục ca, mẫu ca và quy tắc tính.')).toBeTruthy();
     const row = screen.getByTestId('shift-row-HC');
     expect(within(row).getByText(/08:00 - 17:30/)).toBeTruthy();
     expect(within(row).getByText(/12:00 - 13:00/)).toBeTruthy();

@@ -164,8 +164,6 @@ export default function LeaveSettingsScreen() {
       key: 'accrual',
       title: 'Cộng phép tháng',
       icon: <Clock className="size-4" />,
-      description:
-        'Cộng phép của một tháng (kể cả tháng hiện tại) cho mọi nhân viên đủ điều kiện.',
       run: () =>
         setAction({
           title: 'Cộng phép tháng',
@@ -186,8 +184,6 @@ export default function LeaveSettingsScreen() {
       key: 'carryover',
       title: 'Chốt phép cuối năm',
       icon: <RotateCcw className="size-4" />,
-      description:
-        'Chốt phép cuối năm: reset phần còn lại về 0, không chuyển phép sang năm sau.',
       run: () =>
         setAction({
           title: 'Chốt phép cuối năm',
@@ -213,7 +209,6 @@ export default function LeaveSettingsScreen() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Chính sách phép năm"
-        description="Thiết lập nguyên tắc tính và tích lũy phép năm áp dụng cho nhân viên."
         badge={headerActions}
       />
 
@@ -238,9 +233,6 @@ export default function LeaveSettingsScreen() {
               <h2 className="text-base font-bold tracking-tight text-slate-900">
                 Tác vụ định kỳ
               </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Chạy thủ công khi cần. Mọi bút toán được ghi vào sổ giao dịch.
-              </p>
             </div>
           </div>
           {periodicMessage ? (
@@ -264,9 +256,6 @@ export default function LeaveSettingsScreen() {
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-slate-900">
                     {task.title}
-                  </p>
-                  <p className="text-[12px] leading-snug text-slate-500">
-                    {task.description}
                   </p>
                 </div>
                 <Button

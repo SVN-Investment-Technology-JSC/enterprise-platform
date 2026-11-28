@@ -38,17 +38,11 @@ export function AttachmentsSection({
     <section className={styles.card}>
       <div className={styles.cardHead}>
         <h2>Tệp của hồ sơ</h2>
-        <span className={styles.muted}>
-          Lưu tại Hệ dùng chung, có phiên bản
-        </span>
       </div>
       {files.length > 0 ? (
         <FileRows letter={letter} files={files} onPreview={onPreview} onChanged={onChanged} />
       ) : (
-        <p className={styles.sectionNote}>
-          Chưa có tệp nào.
-          {letter.direction === 'incoming' ? ' Kết quả xử lý của phòng ban nằm ở mục Phòng ban xử lý.' : ''}
-        </p>
+        <p className={styles.sectionNote}>Chưa có tệp nào.</p>
       )}
       {kinds.length > 0 ? (
         <div className={styles.uploadBar}>
@@ -175,7 +169,6 @@ function VersionButton({
         type="button"
         className={styles.buttonSmall}
         disabled={busy}
-        title="Tải phiên bản mới; phiên bản cũ vẫn giữ trong kho tài liệu"
         onClick={() => input.current?.click()}
       >
         <History size={13} /> {busy ? 'Đang tải…' : 'Phiên bản mới'}

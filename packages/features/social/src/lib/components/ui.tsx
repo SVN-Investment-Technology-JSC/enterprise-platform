@@ -10,11 +10,18 @@ import { initials } from '../social.model';
 import styles from '../social.module.scss';
 import { Button } from '../ui/button';
 
+/**
+ * Link ảnh đại diện hiện tại của một người: ảnh của core (người dùng tự tải lên ở "Tài khoản của tôi"), dùng chung danh bạ
+ * với cả hệ thống. `undefined` khi người đó chưa có ảnh (hoặc danh bạ chưa tải xong).
+ */
+export function useAvatarUrl(user: SocialUserRef): string | undefined {
+  const person = usePerson(user.id);
+  return user.avatarUrl ?? (person?.avatarVersion != null ? userAvatarUrl(user.id, person.avatarVersion) : undefined);
+}
+
 export function Avatar({ user, size = 40 }: { readonly user: SocialUserRef; readonly size?: number }) {
   const [broken, setBroken] = useState(false);
-  // Ảnh đại diện của core (người dùng tự tải lên ở "Tài khoản của tôi"), dùng chung danh bạ với cả hệ thống.
-  const person = usePerson(user.id);
-  const avatarUrl = user.avatarUrl ?? (person?.avatarVersion != null ? userAvatarUrl(user.id, person.avatarVersion) : undefined);
+  const avatarUrl = useAvatarUrl(user);
   const style = { width: size, height: size, fontSize: Math.round(size * 0.38) };
   if (avatarUrl && !broken) {
     return (

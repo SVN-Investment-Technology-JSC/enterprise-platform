@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import {
   CalendarRange,
   Clock,
@@ -29,7 +28,7 @@ import {
 import { cn } from '../utils';
 import { Button } from '../ui/button';
 import { ConfigHistoryDrawer } from '../ui/config-history-drawer';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { PageTitle } from '../ui/page-title';
 import { useCloseGuard } from '../ui/use-close-guard';
@@ -397,7 +396,6 @@ export default function ShiftsPage() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Danh mục ca"
-        description="Quản lý danh mục ca, mẫu ca và quy tắc tính."
         actions={
           <>
             {canAudit ? (
@@ -426,7 +424,7 @@ export default function ShiftsPage() {
               className="h-9 pl-9 text-xs"
             />
           </div>
-          <div role="group" aria-label="Lọc trạng thái" className="flex w-full gap-0.5 rounded-lg bg-slate-100 p-0.5 text-xs @xl:w-auto">
+          <div role="group" aria-label="Lọc trạng thái" className="flex w-full gap-0.5 rounded-lg bg-slate-100 p-0.5 text-sm @xl:w-auto">
             {(
               [
                 ['ALL', `Tất cả (${shifts.length})`],
@@ -440,8 +438,8 @@ export default function ShiftsPage() {
                 aria-pressed={statusFilter === key}
                 onClick={() => setStatusFilter(key)}
                 className={cn(
-                  'h-8 min-w-0 flex-1 cursor-pointer truncate rounded-md px-3 font-medium whitespace-nowrap transition-all @xl:flex-none',
-                  statusFilter === key ? 'bg-white font-bold text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-900',
+                  'h-8 min-w-0 flex-1 cursor-pointer truncate rounded-md px-3 whitespace-nowrap transition-all @xl:flex-none',
+                  statusFilter === key ? 'bg-white font-semibold text-slate-900 shadow-xs' : 'font-medium text-slate-500 hover:text-slate-900',
                 )}
               >
                 {label}
@@ -602,11 +600,7 @@ export default function ShiftsPage() {
 
         <div className="border-t border-slate-100 p-3">
           <InfoNote tone="blue" role="status" icon={Info}>
-            Phân ca cho nhân viên thực hiện tại{' '}
-            <Link href="/settings?view=schedules" className="font-semibold text-blue-700 underline underline-offset-2">
-              Phân ca làm việc
-            </Link>
-            . Ca đã được phân công thì không đổi khung giờ được; hãy tạo mã ca mới.
+            Ca đã được phân công thì không đổi khung giờ được; hãy tạo mã ca mới.
           </InfoNote>
         </div>
       </section>
@@ -625,13 +619,12 @@ export default function ShiftsPage() {
         >
           <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 pr-12">
             <DialogTitle>{editing ? `Cập nhật ca: ${editing.code}` : 'Thêm ca làm việc mới'}</DialogTitle>
-            <DialogDescription>Cấu hình giờ bắt đầu, kết thúc, nghỉ giữa ca và dung sai chấm công.</DialogDescription>
           </DialogHeader>
 
           <div className="@container min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3 @xl:p-4">
             <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
               <SettingsSection icon={Tag} tone="blue" title="Thông tin ca" description="Mã ca không đổi được sau khi tạo." bodyClassName="space-y-3">
-                <SettingsField label="Mã ca làm việc" required htmlFor="shift-code" hint="Ví dụ: HC, CA-SANG.">
+                <SettingsField label="Mã ca làm việc" required htmlFor="shift-code">
                   <Input
                     id="shift-code"
                     aria-label="Mã ca làm việc"
@@ -654,7 +647,7 @@ export default function ShiftsPage() {
                 </SettingsField>
               </SettingsSection>
 
-              <SettingsSection icon={Clock} tone="green" title="Khung giờ" description="Giờ vào và giờ ra của ca." bodyClassName="space-y-3">
+              <SettingsSection icon={Clock} tone="green" title="Khung giờ" bodyClassName="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <SettingsField label="Giờ bắt đầu" required htmlFor="shift-start">
                     <TimeTextInput id="shift-start" value={form.startTime} onChange={(v: string) => setForm({ ...form, startTime: v })} className="h-9 font-mono text-xs" />
@@ -667,7 +660,6 @@ export default function ShiftsPage() {
                   <SettingsSwitch label="Ca qua đêm (+1 ngày)" checked={form.crossMidnight} onChange={(next) => setForm({ ...form, crossMidnight: next })} />
                   <span className="min-w-0 text-xs font-semibold text-slate-700">
                     Ca qua đêm (+1 ngày)
-                    <span className="block text-[11px] font-normal text-slate-500">Giờ kết thúc thuộc ngày hôm sau.</span>
                   </span>
                 </div>
                 <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -725,11 +717,11 @@ export default function ShiftsPage() {
                     </SettingsField>
                   </div>
                 ) : (
-                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Ca làm liên tục, không trừ giờ nghỉ (ví dụ ca nửa ngày).</p>
+                  <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">Không trừ giờ nghỉ.</p>
                 )}
               </SettingsSection>
 
-              <SettingsSection icon={SlidersHorizontal} tone="violet" title="Dung sai và trạng thái" description="Số phút được châm chước và trạng thái áp dụng." bodyClassName="space-y-3">
+              <SettingsSection icon={SlidersHorizontal} tone="violet" title="Dung sai và trạng thái" bodyClassName="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <SettingsField label="Dung sai đi muộn (phút)" htmlFor="shift-grace-late">
                     <Input id="shift-grace-late" aria-label="Dung sai đi muộn (phút)" type="number" min={0} value={form.graceLateMinutes} onChange={numberField('graceLateMinutes')} className="h-9 font-mono text-xs" />
@@ -742,21 +734,16 @@ export default function ShiftsPage() {
                   </SettingsField>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Chấm vào sớm bao nhiêu cũng được. Chấm ra muộn hơn giờ kết thúc quá {form.checkOutAfterMinutes} phút thì không được gán vào ca.
+                  Chấm ra quá {form.checkOutAfterMinutes} phút sau giờ kết thúc thì không được gán vào ca.
                 </p>
                 <div className="grid grid-cols-2 gap-3">
-                  <SettingsField label="Chặn chấm vào muộn quá (phút)" htmlFor="shift-block-late-in" hint="Để trống = không chặn.">
+                  <SettingsField label="Chặn chấm vào muộn quá (phút)" htmlFor="shift-block-late-in">
                     <Input id="shift-block-late-in" aria-label="Chặn chấm vào muộn quá (phút)" type="number" min={0} max={1440} placeholder="Không chặn" value={form.blockLateInMinutes} onChange={(e) => setForm({ ...form, blockLateInMinutes: e.target.value })} className="h-9 font-mono text-xs" />
                   </SettingsField>
-                  <SettingsField label="Chặn chấm ra sớm quá (phút)" htmlFor="shift-block-early-out" hint="Để trống = không chặn.">
+                  <SettingsField label="Chặn chấm ra sớm quá (phút)" htmlFor="shift-block-early-out">
                     <Input id="shift-block-early-out" aria-label="Chặn chấm ra sớm quá (phút)" type="number" min={0} max={1440} placeholder="Không chặn" value={form.blockEarlyOutMinutes} onChange={(e) => setForm({ ...form, blockEarlyOutMinutes: e.target.value })} className="h-9 font-mono text-xs" />
                   </SettingsField>
                 </div>
-                <p className="text-[11px] text-slate-500">
-                  {form.blockLateInMinutes.trim() !== ''
-                    ? `Ví dụ ca bắt đầu ${form.startTime}, dung sai ${form.graceLateMinutes} phút, chặn ${form.blockLateInMinutes} phút: chấm vào sau giờ bắt đầu quá ${form.graceLateMinutes} phút thì tính trễ đủ số phút; sau ${form.blockLateInMinutes} phút không chấm vào được nữa.`
-                    : 'Chặn chấm vào muộn: sau giờ bắt đầu quá số phút này thì không chấm vào được nữa. Chặn chấm ra sớm: trước giờ kết thúc quá số phút này thì không chấm ra được.'}
-                </p>
                 <SettingsField label="Trạng thái áp dụng">
                   <Segmented
                     label="Trạng thái áp dụng"
@@ -795,7 +782,6 @@ export default function ShiftsPage() {
         <ConfigHistoryDrawer
           open={historyOpen}
           onOpenChange={setHistoryOpen}
-          description="Các lần tạo và cập nhật ca làm việc, mới nhất ở trên."
           actionPrefixes={['SHIFT_CREATED', 'SHIFT_UPDATED']}
         />
       ) : null}

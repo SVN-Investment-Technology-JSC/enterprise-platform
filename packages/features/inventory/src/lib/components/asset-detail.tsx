@@ -46,7 +46,6 @@ const CARD_HEAD = 'mb-4 flex flex-wrap items-center justify-between gap-3 [&_h3]
 const EDIT_BOX = 'flex flex-col gap-[0.85rem] rounded-lg border-[1.5px] border-blue-300 bg-slate-50 p-4 shadow-sm';
 const EDIT_HEAD = 'flex flex-col gap-1 border-b border-dashed border-slate-300 pb-2';
 const EDIT_BADGE = 'inline-flex items-center gap-[0.35rem] text-sm font-bold text-blue-700';
-const EDIT_HINT = 'm-0 text-[13px] leading-snug text-slate-500';
 const EDIT_ACTIONS = 'flex flex-wrap items-center justify-between gap-3 pt-1';
 
 type AssetSubTab = 'overview' | 'documents' | 'history' | 'bom' | 'maintenance-plan';
@@ -500,7 +499,6 @@ export function AssetDetail({
               type="button"
               variant="outline"
               disabled={busy}
-              title="Chỉnh sửa thông tin cơ bản thiết bị (Tên, Trạng thái, Mức độ, Serial)"
               onClick={() => {
                 setEditName(asset.name);
                 setEditSerialNumber(asset.serialNumber ?? '');
@@ -518,7 +516,6 @@ export function AssetDetail({
              
               disabled={busy}
               onClick={() => onAddChild(asset)}
-              title={`Thêm thiết bị/chi tiết con trực thuộc ${asset.name}`}
             >
               <span>+</span> Thêm thiết bị con
             </Button>
@@ -527,7 +524,6 @@ export function AssetDetail({
             type="button"
             variant="outline"
             onClick={() => setShowQrModal(true)}
-            title={`In tem nhãn mã QR cho thiết bị ${asset.code}`}
           >
             In mã QR
           </Button>
@@ -550,7 +546,6 @@ export function AssetDetail({
                 variant="outline"
                 className="border-red-300 text-red-600 hover:text-red-600"
                 disabled={busy}
-                title={`Tháo dỡ / Thanh lý ${asset.name} (${asset.code})`}
                 aria-label={`Tháo dỡ / Thanh lý ${asset.name}`}
               >
                 Thanh lý
@@ -572,8 +567,8 @@ export function AssetDetail({
               variant="ghost"
               aria-selected={isActive}
               className={cn(
-                'h-auto gap-[0.45rem] rounded-lg px-[0.85rem] py-[0.45rem] text-sm font-semibold text-slate-600 hover:bg-white/70 hover:text-slate-900',
-                isActive && 'border-slate-300 bg-white text-blue-700 shadow-sm hover:bg-white hover:text-blue-700',
+                'h-auto gap-[0.45rem] rounded-lg px-[0.85rem] py-[0.45rem] text-sm font-medium text-slate-600 hover:bg-white/70 hover:text-slate-900',
+                isActive && 'border-slate-300 bg-white font-semibold text-blue-700 shadow-sm hover:bg-white hover:text-blue-700',
               )}
               onClick={() => setActiveSubTab(tab.id)}
             >
@@ -609,9 +604,6 @@ export function AssetDetail({
               <div className={EDIT_BOX}>
                 <div className={EDIT_HEAD}>
                   <span className={EDIT_BADGE}>Chế độ chỉnh sửa thông số</span>
-                  <p className={EDIT_HINT}>
-                    Nhập tên thuộc tính và giá trị tương ứng. Nhấn <strong>Lưu thông số</strong> để áp dụng thay đổi.
-                  </p>
                 </div>
 
                 <TableWrap className="rounded-md border border-slate-200 bg-white">
@@ -870,9 +862,6 @@ export function AssetDetail({
             <div className={CARD_HEAD}>
               <div>
                 <h3>Nhật ký vận hành, bảo dưỡng &amp; Lịch sử sự cố</h3>
-                <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
-                  Theo dõi toàn bộ vòng đời vận hành, các lần đại tu, sửa chữa và thay thế vật tư phụ tùng.
-                </p>
               </div>
               <Button
                 type="button"
@@ -887,7 +876,7 @@ export function AssetDetail({
             <div className="mt-4 pl-2">
               {mergedTimeline.length === 0 ? (
                 <div className="py-8 px-0 text-center text-slate-500 text-sm">
-                  Chưa có sự kiện hoặc nhật ký vận hành nào được ghi nhận cho thiết bị này.
+                  Chưa có nhật ký vận hành nào.
                 </div>
               ) : (
                 mergedTimeline.map((item) => (
@@ -978,9 +967,6 @@ export function AssetDetail({
             <div className={CARD_HEAD}>
               <div>
                 <h3>Kế hoạch Bảo dưỡng Phòng ngừa Định kỳ (PM Schedules)</h3>
-                <p className="mt-1 mx-0 mb-0 text-[13px] text-slate-500">
-                  Chu kỳ bảo dưỡng định kỳ và các hạng mục kiểm tra tiêu chuẩn cho thiết bị này.
-                </p>
               </div>
             </div>
 
@@ -1025,9 +1011,6 @@ export function AssetDetail({
             <div className={CARD_HEAD}>
               <div>
                 <h3>Đầu việc bảo trì mặc định (Procedure Task Template)</h3>
-                <p className="mt-1 mx-0 mb-0 text-[13px] text-slate-500">
-                  Nguồn đầu việc mặc định cho vai trò E (Thực thi) trong phân hệ Quy trình.
-                </p>
               </div>
               {editing !== 'tasks' && canManage ? (
                 <Button
@@ -1045,9 +1028,6 @@ export function AssetDetail({
               <div className={EDIT_BOX}>
                 <div className={EDIT_HEAD}>
                   <span className={EDIT_BADGE}>Chế độ chỉnh sửa đầu việc quy trình</span>
-                  <p className={EDIT_HINT}>
-                    Khai báo danh sách các bước kiểm tra, công việc bảo trì chuẩn và thời lượng ước tính (phút).
-                  </p>
                 </div>
 
                 <TableWrap className="rounded-md border border-slate-200 bg-white">
@@ -1227,9 +1207,6 @@ export function AssetDetail({
             <DialogHeader>
               <div>
                 <DialogTitle>Tem nhãn thiết bị (Khổ 50×30mm)</DialogTitle>
-                <p className="mt-0.5 mx-0 mb-0 text-[13px] text-slate-500">
-                  In tem nhãn dán thân vỏ tài sản, hỗ trợ máy quét mã vạch / di động.
-                </p>
               </div>
               <DialogCloseButton title="Đóng (ESC)" onClick={() => setShowQrModal(false)} />
             </DialogHeader>

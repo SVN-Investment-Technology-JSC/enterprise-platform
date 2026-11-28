@@ -153,7 +153,7 @@ export function CrmDashboard({ capabilities, navigate }: CrmDashboardProps) {
                 <p className={styles.empty}>Chưa có doanh thu hay đơn bán mới trong kỳ.</p>
               )}
             </Panel>
-            <Panel title="Dự án bán hàng đang mở theo giai đoạn" note="Bấm để mở Dự án bán hàng">
+            <Panel title="Dự án bán hàng đang mở theo giai đoạn">
               {dashboard.kpis.pipeline.count ? (
                 <>
                   <PipelineBars rows={dashboard.pipeline} onPick={() => navigate('opportunities')} />

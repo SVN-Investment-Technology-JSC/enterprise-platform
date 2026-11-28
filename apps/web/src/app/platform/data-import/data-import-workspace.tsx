@@ -179,23 +179,9 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
   return (
     <div className="space-y-6">
       <section className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-            <ShieldCheck className="size-4" />
-            Chỉ dành cho Super Admin
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-950">
-            Data Import
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Kiểm tra tenant, Tenant Admin, database, entitlement và schema của từng
-            module trước khi ghi. Mỗi module chỉ ghi vào schema do chính module đó
-            sở hữu.
-          </p>
-        </div>
-        <Badge className="w-fit bg-slate-900 px-3 py-1 text-white hover:bg-slate-900">
-          Preview bắt buộc trước Import
-        </Badge>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-950">
+          Data Import
+        </h1>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
@@ -308,9 +294,6 @@ export function DataImportWorkspace({ tenants }: DataImportWorkspaceProps) {
                     <ShieldCheck className="mx-auto mb-3 size-9 text-slate-400" />
                     <p className="font-medium text-slate-700">
                       Chưa có kết quả kiểm tra
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Hệ thống chưa ghi dữ liệu ở bước này.
                     </p>
                   </div>
                 </div>

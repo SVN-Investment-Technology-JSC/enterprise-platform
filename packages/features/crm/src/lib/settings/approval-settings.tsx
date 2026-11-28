@@ -89,11 +89,7 @@ function BusinessPlanSettings() {
   return (
     <section className={styles.panel} aria-label="So lệch phương án kinh doanh">
       <h2 className={styles.title}>So lệch phương án kinh doanh</h2>
-      <p className={styles.muted}>
-        Khi sửa báo giá đã có phương án kinh doanh được duyệt, so với phương án đã duyệt gần nhất: theo lợi nhuận là lợi nhuận
-        giảm quá ngưỡng (%); theo chiết khấu là tỷ lệ chiết khấu tăng quá ngưỡng (điểm phần trăm). Vượt ngưỡng thì phải trình
-        duyệt lại, bằng đúng ngưỡng thì không.
-      </p>
+      <p className={styles.muted}>Lệch quá ngưỡng so với phương án đã duyệt gần nhất thì phải trình duyệt lại.</p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       {loaded ? (
         <form
@@ -166,10 +162,6 @@ function ThresholdSettings() {
   return (
     <section className={styles.panel} aria-label="Ngưỡng duyệt báo giá">
       <h2 className={styles.title}>Ngưỡng duyệt báo giá</h2>
-      <p className={styles.muted}>
-        Báo giá cần duyệt khi chiết khấu một dòng vượt hạn mức theo vai trò người gửi, biên lợi nhuận dưới mức tối thiểu, có
-        ghi đè giá hoặc chiết khấu, hoặc Kho chưa có giá vốn. Bằng đúng hạn mức thì không cần duyệt.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       {loaded ? (
         <form
@@ -225,10 +217,6 @@ function ApprovalBindings() {
   return (
     <section className={styles.panel} aria-label="Cách duyệt">
       <h2 className={styles.title}>Cách duyệt</h2>
-      <p className={styles.muted}>
-        Duyệt trực tiếp: người có quyền duyệt báo giá duyệt ngay trong CRM. Duyệt qua Quy trình: hệ thống tạo hồ sơ
-        theo quy trình đã chọn, bước người lập tự hoàn tất, kết quả quay về CRM.
-      </p>
       {error ? <p className={styles.alert}>{error}</p> : null}
       {procedureError ? <p className={styles.warning}>{procedureError}</p> : null}
       {bindings.map((binding) => (

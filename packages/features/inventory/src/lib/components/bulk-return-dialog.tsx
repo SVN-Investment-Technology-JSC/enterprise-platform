@@ -107,7 +107,7 @@ export function BulkReturnToStockDialog({
           <div>
             <DialogTitle>Tháo dỡ / Gỡ thiết bị hàng loạt ({items.length} thiết bị)</DialogTitle>
             <p className="mb-0 mt-1 text-sm text-slate-500">
-              Tháo dỡ các thiết bị đã chọn khỏi cây tài sản và nhập về các kho tương ứng. Thao tác này sẽ ghi nhận các bút toán nhập kho thực tế.
+              Thao tác sẽ ghi bút toán nhập kho thực tế.
             </p>
           </div>
           <CloseGuard dirty={isDirty} busy={busy} onClose={onCancel}>
@@ -151,7 +151,7 @@ export function BulkReturnToStockDialog({
           <TableWrap className="max-h-[calc(90vh-240px)] flex-1 px-5">
             {items.length === 0 ? (
               <div className="px-5 py-10 text-center text-sm text-slate-400">
-                Đã xoá hết thiết bị khỏi danh sách gỡ. Vui lòng đóng hộp thoại hoặc quay lại bảng chọn thiết bị.
+                Đã xoá hết thiết bị khỏi danh sách gỡ.
               </div>
             ) : (
               <Table className="mb-4 mt-3 text-[13px]">

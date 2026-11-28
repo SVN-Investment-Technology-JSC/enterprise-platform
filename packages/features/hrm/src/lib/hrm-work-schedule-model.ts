@@ -1066,6 +1066,3 @@ export function canChangeRule(
 ): boolean {
   return scopeType === 'EMPLOYEE' ? can.manage : can.bulk;
 }
-
-export const OPEN_ENDED_HINT =
-  'Lịch áp dụng từ ngày bắt đầu và tự chạy đến khi bạn kết thúc; không cần gán lại theo tháng.';

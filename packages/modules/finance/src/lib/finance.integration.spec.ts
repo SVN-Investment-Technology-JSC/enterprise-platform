@@ -609,7 +609,7 @@ integration('Tài chính: phiếu thu, chi, chuyển tiền và sổ cái (Postg
     expect(posted.code).not.toBe(draft.code);
     const [approved] = await outbox(posted.code, 'finance.voucher.status-changed');
     expect(approved.p).toMatchObject({ status: 'APPROVED', requesterUserId: accountant.userId, actorUserId: approver.userId, title: 'Phiếu đã được duyệt' });
-    expect(String(approved.p['summary'])).toContain('đã được duyệt và ghi sổ bởi Kế toán trưởng');
+    expect(String(approved.p['summary'])).toContain('Kế toán trưởng đã duyệt và ghi sổ phiếu');
     expect(String(approved.p['summary'])).toContain('Ghi chú: Đã đối chiếu');
 
     await app.reverse(approver, draft.id, 'Chi nhầm');

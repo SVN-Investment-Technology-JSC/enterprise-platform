@@ -102,7 +102,7 @@ export function DayRequestList({ day, canViewAll }: { day: HrmBoardDay; canViewA
         ))}
       </ul>
       <p className="mt-2 text-[12px] text-slate-500">
-        Chỉ đơn đã duyệt được tính vào công; đơn chờ duyệt hoặc bị từ chối chỉ để tham khảo.
+        Chỉ đơn đã duyệt được tính vào công.
       </p>
     </div>
   );

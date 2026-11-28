@@ -369,7 +369,7 @@ export function ContractDetail({
                 {detail.reservation.expiresAt ? ` · hạn ${formatDateTime(detail.reservation.expiresAt)}` : ''}
               </>
             ) : (
-              <span className={styles.muted}>Chưa giữ (giữ khi xác nhận các dòng hàng tồn kho có số lượng)</span>
+              <span className={styles.muted}>Chưa giữ</span>
             )}
           </dd>
           <dt>Người phụ trách</dt>
@@ -673,7 +673,7 @@ export function ContractDetail({
             })
           }
         >
-          <Field label={paymentTermTriggerLabels(triggering).dateLabel} hint="Để trống là hôm nay; hạn thanh toán tính từ ngày này">
+          <Field label={paymentTermTriggerLabels(triggering).dateLabel} hint="Để trống là hôm nay">
             <DatePickerInput
               value={triggerDate || undefined}
               onChange={(value) => setTriggerDate(value)}

@@ -98,7 +98,7 @@ export function MessageAttachments({ attachments }: { attachments: readonly Chat
           {files.map((attachment) => {
             const Icon = fileIcon(attachment.contentType);
             return (
-              <button key={attachment.id} type="button" className={styles.fileChip} onClick={() => void openFile(attachment)} title="Mở hoặc tải tệp">
+              <button key={attachment.id} type="button" className={styles.fileChip} onClick={() => void openFile(attachment)} title={attachment.fileName}>
                 <Icon aria-hidden="true" />
                 <span style={{ minWidth: 0 }}>
                   <span className={styles.fileName}>{attachment.fileName}</span>

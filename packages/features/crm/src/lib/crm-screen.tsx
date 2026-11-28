@@ -416,7 +416,6 @@ function Placeholder({ page }: { page: CrmPage }) {
           {ICONS[page.id]}
           <h2 className={styles.title}>{page.label}</h2>
         </span>
-        <p className={styles.muted}>{page.summary}</p>
         <p className={styles.muted}>Trang sẽ mở khi dữ liệu CRM của tenant khởi tạo xong.</p>
       </section>
     </div>

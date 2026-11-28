@@ -69,12 +69,6 @@ const PAID_OPTIONS = [
   { value: 'false', label: 'Không lương' },
 ];
 
-const RATE_HINT =
-  'Hệ số tính lương cho đơn tăng ca chọn lý do này (1 đến 10). Bỏ trống thì theo chính sách OT (ngày thường, ngày nghỉ, ngày lễ, ban đêm).';
-const UNPAID_OT_HINT =
-  'OT không lương được ghi nhận nhưng không tính tiền OT.';
-const REQUIRES_DESCRIPTION_HINT =
-  'Có: người làm đơn bắt buộc nhập Mô tả khi chọn lý do này (ví dụ lý do Khác).';
 
 /** Các trường của form thêm/sửa lý do; `paid` chỉ có với làm thêm giờ, mã chỉ nhập khi thêm mới. */
 export function reasonFormFields(
@@ -375,8 +369,6 @@ export default function RequestReasonsScreen() {
     const kind = current.code as HrmRequestReasonKind;
     setAction({
       title: `Thêm lý do cho đơn ${label}`,
-      description:
-        'Lý do là mục trong danh mục; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả (văn bản tự do).',
       columns: 2,
       fields: reasonFormFields(kind),
       submit: async (values) => {
@@ -587,9 +579,7 @@ export default function RequestReasonsScreen() {
             width: '6.5rem',
             cardLabel: true,
             cell: (r: HrmRequestReason) => (
-              <span title={r.paid ? undefined : UNPAID_OT_HINT}>
-                <StatusPill tone={r.paid ? 'green' : 'amber'}>{r.paid ? 'Có lương' : 'Không lương'}</StatusPill>
-              </span>
+              <StatusPill tone={r.paid ? 'green' : 'amber'}>{r.paid ? 'Có lương' : 'Không lương'}</StatusPill>
             ),
           },
           {
@@ -599,13 +589,11 @@ export default function RequestReasonsScreen() {
             cardLabel: true,
             cell: (r: HrmRequestReason) =>
               r.rateMultiplier != null ? (
-                <span className="font-mono font-semibold text-slate-900" title={RATE_HINT}>
+                <span className="font-mono font-semibold text-slate-900">
                   x{String(r.rateMultiplier).replace('.', ',')}
                 </span>
               ) : (
-                <span className="text-slate-500" title={RATE_HINT}>
-                  Theo chính sách OT
-                </span>
+                <span className="text-slate-500">Theo chính sách OT</span>
               ),
           } satisfies DataColumn<HrmRequestReason>,
         ]
@@ -615,7 +603,7 @@ export default function RequestReasonsScreen() {
       header: 'Cần mô tả',
       width: '5rem',
       cardLabel: true,
-      cell: (r) => <span title={REQUIRES_DESCRIPTION_HINT}>{r.requiresDescription ? 'Có' : 'Không'}</span>,
+      cell: (r) => <span>{r.requiresDescription ? 'Có' : 'Không'}</span>,
     },
     {
       key: 'usage',
@@ -905,7 +893,6 @@ export default function RequestReasonsScreen() {
     <div className="@container mx-auto max-w-[1600px] space-y-4">
       <PageTitle
         title="Loại đơn & lý do"
-        description="Quản lý loại đơn và danh mục lý do được nhân viên lựa chọn khi tạo đơn."
         actions={
           <>
             {canAudit ? (
@@ -954,7 +941,6 @@ export default function RequestReasonsScreen() {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h2 className="text-base font-bold tracking-tight text-slate-900">Loại đơn</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Chọn loại đơn để quản lý danh sách lý do.</p>
             </div>
             {types !== null ? (
               <Button
@@ -1048,11 +1034,9 @@ export default function RequestReasonsScreen() {
                 <h2 className="text-base font-bold tracking-tight text-slate-900">
                   {current.hasReasons ? `Lý do của ${current.name.toLowerCase()}` : current.name}
                 </h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  {current.hasReasons
-                    ? `Các lý do nhân viên được chọn khi tạo ${current.name.toLowerCase()}.`
-                    : (current.description ?? 'Loại đơn này không dùng danh mục lý do.')}
-                </p>
+                {current.hasReasons ? null : (
+                  <p className="mt-0.5 text-xs text-slate-500">{current.description ?? 'Loại đơn này không dùng danh mục lý do.'}</p>
+                )}
               </div>
               {current.hasReasons ? (
                 <div className="flex w-full min-w-0 flex-wrap items-center gap-2 @2xl:w-auto">
@@ -1109,10 +1093,7 @@ export default function RequestReasonsScreen() {
 
             <div className="mt-4 space-y-3">
               {!current.hasReasons ? (
-                <InfoNote tone="slate">
-                  Loại đơn này không có danh mục lý do: người làm đơn không phải chọn lý do. Có thể đổi tên, mô tả hoặc ngừng sử dụng
-                  ở mục Thiết lập loại đơn.
-                </InfoNote>
+                <InfoNote tone="slate">Người làm đơn không phải chọn lý do.</InfoNote>
               ) : loadingList ? (
                 <p className="py-8 text-center text-xs text-slate-500">
                   {error ? 'Không tải được danh mục lý do.' : 'Đang tải danh mục lý do...'}
@@ -1122,7 +1103,6 @@ export default function RequestReasonsScreen() {
                   <EmptyPanel
                     icon={CalendarDays}
                     title="Chưa có lý do nghỉ nào"
-                    description="Bấm Thêm lý do để tạo."
                   />
                 ) : (
                   <EmptyPanel
@@ -1130,8 +1110,8 @@ export default function RequestReasonsScreen() {
                     title={`Đơn ${current.name.toLowerCase()} chưa có lý do nào`}
                     description={
                       current.custom
-                        ? 'Loại đơn tuỳ chỉnh không bắt buộc có lý do: khi chưa có lý do nào, người làm đơn không phải chọn lý do. Thêm lý do nếu muốn người làm đơn chọn từ danh sách.'
-                        : 'Người làm đơn phải chọn một lý do trong danh mục nên cần có ít nhất một lý do. Tạo bộ lý do mặc định cho các loại đơn đang trống, hoặc thêm lý do riêng.'
+                        ? 'Chưa có lý do thì người làm đơn không phải chọn.'
+                        : 'Cần ít nhất một lý do để người làm đơn chọn.'
                     }
                     action={
                       current.custom ? undefined : (
@@ -1149,7 +1129,7 @@ export default function RequestReasonsScreen() {
                   />
                 )
               ) : filteredCount === 0 ? (
-                <EmptyPanel icon={Search} title="Không có lý do nào khớp" description="Thử đổi từ khóa hoặc bộ lọc trạng thái." />
+                <EmptyPanel icon={Search} title="Không có lý do nào khớp" />
               ) : isLeave ? (
                 <DataList
                   label="Lý do nghỉ"
@@ -1171,7 +1151,7 @@ export default function RequestReasonsScreen() {
               {current.hasReasons ? (
                 isLeave ? (
                   <InfoNote tone="blue">
-                    Chỉ lý do Phép năm trừ quỹ phép; các lý do khác không làm thay đổi số dư phép. Cách tính phép năm cấu hình ở{' '}
+                    Chỉ lý do Phép năm trừ quỹ phép. Cách tính phép năm:{' '}
                     <Link
                       href="/settings?view=leave"
                       className="font-semibold text-blue-700 underline underline-offset-2 hover:text-blue-900"
@@ -1180,13 +1160,9 @@ export default function RequestReasonsScreen() {
                     </Link>
                     .
                   </InfoNote>
-                ) : (
-                  <InfoNote tone="blue">
-                    Lý do là danh mục do quản trị cấu hình; người làm đơn chọn một lý do rồi có thể nhập thêm Mô tả. Mô tả là văn bản tự do,
-                    không phải lý do. Lý do đặt Cần mô tả là Có thì người làm đơn bắt buộc nhập Mô tả khi chọn lý do đó.
-                    {kind === 'OVERTIME' ? ` ${UNPAID_OT_HINT}` : ''}
-                  </InfoNote>
-                )
+                ) : kind === 'OVERTIME' ? (
+                  <InfoNote tone="blue">OT không lương được ghi nhận nhưng không tính tiền OT.</InfoNote>
+                ) : null
               ) : null}
             </div>
           </section>
@@ -1219,7 +1195,6 @@ export default function RequestReasonsScreen() {
           open={historyOpen}
           onOpenChange={setHistoryOpen}
           title="Lịch sử thay đổi loại đơn và lý do"
-          description="Loại đơn, lý do đơn từ và lý do nghỉ (tối đa 100 bản ghi, mới nhất ở trên)."
           actionPrefixes={['REQUEST_REASON_', 'REQUEST_TYPE_', 'LEAVE_TYPE_']}
         />
       ) : null}

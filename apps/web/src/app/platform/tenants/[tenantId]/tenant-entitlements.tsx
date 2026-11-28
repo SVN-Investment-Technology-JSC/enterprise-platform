@@ -48,33 +48,28 @@ type DraftEntitlements = Record<string, boolean>;
 const STATUS: Readonly<
   Record<
     TenantEntitlementStatus,
-    { label: string; className: string; description: string }
+    { label: string; className: string }
   >
 > = {
   'not-entitled': {
     label: 'Chưa cấp',
     className: 'border-slate-200 bg-slate-100 text-slate-600',
-    description: 'Tenant chưa được cấp quyền sử dụng module này.',
   },
   provisioning: {
     label: 'Đang provisioning',
     className: 'border-amber-200 bg-amber-50 text-amber-700',
-    description: 'Worker đang tạo hoặc nâng cấp schema trong Dedicated DB.',
   },
   active: {
     label: 'Đang hoạt động',
     className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-    description: 'Module đang hiển thị trong Tenant Portal.',
   },
   disabled: {
     label: 'Đã thu hồi',
     className: 'border-slate-200 bg-slate-100 text-slate-600',
-    description: 'Entitlement đã thu hồi; schema và dữ liệu vẫn được giữ.',
   },
   failed: {
     label: 'Provisioning lỗi',
     className: 'border-red-200 bg-red-50 text-red-700',
-    description: 'Lần provisioning gần nhất chưa hoàn thành.',
   },
 };
 
@@ -561,9 +556,6 @@ function ModuleManagerDialog({
             >
               Quản lý Module
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Chọn module cần cấp hoặc thu hồi cho tenant.
-            </p>
           </div>
           <Button
             aria-label="Đóng cửa sổ quản lý module"
@@ -647,9 +639,6 @@ function ModuleManagerDialog({
                           </Badge>
                         ) : null}
                       </span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">
-                        {module.description}
-                      </span>
                     </span>
                   </button>
                 </div>
@@ -677,12 +666,8 @@ function ModuleManagerDialog({
           <div className="flex items-start gap-3">
             <Database className="mt-0.5 size-5 shrink-0 text-[#091426]" />
             <p className="text-xs leading-5 text-slate-600">
-              <strong className="block text-sm text-slate-900">
-                Lưu ý kiến trúc
-              </strong>
-              Cấp module mới sẽ tạo hoặc migrate schema tương ứng trong
-              Dedicated Database. Quá trình có thể mất vài phút; thu hồi
-              entitlement không xóa schema và dữ liệu hiện có.
+              Cấp module sẽ tạo hoặc migrate schema, có thể mất vài phút. Thu
+              hồi không xóa schema và dữ liệu.
             </p>
           </div>
         </div>
@@ -711,7 +696,6 @@ function ModuleManagerDialog({
 
 function ModuleDetails({ module }: { module: TenantModuleEntitlement }) {
   const Icon = moduleIcon(module.key);
-  const status = STATUS[module.entitlementStatus];
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-slate-200 pb-4">
@@ -740,11 +724,8 @@ function ModuleDetails({ module }: { module: TenantModuleEntitlement }) {
           value={formatDate(module.updatedAt)}
         />
       </dl>
-      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="mt-4">
         <StatusBadge status={module.entitlementStatus} />
-        <p className="mt-2 text-xs leading-5 text-slate-600">
-          {status.description}
-        </p>
       </div>
       {module.latestJob?.error ? (
         <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-700">

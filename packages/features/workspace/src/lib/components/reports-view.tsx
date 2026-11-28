@@ -502,12 +502,11 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
           onClick={kpis?.completedLate ? () => open('Việc hoàn thành trễ hạn', 'completedLate') : undefined}
         />
         <Kpi label="Giờ đã hoàn thành" value={kpis?.completedHours} hint="Theo giờ ước lượng" />
-        <Kpi label="Đang mở" value={kpis?.openItems} hint="Tại hôm nay" onClick={() => open('Việc đang mở', 'open')} />
+        <Kpi label="Đang mở" value={kpis?.openItems} onClick={() => open('Việc đang mở', 'open')} />
         <Kpi
           label="Quá hạn"
           value={kpis?.overdueItems}
           danger
-          hint="Tại hôm nay"
           onClick={() => open('Việc quá hạn', 'overdue')}
         />
       </div>
@@ -540,7 +539,7 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
         </Panel>
       </div>
 
-      <Panel title="Hiệu suất theo người" note="Tính theo người phụ trách; bấm số để xem danh sách">
+      <Panel title="Hiệu suất theo người" note="Tính theo người phụ trách">
         {bundle?.performance.length ? (
           <>
             <div className={styles.tableScroll}>
@@ -628,9 +627,6 @@ export function ReportsView({ onOpenItem }: ReportsViewProps = {}) {
           <div className={styles.statRow}>
             <MoneyStat label="Tổng giá trị hợp đồng" value={bundle.finance.contractValue} />
           </div>
-          <p className={styles.muted}>
-            Thu chi thực tế xem ở tab Tài chính của từng dự án, và báo cáo thu chi theo dự án ở module Tài chính.
-          </p>
         </Panel>
       ) : null}
 
@@ -971,7 +967,6 @@ function ExportDialog({
     <Dialog
       open={open}
       title="Xuất báo cáo Excel"
-      subtitle="Chọn phần muốn xuất; mỗi phần là một trang tính, Tổng quan là dashboard."
       submitLabel="Xuất Excel"
       submitDisabled={picked.size === 0}
       onClose={onClose}

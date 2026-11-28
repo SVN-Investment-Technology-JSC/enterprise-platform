@@ -76,16 +76,14 @@ export type TimeSettingsTab = 'sites';
 
 export const TIME_SETTINGS_TABS = [{ id: 'sites', label: 'Địa điểm GPS', permission: 'time' }] as const;
 
-/** Tiêu đề, mô tả và tiền tố mã hành động nhật ký của từng mục (mỗi mục là một trang độc lập). */
+/** Tiêu đề và tiền tố mã hành động nhật ký của từng mục (mỗi mục là một trang độc lập). */
 export const SECTION_META: Record<
   TimeSettingsTab,
-  { title: string; description: string; historyPrefixes: string[]; historyDescription: string }
+  { title: string; historyPrefixes: string[] }
 > = {
   sites: {
     title: 'Địa điểm GPS',
-    description: 'Khai báo địa điểm làm việc (GPS, kèm IP nếu cần) và phòng ban được chấm công tại đó',
     historyPrefixes: ['SITE_', 'LOCATION_'],
-    historyDescription: 'Thay đổi địa điểm chấm công, phòng ban được gán và cài đặt kiểm tra vị trí, mới nhất ở trên.',
   },
 };
 

@@ -68,13 +68,12 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'respect',
             label: 'Tôn trọng điều kiện',
-            description:
-              'Còn việc con, việc phải xong trước hoặc điều kiện hoàn thành thì chỉ đặt 100%, không đổi trạng thái.',
+            description: 'Chưa đủ điều kiện thì chỉ đặt 100%, không đổi trạng thái.',
           },
           {
             value: 'force',
             label: 'Bỏ qua điều kiện',
-            description: 'Bỏ qua việc phải xong trước và điều kiện hoàn thành; vẫn không đóng việc còn việc con chưa xong.',
+            description: 'Vẫn không đóng việc còn việc con chưa xong.',
           },
         ],
         visibleWhen: (link) => link.onCompletedWorkItem === 'review' || link.onCompletedWorkItem === 'done',
@@ -141,7 +140,7 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'no_step_handled',
             label: 'Đến khi có bước được xử lý',
-            description: 'Cho đổi dù đã có trao đổi, tệp hay dữ liệu nhập; chặn khi đã có bước hoàn thành, trả lại hoặc từ chối.',
+            description: 'Chặn khi đã có bước hoàn thành, trả lại hoặc từ chối.',
           },
           { value: 'never', label: 'Không cho đổi', description: 'Ẩn và chặn hoàn toàn thao tác Đổi quy trình.' },
         ],
@@ -176,7 +175,7 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'delete',
             label: 'Xoá mềm hồ sơ cũ',
-            description: 'Hồ sơ cũ bị huỷ và đánh dấu đã xoá, ẩn khỏi danh sách; công việc được giữ.',
+            description: 'Hồ sơ cũ bị huỷ và ẩn khỏi danh sách.',
           },
           {
             value: 'cancel_keep',
@@ -200,7 +199,7 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'allow_if_role_matches',
             label: 'Vẫn thử, theo vai S',
-            description: 'Mở được nếu quy trình cho phép người đó khởi tạo, còn không thì báo thiếu vai S.',
+            description: 'Quy trình không cho người đó khởi tạo thì báo thiếu vai S.',
           },
         ],
       },
@@ -252,12 +251,12 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
       {
         key: 'onAllChildrenDone',
         label: 'Khi mọi công việc con đã xong, công việc cha',
-        hint: 'Việc xảy ra với công việc cha khi mọi công việc con chưa hủy đều đã Hoàn thành.',
+        hint: 'Không tính công việc con đã huỷ.',
         options: [
           {
             value: 'done',
             label: 'Tự Hoàn thành',
-            description: 'Công việc cha tự chuyển sang Hoàn thành (trừ công việc cha cần người xác nhận).',
+            description: 'Trừ công việc cha cần người xác nhận.',
           },
           {
             value: 'review',
@@ -267,26 +266,24 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'none',
             label: 'Không tự đổi trạng thái',
-            description: 'Công việc cha giữ nguyên trạng thái; người dùng hoặc hồ sơ quy trình tự đóng.',
+            description: 'Người dùng hoặc hồ sơ quy trình tự đóng.',
           },
         ],
       },
       {
         key: 'parentWaitsForProcedure',
         label: 'Công việc cha có hồ sơ quy trình riêng',
-        hint: 'Chỉ có nghĩa với công việc cha đang gắn hồ sơ; công việc cha không có hồ sơ luôn đóng theo lựa chọn trên.',
+        hint: 'Chỉ áp cho công việc cha đang gắn hồ sơ.',
         options: [
           {
             value: 'no_wait',
             label: 'Không chờ',
-            description:
-              'Công việc con xong hết là công việc cha đóng ngay, dù hồ sơ quy trình của công việc cha chưa hoàn tất.',
+            description: 'Cha đóng ngay dù hồ sơ của cha chưa hoàn tất.',
           },
           {
             value: 'wait',
             label: 'Chờ hồ sơ quy trình của công việc cha hoàn tất mới đóng',
-            description:
-              'Công việc cha chỉ đóng khi mọi công việc con đã xong và hồ sơ quy trình của công việc cha đã hoàn tất.',
+            description: 'Cha đóng khi con xong hết và hồ sơ của cha hoàn tất.',
           },
         ],
         // Cha không tự đóng thì không có gì để chờ.
@@ -300,14 +297,12 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'keep_waiting',
             label: 'Tiếp tục chờ hồ sơ của công việc cha',
-            description:
-              'Công việc cha không tự đóng, kể cả khi mọi công việc con đã xong, cho đến khi có hồ sơ hoàn tất.',
+            description: 'Cha không tự đóng cho đến khi có hồ sơ hoàn tất.',
           },
           {
             value: 'stop_waiting',
             label: 'Thôi chờ, đóng công việc cha như bình thường',
-            description:
-              'Khi mọi công việc con đã xong, công việc cha đóng theo lựa chọn trên như công việc cha không có hồ sơ.',
+            description: 'Cha đóng theo lựa chọn trên như khi không có hồ sơ.',
           },
         ],
         // Chỉ có nghĩa khi cha chờ hồ sơ và tự đóng.
@@ -414,7 +409,7 @@ export const LINK_SECTIONS: readonly LinkSection[] = [
           {
             value: 'optional',
             label: 'Không bắt buộc',
-            description: 'Cho để trống; nếu ghi vẫn tối đa 1.000 ký tự và lưu vào nhật ký.',
+            description: 'Cho để trống; lý do (nếu có) lưu vào nhật ký.',
           },
         ],
       },

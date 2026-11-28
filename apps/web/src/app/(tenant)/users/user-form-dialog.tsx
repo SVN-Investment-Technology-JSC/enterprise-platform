@@ -78,8 +78,7 @@ export function UserFormDialog({
         <DialogHeader>
           <DialogTitle>Thêm người dùng</DialogTitle>
           <DialogDescription>
-            Tài khoản mới chưa có quyền. Gán vai trò ở trang chi tiết sau khi
-            tạo.
+            Tài khoản mới chưa có quyền; gán vai trò sau khi tạo.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="mt-4">

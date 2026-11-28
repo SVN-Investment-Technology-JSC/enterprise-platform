@@ -43,11 +43,7 @@ export function BulkActionsDialog({
           <input type="checkbox" checked={reject} onChange={(event) => setReject(event.target.checked)} />
           Cho phép không duyệt (huỷ) hàng loạt
         </label>
-        <p className={styles.hint}>
-          Người duyệt chọn nhiều hồ sơ ở Hồ sơ xử lý rồi bấm một lần. Mỗi hồ sơ vẫn chỉ được xử lý khi tới lượt
-          người đó và bước không cần nhập thêm thông tin; không duyệt hàng loạt luôn bắt buộc lý do. Áp dụng ngay cho cả
-          hồ sơ đang chạy.
-        </p>
+        <p className={styles.hint}>Áp dụng ngay cho cả hồ sơ đang chạy.</p>
         <footer className={styles.footer}>
           <span />
           <div className={styles.footerRight}>

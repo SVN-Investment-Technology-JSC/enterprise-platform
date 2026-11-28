@@ -105,7 +105,7 @@ export function HeroBanner({ displayName }: { displayName: string }) {
             {name ? `, ${name}!` : '!'}
           </h1>
           <p className="mt-1 text-[14px] text-slate-600">
-            Chúc bạn một ngày làm việc hiệu quả. Hôm nay là {weekdayName(clock.date)}, {formatDmy(clock.date)}.
+            {weekdayName(clock.date)}, {formatDmy(clock.date)}
           </p>
         </div>
         <div className="text-right">
@@ -263,7 +263,7 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
   const checkedIn = Boolean(day?.checkIn);
   const stateHint =
     state.key === 'NOT_IN'
-      ? 'Hãy ghi nhận vào ca để bắt đầu làm việc hôm nay'
+      ? null
       : state.key === 'WORKING'
         ? `Đã vào ca lúc ${day?.checkIn}`
         : state.key === 'DONE'
@@ -300,7 +300,7 @@ export function PunchCard({ punch, data }: { punch: PunchProps; data: MyDashboar
             <p className="text-[16px] font-bold text-emerald-700" data-testid="punch-state">
               {state.label}
             </p>
-            <p className="text-[13px] leading-snug text-slate-600">{stateHint}</p>
+            {stateHint ? <p className="text-[13px] leading-snug text-slate-600">{stateHint}</p> : null}
           </div>
         </div>
       </div>
@@ -381,7 +381,6 @@ export function LeaveCard({ data }: { data: MyDashboardData }) {
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span className="text-[16px] font-extrabold text-slate-900">{a ? `${formatUnits(a.remaining)} / ${formatUnits(a.total)}` : '—'}</span>
-            <span className="text-[12px] text-slate-500" title="Số ngày dùng được đến hiện tại / định mức cả năm"></span>
           </div>
         </div>
         <ul className="flex-1 space-y-2 text-[13px]">

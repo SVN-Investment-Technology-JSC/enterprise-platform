@@ -177,7 +177,7 @@ function GrantsBody({
       <DialogHeader className="shrink-0 border-b border-[#eef0f3] px-6 pt-5 pb-3">
         <DialogTitle className="text-[20px] font-bold">Bổ sung quyền hạn ngoài vai trò</DialogTitle>
         <DialogDescription>
-          Nhân sự: <b className="text-[#18181b]">{userName}</b>. Quyền bổ sung được cộng thêm vào quyền từ vai trò.
+          Nhân sự: <b className="text-[#18181b]">{userName}</b>
         </DialogDescription>
         <div className="mt-2 flex flex-wrap items-center gap-2.5">
           <label className="flex h-9 min-w-0 flex-[1_1_240px] items-center gap-2 rounded-md border border-[#e5e7eb] bg-white px-2.5 text-slate-500 focus-within:border-[#2563eb]">
@@ -197,8 +197,7 @@ function GrantsBody({
         </div>
         {rolesDirty ? (
           <p className="m-0 mt-1 rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900">
-            Vai trò đang chọn chưa được lưu. Danh sách &quot;đã có từ vai trò&quot; tính theo vai trò đang chọn, khác với
-            bản đã lưu; quyền bổ sung ở đây vẫn lưu độc lập.
+            Vai trò đang chọn chưa lưu; mục &quot;đã có từ vai trò&quot; tính theo vai trò đang chọn.
           </p>
         ) : null}
       </DialogHeader>

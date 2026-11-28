@@ -6,7 +6,7 @@ import type { HrmFleetDriver } from '@enterprise-platform/contracts-hrm';
 import { Popconfirm, SearchableSelect } from '@enterprise-platform/shared-ui';
 import { hrmEmployeeOptions, hrmFetch, type EmployeeOption } from '../hrm-api';
 import { Button } from '../ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Input } from '../ui/input';
 import { PageTitle } from '../ui/page-title';
 import { EmptyPanel, InfoNote, SettingsField, StatusPill } from '../ui/settings-kit';
@@ -114,7 +114,6 @@ export default function FleetDriversScreen() {
     <div className="@container mx-auto max-w-[1400px] space-y-4">
       <PageTitle
         title="Tài xế"
-        description="Tài xế chuyên trách được chọn cùng xe khi đặt lịch. Hệ thống chặn trùng lịch cả theo xe lẫn theo tài xế."
         withTabs
         actions={
           <Button permission="hrm.fleet.manage" className="h-9 gap-1.5 px-4 text-xs font-semibold" onClick={openCreate}>
@@ -207,7 +206,6 @@ export default function FleetDriversScreen() {
         <DialogContent className="max-h-[90dvh] max-w-lg gap-0 bg-white p-0" aria-label={editing ? 'Cập nhật tài xế' : 'Thêm tài xế'}>
           <DialogHeader className="shrink-0 border-b border-slate-200 px-5 py-4 pr-12">
             <DialogTitle>{editing ? `Cập nhật tài xế: ${editing.employeeName ?? ''}` : 'Thêm tài xế mới'}</DialogTitle>
-            <DialogDescription>Tài xế là nhân viên đang có hồ sơ trong HRM.</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
             {formError ? (

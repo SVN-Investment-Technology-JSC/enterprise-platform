@@ -108,13 +108,13 @@
   border-radius: 0.7rem;
   color: #46586f;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 500;
   background: transparent;
   cursor: pointer;
 }
 
 .tab:hover { color: #182538; background: #e9eef8; }
-.tabActive { color: #fff; background: #1556d4; }
+.tabActive { color: #fff; background: #1556d4; font-weight: 600; }
 .tabActive:hover { color: #fff; background: #1556d4; }
 
 /* ---- Cards ------------------------------------------------------------- */

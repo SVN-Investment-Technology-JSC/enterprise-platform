@@ -39,7 +39,6 @@ import { OrganizationPositionTable } from './organization-position-table';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -433,12 +432,7 @@ export function OrganizationWorkspace({
           }`}
       >
         {!isWorkspaceDetail ? (
-          <div>
-            <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Sơ đồ tổ chức</h1>
-            <p className="mt-1 text-[14px] text-slate-600">
-              Quản lý cấu trúc tổ chức trực tiếp trong dữ liệu lõi của tenant.
-            </p>
-          </div>
+          <h1 className="m-0 text-[20px] font-bold tracking-[-0.3px]">Sơ đồ tổ chức</h1>
         ) : null}
         {/* {error ? (
           <p className="shrink-0 mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
@@ -699,9 +693,6 @@ export function OrganizationWorkspace({
                   ? 'node tổ chức'
                   : 'bổ nhiệm nhân sự'}
             </DialogTitle>
-            <DialogDescription>
-              Lưu trực tiếp vào cơ sở dữ liệu của tenant.
-            </DialogDescription>
           </DialogHeader>
           {editor ? (
             <Form
@@ -1137,11 +1128,11 @@ function Tab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`-mb-px flex h-[42px] cursor-pointer items-center gap-2 border-b-2 px-0.5 text-sm font-semibold ${active ? 'border-[#ffc90a] text-[#18181b]' : 'border-transparent text-slate-500 hover:text-[#18181b]'}`}
+      className={`-mb-px flex h-9 cursor-pointer items-center gap-2 border-b-2 px-0.5 text-sm font-medium ${active ? 'border-[#ffc90a] font-semibold text-[#18181b]' : 'border-transparent text-slate-500 hover:text-[#18181b]'}`}
     >
       {label}
       <span
-        className={`rounded-full px-2 text-[12px] font-bold ${active ? 'bg-[#fff6d6] text-[#8a6400]' : 'bg-[#f1f3f6] text-slate-500'}`}
+        className={`rounded-full px-2 text-xs font-semibold ${active ? 'bg-[#fff6d6] text-[#8a6400]' : 'bg-[#f1f3f6] text-slate-500'}`}
       >
         {count}
       </span>
