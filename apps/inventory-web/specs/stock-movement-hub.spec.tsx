@@ -1,5 +1,6 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+
 import Page from '../src/app/page';
 import {
   movementHashTarget,
@@ -9,6 +10,10 @@ import {
   movementWarehouseLabel,
   sourceTypeLabel,
 } from '@enterprise-platform/feature-inventory';
+
+// Trang Kho dựng cả khung + bảng trong jsdom: trên CI chạy song song nhiều task, 1 giây chờ mặc định không đủ.
+configure({ asyncUtilTimeout: 5000 });
+jest.setTimeout(20000);
 
 // Tab "Xuất/nhập kho" trên trang Kho thật, fetch giả lập: danh sách gộp do server
 // trả, link cũ chuyển hướng, ẩn hiện nút theo quyền.
